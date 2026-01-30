@@ -1,0 +1,157 @@
+ShipmentLoadContainer is a BusinessClass
+    owned by wh
+    prefix is SHCN
+
+    Ontology
+        symbolic key is ShipmentLoadContainer
+
+    Patterns 
+        disable AuditIndex
+
+    Persistent Fields
+        ContainerUnitLabel              is a Description
+        RemainingWeightCapacity         is a StockWeight
+            protected
+        RemainingVolumeCapacity         is a StockVolume
+            protected
+    
+    Local Fields
+        LocalCompany                   is like InventoryCompany
+        LocalInventoryLocation         is like InventoryLocation
+        LocalShipmentLoadConsolidation is like ShipmentLoadConsolidation
+        LocalShipmentLoadContainer     is like ShipmentLoadContainer
+
+    Field Rules
+        ContainerUnitLabel
+            default to  DerivedContainerLabel
+        
+        RemainingWeightCapacity
+            force default to DerivedContainerWeight
+        
+        RemainingVolumeCapacity
+            force default to DerivedContainerVolume
+                       
+    Relations
+        ShipmentLineTemplateRel
+            one-to-many relation to ShipmentLoadLineTemplate
+            Field Mapping uses ByWarehouseShipmentLine
+                related.Company                   = Company
+                related.InventoryLocation         = InventoryLocation
+            Instance Selection
+                where ( not related.AddShipmentLine
+                and     related.IsInShipmentLoad) 
+
+        ShipmentLoadLineRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses ByShipmentLoadConsolidation
+                related.Company                   = Company
+                related.InventoryLocation         = InventoryLocation
+                related.ShipmentLoadConsolidation = ShipmentLoadConsolidation
+            Instance Selection
+                where (related.ShipmentLoadContainer = ShipmentLoadContainer)
+        
+        DeleteShipmentLoadLineRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses ByShipmentLoadConsolidation
+                related.Company                   = Company
+                related.InventoryLocation         = InventoryLocation
+                related.ShipmentLoadConsolidation = ShipmentLoadConsolidation
+            Instance Selection
+                where (related.ShipmentLoadContainer = ShipmentLoadContainer)
+    
+    Sets
+        ByShipmentLoadContainer
+            Sort Order
+                Company                       
+                InventoryLocation             
+                ShipmentLoadConsolidation     
+                ShipmentLoadContainer 
+            
+
+    Conditions
+        ShipmentLoadLineExists
+            restricted
+            when (ShipmentLoadLineRel exists) 
+        
+        LoadedContainer
+            restricted
+            when (DerivedOrderLoadVolume entered
+            or    DerivedOrderLoadWeight entered)
+
+    Derived Fields
+
+        DerivedRemainingContainerVolume     is a ComputeField
+            type is like DimensionSize
+            (ShipmentLoadConsolidation.DerivedContainerVolumeCapacity - DerivedOrderLoadVolume) 
+        
+        DerivedRemainingContainerWeight     is a ComputeField
+            type is like DimensionSize
+            (ShipmentLoadConsolidation.DerivedContainerWeightCapacity - DerivedOrderLoadWeight) 
+
+        DerivedOrderLoadVolume              is a DerivedField
+            type is like DimensionSize
+            return sum ShipmentLoadLineRel.StockVolume 
+
+        DerivedOrderLoadWeight              is a DerivedField
+            type is like DimensionSize
+            return sum ShipmentLoadLineRel.StockWeight 
+
+        DerivedContainerVolume              is a DerivedField
+            type is like StockVolume
+            return DerivedRemainingContainerVolume
+
+        DerivedContainerWeight              is a DerivedField
+            type is like StockWeight
+            return DerivedRemainingContainerWeight
+        
+        ContainerLabel                      is a LabelField
+            "Container-<ShipmentLoadContainer>"
+        
+        DerivedContainerLabel		        is a DerivedField
+			type is like Description
+            return ContainerLabel
+        
+        ShipmentLoadLineCount                 is a DerivedField
+            type is Numeric size 6
+            restricted
+            return instance count of ShipmentLoadLineRel
+
+    Actions
+        Create is a Create Action
+            valid when (ShipmentLoadConsolidation.AllowCreateShipmentLoadContainer)
+
+        Update is an Update Action
+            
+        Delete is a Delete Action 
+
+        FastUpdate is an Update Action
+            restricted
+            bypass field rules
+
+        DeleteContainer is an Instance Action 
+            default label is "Delete"
+            completion message is "Removing_Shipment_LinesFrom_Load_Number<ShipmentLoadConsolidation>"
+            Entrance Rules
+                if (ShipmentLoadLineExists)
+                    confirmation required
+                        "ThisActionWillRemoveTheShipmentLineFromAllContainers;Proceed?"
+                        invoke DeleteShipmentLoadLineWithContainer DeleteShipmentLoadLineRel
+                            invoked.PrmShipmentLoadContainer   = ShipmentLoadContainer
+                else
+                    invoke Delete
+                    
+        DeleteEmptyContainer is a Set Action
+            restricted
+            Parameters
+                PrmCompany                   is like Company
+				PrmInventoryLocation         is like InventoryLocation
+				PrmShipmentLoadConsolidation is like ShipmentLoadConsolidation
+
+            Instance Selection
+                where (Company                   = PrmCompany
+                and    InventoryLocation         = PrmInventoryLocation
+                and    ShipmentLoadConsolidation = PrmShipmentLoadConsolidation
+                and    not ShipmentLoadLineExists)
+            Action Rules
+                Instance Rules
+                    invoke Delete

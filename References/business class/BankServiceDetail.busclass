@@ -1,0 +1,204 @@
+BankServiceDetail is a BusinessClass
+	owned by cashmgmt
+	prefix is BFD
+	
+	Ontology
+		symbolic key is BankServiceDetail
+	
+	Patterns
+		implements AnalyticCube
+ 			disable continuous update
+ 			dynamically calculate totals
+
+	Persistent Fields
+		Quantity						is like InternationalAmount
+		QuantityType					is Numeric 2
+			States
+				Volume						value is 1
+				DollarAmount				value is 2
+		BankChargedAmount				is an InternationalCost
+			precision is CashManagementAccount.CurrencyNumberOfDecimals
+		PricePerUnit					is an InternationalCost
+		BankServiceCode
+			version is BankServiceStatementDate
+	    ImportDescription				is Alpha 250			
+		Resolved						is Boolean
+		Comment							is Text
+		Exception						is Boolean
+		StatementDate					is a snapshot of BankServiceStatement.StatementDate
+		BankStatementInterfaceHeader
+			delete ignored
+		BankStatementInterface
+			delete ignored
+	
+	Derived Fields
+		FeeDifference is a DerivedField
+			type is like InternationalCost
+			return (PricePerUnit - BankServiceCode.UnitPrice)
+		
+		CalculatedChargedAmount is a DerivedField
+			type is like InternationalAmount
+			return (Quantity * PricePerUnit)
+
+		ChargedAmountDifference is a DerivedField
+			type is like InternationalAmount
+			return (BankChargedAmount - CalculatedChargedAmount)
+		
+		StatementDatePeriod is a DerivedField
+			type is Numeric size 2
+			return BankServiceStatement.StatementDate month
+			
+		StatementDateYear	is a DerivedField
+			type is Numeric size 4
+			restricted
+			return BankServiceStatement.StatementDate year
+		
+		CurrentDate is a DerivedField
+			type is Date
+			restricted
+			return first ImportedBankServiceStatementByDateRel.StatementDate
+			
+		CurrentPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			return CurrentDate month
+			
+		CurrentYear is a DerivedField
+			type is Numeric 4
+			restricted
+			return CurrentDate year
+			
+       	BankServiceStatementDate is a DerivedField
+       		type is Date
+       		restricted	
+       		return BankServiceStatement.StatementDate
+		
+	Transient Fields
+		TransientFromCurrency		is a FromCurrency
+			derive value from CashManagementAccount.Currency
+
+	Dimensions
+    	StatementDatePeriod 
+	    	is a monthly period dimension with year of StatementDateYear
+	    		current year is CurrentYear
+	    		current period is CurrentPeriod
+		BankServiceCode
+		BankServiceCode.BankServiceCategory
+			dimension name is BankServiceCategory
+		CashManagementAccount
+		CashManagementAccount.FinancialInstitution
+			dimension name is FinancialInstitution
+		CashManagementAccount.CashManagementLocation
+			dimension name is CashManagementLocation
+		CashManagementAccount.LegalEntity
+			dimension name is LegalEntity
+		
+	Measures
+		BankChargedAmount
+		Quantity
+	
+	Sets
+		ByBankServiceCode
+			Sort Order
+				CashManagementGroup
+				FinancialInstitution
+				BankServiceStatement
+				CashManagementAccount
+				BankServiceCode
+				BankServiceDetail
+		
+		ByExceptionResolved
+			Sort Order
+				CashManagementGroup
+				FinancialInstitution
+				BankServiceStatement
+				Exception
+				Resolved
+				CashManagementAccount
+				BankServiceDetail
+	
+		ByStatementDate
+			Sort Order
+				CashManagementGroup
+				FinancialInstitution
+				CashManagementAccount
+				StatementDate
+				BankServiceStatement
+				BankServiceDetail
+
+	Relations
+		MultipleBankServiceDetailRel
+			one-to-many relation to BankServiceDetail
+			Field Mapping uses ByBankServiceCode
+				related.CashManagementGroup 	= CashManagementGroup
+				related.FinancialInstitution	= FinancialInstitution
+				related.BankServiceStatement	= BankServiceStatement
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankServiceCode 		= BankServiceCode
+			Instance Selection
+				where (related.BankServiceDetail != BankServiceDetail)
+		
+		ImportedBankServiceStatementByDateRel 
+			one-to-many relation to BankServiceStatement
+			Field Mapping uses ByStatementDate
+				related.CashManagementGroup = CashManagementGroup
+						
+	Conditions
+		FeeVariance
+			restricted
+			when (FeeDifference != 0)
+		
+		MultipleBankServiceDetailsExist
+			restricted
+			when (MultipleBankServiceDetailRel exists)
+
+		ChargedAmountVariance
+			restricted 
+			when (ChargedAmountDifference != 0)
+
+		ServiceCodeNotProvided
+			restricted
+			when (!BankServiceCode entered)
+			
+		NoNegotiatedPriceForServiceCode
+			restricted
+			when (BankServiceCode.UnitPrice = 0
+			and   BankServiceCode.ZeroDollarAmount = false) 
+		
+		NoServiceCodeDescription
+			restricted
+			when (!BankServiceCode.Description entered)
+
+		NeedsResolution  
+			restricted
+			when (FeeVariance
+			or    MultipleBankServiceDetailsExist
+			or	  ChargedAmountVariance
+			or	  ServiceCodeNotProvided
+			or	  NoNegotiatedPriceForServiceCode
+			or	  NoServiceCodeDescription)
+
+	Field Rules
+		CashManagementAccount
+    		constraint (CashManagementAccount.FinancialInstitution = FinancialInstitution)
+    			"Account<CashManagementAccount>IsNotDefinedForFinancialInstitution<FinancialInstitution>"
+    			
+    	Resolved
+			if (!NeedsResolution)
+				Resolved = true	
+			else 
+				Resolved = false
+
+		Exception
+			if (NeedsResolution)
+				Exception = true
+				
+	Actions	
+		Create is a Create Action
+
+		Update is an Update Action
+			Action Rules
+				confirmation required
+					"UpdatesHaveBeenMadeToFeeServiceCode<BankServiceCode>DetailLine;DoYouWishToContinue?"
+		
+		Delete is a Delete Action

@@ -1,0 +1,155 @@
+BudgetEditConfiguration is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLBEC   
+    
+    Ontology
+    	symbolic key is BudgetEditConfiguration
+
+		
+    Persistent Fields
+		BatchBudgetEdit				is Boolean
+			default label is "EnableBudgetEditBatchForAllTransactions"
+		BatchFrequency				is Numeric size 9
+		SuspendBudgetEdit			is Boolean 
+		LastCallBackBatch			is Numeric size 12
+			protected
+			disable Auditing
+		AutoPruneBudgetEditBatch	is Boolean
+			default label is "AutoPruneCompletedBudgetEditBatchRecords"
+		BypassCubeRefreshOnBudgetChangeOrderRelease 	is Boolean
+
+	Derived Fields
+		DerivedRequestActor is a DerivedField
+			type is like Actor
+			default label is "AsyncActionRequestActor"
+			return BudgetAsyncRel.Actor
+
+	Field Rules
+		BatchBudgetEdit
+			if (not BatchBudgetEdit)
+				SuspendBudgetEdit = false
+				AutoPruneBudgetEditBatch = false
+				
+		BatchFrequency
+			default to 10
+			if (BatchFrequency changed and BudgetAsyncRel exists)
+				invoke Update BudgetAsyncRel
+					invoked.ScheduleFrequencySeconds 	= BatchFrequency
+
+		BypassCubeRefreshOnBudgetChangeOrderRelease
+			initial value is config.BypassCubeRefreshOnBudgetChangeOrderRelease
+
+			if (BypassCubeRefreshOnBudgetChangeOrderRelease changed
+			and not BypassCubeRefreshOnBudgetChangeOrderRelease
+			and config.BypassCubeRefreshOnBudgetChangeOrderRelease = true)
+				cannot be changed
+
+	Conditions
+ 		FEGMatchesContext
+ 			restricted
+ 			when (BudgetEditConfiguration = actor.context.FinanceEnterpriseGroup)	
+
+	    IsCreated
+	    	restricted
+	        when (BudgetEditConfiguration exists)
+		
+		BypassCubeRefreshFieldDefaultedFromConfigParameter
+			restricted
+			when (BypassCubeRefreshOnBudgetChangeOrderRelease
+			and	  config.BypassCubeRefreshOnBudgetChangeOrderRelease = true)
+
+		BypassCubeRefreshEnabledByConfigParameter
+			restricted
+			when (not BypassCubeRefreshOnBudgetChangeOrderRelease
+			and	  config.BypassCubeRefreshOnBudgetChangeOrderRelease = true)
+					
+	Local Fields
+		LocalCluster	is Numeric size 3
+		LocalRequest    is an AsyncActionRequest
+
+	Relations
+
+		BudgetAsyncRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea = parentcontext.dataarea
+				related.ImplementingClass 	= "BudgetEditConfiguration"
+				related.AsyncAction 		= "RunBudgetEdit" 
+			Instance Selection
+				where (related.MappingField1 = BudgetEditConfiguration
+				and    related.SystemRequest.AutoDisable)		
+
+		BudgetEditBatchRel
+			one-to-many relation to BudgetEditBatch
+			Field Mapping uses ByFEG
+				related.BudgetEditCallBackWrap.FEG	= BudgetEditConfiguration
+
+	Rule Blocks
+		CreateBudgetEditAsync
+			if (BudgetAsyncRel not exists)
+				invoke RunBudgetEdit BudgetEditConfiguration in background
+					assign async action request id to LocalRequest
+					run outside of action background group
+
+				invoke Update LocalRequest
+					invoked.SystemRequest 				= 1 
+					invoked.ScheduleFrequencyType 		= 1 
+					invoked.ScheduleFrequencySeconds 	= BatchFrequency
+					invoked.IsScheduled					= 1			
+					invoked.ScheduleConcurrency	 		= 1
+					invoked.MisfireStrategy 			= 1		
+					invoked.MappingField1				= BudgetEditConfiguration
+			else
+				invoke InitiateBudgetEdit
+
+	Actions
+		Create is a Create Action
+			Exit Rules
+
+				if (BatchBudgetEdit and not SuspendBudgetEdit)
+					include CreateBudgetEditAsync
+
+		
+		Update is an Update Action
+			Exit Rules
+
+
+
+				if ((BatchBudgetEdit and not old BatchBudgetEdit and not SuspendBudgetEdit)
+				or  (not SuspendBudgetEdit and old SuspendBudgetEdit))
+					include CreateBudgetEditAsync
+
+		Delete is a Delete Action
+
+
+		LockRecord is an Instance Action
+			restricted
+			refresh and lock this instance
+
+			Action Rules
+
+		NextCallBackBatch is an Instance Action
+			restricted
+			refresh and lock this instance			
+			Action Rules
+				LastCallBackBatch += 1
+
+		InitiateBudgetEdit is an Instance Action
+			restricted
+			Action Rules
+				if (not SuspendBudgetEdit)
+					invoke SetPendingScheduling first BudgetAsyncRel 
+						invoked.ParamPendingScheduling = true 
+
+		RunBudgetEdit is an Instance Action
+			restricted	
+			Action Rules
+				invoke ProcessBatchEditsInstances first BudgetEditBatchRel in foreground
+					invoked.FEG		= BudgetEditConfiguration
+
+		PopulateBypassCubeRefreshOnBudgetChangeOrderRelease is a Set Action
+			restricted
+			Action Rules
+				Instance Rules
+					if (config.BypassCubeRefreshOnBudgetChangeOrderRelease = true)
+						BypassCubeRefreshOnBudgetChangeOrderRelease = true

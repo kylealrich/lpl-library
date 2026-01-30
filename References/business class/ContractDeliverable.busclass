@@ -1,0 +1,570 @@
+ContractDeliverable is a BusinessClass
+	owned by po
+	prefix is CNDL
+
+	Ontology
+		symbolic key is ContractDeliverable
+
+	Persistent Fields
+		Name						is a Description
+		Description					is a Description4
+		DueDate						is Date
+		DeliveredDate				is Date
+		Quantity					is an UnsignedItemQuantity
+		Rate						is an UnsignedUnitCost
+		Amount						is an UnsignedInternationalAmount
+		PersonResponsible			is a Description
+		NumberOfDaysToFirstAlert	is Numeric size 4
+		NumberOfDaysToSecondAlert	is Numeric size 4
+		FirstAlertSent				is Boolean
+		SecondAlertSent				is Boolean
+
+	Transient Fields
+		PurchasingContact is an Employee
+
+	Local Fields
+		LocalSubjectLine	is Alpha size up to 400
+		LocalEmailContents	is Alpha size up to 2000
+
+	Derived Fields
+		RepresentativeText is a StringField
+			type is Text
+			default label is "ContractDeliverable"
+			ContractDeliverable " - " Name
+
+		QtyTimesRate is a DerivedField
+			type is like InternationalCost
+			restricted
+			return (Quantity * Rate)
+
+		DaysToDueDate is a ComputeField
+			type is Numeric size 4
+			(DueDate - current corporate date)
+
+		FirstAlertTimeStamp is a StringField
+			type is TimeStamp
+			first FirstAlertsRel.SentTimeStamp
+
+		SentMessage is a MessageField
+			"ItHasBeenSentOn"
+
+		SecondAlertTimeStamp is a StringField
+			type is TimeStamp
+			first SecondAlertsRel.SentTimeStamp
+
+		DaysToGoOrPast is a ConditionalField
+			type is Numeric size 4
+			restricted
+			if (DaysToDueDate < 0)
+				DaysToDueDate * -1
+			else
+				DaysToDueDate
+
+		PastDueMessage is a MessageField
+			"PastDueMessageSentOn:<PastDueMessageTimeStamp>"
+
+		PastDueMessageTimeStamp is a StringField
+			type is TimeStamp
+			restricted
+			first PastDueRel.SentTimeStamp
+
+		OneDayMessage is a MessageField
+			"OneDayPriorToDueDateMessageSentOn:<OneDayMessageTimeStamp>"
+
+		OneDayMessageTimeStamp is a StringField
+			type is TimeStamp
+			restricted
+			first OneDayPriorRel.SentTimeStamp
+
+		DerivedContractDeliverable is a DerivedField
+			type is like ContractDeliverable
+			return ContractDeliverable
+			
+		DerivedFinalDeliverableAdhocEmailSubject is a DerivedField
+			type is Alpha size 255
+			return ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailSubject
+			
+		DerivedFinalDeliverableAdhocEmailContent is a DerivedField
+			type is RichText
+			return ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailContent
+			
+		DerivedDeliverableContactEmail is a DerivedField
+			type is EmailAddressField with multiple addresses 
+			holds pii
+			return first ResponsibleDeliverableContactsRel.DerivedEmail
+
+	Field Rules
+		Name
+			required
+				"NameIsRequired"
+
+		DeliveredDate
+			if (DeliveredDate entered)
+				constraint (DeliveredDate >= DueDate)
+					"DeliveredDateCannotBeLessThanDueDate"
+
+		Amount
+			if (QtyRateEntered)
+				if (Amount != QtyTimesRate or Amount not entered)
+					confirmation required
+						"TheAmountMustEqualQuantityTimesRate.DoYouWantToContinueAndHaveTheAmountCalculatedForYou?"
+					Amount = QtyTimesRate
+
+		NumberOfDaysToFirstAlert
+			initial value is ContractGroup.DeliverableYellowAlert
+			if (NumberOfDaysToFirstAlert entered)
+				constraint (NumberOfDaysToFirstAlert > 0)
+					"CannotEnterNegativeDaysInYellowAlert"
+				constraint (NumberOfDaysToFirstAlert > NumberOfDaysToSecondAlert)
+					"YellowAlertNumberOfDaysMustBeGreaterThanRedAlertNumberOfDays"
+				constraint (NumberOfDaysToSecondAlert entered)
+					"MustEnterRedAlertNumberOfDays"
+
+			if (Contract.ContractTemplate)
+				initialize NumberOfDaysToFirstAlert
+
+		NumberOfDaysToSecondAlert
+			initial value is ContractGroup.DeliverableRedAlert
+			if (NumberOfDaysToSecondAlert entered)
+				constraint (NumberOfDaysToSecondAlert > 0)
+					"CannotEnterNegativeDaysInRedAlert"
+				constraint (NumberOfDaysToSecondAlert < NumberOfDaysToFirstAlert)
+					"YellowAlertNumberOfDaysMustBeGreaterThanRedAlertNumberOfDays"
+
+			if (Contract.ContractTemplate)
+				initialize NumberOfDaysToSecondAlert
+
+		PurchasingContact
+			if (ContractDeliverable exists)
+				if (!AttachedDeliverableContactRel exists)
+					invoke CreateFromDeliverable ContractDeliverableContact
+						invoked.ContractGroup 				= ContractGroup
+						invoked.Contract					= Contract
+						invoked.ContractDeliverable     	= ContractDeliverable
+						invoked.Contact						= PurchasingContact
+						invoked.ResponsibleForDeliverable	= true
+						fill in fields from PurchasingContact
+				else
+					invoke UpdateFromDeliverable AttachedDeliverableContactRel
+						invoked.ResponsibleForDeliverable	= true
+				PersonResponsible		= PurchasingContact.FirstLastName
+
+	Conditions
+		Exists
+			restricted
+			when (ContractDeliverable entered)
+
+		QtyRateEntered
+			restricted
+			when (Quantity entered
+			and  Rate entered)
+
+		CommentsExist
+			restricted
+			when (CommentRel exists)
+
+		OneDayToDueDate
+			restricted
+			when (DueDate entered
+			and   DueDate - current corporate date = 1 day
+			and   NotDelivered)
+
+		PastDueDate
+			restricted
+			when (DueDate entered
+			and   DueDate < current corporate date
+			and   NotDelivered)
+
+		MessagePastDue
+			restricted
+			when (PastDueRel exists)
+
+		MessageOneDay
+			restricted
+			when (OneDayPriorRel exists)
+
+		SecondAlert
+			restricted
+			when (DueDate entered
+			and  !DeliveredDate entered
+			and   NumberOfDaysToSecondAlert entered
+			and   DueDate - current corporate date <= NumberOfDaysToSecondAlert)
+
+		FirstAlert
+			restricted
+			when (DueDate entered
+			and  !DeliveredDate entered
+			and   NumberOfDaysToFirstAlert entered
+			and   DueDate - current corporate date <= NumberOfDaysToFirstAlert
+			and   DueDate - current corporate date > NumberOfDaysToSecondAlert)
+
+		FirstOrSecondAlert
+			restricted
+			when (FirstAlert
+			or    SecondAlert)
+
+		NotDelivered
+			restricted
+			when (!DeliveredDate entered)
+
+		Delivered
+			restricted
+			when (DeliveredDate entered)
+
+		PersonResponsibleExists
+			restricted
+			when (ResponsibleDeliverableContactsRel exists)
+
+		NoPersonResponsibleExistsAndDeliverableExists
+			restricted
+			when (!PersonResponsibleExists
+			and   ContractDeliverable exists)
+
+		ContactsExist
+			restricted
+			when (DeliverableContactsRel exists)
+
+		EmailAttachmentsExist
+			restricted
+			when (DeliverableCommentsWithAttachmentsToEmailRel exists)
+			
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+		 	and   ContractGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+			
+		MyContract
+			default label is "MyContracts"
+			when (PrimaryContactRel.Contact = actor.agent(Employee).Employee)
+
+	Relations
+
+		CommentRel is a ContractDeliverableComment set
+
+		DeliverableContactsRel is a ContractDeliverableContact set
+
+		AllContactsRel
+			one-to-many relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization 			= ContractGroup.BusinessGroup.FinanceEnterpriseGroup.HROrganization
+
+		AllContractAttachedContactsRel
+			one-to-many relation to ContractAttachedContact
+			Field Mapping uses symbolic key
+				related.ContractGroup				= ContractGroup
+				related.Contract			 		= Contract
+
+		DeliverableNotificationEmailsRel is a ContractNotificationEmail set
+			Instance Selection
+				where (related.DeliverableNotification)
+
+		ResponsibleDeliverableContactsRel is a ContractDeliverableContact set
+			Instance Selection
+				where (related.ResponsibleForDeliverable)
+
+		AttachedDeliverableContactRel
+			one-to-many relation to ContractDeliverableContact
+			Field Mapping uses ByContact
+				related.ContractGroup              = ContractGroup
+				related.Contract                   = Contract
+				related.ContractDeliverable        = ContractDeliverable
+				related.Contact                    = PurchasingContact
+
+		FirstAlertsRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+			Instance Selection
+				where (related.NotificationType.FirstAlert)
+
+		SecondAlertsRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+			Instance Selection
+				where (related.NotificationType.SecondAlert
+				or     related.NotificationType.OneDayPriorAlert
+				or     related.NotificationType.PastDueAlert)
+
+		PastDueRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+				related.ContractMilestone 			= blank
+			Instance Selection
+				where (related.NotificationType.PastDueAlert)
+
+		OneDayPriorRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+				related.ContractMilestone 			= blank
+			Instance Selection
+				where (related.NotificationType.OneDayPriorAlert)
+
+		DeliverableCommentsWithAttachmentsToEmailRel
+			one-to-many relation to ContractDeliverableComment
+			Field Mapping uses part of key
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+			Instance Selection
+				where (related.HasAttachmentToEmail)
+
+		ContractGroupEmailTemplate2Rel
+			one-to-one relation to ContractGroupEmailTemplate2
+			Field Mapping uses symbolic key
+				related.ContractGroup              = ContractGroup
+				
+		PrimaryContactRel
+			one-to-one relation to ContractAttachedContact
+			Field Mapping uses ByPrimary
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+
+	Sets
+		ByDueDate
+			Sort Order
+				ContractGroup
+				DueDate
+				Contract
+				ContractDeliverable
+
+	Actions
+		Create is a Create Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				DueDate
+					if (DueDate < current corporate date)
+						confirmation required
+							"Warning:TheDueDateIsPriorToToday'sDate.DoYouWantToContinue?"
+					else
+					if (Contract.ExpirationDate entered
+					and DueDate > Contract.ExpirationDate)
+						confirmation required
+							"Warning:TheDueDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+					else
+					if (DueDate	< Contract.EffectiveDate)
+						confirmation required
+							"Warning:TheDueDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+		WizardCreate is a Create Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				DueDate
+					if (DueDate < current corporate date)
+						confirmation required
+							"Warning:TheDueDateIsPriorToToday'sDate.DoYouWantToContinue?"
+					else
+					if (Contract.ExpirationDate entered
+					and DueDate > Contract.ExpirationDate)
+						confirmation required
+							"Warning:TheDueDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+					else
+					if (DueDate	< Contract.EffectiveDate)
+						confirmation required
+							"Warning:TheDueDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+
+		Update is an Update Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				DueDate
+					if (DueDate changed)
+						if (DueDate < current corporate date)
+							confirmation required
+								"Warning:TheDueDateIsPriorToToday'sDate.DoYouWantToContinue?"
+						else
+						if (Contract.ExpirationDate entered
+						and DueDate > Contract.ExpirationDate)
+							confirmation required
+								"Warning:TheDueDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+						else
+						if (DueDate	< Contract.EffectiveDate)
+							confirmation required
+								"Warning:TheDueDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+		Delete is a Delete Action
+			valid when (!Contract.ContractStatus.Closed)
+
+			Exit Rules
+				invoke Delete ContractDeliverableContact set
+
+
+		SendEmailForDeliverable is an Instance Action
+			valid when (ContactsExist)
+			Parameters
+				PrmSendToEmailAddress					is an EmailAddressMulti 
+					holds pii
+				PrmCcEmail                              is an EmailAddressMulti 
+					holds pii
+				PrmEmailSubjectLine						is Alpha size up to 400
+				PrmEmailContents						is Alpha size up to 3000
+				PrmIncludeAttachments					is Boolean
+
+			Parameter Rules
+				PrmSendToEmailAddress
+					initial value is first ResponsibleDeliverableContactsRel.DerivedEmail
+					required
+						"EmailAddressIsRequired"
+
+				PrmEmailSubjectLine
+					initial value is ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailSubject
+
+					required
+						"EmailSubjectIsRequired"
+
+				PrmEmailContents
+					initial value is ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailContent
+
+					required
+						"EmailContentsAreRequired"
+
+				PrmIncludeAttachments
+					constraint (EmailAttachmentsExist)
+						"CannotSelectToIncludeAttachmentsWhenNoAttachmentsExistToEmail"
+
+			Action Rules
+				invoke CreateImmediateEmail ContractNotificationEmail
+					invoked.ContractGroup					= ContractGroup
+					invoked.Contract						= Contract
+					invoked.ContractDeliverable				= ContractDeliverable
+					initialize invoked.ContractMilestone
+					initialize invoked.SentToMilestoneContact
+					initialize invoked.SentToDeliverableContact
+					invoked.SentToEmailAddress				= PrmSendToEmailAddress
+					invoked.SentToCc                        = PrmCcEmail
+					invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+					invoked.SentFromEmailAddress			= actor.ContactInfo.EmailAddress
+					invoked.EmailSubjectLine				= PrmEmailSubjectLine
+					invoked.EmailContent					= PrmEmailContents
+					invoked.NotificationType				= 4
+					invoked.IncludeAttachments				= PrmIncludeAttachments
+
+		SendEmailNotificationsOfUpcomingDeliverableDueDate is a Set Action
+			valid when (Contract.NotContractTemplate)
+			default label is "SendEmailNotificationsOnAllDeliverables"
+			completion message is "DeliverableEmailNotificationsSentForToday"
+
+			Parameters
+				PrmContractGroup		is a ContractGroup
+
+			Parameter Rules
+
+				PrmContractGroup
+					initial value is actor.context.BusinessGroup
+
+			Local Fields
+				LocalSendEmail			is Boolean
+				LocalDays				is Numeric size 4
+
+			Instance Selection
+				where (PrmContractGroup			= ContractGroup
+				and    Contract.NotContractTemplate
+				and   !Contract.ContractStatus.Closed
+				and   (FirstAlert
+				or     SecondAlert
+				or     PastDueDate
+				or     OneDayToDueDate))
+
+			Sort Order
+				ContractGroup
+				Contract
+
+			Action Rules
+				Instance Rules
+					LocalSendEmail			= false
+					initialize LocalEmailContents
+					initialize LocalSubjectLine
+
+					if (DeliverableContactsRel exists)
+						LocalSendEmail  = true
+						if (FirstAlert
+						and !FirstAlertSent)
+							LocalDays			= NumberOfDaysToFirstAlert
+							FirstAlertSent		= true
+						else
+						if (SecondAlert
+						and !SecondAlertSent)
+							LocalDays			= NumberOfDaysToSecondAlert
+							SecondAlertSent		= true
+						else
+						if (OneDayToDueDate)
+							LocalDays			= 1
+						else
+						if (PastDueDate)
+							LocalDays			= 0
+
+						if (LocalSendEmail)
+							initialize LocalEmailContents
+							initialize LocalSubjectLine
+							for each DeliverableContactsRel
+								LocalEmailContents		= each.ContractGroupEmailTemplate2Rel.FinalDeliverableAlertEmailContent
+								LocalSubjectLine		= each.ContractGroupEmailTemplate2Rel.FinalDeliverableAlertEmailSubject
+								invoke CreateEmail ContractNotificationEmail
+									invoked.ContractGroup					= ContractGroup
+									invoked.Contract						= each.Contract
+									invoked.ContractDeliverable				= each.ContractDeliverable
+									initialize invoked.ContractMilestone
+									invoked.SentToDeliverableContact		= each.ContractDeliverableContact
+									initialize invoked.SentToMilestoneContact
+									invoked.SentToEmailAddress				= each.DerivedEmail
+									invoked.SentFromPrimaryContractContact	= each.Contract.PrimaryContact
+									invoked.SentFromEmailAddress			= each.Contract.PrimaryContactEmail
+									invoked.EmailSubjectLine				= LocalSubjectLine
+									invoked.EmailContent					= LocalEmailContents
+									invoked.DaysToAlert						= LocalDays
+									invoked.IncludeAttachments              = true
+									if (FirstAlert)
+										invoked.NotificationType			= 0
+									else
+									if (SecondAlert)
+										invoked.NotificationType			= 1
+									else
+									if (OneDayToDueDate)
+										invoked.NotificationType			= 2
+									else
+									if (PastDueDate)
+										invoked.NotificationType			= 3
+										invoked.PastDueCount				+= 1
+
+		Close is an Instance Action
+			valid when (NotDelivered)
+
+			Parameters
+				PrmDeliveredDate		is Date
+
+			Parameter Rules
+				PrmDeliveredDate
+					initial value is current corporate date
+
+					required
+						"DeliveredDateRequiredToCloseDeliverable"
+
+					constraint (PrmDeliveredDate	<= current corporate date)
+						"DeliveredDateCannotBeInTheFuture."
+
+					constraint (PrmDeliveredDate	>= Contract.EffectiveDate)
+						"DeliveredDateCannotPreceedTheContractEffectiveDate"
+
+			Action Rules
+				DeliveredDate			= PrmDeliveredDate
+
+		Reopen is an Instance Action
+			valid when (Delivered)
+
+			Action Rules
+				initialize DeliveredDate
+
+		Purge is a Purge Action
+			restricted
+

@@ -1,0 +1,299 @@
+ReportingBasisYearEndJournal is a BusinessClass
+	owned by GeneralLedger
+	sql name is "RBYearEndJournal"
+	prefix is YEJR
+	
+	Ontology
+    	symbolic key is ReportingBasisYearEndJournal
+    				
+	Patterns
+		implements BODId
+		disable Auditing	
+	Persistent Fields
+		GeneralLedgerClosePeriod		
+		GeneralLedgerCalendarPeriod		
+		FunctionalDebitAmount			is a TotalAmount
+			precision is AccountingEntity.FunctionalCurrency.NumberOfDecimals
+        FunctionalCreditAmount			is a TotalAmount			
+			precision is AccountingEntity.FunctionalCurrency.NumberOfDecimals
+		Description	
+		
+
+	Local Fields
+		NativeLPLBODTrigger 			is Boolean
+		LocalTransactionCount			is Numeric size 9
+		LocalConfigurationParameter		is Alpha size up to 200
+
+		
+		
+	Rule Blocks
+
+#ifdef module integration
+		NativeLPLBODTriggerCheck
+			invoke NativeLPLBODTriggerChecks FSMBODConfigurationRel
+				invoked.PrmVerb 					= 1
+				invoked.PrmNoun						= "SourceSystemJournalEntry"
+				invoked.PrmDirection				= 1
+				invoked.PrmTriggerFrom				= "ReportingBasisYearEndJournal"
+				invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				invoked.PrmAccountingEntity 		= AccountingEntity
+				invoked.PrmMainUserTemplate 		= "IONSyncSourceSystemJournalEntry_RBYearEndJournalControl_Header_ST"
+			NativeLPLBODTrigger = FSMBODConfigurationRel.NativeLPLBODTrigger
+#endif
+
+	Field Rules
+	Conditions
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+
+	Relations
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntityGroup	= actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity		= AccountingEntity
+
+
+
+				
+#ifdef module integration				
+		FSMBODConfigurationRel
+        	one-to-one relation to FSMBODConfiguration
+			Field Mapping uses symbolic key
+            	related.FSMBODConfiguration.Verb 		= 1
+            	related.FSMBODConfiguration.Noun 		= "SourceSystemJournalEntry"
+            	related.FSMBODConfiguration.Direction 	= 1
+					
+		FSMBODConfigurationParameterRel
+        	one-to-one relation to FSMBODConfigurationParameter
+			Field Mapping uses symbolic key
+            	related.FSMBODConfigurationParameter 		= LocalConfigurationParameter
+#endif				
+		ReportingBasisYearEndJournalTransactionRel 
+			one-to-many relation to ReportingBasisYearEndJournalTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+				related.ReportingBasis				 = ReportingBasis
+				related.ReportingBasisYear			 = ReportingBasisYear
+			Instance Selection
+				where (related.ReportType=1
+				and related.AccountingEntity = AccountingEntity)
+		
+		
+
+
+	Actions
+		Create is a Create Action
+			restricted
+		Update is an Update Action
+			restricted
+		Purge is a Purge Action
+			restricted
+		
+		PurgeHeader is an Instance Action
+			restricted
+			run in background
+			Action Rules
+				invoke Purge
+				
+		YearEndSSJEBODTrigger is an Instance Action
+			restricted
+			Action Rules
+				if (FinanceEnterpriseGroup.BODTrigger)
+					increment bod id.VariationID
+					trigger "RBYearEndJournalService" PA service 
+						resume on error
+						title is "EG:<FinanceEnterpriseGroup>AE:<AccountingEntity>Year:<ReportingBasisYear>"
+						Criteria
+							FinanceEnterpriseGroup
+							AccountingEntity
+							ReportingBasisYear.ReportingBasis
+						Variables
+							bod id.VariationID
+								variable name is BODVariationId
+							include persistent fields from FinanceEnterpriseGroup
+							include persistent fields from ReportingBasisYearEndJournal
+							include persistent fields from ReportingBasisYear
+							include persistent fields from AccountingEntity
+							ReportingBasisYear.ReportingBasis.Description
+								variable name is ReportingBasisDescription
+#ifdef module integration
+
+
+
+
+
+
+		TriggerYearEndSSJENativeLPLBODTrigger is an Instance Action
+			restricted
+			default label is untranslatable
+			Parameters
+			Action Rules
+				if (FinanceEnterpriseGroup.BODTrigger)
+					send ion bod
+						bod is DerivedSSJERBYearEndJournalHeaderXML
+						bod type is "Sync.SourceSystemJournalEntry"
+						accounting entity is BODAccountingEntity
+						document id is DerivedDocumentID
+						variation id is BODVariationID
+
+#endif						
+
+	Derived Fields
+
+#ifdef module integration
+		DerivedDocumentID is a DerivedField
+			type is Alpha size 60
+			restricted
+			return FinanceEnterpriseGroup + DerivedDelimiter + GeneralLedgerCalendarPeriod  + DerivedDelimiter + ReportingBasis
+		
+		DerivedDelimiter is a DerivedField
+			type is Alpha size 5
+			restricted
+			LocalConfigurationParameter = "Generic_Delimiter"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		BODVariationID is a DerivedField
+			type is Alpha size 25
+			restricted
+			return bod id.VariationID
+			
+		BODAccountingEntity	is a DerivedField
+			type is AlphaUpper size 22
+			restricted
+			return FinanceEnterpriseGroup + DerivedDelimiter + AccountingEntity
+			
+		DerivedIntegrationType is a DerivedField
+			type is Alpha size 10
+			restricted
+			LocalConfigurationParameter = "IntegrationApplication"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedLogicalID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "logicalID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedTenantID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "tenantID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedDefaultBODLocation is a DerivedField
+			type is AlphaUpper size 20
+			return ""
+			
+		BODRevision is a DerivedField
+			type is Alpha 25
+			return ""
+					
+		DerivedBODID is a DerivedField
+			type is Alpha 200
+			restricted
+			return "infor-nid:" + DerivedTenantID +":" + BODAccountingEntity + ":" +DerivedDefaultBODLocation+ ":" +DerivedDocumentID + ":" +BODRevision+"?SourceSystemJournalEntry&verb=Sync&variationID=" +BODVariationID 									
+		
+					
+		BODFormattedCurrentTimeStamp is a DerivedField
+			type is Alpha size 25
+			restricted
+			return BODCurrentTimeStamp[1:4] + "-" + BODCurrentTimeStamp[5:6] + "-" + BODCurrentTimeStamp[7:8] + "T" + BODCurrentTimeStamp[9:10] + ":" + BODCurrentTimeStamp[11:12] + ":" + BODCurrentTimeStamp[13:14] + "Z"
+				
+		DerivedDisplayID is a DerivedField
+			type is Alpha size 12
+			restricted
+			return ReportingBasis
+			
+		BODCalendarYear is a DerivedField
+			type is Alpha size 5
+			restricted
+			return GeneralLedgerCalendarPeriod.Year
+			
+		BODCurrentTimeStamp is a DerivedField
+			type is Alpha size 25
+			restricted
+			BODCurrentTimeStamp = current timestamp
+			return BODCurrentTimeStamp
+		
+				
+		DerivedVersionID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "VersionID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedReleaseID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "releaseID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedActionCode is a DerivedField
+			type is Alpha size 20
+			restricted
+			if(LocalTransactionCount = 1 and BODVariationID = 1)
+				return "Add"
+			else
+				return "Replace"
+				
+
+		DerivedSSJERBYearEndJournalHeaderXML is a DerivedField
+			type is XMLDocument
+			restricted
+			DerivedSSJERBYearEndJournalHeaderXML = template.IONSyncSourceSystemJournalEntry_RBYearEndJournalControl_Header_ST document for this instance
+
+
+		DerivedSSJERBYearEndJournalLineXML is a DerivedField
+			type is XMLDocument
+			restricted
+			initialize LocalTransactionCount
+			if(ReportingBasisYearEndJournalTransactionRel exists)
+				for each ReportingBasisYearEndJournalTransactionRel
+					LocalTransactionCount+= 1
+					each.LocalJournalEntryLineSeq=LocalTransactionCount
+					each.LocalGLJCCalendarYear = DerivedCalendarYear
+					DerivedSSJERBYearEndJournalLineXML += template.IONSyncSourceSystemJournalEntry_GLTransaction_RBYearEndJournalEntryLine_ST document for each
+				return DerivedSSJERBYearEndJournalLineXML
+
+#endif
+		DerivedDescription is a DerivedField
+			type is Alpha size 60
+			restricted
+			return ReportingBasis.Description
+			
+		DerivedLedger is a DerivedField
+			type is Alpha size 10
+			restricted
+			return ReportingBasisYearEndJournalTransactionRel.ReportingBasisYearEndJournalTransaction.PrimaryLedger
+			
+		DerivedCalendarYear is a DerivedField
+			type is Alpha size 30
+			restricted
+			return ReportingBasisYearEndJournalTransactionRel.ReportingBasisYearEndJournalTransaction.EntityYearPeriod
+			
+		DerivedVocherType is a DerivedField
+			type is Alpha size 2
+			restricted
+			if(AccountingEntity.AddressCode = "FR")
+				return "AN"
+	
+
+
+			
+								
+
+		
+		
+						
+						
+						
+						

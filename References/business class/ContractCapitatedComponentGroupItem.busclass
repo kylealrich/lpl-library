@@ -1,0 +1,718 @@
+ContractCapitatedComponentGroupItem is a BusinessClass
+	owned by po
+	prefix is CCAI
+	sql name is "ContractCapitatedComponentGI"
+
+	Ontology
+		symbolic key is ContractCapitatedComponentGroupItem
+
+	Persistent Fields
+		ComponentContractLine 				is a ContractLine 
+		PrimaryDiscount                     is Percent size 6.3
+		RevisionDiscount                    is Percent size 6.3
+		PrimaryFinalCost                    is a ContractUnitCost
+			precision is ComponentContractLine.DerivedNumberOfDecimalsCost
+		RevisionFinalCost                   is a ContractUnitCost 
+			precision is ComponentContractLine.DerivedNumberOfDecimalsCost				
+
+	Local Fields 
+		LocalCompany						is a Company 
+		LocalRequisition					is like Requisition
+		ExcessQuantity                      is Numeric size 2
+		QuantityNotInExcess                 is Numeric size 2
+		LocalUseBaseCostForPrimary          is Boolean
+		RoundedValue
+		LocalComponentCompany               is like Company 
+		LocalComponentLocation              is like InventoryLocation
+		FromCopy            				is Boolean 
+		LocalComponentGroupName             is a Name 
+		LocalContractLineUOM                is like CMUnitOfMeasureEdit  
+		LocalContract                       is a Contract	
+		LocalContractLineManufacturer       is a Manufacturer
+		LocalContractLineManufacturerNumber is a ManufacturerNumber 	
+		LocalContractLineItem               is like Item 
+
+	Context Fields 
+		ContextCompany			is a Company 
+		ContextRequisition      is a Requisition
+
+	Derived Fields 
+		QuantityForAComponentGroup is a ComputeField 
+			type is Numeric size 2
+			restricted
+			(sum RequisitionLinesForComponentGroup.Quantity)
+
+		DerivedPrimaryCostForList is a DerivedField 
+			type is like InternationalCost
+				precision is ComponentContractLine.DerivedNumberOfDecimalsCost
+			if (LocationComponentItemRel exists)
+				return first LocationComponentItemRel.PrimaryFinalCost 
+			else 
+			if (CompanyComponentItemRel exists)
+				return first CompanyComponentItemRel.PrimaryFinalCost
+			else 
+				return PrimaryFinalCost
+		
+		DerivedRevisionCostForList is a DerivedField 
+			type is like InternationalCost
+				precision is ComponentContractLine.DerivedNumberOfDecimalsCost
+			if (LocationComponentItemRel exists)
+				return first LocationComponentItemRel.RevisionFinalCost 
+			else 
+			if (CompanyComponentItemRel exists)
+				return first CompanyComponentItemRel.RevisionFinalCost
+			else 
+				return RevisionFinalCost
+
+		RoundedPrimaryCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (PrimaryFinalCost != 0)
+				RoundedValue.RoundInput			= PrimaryFinalCost
+				RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+				RoundedValue.RoundTo			= ComponentContractLine.DerivedRoundTo
+				RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+				return RoundedValue.RoundResult
+			else
+				return 0
+
+		RoundedRevisionCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (RevisionFinalCost != 0)
+				RoundedValue.RoundInput			= RevisionFinalCost
+				RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+				RoundedValue.RoundTo			= ComponentContractLine.DerivedRoundTo
+				RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+				return RoundedValue.RoundResult
+			else
+				return 0
+
+	Conditions
+
+		NeedsCostTestForAll
+			restricted 
+			when  (ComponentContractLine.CostOption = 1
+			and    ContractLine.LineNotClosed
+			and    ComponentGroupQuantityLimit
+			and   (NeedsCostTestForPrimary
+			or     NeedsCostTestForRevision
+			or     NeedsCostTestForNoProcedureOrBoth))
+		
+		NeedsCostTestForPrimary 
+			restricted
+			when (ContractLine.PrimaryProcedure
+			and   PrimaryFinalCost = 0)   
+		
+		NeedsCostTestForRevision
+			restricted
+			when (ContractLine.RevisionProcedure 
+			and   RevisionFinalCost = 0)
+
+		NeedsCostTestForNoProcedureOrBoth
+			restricted
+			when ((NoProcedure
+			or     ContractLine.PrimaryOrRevisionProcedure)
+			and   (RevisionFinalCost = 0
+			or     PrimaryFinalCost  = 0))
+
+		ComponentGroupItemOnRequisition
+			when (ComponentGroupItemOnRequisitionRel exists)
+		
+		HasComponentGroup 
+			restricted 
+			when (ContractCapitatedComponentGroup entered)
+
+		ComponentGroupQuantityLimit 
+			restricted 
+			when (ContractCapitatedComponentGroup.ItemsAllowed > 0)
+
+		NoProcedure 
+			restricted 
+			when (ContractLine !entered)
+		
+		CanDelete 
+			restricted 
+			when (!ContractLine.ContractLineState.Closed
+			and   !Contract.CapitatedComponentsOnly)
+		
+		ItemMultipleForSameProcedure 
+			restricted 
+			when (MultipleForSameProcedureRel exists)
+			
+		IsASupplier
+			restricted
+			when (actor.agent(SupplierSourceId).SupplierSourceId exists)
+
+		CanDisplayManufacturingDate
+			restricted
+			when ((actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    actor.agent(SupplierSourceId).SupplierSourceId.SupplierViewManufacturingDate)
+			or    (!actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    SupplierGroupRel.SupplierViewManufacturingDate))
+
+		CanDisplayExpirationDate
+			restricted
+			when ((actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    actor.agent(SupplierSourceId).SupplierSourceId.SupplierViewExpirationDate)
+			or    (!actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    SupplierGroupRel.SupplierViewExpirationDate))
+
+		CanDisplayLot
+			restricted
+			when ((actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    actor.agent(SupplierSourceId).SupplierSourceId.SupplierViewLotNumber)
+			or    (!actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    SupplierGroupRel.SupplierViewLotNumber))
+
+		CanDisplaySerialNumber
+			restricted
+			when ((actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    actor.agent(SupplierSourceId).SupplierSourceId.SupplierViewSerialNumber)
+			or    (!actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    SupplierGroupRel.SupplierViewSerialNumber))
+
+		CanDisplayGTIN	
+			restricted
+			when ((actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    actor.agent(SupplierSourceId).SupplierSourceId.SupplierViewGTIN)
+			or    (!actor.agent(SupplierSourceId).SupplierSourceId.ProcedureDetailsFromContact
+			and    SupplierGroupRel.SupplierViewGTIN))
+
+		CompanyLocationComponentsExist
+			restricted 
+			when (ContractCapitatedCompanyLocationItemRel exists)
+
+	Relations
+
+		ComponentContractLineRel 
+			one-to-one relation to ContractLine 
+			Field Mapping uses symbolic key 
+				related.ContractGroup		= ContractGroup 
+				related.Contract            = Contract 
+				related.ContractLine        = ComponentContractLine
+
+		LocationComponentItemRel 
+			one-to-many relation to ContractCapitatedCompanyLocationItem 
+			Field Mapping uses ByCapitatedItem 
+				related.ContractGroup						= ContractGroup 
+		 		related.Contract                            = Contract
+		 		related.ContractLine                        = ContractLine
+				related.ContractCapitatedComponentGroup     = ContractCapitatedComponentGroup
+				related.ContractCapitatedComponentGroupItem = ContractCapitatedComponentGroupItem
+				related.Company                             = ContextRequisition.FromCompanyLocation.FromCompany
+				related.Location                            = ContextRequisition.FromCompanyLocation.FromLocation
+		
+		CompanyComponentItemRel 
+			one-to-many relation to ContractCapitatedCompanyLocationItem 
+			Field Mapping uses ByCapitatedItem 
+				related.ContractGroup						= ContractGroup 
+		 		related.Contract                            = Contract
+		 		related.ContractLine                        = ContractLine
+				related.ContractCapitatedComponentGroup     = ContractCapitatedComponentGroup
+				related.ContractCapitatedComponentGroupItem = ContractCapitatedComponentGroupItem
+				related.Company                             = ContextRequisition.FromCompanyLocation.FromCompany
+				related.Location                            = blank
+
+		CompanyComponentsForAnItemRel 
+			one-to-many relation to ContractCapitatedCompanyLocationItem 
+			Field Mapping uses ByCapitatedItem 
+				related.ContractGroup						= ContractGroup 
+		 		related.Contract                            = Contract
+		 		related.ContractLine                        = ContractLine
+				related.ContractCapitatedComponentGroup     = ContractCapitatedComponentGroup
+				related.ContractCapitatedComponentGroupItem = ContractCapitatedComponentGroupItem
+		
+		ComponentGroupItemOnRequisitionRel 
+			one-to-many relation to RequisitionLine 
+			Field Mapping uses symbolic key 
+				related.Company             = ContextCompany 
+				related.Requisition         = ContextRequisition 
+			Instance Selection 
+				where (related.ContractLine 			= ComponentContractLine
+				and    related.CapitatedProcedureLine	= ContractLine
+				and    related.CapitatedComponentGroup  = ContractCapitatedComponentGroup)
+		
+		MultipleForSameProcedureRel 
+			one-to-many relation to ContractCapitatedComponentGroupItem 
+			Field Mapping uses symbolic key 
+				related.ContractGroup       			= ContractGroup 
+				related.Contract            			= Contract
+				related.ContractLine                    = ContractLine 
+			Instance Selection 
+				where (related.UniqueID != UniqueID
+				and    related.ComponentContractLine = ComponentContractLine)
+
+		RequisitionLinesForComponentGroup 
+			one-to-many relation to RequisitionLine 
+			Field Mapping uses symbolic key 
+				related.Company			= LocalCompany 
+				related.Requisition     = LocalRequisition
+			Instance Selection 
+				where (related.CapitatedProcedureLine 	= ContractLine
+				and    related.CapitatedComponentGroup	= ContractCapitatedComponentGroup)
+
+		SupplierGroupRel
+			one-to-one relation to SupplierGroup 
+			Field Mapping uses symbolic key 
+				related.SupplierGroup  = ContractGroup 
+
+		ToComponentGroupRel 
+			one-to-many relation to ContractCapitatedComponentGroup 
+			Field Mapping uses symbolic key 
+				related.ContractGroup 	= ContractGroup 
+				related.Contract        = LocalContract 
+			Instance Selection 
+				where (related.Name     						= LocalComponentGroupName
+				and    related.ContractLine.ItemNumber			= ContractCapitatedComponentGroup.ContractLine.ItemNumber
+				and    related.ContractLine.CapitatedProcedure	= ContractLine.CapitatedProcedure)
+		
+		ToContractLineItemRel 
+			one-to-many relation to ContractLine 
+			Field Mapping uses ByMfgInfoFromImport
+				related.ContractGroup						= ContractGroup 
+				related.Contract                            = LocalContract
+				related.Manufacturer.ManufacturerCode       = LocalContractLineManufacturer.ManufacturerCode
+				related.Manufacturer.ManufacturerDivision   = LocalContractLineManufacturer.ManufacturerDivision
+				related.ManufacturerNumber                  = LocalContractLineManufacturerNumber
+				related.UOM		                            = LocalContractLineUOM
+
+		ToContractLineByItemRel 
+			one-to-many relation to ContractLine 
+			Field Mapping uses ByItemFromImport
+				related.ContractGroup						= ContractGroup 
+				related.Contract                            = LocalContract
+				related.ItemNumber                          = LocalContractLineItem
+			Instance Selection 	
+				where (related.UOM                          = LocalContractLineUOM)
+
+		KeywordShadowRel
+			one-to-one relation to KeywordShadow
+			Field Mapping uses ByContractLine
+  				related.ItemGroup		=	ContractGroup
+  				related.Contract		=	Contract
+  				related.ContractLine	= 	ContractLine
+
+		ContractCapitatedCompanyLocationItemRel is a ContractCapitatedCompanyLocationItem set
+
+	Sets
+		
+		ByContractLine 
+			Sort Order
+			 	ContractGroup
+		 		Contract 
+		 		ComponentContractLine 
+		 		ContractLine 
+				ContractCapitatedComponentGroup
+				ContractCapitatedComponentGroupItem 
+
+		ByComponentGroup 
+			Sort Order
+			 	ContractGroup
+		 		Contract 
+		 		ContractCapitatedComponentGroup
+				ComponentContractLine
+				ContractLine 
+				ContractCapitatedComponentGroupItem 				
+
+	Field Rules
+
+		PrimaryDiscount 
+
+			constraint (PrimaryDiscount < 100%)
+				"PrimaryDiscountMustBeLessThan100%"
+
+
+		RevisionDiscount
+
+			constraint (RevisionDiscount < 100%)
+				"RevisionDiscountMustBeLessThan100%"	
+	Actions
+		Create is a Create Action
+			restricted
+
+			Field Rules 
+				ComponentContractLine
+					required 
+
+			Action Rules 
+
+				if (NoProcedure)
+					if (PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * PrimaryDiscount)
+					else
+					if (ContractCapitatedComponentGroup.PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.PrimaryDiscount)
+					else
+					if (LocalUseBaseCostForPrimary)
+						PrimaryFinalCost = ComponentContractLine.BaseCost						
+					if (RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * RevisionDiscount)
+					else
+					if (ContractCapitatedComponentGroup.RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.RevisionDiscount)
+				if (ContractLine.EitherPrimaryProcedure)
+					if (PrimaryFinalCost entered
+					and !FromCopy)
+						constraint (PrimaryDiscount !entered)
+							"CannotEnterAPrimaryDiscountAndAPrimaryFinalCost"
+					if (PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * PrimaryDiscount)
+					else
+					if (ContractCapitatedComponentGroup.PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.PrimaryDiscount)
+					else
+					if (LocalUseBaseCostForPrimary)
+						PrimaryFinalCost = ComponentContractLine.BaseCost 	
+				if (ContractLine.EitherRevisionProcedure)
+					if (RevisionFinalCost entered
+					and !FromCopy)
+						constraint (RevisionDiscount !entered)
+							"CannotEnterARevisionDiscountAndARevisionFinalCost"
+					if (RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * RevisionDiscount)
+					else
+					if (ContractCapitatedComponentGroup.RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.RevisionDiscount)
+				PrimaryFinalCost = RoundedPrimaryCost
+				RevisionFinalCost = RoundedRevisionCost
+			Exit Rules
+
+				if (LocalComponentCompany entered)
+					invoke Create ContractCapitatedCompanyLocationItem
+						invoked.ContractGroup						= ContractGroup 
+						invoked.Contract                        	= Contract
+						invoked.ContractCapitatedComponentGroup		= ContractCapitatedComponentGroup 
+						invoked.ContractLine                    	= ContractLine 
+						invoked.ComponentContractLine               = ComponentContractLine 
+						invoked.ContractCapitatedComponentGroupItem	= ContractCapitatedComponentGroupItem 
+						invoked.Company                             = LocalComponentCompany 
+						invoked.Location                            = LocalComponentLocation
+
+				if  (Contract.ActiveContract)
+					invoke CreateAmendment Active Contract
+				
+		
+		Update is an Update Action
+
+			Action Rules
+
+				if (NoProcedure)
+					if (PrimaryFinalCost entered and PrimaryFinalCost changed)
+						constraint (PrimaryDiscount !entered)
+							"CannotEnterAPrimaryDiscountAndAPrimaryFinalCost"
+					else 
+					if (PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * PrimaryDiscount)
+					else
+					if (ContractCapitatedComponentGroup.PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.PrimaryDiscount)
+					if (RevisionFinalCost entered and RevisionFinalCost changed)
+						constraint (RevisionDiscount !entered)
+							"CannotEnterARevisionDiscountAndARevisionFinalCost"
+					else 
+					if (RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * RevisionDiscount)
+					else
+					if (ContractCapitatedComponentGroup.RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.RevisionDiscount)					
+				if (ContractLine.EitherPrimaryProcedure)
+					if (PrimaryFinalCost entered and PrimaryFinalCost changed)
+						constraint (PrimaryDiscount !entered)
+							"CannotEnterAPrimaryDiscountAndAPrimaryFinalCost"
+					else
+					if (PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * PrimaryDiscount)
+					else
+					if (ContractCapitatedComponentGroup.PrimaryDiscount entered)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.PrimaryDiscount)
+				if (ContractLine.EitherRevisionProcedure)
+					if (RevisionFinalCost entered and RevisionFinalCost changed)
+						constraint (RevisionDiscount !entered)
+							"CannotEnterARevisionDiscountAndARevisionFinalCost"
+					else 
+					if (RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * RevisionDiscount)
+					else
+					if (ContractCapitatedComponentGroup.RevisionDiscount entered)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * ContractCapitatedComponentGroup.RevisionDiscount)	
+
+		Delete is a Delete Action
+			valid when (CanDelete)
+
+			Entrance Rules 
+				if (NoProcedure)
+					invoke Delete ComponentContractLine.KeywordShadowRel
+
+			Action Rules 
+				if (Contract.ContractStatus.Active
+				and ContractLine.IsNotComponentGroupItem)
+					invoke CreateAmendment Active Contract					
+
+		Purge is a Purge Action
+			restricted
+
+		AddToRequisitionConstructComponent is an Instance Action
+			default label is "AddToRequisition"
+			Parameters
+				PrmCompany						is an InventoryCompany
+					default label is "Company"
+				PrmRequisition					is a Requisition
+					default label is "Requisition"			
+				PrmQuantity                     is a Quantity
+					default label is "Quantity"                    
+				PrmLot                          is like ItemLot
+				PrmSerialNumber                 is like ItemSerialNumber	
+				PrmGTIN 						is like ItemGTIN
+				PrmManufacturingDate			is Date
+				PrmExpirationDate 				is Date
+				PrmBillCode                     is a BillCode 		
+
+			Parameter Rules
+				PrmCompany 
+					initial value is ContextCompany 
+				PrmRequisition 
+					initial value is ContextRequisition
+				PrmQuantity 
+					initial value is 1
+			
+			Action Rules
+
+				LocalCompany            			= PrmCompany 
+				LocalRequisition					= PrmRequisition 
+				if (PrmQuantity !entered)
+					PrmQuantity = 1
+				if (ComponentGroupItemOnRequisition)
+					confirmation required 
+						"RequisitionLineForThisComponentAlreadyExists;DoYouWantToContinue?"						
+				if  (ComponentGroupQuantityLimit
+				and ((QuantityForAComponentGroup + PrmQuantity) > ContractCapitatedComponentGroup.ItemsAllowed))
+					ExcessQuantity                     = ((QuantityForAComponentGroup + PrmQuantity)- ContractCapitatedComponentGroup.ItemsAllowed)	
+					if (ExcessQuantity > PrmQuantity)
+						ExcessQuantity = PrmQuantity
+					confirmation required 
+						"ComponentWillCauseMaximumQuantityForComponentGroupOf<ContractCapitatedComponentGroup.ItemsAllowed>ToBeExceeded;ExtraComponentQuantityOf<ExcessQuantity>WillBeCharged;DoYouWantToContinue?"
+					QuantityNotInExcess                = PrmQuantity - ExcessQuantity 			
+				else
+					QuantityNotInExcess                = PrmQuantity 
+				if (QuantityNotInExcess > 0)
+					invoke SupplierCreate RequisitionLine 
+						if (ComponentContractLine.ItemType = 2)
+							invoked.ItemType          		= "S"
+						else
+						if (ComponentContractLine.ItemType = 3)
+							invoked.ItemType       	  		= "X"
+						else 
+						if (ComponentContractLine.ItemType = 1)
+							invoked.ItemType                = "N"
+						invoked.Contract             		= Contract 
+						invoked.ContractLine         		= ComponentContractLine 
+						invoked.CreatePurchaseOrder  		= true
+						invoked.CostCode             		= "C"
+						invoked.Company              		= PrmCompany 
+						invoked.Requisition          		= PrmRequisition 
+						invoked.Quantity	                = QuantityNotInExcess
+						invoked.Item                 		= ComponentContractLine.ItemNumber	
+						invoked.VendorItem                  = ComponentContractLine.VendorItem 
+						invoked.EnteredUOM           		= ComponentContractLine.UOM
+						invoked.Description          		= ComponentContractLine.ItemDescription
+						invoked.CapitatedProcedureLine		= ContractLine 
+						invoked.Manufacturer                = ComponentContractLine.Manufacturer 
+						invoked.ManufacturerNumber          = ComponentContractLine.ManufacturerNumber 
+						invoked.CapitatedComponentGroup		= ContractCapitatedComponentGroup	
+						invoked.TransientBypassUnitCost     = true
+						invoked.TransientNoChargeFromSupplier = true 
+					   	invoked.TransientLot                = PrmLot
+						invoked.TransientSerialNumber       = PrmSerialNumber            	
+						invoked.TransientGTIN 				= PrmGTIN			 
+						invoked.TransientManufacturingDate	= PrmManufacturingDate			 
+						invoked.TransientExpirationDate 	= PrmExpirationDate	
+						invoked.ConsignCode                 = PrmBillCode 		 
+
+				if (ExcessQuantity > 0)
+					invoke SupplierCreate RequisitionLine 
+						if (ComponentContractLine.ItemType = 2)
+							invoked.ItemType          		= "S"
+						else
+						if (ComponentContractLine.ItemType = 3)
+							invoked.ItemType       	  		= "X"
+						else 
+						if (ComponentContractLine.ItemType = 1)
+							invoked.ItemType                = "N"
+						invoked.Contract             		= Contract 
+						invoked.ContractLine         		= ComponentContractLine 
+						invoked.CreatePurchaseOrder  		= true
+						invoked.CostCode             		= "C"
+						invoked.Company              		= PrmCompany 
+						invoked.Requisition          		= PrmRequisition 
+						invoked.Quantity           			= ExcessQuantity 
+						invoked.Item                 		= ComponentContractLine.ItemNumber
+						invoked.VendorItem                  = ComponentContractLine.VendorItem 	
+						invoked.EnteredUOM           		= ComponentContractLine.UOM
+						invoked.Description          		= ComponentContractLine.ItemDescription													
+						invoked.CapitatedProcedureLine		= ContractLine 
+						invoked.Manufacturer                = ComponentContractLine.Manufacturer 
+						invoked.ManufacturerNumber          = ComponentContractLine.ManufacturerNumber 
+						invoked.CapitatedComponentGroup		= ContractCapitatedComponentGroup
+						invoked.TransientBypassUnitCost     = true
+					   	invoked.TransientLot                = PrmLot
+						invoked.TransientSerialNumber       = PrmSerialNumber            	
+						invoked.TransientGTIN 				= PrmGTIN			 
+						invoked.TransientManufacturingDate	= PrmManufacturingDate			 
+						invoked.TransientExpirationDate 	= PrmExpirationDate	
+						invoked.ConsignCode                 = PrmBillCode 		 
+
+		UpdateFromLineBaseCost is an Instance Action 
+			restricted 
+			Parameters 
+				OldBaseCost                         is a ContractUnitCost
+				NewBaseCost                         is a ContractUnitCost
+
+			Action Rules
+				if (PrimaryDiscount entered)
+					PrimaryFinalCost = NewBaseCost - (NewBaseCost * PrimaryDiscount)
+				else
+				if (ContractCapitatedComponentGroup.PrimaryDiscount entered)
+					PrimaryFinalCost = NewBaseCost - (NewBaseCost * ContractCapitatedComponentGroup.PrimaryDiscount)	
+				else 
+				if (OldBaseCost = PrimaryFinalCost)
+					PrimaryFinalCost = NewBaseCost 
+
+				if (RevisionDiscount entered)
+					RevisionFinalCost = NewBaseCost - (NewBaseCost * RevisionDiscount)
+				else
+				if (ContractCapitatedComponentGroup.RevisionDiscount entered)
+					RevisionFinalCost = NewBaseCost - (NewBaseCost * ContractCapitatedComponentGroup.RevisionDiscount)				
+		
+		UpdateDiscountPercent is an Instance Action 
+			Parameters
+				NewPrimaryDiscount  				is Percent 6.3
+				NewRevisionDiscount 				is Percent 6.3
+				UpdateCompanyLocationRecords        is Boolean
+
+			Parameter Rules 
+
+				NewPrimaryDiscount 
+					initial value is PrimaryDiscount 
+					if (NewPrimaryDiscount entered)
+						constraint (NewPrimaryDiscount > 0%)
+							"NewPrimaryDiscountCannotBeNegative"
+					constraint (NewPrimaryDiscount < 100%)
+						"NewPrimaryDiscountMustBeLessThan100%"
+				NewRevisionDiscount 
+					initial value is RevisionDiscount 
+					if (NewRevisionDiscount entered)
+						constraint (NewRevisionDiscount > 0%)
+							"NewRevisionDiscountCannotBeNegative"
+					constraint (NewRevisionDiscount < 100%)
+						"NewRevisionDiscountMustBeLessThan100%"
+
+			Action Rules 
+
+				if (NewPrimaryDiscount > 0
+				and NewPrimaryDiscount != PrimaryDiscount)
+					PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * NewPrimaryDiscount)
+
+				if (NewRevisionDiscount > 0
+				and NewRevisionDiscount != RevisionDiscount)
+					RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * NewRevisionDiscount)							
+
+				PrimaryDiscount 	= NewPrimaryDiscount
+				RevisionDiscount	= NewRevisionDiscount
+
+				if (UpdateCompanyLocationRecords)
+					invoke UpdateDiscountPercentFromItem ContractCapitatedCompanyLocationItem 
+						invoked.ParmContractGroup						= ContractGroup 
+						invoked.ParmContract                    		= Contract 
+						invoked.ParmContractLine                		= ContractLine 
+						invoked.ParmContractCapitatedComponentGroup		= ContractCapitatedComponentGroup 
+						invoked.ParmContractCapitatedComponentGroupItem	= ContractCapitatedComponentGroupItem
+						invoked.NewPrimaryDiscount                      = NewPrimaryDiscount
+						invoked.NewRevisionDiscount                     = NewRevisionDiscount
+		
+		UpdateDiscountPercentFromGroup is a Set Action	
+			restricted
+			Parameters
+				ParmContractGroup					is a ContractGroup
+				ParmContract        				is a Contract 
+				ParmContractLine    				is a ContractLine 
+				ParmContractCapitatedComponentGroup is a ContractCapitatedComponentGroup
+				NewPrimaryDiscount  				is Percent 6.3
+				NewRevisionDiscount 				is Percent 6.3
+
+			Instance Selection 
+				where (ParmContractGroup 					= ContractGroup
+				and    ParmContract      					= Contract
+				and    ParmContractLine  					= ContractLine
+				and    ParmContractCapitatedComponentGroup 	= ContractCapitatedComponentGroup)
+
+			Action Rules
+				Instance Rules 
+					if (NewPrimaryDiscount > 0
+					and PrimaryDiscount !> 0)
+						PrimaryFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * NewPrimaryDiscount)
+
+					if (NewRevisionDiscount > 0
+					and RevisionDiscount !> 0)
+						RevisionFinalCost = ComponentContractLine.BaseCost - (ComponentContractLine.BaseCost * NewRevisionDiscount)
+
+		CopyCapitatedContractItems is a Set Action 
+			restricted
+			Parameters  
+				ParmContractGroup					is a ContractGroup
+				FromContract         				is a Contract
+				ToContract                          is a Contract 
+
+			Instance Selection 
+				where (ParmContractGroup		= ContractGroup 
+				and    FromContract             = Contract)
+
+		
+			Local Fields 
+				LocalCapitatedComponentGroupItem is a ContractCapitatedComponentGroupItem view
+			Action Rules 
+
+				Instance Rules 
+
+					LocalContract 						= ToContract 
+					LocalContractLineManufacturer       = ComponentContractLine.Manufacturer 
+					LocalContractLineManufacturerNumber = ComponentContractLine.ManufacturerNumber 
+					LocalContractLineUOM           		= ComponentContractLine.UOM            
+					LocalComponentGroupName             = ContractCapitatedComponentGroup.Name 
+					LocalContractLineItem               = ComponentContractLine.ItemNumber 
+					if (ToContractLineItemRel exists
+					or  ToContractLineByItemRel exists)
+						invoke Create ContractCapitatedComponentGroupItem 
+							assign result to LocalCapitatedComponentGroupItem
+							invoked.ContractGroup					= ParmContractGroup 
+							invoked.Contract        				= ToContract 
+							invoked.ContractCapitatedComponentGroup	= first ToComponentGroupRel.ContractCapitatedComponentGroup
+							if (!ContractCapitatedComponentGroup.NotForProcedure)
+								invoked.ContractLine    			= first ToComponentGroupRel.ContractLine 
+							if (ToContractLineItemRel exists)
+								invoked.ComponentContractLine  		= first ToContractLineItemRel.ContractLine				
+							else 
+							if (ToContractLineByItemRel exists)
+								invoked.ComponentContractLine       = first ToContractLineByItemRel.ContractLine 
+							invoked.PrimaryDiscount                 = ContractCapitatedComponentGroup.PrimaryDiscount
+							invoked.RevisionDiscount                = ContractCapitatedComponentGroup.RevisionDiscount     
+
+						for each CompanyComponentsForAnItemRel
+							invoke Create ContractCapitatedCompanyLocationItem
+								invoked.ContractGroup						= ParmContractGroup 
+								invoked.Contract                        	= ToContract
+								invoked.ContractCapitatedComponentGroup		= first ToComponentGroupRel.ContractCapitatedComponentGroup
+								if (!ContractCapitatedComponentGroup.NotForProcedure)
+									invoked.ContractLine                    = first ToComponentGroupRel.ContractLine 
+								if (ToContractLineItemRel exists)
+									invoked.ComponentContractLine  			= first ToContractLineItemRel.ContractLine				
+								else 
+								if (ToContractLineByItemRel exists)
+									invoked.ComponentContractLine       	= first ToContractLineByItemRel.ContractLine 
+								invoked.ContractCapitatedComponentGroupItem	= LocalCapitatedComponentGroupItem.ContractCapitatedComponentGroupItem 
+								invoked.Company                             = each.Company 
+								invoked.Location                            = each.Location		
+								invoked.PrimaryDiscount                 	= each.PrimaryDiscount
+								invoked.RevisionDiscount                	= each.RevisionDiscount                  
+								invoked.PrimaryFinalCost                	= each.PrimaryFinalCost    
+								invoked.RevisionFinalCost               	= each.RevisionFinalCost  

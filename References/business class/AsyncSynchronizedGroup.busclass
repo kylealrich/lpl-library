@@ -1,0 +1,313 @@
+AsyncSynchronizedGroup is a BusinessClass
+    owned by async
+    prefix is QGRP
+    stored in environment
+	
+
+
+    Ontology
+		symbolic key is AsyncSynchronizedGroup
+		
+    Patterns
+        disable Auditing
+        disable EffectiveDated
+        implements DynamicCreation
+
+    Persistent Fields
+		Description 		is Alpha 50
+		Suspended 			is Boolean
+
+
+		
+	Local Fields
+		LocEnabledTrigger is Boolean
+		LocDataArea is DataAreaName
+		LocDynCreate is Boolean
+		
+	Transient Fields
+		TranDisableAudit is Boolean
+			default label is untranslatable:"DisableAuditing"
+		
+	Context Fields
+		AsyncActionTrigger
+		AsyncActionRequest		
+	
+	Conditions
+		HasMembers
+			default label is "MembersExist"
+			when (Members exists)
+			
+		HasAuditRecords
+			default label is "AuditRecordsExist"
+			when (AuditingRel exists)	
+				
+    Derived Fields
+    	NoMembers is a ComputeField  
+    		type is Numeric 10
+    		default label is "MemberCount"
+    		(instance count of Members)
+    		
+		DerDataArea is a DerivedField
+			type is DataAreaName
+			default label is "DataArea"
+			if (LocDataArea entered)
+				return LocDataArea
+			else
+			if (AsyncActionTrigger.DataArea entered)
+				return AsyncActionTrigger.DataArea
+			else
+			if (AsyncActionRequest.DataArea entered)
+				return AsyncActionRequest.DataArea
+			else
+				return parentcontext.dataarea
+		
+		AsyncAuditingEnabled is a NativeField
+			type is Boolean
+			default label is untranslatable
+			restricted
+
+			
+	Dynamic Creation Rules
+		LocDynCreate = true
+				
+	Actions
+		Create is a Create Action
+			Exit Rules
+				if (not LocDynCreate and AsyncAuditingEnabled) 
+					invoke Create AsyncAuditEntry  
+				 
+				LocDynCreate = false
+				 		
+		Delete is a Delete Action
+			valid when (not HasMembers)
+			
+			Entrance Rules
+				if (not TranDisableAudit and AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry
+					
+				LocDynCreate = false
+				 		
+		Update is an Update Action
+			Action Rules
+				if (not Suspended and Suspended changed)
+					for each DataAreas
+						invoke EnableNextTrigger
+							resume on error
+							invoked.ParamDataArea = each.DataArea
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+					
+				LocDynCreate = false
+			
+		Suspend is an Instance Action
+			Action Rules
+				Suspended = true
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+				
+				LocDynCreate = false
+				
+		Resume is an Instance Action
+			Action Rules
+				Suspended = false
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+				
+				LocDynCreate = false
+				 		
+			Exit Rules
+				for each DataAreas
+					invoke EnableNextTrigger
+						resume on error
+						invoked.ParamDataArea = each.DataArea
+
+		SuspendGroup is a Set Action
+			disable checkpoint
+			Parameters
+				SynchronizedGroup is a AsyncSynchronizedGroup
+			Action Rules
+				Instance Rules
+					invoke Suspend
+			Instance Selection
+				where (AsyncSynchronizedGroup = SynchronizedGroup)
+
+		ResumeGroup is a Set Action
+			disable checkpoint
+			Parameters
+				SynchronizedGroup is a AsyncSynchronizedGroup
+			Action Rules
+				Instance Rules
+					invoke Resume
+			Instance Selection
+				where (AsyncSynchronizedGroup = SynchronizedGroup)
+				
+		PurgeEmptyGroups is a Set Action
+			disable checkpoint				
+			Parameters
+				ParamSynchronizedGroupMatch is like AsyncSynchronizedGroup
+					default label is "GroupNameMatch"
+					
+			Parameter Rules
+				ParamSynchronizedGroupMatch
+					if (ParamSynchronizedGroupMatch not entered)
+						ParamSynchronizedGroupMatch = "*"
+					
+			Action Rules
+				Set Rules
+					Exit Rules
+						if (AsyncAuditingEnabled)
+							invoke Create AsyncAuditEntry
+						
+						TranDisableAudit = false
+						
+				Instance Rules
+					TranDisableAudit = true
+					invoke Delete
+						resume on error 
+					
+			Instance Selection
+				where (AsyncSynchronizedGroup like ParamSynchronizedGroupMatch
+				and NoMembers = 0)
+			
+			Sort Order is primary	
+			
+		ProcessTriggers is a Set Action
+			disable checkpoint	
+			restricted		
+			
+			Parameters
+				ParamSynchGroup is an AsyncSynchronizedGroup
+					default label is untranslatable:"<AsyncSynchronizedGroup label>"
+					
+				ParamDataArea is a DataArea
+					default label is "DataArea"
+			
+			Parameter Rules
+				ParamDataArea
+					required
+					
+					LocDataArea = ParamDataArea 
+					
+			Instance Selection
+				where ((not ParamSynchGroup entered or AsyncSynchronizedGroup = ParamSynchGroup) and  Suspended = false and not NonFinishedNotInErrorOrSynchWaitTriggers exists)
+			
+			Sort Order is primary	
+			
+			Action Rules
+				Instance Rules
+					invoke EnableNextTrigger
+						invoked.ParamDataArea = ParamDataArea
+					
+					if (LocEnabledTrigger)
+						commit transaction
+					
+				Set Rules
+					Exit Rules
+						initialize LocDataArea
+					
+			
+		EnableNextTrigger is an Instance Action
+			restricted	
+			
+			Parameters
+				ParamDataArea is a DataArea
+					default label is "DataArea"
+			
+			Parameter Rules
+				ParamDataArea
+					required
+								
+			Local Fields
+				LocError is Boolean
+				LocErrorText is Text
+				LocEnableDataArea is DataAreaName
+				LocSaveDataArea is DataAreaName
+				
+			Entrance Rules
+				LocSaveDataArea = LocDataArea
+				LocDataArea = ParamDataArea
+				LocEnabledTrigger = false
+				
+			Action Rules
+				if (not Suspended and not NonFinishedNotInErrorOrSynchWaitTriggers exists)
+					for each WaitingTriggers
+						if (not each.AsyncActionRequest.RequestThresholdExceeded) 
+							invoke WaitForSynchronizedGroup.Requeue each
+								resume on error
+									LocError = true
+									LocErrorText = error message
+									log "FailedToRequeueSynchronizedGroupTriggerForGroup<AsyncSynchronizedGroup>,RequestName<each.AsyncActionRequest.Name>,BusinessView<each.AsyncActionRequest.ImplementingClass>,Action<each.AsyncActionRequest.AsyncAction>,ID<each.AsyncActionRequest>,Trigger<each.UniqueID>:<LocErrorText>."
+							if (not LocError)
+								LocEnabledTrigger = true
+								end for each
+								
+			Exit Rules
+				LocDataArea = LocSaveDataArea
+		
+		RequestSweepForAllActiveGroup is a Set Action
+			run in foreground
+			disable checkpoint	
+			Parameters
+				CurrentDataAreaOnly	is Boolean
+			
+			Parameter Rules
+				CurrentDataAreaOnly
+					initial value is true
+			
+			Instance Selection
+				where (Suspended = false)
+			
+			Sort Order is primary	
+			
+			Action Rules
+				Instance Rules
+					invoke RequestSweep
+						invoked.CurrentDataAreaOnly = CurrentDataAreaOnly
+					
+		RequestSweep is an Instance Action
+			valid when (not Suspended) 
+			Parameters
+				CurrentDataAreaOnly	is Boolean
+			
+			Parameter Rules
+				CurrentDataAreaOnly
+					initial value is true
+			
+
+						
+    Relations
+    	Members  
+    		one-to-many relation to AsyncActionRequest
+			Field Mapping uses BySynchronizedGroupDataArea
+				related.SynchronizedGroup = AsyncSynchronizedGroup
+				
+		WaitingTriggers
+			one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerBySynchronizedGroup
+    			related.SynchronizedGroup = AsyncSynchronizedGroup
+    			related.DataArea 		  = DerDataArea
+    			related.Status            = 11 
+    			
+    	NonFinishedNotInErrorOrSynchWaitTriggers
+			one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerBySynchronizedGroup
+    			related.SynchronizedGroup = AsyncSynchronizedGroup
+    			related.DataArea          = DerDataArea
+    		Instance Selection
+				where (related.Status = 1 
+				or related.Status = 2     
+				or related.Status = 5	  
+				or related.Status = 9	  
+				or related.Status = 10)	  
+
+
+    	DataAreas is a DataArea set
+    	
+    	AuditingRel
+			one-to-many relation to AsyncAuditEntry
+			Field Mapping uses ByBusClassID
+				related.Reference.BusinessClassName = "AsyncSynchronizedGroup"
+				related.Reference.BusinessObjectKey = UniqueID

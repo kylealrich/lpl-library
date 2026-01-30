@@ -1,0 +1,222 @@
+ContractTermAndConditionAttachment is a BusinessClass
+    owned by po
+    prefix is CTCA
+    sql name is ContractTandCAttachment
+
+	Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+
+    Local Fields
+        LocalUserTemplate                 is like UserTemplate
+		LocalAttributeCtr   			  is Numeric 2
+
+    Ontology
+    	symbolic key is ContractTermAndConditionAttachment
+
+    Persistent Fields
+		Attachment			is an AlternateAttachment
+		AttachmentReference is a Description
+		DisplayOrder
+
+	Transient Fields
+		NewDisplayOrder			is a DisplayOrder
+		
+    Field Rules
+    	Attachment
+    		required
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+ 	Sets
+ 		ByDisplayOrder
+ 			duplicates
+ 			Sort Order
+				ContractGroup
+ 				Contract
+ 				ContractArticle
+ 				ContractTermAndCondition
+ 				DisplayOrder
+ 				ContractTermAndConditionAttachment
+
+	Conditions
+		ActionsAreValid
+			restricted
+			when (ContractTermAndCondition.AllowDescriptionUpdate
+			and	  (DraftState
+			or	   AddendumState))
+		DraftState
+			restricted
+			when (Contract.ContractStatus.Draft
+			and	  ContractTermAndCondition.ContractStatus.Draft)
+		AddendumState
+			restricted
+			when (Contract.ContractStatus.Addendum
+			and	  ContractTermAndCondition.ContractStatus.Addendum)
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		TermAndConditionUpdateExists
+			restricted
+			when (TermAndConditionUpdateRel exists)
+		DocxAttachment
+			restricted
+			when (Attachment.MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		InvalidIDMAttachment
+			restricted
+			when (ContractTermAndConditionAttachment entered
+			and	not DocxAttachment
+			and   Contract.IsUsingIDMTemplate)
+	
+	Derived Fields
+		DerivedInvalidIDMAttachmentWarningMessage is a MessageField
+			"AttachmentWillNotBeAppendedToTheContractDocument.FileTypeNotSupported"
+
+        MissingTemplateMsg is a MessageField
+            "TheTemplateCouldNotBeFound"
+            
+        AttachmentTemplate is a DerivedField
+            type is XMLDocument
+            default label is untranslatable
+            restricted
+            LocalUserTemplate = "ContractTermsAndConditionsAttachments_ST"
+            if (UserTemplateRel exists)
+                AttachmentTemplate = template.ContractTermsAndConditionsAttachments_ST document for this instance
+            else
+                AttachmentTemplate = MissingTemplateMsg 
+            return AttachmentTemplate
+
+	Relations
+		TermAndConditionUpdateRel
+			one-to-many relation to ContractTermAndConditionUpdate
+			Field Mapping uses symbolic key
+				related.ContractGroup 				= ContractGroup
+				related.Contract 					= Contract
+				related.ContractArticle				= ContractArticle
+				related.ContractTermAndCondition	= ContractTermAndCondition
+			Instance Selection
+				where (related.AttachmentToDelete = ContractTermAndConditionAttachment
+				and	   related.SpecificRequestType.DeleteAttachment
+				and	   (related.Status.Draft
+				or	    related.Status.Pending))
+
+		UserTemplateRel
+			one-to-one relation to UserTemplate
+			Field Mapping uses symbolic key
+				related.UserTemplate = LocalUserTemplate
+
+    Actions
+	    Create is a Create Action
+	    	valid when (ActionsAreValid)
+			
+			Entrance Rules
+				if (AddendumState)
+					invoke Update Addendum ContractTermAndCondition set
+						invoked.AttachmentChanged = true
+			Field Rules
+	 			DisplayOrder
+	 				autosequence using ContractTermAndCondition.LastAttachmentDisplayOrder
+			
+	    	Action Rules
+				if (!ContractTermAndCondition.AdhocTermAndCondition)
+					constraint (ContractTermAndCondition.TermAndCondition.AllowModification)
+						"CannotCreateThisAttachment;TheTermAndConditionDoesNotAllowModifications"
+				
+				if (ContractTermAndCondition.AdhocTermAndCondition
+				or  ContractTermAndCondition.TermAndCondition.AllowModification)
+					if (ContractTermAndCondition.AddendumState)
+						invoke Addendum.Update ContractTermAndCondition
+							invoked.Modified = true
+					else
+						invoke AddAttachmentDuringNegotiation ContractTermAndCondition
+							invoked.Modified = true
+					
+		AutoCreate is a Create Action
+			restricted
+			Exit Rules
+				if (Contract.CreateFromLibrary)
+					if (ContractTermAndCondition.AddendumState)
+						invoke Addendum.Update ContractTermAndCondition
+							invoked.AttachmentChanged = true
+
+		AutoCreateFromRepository is a Create Action
+			restricted
+
+	    Update is an Update Action
+	    	valid when (ActionsAreValid)
+	    	Entrance Rules
+				if (AddendumState)
+					invoke Update Addendum ContractTermAndCondition set
+						invoked.AttachmentChanged = true
+	    	Action Rules
+				if (!ContractTermAndCondition.AdhocTermAndCondition)
+					constraint (ContractTermAndCondition.TermAndCondition.AllowModification)
+						"CannotUpdateThisAttachment;TheTermAndConditionDoesNotAllowModifications"
+	    
+				if (ContractTermAndCondition.AdhocTermAndCondition
+				or  ContractTermAndCondition.TermAndCondition.AllowModification)
+					if (ContractTermAndCondition.AddendumState)
+						invoke Addendum.Update ContractTermAndCondition
+							invoked.Modified = true
+					else
+						invoke Update ContractTermAndCondition
+							invoked.Modified = true
+
+		UpdateDisplayOrder is an Update Action
+			restricted
+
+	    Delete is a Delete Action
+	    	valid when (ActionsAreValid)
+	    	Action Rules
+				if (!ContractTermAndCondition.AdhocTermAndCondition)
+					constraint (ContractTermAndCondition.TermAndCondition.AllowModification)
+						"CannotDeleteAttachment;TheTermAndConditionDoesNotAllowModifications"
+	    
+				if (ContractTermAndCondition.AdhocTermAndCondition
+				or  ContractTermAndCondition.TermAndCondition.AllowModification)
+					if (ContractTermAndCondition.AddendumState)
+						invoke Addendum.Update ContractTermAndCondition
+							invoked.Modified = true
+					else
+						invoke Update ContractTermAndCondition
+							invoked.Modified = true
+
+		DeleteFromRequest is a Delete Action
+			restricted
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

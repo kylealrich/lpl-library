@@ -1,0 +1,152 @@
+TrialItemCompaniesAndLocations is a BusinessClass
+	owned by recall
+	
+	prefix is Tria
+	
+	Ontology
+		symbolic key is TrialItemCompaniesAndLocations
+	
+	Patterns
+	
+	Persistent Fields
+		Requester
+        DefaultDistributionAccount      is a FinanceCodeBlock
+        Requisition
+			context of TrialItemCompaniesAndLocations.InventoryCompany
+			delete ignored
+		RequisitionLine
+			context of TrialItemCompaniesAndLocations.InventoryCompany
+			delete ignored
+		Buyer
+		SelectedForTrialRequisition  	is Boolean
+					
+	Local Fields
+		LocalCompany 		is like InventoryCompany 
+		LocalRequisition	is like Requisition
+	
+	Derived Fields
+
+		DerivedReqStatus            is a DerivedField	
+			type is MessageField
+			default label is "Status"
+			if (!RequisitionNotCreated)
+				return Requisition.DerivedStatusMessage
+			else 
+				return blank
+
+		ProposedItemCount is a DerivedField 
+			type is Numeric 2
+			restricted
+			return instance count of ProposedItemRel	
+	Conditions
+	
+		RequisitionNotCreated
+			restricted
+			when (Requisition !entered)
+		
+		CanSelectForTrial
+			restricted
+			when (RecallNotice.CanCreateTrialRequisitions
+			and   !SelectedForTrialRequisition)
+			
+		CanCreateOrUpdate
+			restricted
+			when (!RecallNotice.TrialEndDateEntered
+			and    RecallNotice.ProposedItem.ApprovedPendingTrial)
+	
+		RequisitionIsNotReleased  
+			restricted
+			when (RequisitionRel exists
+			and   RequisitionRel.Status.Unreleased)			
+	Relations
+	
+		RequisitionRel
+			one-to-many relation to Requisition
+			delete cascades
+			Field Mapping uses symbolic key
+				related.Company					= LocalCompany
+				related.Requisition				= LocalRequisition
+
+		RequisitionLineRel
+			one-to-many relation to RequisitionLine
+			delete cascades
+			Field Mapping uses symbolic key
+				related.Company					= TrialItemCompaniesAndLocations.InventoryCompany
+				related.Requisition				= Requisition
+				related.RequisitionLine			= RequisitionLine
+
+		ProposedItemRel 
+			one-to-many relation to RecallProduct 
+			Field Mapping uses symbolic key
+				related.RecallGroup 			= RecallGroup 
+				related.RecallNotice            = RecallNotice 
+	
+	Field Rules
+	
+	Actions
+	
+		Create is a Create Action
+			valid when (CanCreateOrUpdate)
+			Action Rules
+				SelectedForTrialRequisition = true 
+				if ProposedItemCount = 1
+					invoke Update ProposedItemRel 
+						invoked.SelectedForTrialRequisition = true				
+		
+		Update is an Update Action
+			valid when (CanCreateOrUpdate)
+		
+		Delete is a Delete Action
+			valid when (RequisitionNotCreated)
+			Action Rules
+				constraint (Requisition !entered)
+					"CannotDeleteRecordIfRequisitionHasBeenCreated"
+					
+		SelectForTrial is an Instance Action
+			valid when (CanSelectForTrial) 
+			Action Rules
+				SelectedForTrialRequisition = true
+				
+		SelectAllForTrial is an Instance Action
+			valid when (CanCreateOrUpdate)
+			Action Rules
+				invoke SelectAllRecordsForTrial
+					invoked.PrmRecallGroup  = RecallGroup
+					invoked.PrmRecallNotice = RecallNotice
+					
+		SelectAllRecordsForTrial is a Set Action
+			restricted
+			Parameters
+				PrmRecallGroup     is a RecallGroup
+				PrmRecallNotice    is a RecallNotice
+				
+			Instance Selection
+				where (PrmRecallGroup  = RecallGroup
+				and    PrmRecallNotice = RecallNotice
+				and    SelectedForTrialRequisition = false)
+				
+			Action Rules
+			
+				Instance Rules
+					SelectedForTrialRequisition = true
+		
+		UnselectForTrial is an Instance Action
+			valid when (SelectedForTrialRequisition)
+			Action Rules
+				SelectedForTrialRequisition = false
+				
+		CancelTrial is an Instance Action
+			restricted
+			Action Rules
+			
+				LocalCompany 		= TrialItemCompaniesAndLocations.InventoryCompany
+				LocalRequisition	= Requisition
+				if (RequisitionRel.Status.Unreleased)
+					Requisition		= 0
+					RequisitionLine = 0
+					
+				invoke CancelTrialItems RequisitionRel
+
+				Requisition 	= 0
+				RequisitionLine = 0				
+	

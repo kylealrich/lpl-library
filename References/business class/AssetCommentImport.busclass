@@ -1,0 +1,395 @@
+AssetCommentImport is a BusinessClass
+	owned by am
+	prefix is ASTCM
+	
+	Ontology
+		symbolic key is AssetCommentImport
+		
+	Patterns
+		implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+	Persistent Fields
+		RunGroup
+        RecordInError               is Boolean
+		ErrorMessage				is Alpha 150
+		AssetManagementInterfaceResult		
+		Asset
+		AssetComment
+		Name						is a CommentName
+			default label is "Title"
+		Type						is AlphaUpper 1
+			States
+				Addition				value is "A"
+				Adjustment				value is "J"
+				Disposal				value is "D"
+				Transfer				value is "T"
+				General					value is "C"
+		Comment						is a NewCommentText
+		Attachment					is an AlternateAttachment
+		AssetLease
+		ConversionNumber			is AlphaUpper 22
+		Company                		is an AssetCompany
+
+	Local Fields
+    	InterfacedAssetComment		is an AssetComment view
+    	LocalAttributeCtr   		is Numeric 2
+    	LocalByAsset				is AlphaUpper size 1
+            States
+                ByAsset				value is "A"
+                    default label is "by Asset"
+                ByConversionNumber	value is "C"
+                    default label is "by Conversion Number"
+		LocalCompanyGroup			is a GeneralLedgerCompanyGroup	
+	Field Rules
+    	RunGroup
+    		initial value is AssetImport.RunGroup
+    		default to AssetImport.RunGroup
+
+		Name
+			required
+
+		Type
+			required
+			
+	Relations
+		AssetCommentRel
+			one-to-one relation to AssetComment
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.AssetComment			= AssetComment
+
+		AssetImportRel
+            one-to-one relation to AssetImport
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+                related.AssetImport 			= ConversionNumber
+				        
+		AssetRel
+			one-to-one relation to Asset
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+                related.Asset		 			= ConversionNumber
+                
+		CompanyGroupRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup 	= LocalCompanyGroup
+				related.Company						= Company
+	
+	Sets
+		ByType
+            indexed
+            Sort Order
+            	FinanceEnterpriseGroup
+				AssetImport
+				Type
+				AssetCommentImport
+                					
+	Conditions
+	
+		HasAttachment
+			restricted
+			when (Attachment entered)
+	Rule Blocks
+
+		InterfaceThisAssetComment
+
+			initialize RecordInError
+			initialize ErrorMessage
+			
+			if (AssetCommentRel exists
+			and Asset.InterfaceInProgress)
+				invoke Update AssetCommentRel
+					fill in fields from this instance
+					invoked.AssetManagementInterfaceResult = PrmAssetManagementInterfaceResult
+			else
+				invoke Create AssetComment
+					assign result to InterfacedAssetComment
+					resume on error
+						RecordInError	= true
+						ErrorMessage	= error message
+					invoked.AssetManagementInterfaceResult	= PrmAssetManagementInterfaceResult
+					if (LocalByAsset.ByConversionNumber)
+						invoked.Asset		= AssetImportRel.Asset
+					else
+						invoked.Asset		= AssetRel.Asset
+					invoked.Comment			= Comment
+					invoked.AssetComment	= AssetComment
+					invoked.Type			= Type
+					invoked.Name			= Name
+					invoked.Attachment		= Attachment
+
+			if (!RecordInError)
+				if (LocalByAsset.ByConversionNumber)
+					Asset		                = AssetImportRel.Asset
+				else
+					Asset					    = AssetRel.Asset
+				AssetComment					= InterfacedAssetComment.AssetComment
+				AssetManagementInterfaceResult	= PrmAssetManagementInterfaceResult
+			else
+				invoke IncrementErrorCount PrmAssetManagementInterfaceResult
+				invoke SetRecordInError AssetImport	
+				
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+	
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+		
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+													
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop
+
+		InterfaceAssetComments is a Set Action
+			restricted
+			completion message is "InterfaceAssetCommentsSubmitted"
+			Parameters
+				PrmRunGroup							is a RunGroup
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+		        PrmFromRange						is like AssetImport
+		        PrmToRange							is like AssetImport
+				PrmAssetManagementInterfaceResult	is a AssetManagementInterfaceResult
+
+			Parameter Rules
+				PrmRunGroup							
+					display "PrmRunGroup<PrmRunGroup>"
+				PrmFinanceEnterpriseGroup			
+					display "PrmFinanceEnterpriseGroup<PrmFinanceEnterpriseGroup>"
+		        PrmFromRange
+		        	display "PrmFromRange<PrmFromRange>"						
+		        PrmToRange	
+		        	display "PrmToRange<PrmToRange>"						
+				PrmAssetManagementInterfaceResult	
+					display "PrmAssetManagementInterfaceResult<PrmAssetManagementInterfaceResult>"		
+			
+			Instance Selection			
+				where (RunGroup							= PrmRunGroup
+				and    FinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+				and    AssetImportRel.Asset				entered
+				and   !AssetImport.RecordInError
+
+				and   (PrmFromRange						<= AssetImport
+				and   (AssetImport						<= PrmToRange
+				or     PrmToRange						not entered)))
+
+			Local Fields
+				CommitNow						is Boolean
+
+			Sort Order
+				FinanceEnterpriseGroup
+				AssetImport
+				AssetCommentImport
+				
+			Action Rules
+
+				Instance Rules
+					LocalByAsset = PrmAssetManagementInterfaceResult.AttributeBy
+					if (PrmAssetManagementInterfaceResult.ErrorCount < PrmAssetManagementInterfaceResult.ErrorLimit)
+						include InterfaceThisAssetComment
+											
+		InterfaceAssetCommentsByLeaseCompany is a Set Action
+			restricted
+			completion message is "InterfaceAssetsSubmitted"
+			Parameters
+				PrmRunGroup							is a RunGroup
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+		        PrmLeaseCompany						is a GeneralLedgerCompany
+		        PrmLease							is a Lease
+		        PrmFromRange						is AlphaUpper 22
+		        PrmToRange							is AlphaUpper 22
+				PrmAssetManagementInterfaceResult	is a AssetManagementInterfaceResult
+					context of PrmFinanceEnterpriseGroup
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmLeaseCompany
+					required
+
+			Instance Selection			
+				where (RunGroup									= PrmRunGroup
+				and    FinanceEnterpriseGroup					= PrmFinanceEnterpriseGroup
+				and    AssetLease.LeaseCompany					= PrmLeaseCompany
+				and   (AssetLease.Lease							= PrmLease
+				or     PrmLease									not entered)
+				and   (PrmFromRange								<= ConversionNumber
+				and   (ConversionNumber	    					<= PrmToRange
+				or     PrmToRange								not entered)))
+
+			Local Fields
+				Skip is Boolean
+				
+			Sort Order
+				FinanceEnterpriseGroup
+				AssetLease.LeaseCompany
+				AssetLease.Lease
+				AssetCommentImport
+				
+			Action Rules
+
+				Instance Rules
+
+					LocalByAsset = PrmAssetManagementInterfaceResult.AttributeBy
+					if (ConversionNumber entered
+					and LocalByAsset.ByAsset)
+						if(AssetRel not exists)
+							RecordInError	= true
+							ErrorMessage	= "Asset Does Not Exist"
+					if (LocalByAsset.ByConversionNumber)
+						Skip = AssetImportRel.RecordInError
+					else
+						Skip = false
+					if (PrmAssetManagementInterfaceResult.ErrorCount < PrmAssetManagementInterfaceResult.ErrorLimit
+					and AssetRel.Asset entered
+					and !Skip
+					and !RecordInError)
+						include InterfaceThisAssetComment
+
+		InterfaceAssetCommentsByCompany is a Set Action
+			restricted
+			completion message is "InterfaceAssetsSubmitted"
+			Parameters
+				PrmRunGroup							is a RunGroup
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+		        PrmCompany							is a GeneralLedgerCompany
+		        PrmCompanyGroup         			is a GeneralLedgerCompanyGroup
+		        PrmFromRange						is AlphaUpper 22
+		        PrmToRange							is AlphaUpper 22
+				PrmAssetManagementInterfaceResult	is a AssetManagementInterfaceResult
+					context of PrmFinanceEnterpriseGroup
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCompanyGroup
+		    		LocalCompanyGroup = PrmCompanyGroup
+
+			Instance Selection			
+				where (RunGroup									= PrmRunGroup
+				and    FinanceEnterpriseGroup					= PrmFinanceEnterpriseGroup
+				and   (PrmCompany not entered      or   Company = PrmCompany)
+				and   (PrmCompanyGroup not entered or CompanyGroupRel exists)
+				and   (PrmFromRange								<= ConversionNumber
+				and   (ConversionNumber	                        <= PrmToRange
+				or     PrmToRange								not entered)))
+
+			Local Fields
+				Skip is Boolean
+
+			Sort Order
+				FinanceEnterpriseGroup
+				Company
+				AssetCommentImport
+				
+			Action Rules
+
+				Instance Rules
+					
+					LocalByAsset = PrmAssetManagementInterfaceResult.AttributeBy
+					if (ConversionNumber entered
+					and LocalByAsset.ByAsset)
+						if(AssetRel not exists)
+							RecordInError	= true
+							ErrorMessage	= "Asset Does Not Exist"
+					if (LocalByAsset.ByConversionNumber)
+						Skip = AssetImportRel.RecordInError
+					else
+						Skip = false
+					if (PrmAssetManagementInterfaceResult.ErrorCount < PrmAssetManagementInterfaceResult.ErrorLimit
+					and AssetRel.Asset entered
+					and !Skip
+					and !RecordInError)
+						include InterfaceThisAssetComment					
+
+		FixAssetComments is a Set Action
+			restricted
+
+			completion message is "FixAssetCommentsSubmitted"
+			disable checkpoint
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmAssetManagementInterfaceResult	is an AssetManagementInterfaceResult 
+			Instance Selection			
+				where (RunGroup							not entered
+				and    FinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+				and    AssetImport.AssetManagementInterfaceResult = PrmAssetManagementInterfaceResult	
+				and    AssetImport.Asset				entered
+				and   !AssetImport.RecordInError
+				and    AssetManagementInterfaceResult	not entered)
+
+			Sort Order
+				FinanceEnterpriseGroup
+				AssetImport
+				AssetCommentImport
+				
+			Action Rules
+				Instance Rules
+	    			RunGroup  = AssetImport.RunGroup
+					AssetManagementInterfaceResult = PrmAssetManagementInterfaceResult
+					
+		FastDelete is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		DeleteImportedRecords is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRunGroup				  			is a RunGroup
+				PrmAssetManagementInterfaceResult	is like AssetManagementInterfaceResult
+
+			Instance Selection
+				where (RunGroup							= PrmRunGroup
+                and    FinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+                and    AssetManagementInterfaceResult	= PrmAssetManagementInterfaceResult
+				and    Name entered
+				and   !RecordInError
+				and   !AssetImport.RecordInError)
+				
+			Action Rules
+			
+				Instance Rules
+				    invoke FastDelete
+
+		ResetAsset is an Instance Action
+			restricted
+			Action Rules
+				Asset		 = blank
+				AssetComment = blank

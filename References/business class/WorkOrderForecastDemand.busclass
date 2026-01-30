@@ -1,0 +1,167 @@
+WorkOrderForecastDemand is a BusinessClass
+	owned by wo
+	prefix is WDF
+	classic name is WODMNDFCST
+
+	Ontology
+		symbolic key is WorkOrderForecastDemand
+			classic set name is WDFSET1
+			classic name for InventoryLocation is LOCATION
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		Quantity
+		Status    is Numeric size 1
+			States
+				Unreleased   value is 1
+				Released     value is 2
+				InScheduling value is 3
+
+		WorkOrderSchedule is Numeric size 12
+
+
+
+
+		Sequence3
+			classic name is SEQ
+
+	Derived Fields
+		ContextMessageText is a MessageField
+			restricted
+			"ForecastDemandForItem<WorkOrderForecastDemand.Item>"
+
+	Conditions
+		RecordExists
+			restricted
+			when (WorkOrderForecastDemand exists)
+
+		IsGatheredDemand
+			restricted
+			when (WorkOrderSchedule entered)
+
+		IsWorkOrderDemandForecastToSchedule
+			restricted
+			when (Status.Released
+			and   WorkOrderSchedule not entered)
+
+		IsWorkOrderDemandForecastChange
+			restricted
+			when (Status entered)
+
+		IsWorkOrderForecastDemandReleased
+			restricted
+			when (Status.Released)
+
+	Relations
+
+		KitItemRel
+			one-to-one relation to KitItem
+			Field Mapping uses Set2
+				related.MakeCode					= "S"
+				related.ItemGroup					= Company.ItemGroup
+				related.KitItem.Company				= Company
+				related.KitItem.InventoryLocation	= InventoryLocation
+				related.KitItem.Item				= WorkOrderForecastDemand.Item
+
+
+	Sets
+		Set3
+			indexed
+			Instance Selection
+				where (IsGatheredDemand)
+			Sort Order
+				WorkOrderSchedule
+				Sequence3
+
+		Set4
+			indexed
+			Instance Selection
+				where (IsWorkOrderDemandForecastToSchedule)
+			Sort Order
+				Company
+				InventoryLocation
+				WorkOrderForecastDemand.Item
+				WorkOrderForecastDemand.ExpectedDeliveryDate
+
+
+
+	Field Rules
+
+		Company
+			constraint (Company.WorkOrderInUse entered)
+				"CompanyNotSetUpForWorkOrders"											
+
+		InventoryLocation
+
+			constraint (!InventoryLocation.Status.Inactive)
+				"InventoryLocation<InventoryLocation>IsInactive"	           		
+
+			constraint (!InventoryLocation.DemandSource.DocumentDemand)
+				"LocationDoesNotUseForecastDemand"										
+
+		WorkOrderForecastDemand
+			if (WorkOrderForecastDemand.Item entered)
+				constraint (KitItemRel exists)
+					"FinishedGoodItemWasNotFound"										
+
+		Quantity
+			required
+			constraint (Quantity > 0)
+				"QuantityMustBeGreaterThanZero"											
+
+
+	StateCycles
+
+		WorkOrderForecastDemandProcessing is a StateCycle
+			state field is Status
+
+			Unreleased is a State
+				Create is a Create Action
+
+				Update is an Update Action
+
+				Delete is a Delete Action
+
+				Release is an Instance Action
+					Action Rules
+						constraint (InventoryLocation.Status.Active
+						or 			InventoryLocation.Status.AddInactive)
+							"CannotRelease;InventoryLocation<InventoryLocation>IsInactive" 	 	
+
+						make transition to Released
+
+			Released is a State
+				Unrelease is an Instance Action
+					Action Rules
+						make transition to Unreleased
+
+				Update is an Update Action
+					restricted
+
+				Inschedule is an Instance Action
+					restricted
+					Parameters
+						PrmWorkOrderSchedules is Numeric size 12
+					Action Rules
+						WorkOrderSchedule = PrmWorkOrderSchedules
+						make transition to InScheduling
+
+			InScheduling is a State
+				Release is an Instance Action
+					restricted
+					Parameters
+						PrmWorkOrderSchedules is Numeric size 12
+					Action Rules
+						WorkOrderSchedule = PrmWorkOrderSchedules
+						make transition to Released
+
+				Update is an Update Action
+					restricted
+
+				Delete is a Delete Action
+					restricted
+

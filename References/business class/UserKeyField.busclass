@@ -1,0 +1,279 @@
+UserKeyField is a BusinessClass
+    owned by repository
+    prefix is uskf
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+				
+    Ontology
+        symbolic key is UserKeyField
+    
+    Persistent Fields
+    	KeyFieldName		is LPLName
+    		default label is "KeyField"	
+    	Status 				is a UserObjectStatus
+    	LPL             	is LPL
+    	Description			is a ConfigDescription
+    	UserEditorType
+    	ErrorText			is Text
+    
+	Field Rules
+		KeyFieldName
+    		required 
+    		
+    		constraint (not TypeFieldRel exists
+    		or          TypeFieldRel.IsConfiguration) 
+    			"<KeyFieldName>KeyFieldAlreadyDefined."
+    		
+		LPL
+			required  
+			
+			if (Status.Active
+			and not SkipParse
+			and LPL changed
+			and HasBusinessClass) 
+				LocParseText = ParseText
+	
+				if (not LocParseText = blank)
+					confirmation required
+						"<LocParseText>:_User_Key_FieldIsInvalid.__DoYouWantToSaveAnyway?"
+					
+					Status = Status.Invalid		
+					ErrorText = LocParseText				
+				
+
+
+
+		UserEditorType
+			default to UserEditorType.LPL	
+			
+		Status
+			if (Status.Active)
+				initialize ErrorText				
+			
+    Derived Fields
+		ConfigActor is a DerivedField
+			type is Actor
+			default label is "Actor"
+			return blank
+			
+    	ParseText is a NativeField
+			type is Text		
+			
+
+		UserBusClassName is a DerivedField
+			type is LPLName		
+			default label is "UserBusinessClassName"
+			return first UserBusinessClass set.BusinessClass
+					
+		UserBusClassLPL is a DerivedField
+			type is LPL	
+			default label is "UserBusinessClassLPL "	
+			return first UserBusinessClass set.LPL			
+		
+	Local Fields
+		LocParseText is Text	
+		LocParsed    is Boolean  
+		SkipParse    is Boolean
+						
+    Conditions
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when (true)
+			
+		HasBusinessClass
+			default label is untranslatable
+			when (UserBusinessClass set exists)		
+		
+		HasMultipleBusinessClasses
+			default label is untranslatable
+   			when (instance count of UserBusinessClass set > 1)
+   			
+   		HasErrorText
+   			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+			
+    Relations
+    	TypeFieldRel 
+    		one-to-one relation to TypeField
+			Field Mapping uses symbolic key
+				related.TypeField 	= KeyFieldName
+				
+		KeyFieldRel							
+			one-to-one relation to KeyField 
+			Field Mapping uses symbolic key
+				related.KeyField	= KeyFieldName
+				
+   	Actions
+    	Create is a Create Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+		CreateNoEvent is a Create Action
+			restricted
+			
+			Entrance Rules
+				SkipParse = true
+
+
+
+
+		CreateFromSnapshot is a Create Action
+    		restricted
+    		bypass field rules
+    		
+			Entrance Rules
+				SkipParse = true
+    			
+    	Update is an Update Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+		UpdateNoEvent is an Update Action
+			restricted
+			
+			Entrance Rules
+				SkipParse = true
+
+
+
+
+		UpdateFromSnapshot is an Update Action
+    		restricted
+    		bypass field rules
+			
+			Entrance Rules
+				SkipParse = true
+
+    	Delete is a Delete Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+		DeleteNoEvent is a Delete Action
+			restricted
+			Entrance Rules
+				SkipParse = true
+
+
+		DeleteFromSnapshot is a Delete Action
+    		restricted
+    		bypass relational integrity rules
+    		
+			Entrance Rules
+				SkipParse = true
+    	
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		Action Rules
+    			invoke ActivateNoEvent
+    			
+    		Exit Rules
+    			invoke FireEvent
+    		
+    	ActivateNoEvent is an Instance Action
+    		restricted
+    		Action Rules
+    			if (not Status.Active)
+	    			if (not SkipParse
+	    			and HasBusinessClass) 
+	    				LocParseText = ParseText
+					
+						if (not LocParseText = blank)
+
+
+
+
+							constraint(LocParseText = blank)
+								"<LocParseText>:_User_Key_FieldIsInvalid._Cannot_Activate."				
+					
+					Status = Status.Active
+					initialize ErrorText
+    		
+
+
+
+
+
+
+						
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		Action Rules
+    			Status =  Status.Inactive
+    		Exit Rules
+    			for each UserBusinessClass set
+    				if (each.Status.Active)
+    					invoke DeactivateNoEvent each 
+    			invoke FireEvent
+    			
+    	DeactivateNoEvent is an Instance Action
+    		valid when (not Status.Inactive)
+    		restricted
+    		Action Rules
+    			Status =  Status.Inactive
+
+    			
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+    		Exit Rules
+    			invoke FireEvent
+    			invoke Invalidate UserBusinessClass set 
+    			
+    	FireEvent is an Instance Action
+			restricted    	
+			
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+				ParamTagRelated is Boolean
+					default label is "TagKnownRelatedConfiguredItemsForUserBusinessClasses"
+					
+			Parameter Rules
+				ParamTagRelated
+					initial value is true
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserKeyFieldIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserKeyFieldIsInvalid,TagAnyway?"
+				
+				for each UserBusinessClass set
+					if (each.Status.Inactive)
+						confirmation required
+							"UserBusinessClassIsInactive,TagAnyway?"
+							
+					if (each.Status.Invalid)
+						confirmation required
+							"UserBusinessClassIsInvalid,TagAnyway?"
+					
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance
+					
+				for each UserBusinessClass set
+					invoke TagItem each
+						resume on error
+						invoked.ParamConfigurationTag = ParamConfigurationTag
+						invoked.ParamTagRelated = ParamTagRelated	
+						invoked.ParamTagRelated = ParamTagRelated
+						invoked.ParamFromUserKeyfield = true
+   
+   	Sets
+    	ByUserKeyField
+    		indexed
+    		Sort Order
+    			KeyFieldName

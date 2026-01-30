@@ -1,0 +1,302 @@
+StudentActivityBankAccount is a BusinessClass
+    owned by studentactivities
+    prefix is SABA
+
+    Ontology
+    	symbolic key is StudentActivityBankAccount
+
+    Persistent Fields
+		Description					is Alpha 60
+		BankAccountActivity			is a SchoolActivityAccount
+		NonSufficientFundsActivity	is a SchoolActivityAccount
+		BankTransactionActivity		is a SchoolActivityAccount
+		ReconciledVarianceActivity	is a SchoolActivityAccount
+		AutoNumberDisbursements		is Boolean
+		LastDisbursementNumber		is Numeric 10
+		LastDepositNumber			is Numeric 10
+		CheckDocumentTemplate
+		PrintedLaserCheck			is an AlternateAttachment
+		AccountBeginningBalance		is an InternationalAmount 
+		Active
+
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+	Local Fields
+		LocalBankTransactionType			is a BankTransactionType
+		LocalStudentActivityBankTransaction	is a StudentActivityBankTransaction
+		LocalAttributeCtr   				is Numeric 2			
+
+	Derived Fields
+		TotalSelectedForBatch is a DerivedField
+			type is like InternationalAmount
+			return (sum DisbursementsForLaserCheckRel.TransactionAmount) 
+						
+		TotalReleasedForPayment is a DerivedField
+			type is like InternationalAmount
+			return (sum DisbursementsReleasedForPaymentRel.TransactionAmount) 
+
+		NoDisbursementsForProcessingMsg is a MessageField
+			"NoDisbursementsAvailableForProcessing"
+
+		AutoDisbursementMessage is a MessageField
+			"DisbursementNumberIsAutoAssigned"
+			
+		AutoDisbursementConditionalMsg is a ConditionalField
+			type is Alpha 40		
+			if (AutoNumberDisbursements)
+				AutoDisbursementMessage
+			else
+				blank
+					
+		CurrentDisbursementNumber is a ConditionalField
+			type is Numeric 10
+			if (AutoNumberDisbursements)
+				(LastDisbursementNumber + 1)
+			else
+				blank
+
+		LastStatementEndingBalance is a DerivedField
+			type is like InternationalAmount
+			if (StudentActivityBankStatementByDateRel exists)
+				return first StudentActivityBankStatementByDateRel.StatementEndingBalance
+			else
+				return AccountBeginningBalance
+
+		OutstandingDeposits is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingDepositsRel.TransactionAmount)
+
+		OutstandingChecks is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingChecksRel.TransactionAmount)
+
+		OutstandingAdjustments is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingAdjustmentsRel.CreditAmount - sum OutstandingAdjustmentsRel.DebitAmount)
+			
+		CurrentCashBalance is a DerivedField
+			type is like InternationalAmount
+			return (LastStatementEndingBalance + OutstandingDeposits - OutstandingChecks + OutstandingAdjustments)
+
+						
+	Sets
+
+	Relations
+		DisbursementsForLaserCheckRel is a StudentActivityBankTransaction(StudentActivityBankAccount) set
+			Instance Selection
+				where ((LocalStudentActivityBankTransaction	entered
+				and    (related.BankTransactionType				= LocalBankTransactionType
+				and     related.StudentActivityBankTransaction	= LocalStudentActivityBankTransaction))
+				or     LocalStudentActivityBankTransaction	not entered
+				and    related.SelectedForBatchCheckPrinting
+				and    !related.CheckPrinted)
+
+		DisbursementsReleasedForPaymentRel is a StudentActivityBankTransaction(StudentActivityBankAccount) set
+			Instance Selection
+				where (related.BankTransactionType.Disbursement
+				and    related.Status.Released
+				and    !related.SelectedForBatchCheckPrinting
+				and    !related.CheckPrinted)
+				
+		StudentActivityBankStatementByDateRel
+			one-to-many relation to StudentActivityBankStatement
+			Field Mapping uses ByDescendingDate
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.Status.Closed)
+
+		OutstandingDepositsRel is a StudentActivityBankTransaction(StudentActivityBankAccount) set
+			Instance Selection
+				where ((related.Status.Released
+				or      related.ReconciledDate > StudentActivityBankStatementByDateRel.StatementDate)
+				and     related.BankTransactionType.Deposit)
+				
+		OutstandingChecksRel is a StudentActivityBankTransaction(StudentActivityBankAccount) set
+			Instance Selection
+				where ((related.Status.Released
+				or      related.ReconciledDate > StudentActivityBankStatementByDateRel.StatementDate)
+				and   	related.BankTransactionType.Disbursement)
+				
+		OutstandingAdjustmentsRel is a StudentActivityBankTransaction(StudentActivityBankAccount) set
+			Instance Selection
+				where ((related.Status.Released
+				or      related.ReconciledDate > StudentActivityBankStatementByDateRel.StatementDate)
+				and    (related.BankTransactionType.Adjustment
+				or      related.BankTransactionType.NSFRecord
+				or      related.BankTransactionType.Transfer))
+
+
+
+
+
+
+
+				
+
+	Conditions
+		BankRecordExists
+			when (StudentActivityBankAccount exists)
+
+		DisbursementsReleasedForPaymentExist
+			when (DisbursementsReleasedForPaymentRel exists)
+
+		DisbursementsSelectedForBatchPrintingExist
+			when (DisbursementsForLaserCheckRel exists)
+
+		NoDisbursementsAvailableForProcessing
+			when (!DisbursementsReleasedForPaymentExist
+			and   !DisbursementsSelectedForBatchPrintingExist)
+
+		LaserCheckProcessing
+			when (CheckDocumentTemplate entered)
+
+		ClosedBankStatementsExist
+			when (StudentActivityBankStatementByDateRel exists)
+
+
+
+
+	Field Rules
+		Description
+			required
+			
+		BankAccountActivity
+			required
+			constraint (BankAccountActivity.StudentActivityAccount.ActivityLevel.Detail)
+				"MustBeDetailLevelActivity"
+			constraint (BankAccountActivity.StudentActivityAccount.StudentActivityType.Asset)
+				"MustBeAssetTypeActivity"
+
+		NonSufficientFundsActivity
+			required
+			constraint (BankAccountActivity.StudentActivityAccount.ActivityLevel.Detail)
+				"MustBeDetailLevelActivity"
+			constraint (NonSufficientFundsActivity.StudentActivityAccount.StudentActivityType.Asset)
+				"MustBeAssetTypeActivity"
+
+		ReconciledVarianceActivity
+			required
+			constraint (BankAccountActivity.StudentActivityAccount.ActivityLevel.Detail)
+				"MustBeDetailLevelActivity"
+			constraint (ReconciledVarianceActivity.StudentActivityAccount.StudentActivityType.Liability)
+				"MustBeLiabilityTypeActivity"
+						
+		BankTransactionActivity
+			required
+			constraint (BankAccountActivity.StudentActivityAccount.ActivityLevel.Detail)
+				"MustBeDetailLevelActivity"
+			constraint (BankTransactionActivity.StudentActivityAccount.StudentActivityType.Liability)
+				"MustBeLiabilityTypeActivity"
+
+
+  	Attach Rules
+		constraint (Active)
+			"BankAccountIsInactive"
+
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with PrintedLaserCheck
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with PrintedLaserCheck
+
+	Actions
+		SelectAllDisbursementsReleasedForPayment is an Instance Action
+
+			Action Rules
+				invoke SelectOrRemoveFromBatchPrinting Released DisbursementsReleasedForPaymentRel
+				
+			Exit Rules
+				invoke CreateBatchLaserCheckDocument
+
+
+		ClosePaymentRecord is an Instance Action
+
+			confirmation required
+				"AreAllChecksPrinted"
+				
+			Action Rules
+				invoke ClosePaymentRecord Released DisbursementsForLaserCheckRel
+				
+			Exit Rules
+				initialize  PrintedLaserCheck
+
+		CreateDetailLaserCheckDocument is an Instance Action
+			restricted
+			Parameters
+				PrmBankTransactionType				is a BankTransactionType
+				PrmStudentActivityBankTransaction	is a StudentActivityBankTransaction
+
+			Local Fields
+				LocalPrintedLaserCheck	is a CheckDocumentTemplateGroup
+
+			Action Rules
+				LocalBankTransactionType				= PrmBankTransactionType
+				LocalStudentActivityBankTransaction		= PrmStudentActivityBankTransaction
+				LocalPrintedLaserCheck.File				= CheckDocumentTemplate.CheckDocumentTemplateGroup.File document
+				LocalPrintedLaserCheck.Title			= "Laser Check.rtf"
+				LocalPrintedLaserCheck.MimeType			= CheckDocumentTemplate.CheckDocumentTemplateGroup.MimeType
+
+				invoke CreateLaserCheckDocument DisbursementsForLaserCheckRel
+					invoked.PrmPrintedLaserCheck	= LocalPrintedLaserCheck
+
+		CreateBatchLaserCheckDocument is an Instance Action
+			restricted
+			Action Rules
+				if (DisbursementsForLaserCheckRel exists)
+
+					PrintedLaserCheck.File		= CheckDocumentTemplate.CheckDocumentTemplateGroup.File document
+					PrintedLaserCheck.Title		= "Laser Check.rtf"
+					PrintedLaserCheck.MimeType	= CheckDocumentTemplate.CheckDocumentTemplateGroup.MimeType
+					if (PrintedLaserCheck.FSMAttachmentIDM.IDMUniqueId not entered)
+
+						include IDM.CreateRules
+							replace AttachmentField   with PrintedLaserCheck
+					else
+
+						PrintedLaserCheck.ExecuteUploadToIDM = true
+				else
+
+
+					if (PrintedLaserCheck.FSMAttachmentIDM.IDMUniqueId entered)
+						include IDM.DeleteNoArchiveRules
+							replace AttachmentField	with PrintedLaserCheck
+					initialize PrintedLaserCheck
+
+		Create is a Create Action
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+
+		UploadToIDM is an Instance Action  
+			valid when (PrintedLaserCheck.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with PrintedLaserCheck	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (PrintedLaserCheck.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with PrintedLaserCheck			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

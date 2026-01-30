@@ -1,0 +1,225 @@
+SourcingEventLineDistribution is a BusinessClass
+    owned by ss
+    prefix is SED
+
+    Ontology
+    	symbolic key is SourcingEventLineDistribution
+    		    	
+    Patterns
+    	implements ContextualParent
+        
+    Persistent Fields
+    	DistributionAccount     is a TransactionCodeBlock
+    	AssetInformation
+    	Quantity				
+    	Percent					is Percent size 6.3
+		Amount					is an InternationalAmount
+		ReportCurrencyAmount    is a FinanceCurrencyAmount
+    	
+    Derived Fields
+    	ConvertedPercent is a ComputeField
+    		type is Decimal size 6.3
+    		restricted
+    		(Percent * 100)
+    		
+    	DerivedDistributionAmount is a DerivedField   
+	    	type is like InternationalAmount
+    		restricted
+	     	if (AmountType)
+		   		return (Amount)
+	   		if (PercentType)
+	   			return (Percent * LocalCommitmentAmount)
+   
+	Transient Fields
+		SystemCode							is a GeneralLedgerSystemCode
+		
+		TransientAccountingEntity           is an AccountingEntity  
+			derive value from Company.AccountingEntity
+		TransientFromCurrency               is a FromCurrency
+			derive value from SourcingEvent.CurrencyCode
+		TransientCurrencyAmount             is a CurrencyAmount
+			derive value from DerivedDistributionAmount
+		TransientCommitmentDate             is an ExchangeDate
+	
+	Local Fields
+		LocalCommitmentAmount 		is an InternationalAmount
+		LocalCommmitmentQuantity 	is a Quantity
+		LocalCurrencyTable          is a CurrencyTable
+		LocalPostingDate            is a PostingDate
+		
+	Conditions
+    	CreatedfromRQ
+    		restricted
+   			when (OriginCodeRQ exists)
+   			
+   		AmountType
+    		restricted
+   			when (Amount > 0)
+   			
+   		PercentType
+    		restricted
+   			when (Percent > 0)
+   		BudgetErrorExists
+    		restricted
+   			when (BudgetEditErrorRel exists)
+   			
+	Relations
+    	OriginCodeRQ is a SourcingEventLineSource set
+        	Instance Selection
+        		where (related.OriginCode = "RQ")
+        		
+        BudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup              = Company.FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup     = UniqueID
+        			
+    Field Rules
+		DistributionAccount
+            default to SourcingEvent.DefaultAccount
+            required 
+            
+            if (DistributionAccount.Project entered)
+				TransientCommitmentDate	= current corporate date
+				LocalPostingDate  		= current corporate date
+            
+        AssetInformation
+        	if (SourcingEventLine.ContractOutput)
+        		cannot be entered
+					"CannotEnterAssetInformationForContractOutputTypes"
+			if (SourcingEventLine.InventoryBalance)
+				cannot be entered
+					"CannotEnterAssetInformationForInventoryTypeLineWithPOOutput"		
+			else
+				default to SourcingEvent.AssetInformation
+		Quantity
+			if (SourcingEventLine.DistributionType.Quantity)
+				default to (SourcingEventLine.Quantity - SourcingEventLine.TotalDistributionQuantity)
+				constraint (Quantity <= SourcingEventLine.Quantity)
+					"QuantityMustBeLessThanOrEqualToLineQuantity"
+				constraint (Quantity > 0)
+	     			"QuantityMustBeGreaterThanZero"
+			else
+				cannot be entered
+					"QuantityCanBeEnteredOnlyWhenLineDistributionTypeEqualsQuantity"
+    	Percent
+			if (!SourcingEventLine.ItemType.Inventoried)
+				if (SourcingEventLine.DistributionType.Percent)
+					if (!SourcingEventLine.DistCode entered)
+						default to (100% - SourcingEventLine.TotalDistributionPercent)
+						constraint (Percent <= 100%)
+							"PercentMustBeLessThanOrEqualTo100%"
+						constraint (Percent > 0)
+	     					"PercentMustBeGreaterThanZero"	
+				else
+					cannot be entered
+						"PercentCanBeEnteredOnlyWhenLineDistributionTypeEqualsPercent"
+
+		Amount
+			if (SourcingEventLine.DistributionType.Amount)
+				constraint (Amount > 0)
+					"AmountMustBeGreaterThanZero"
+			else
+				cannot be entered
+					"AmountCanBeEnteredOnlyWhenLineDistributionTypeEqualsAmount"
+
+	Actions
+		Create is a Create Action
+			valid when (!CreatedfromRQ)
+			Action Rules
+				if (SourcingEventLine.OutputType.PO)
+					constraint (!SourcingEventLine.ItemType.Inventoried)
+						"CannotUpdateDistributionsForInventoryItemWithPOOutput"
+				constraint (!SourcingEventLine.Status.Cancelled
+				or			!SourcingEventLine.Status.Closed)
+					"CannotCreateDistributionForCancelledOrClosedLine"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotCreateDistributionWhileEventIsPendingEventApproval"
+        			
+		InvCreate is a Create Action
+			restricted			
+
+		CmCreate is a Create Action
+			restricted
+					
+		Update is an Update Action
+			valid when (!CreatedfromRQ)
+			Action Rules
+				if (SourcingEventLine.OutputType.PO)
+					constraint (!SourcingEventLine.ItemType.Inventoried)
+						"CannotUpdateDistributionsForInventoryItemWithPOOutput"
+				constraint (!SourcingEventLine.Status.Cancelled
+				or			!SourcingEventLine.Status.Closed)
+					"CannotUpdateDistributionForCancelledOrClosedLine"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotUpdateDistributionWhileEventIsPendingEventApproval"
+		
+		CmUpdate is an Update Action
+			restricted			
+			
+		UpdateDistributionFromWorksheet is an Update Action
+			restricted
+		
+		UpdateReportCurrency is an Update Action
+			restricted
+			Action Rules
+				LocalCurrencyTable          = Company.FinanceEnterpriseGroup.CurrencyTable
+			
+			Field Rules
+				ReportCurrencyAmount
+					required
+		
+		PerformBudgetEditFinalAward is an Instance Action
+			restricted
+			Parameters
+				PrmCommitmentDate	  	is an ExchangeDate
+				PrmCommitmentAmount 	is an InternationalAmount
+				PrmContractUniqueID		is UniqueID
+
+			Action Rules
+				LocalCommitmentAmount  		= PrmCommitmentAmount
+				TransientCommitmentDate    	= PrmCommitmentDate
+				LocalCurrencyTable          = Company.FinanceEnterpriseGroup.CurrencyTable
+				initialize ReportCurrencyAmount
+				invoke UpdateReportCurrency
+							
+			Exit Rules
+				invoke CheckTransaction BudgetTemplate
+					invoked.PrmFinanceEnterpriseGroup   		= Company.ProcurementGroup.FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup					= UniqueID
+					invoked.PrmHeaderUniqueID					= PrmContractUniqueID
+					invoked.PrmTransactionCodeBlock				= DistributionAccount
+					invoked.PrmDate								= PrmCommitmentDate
+					invoked.PrmReportAmounts.FunctionalAmount 	= ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ProjectAmount      = ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount1      = ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount2      = ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount3      = ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount4      = ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount5      = ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount    = ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount2   = ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount3   = ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+    			if (BudgetErrorExists)
+					confirmation required   
+                    	"Warning:BudgetsHaveBeenExceededForContractCommitments;IfNotAddressed,ContractActivationWillNotBeAllowed;Continue?"		
+		
+		SSDelete is a Delete Action		
+			restricted
+						
+		InvDelete is a Delete Action
+			restricted
+
+		Delete is a Delete Action
+			valid when (!CreatedfromRQ)
+			Action Rules
+				if (SourcingEventLine.OutputType.PO)
+					constraint (!SourcingEventLine.ItemType.Inventoried)
+						"CannotDeleteDistributionsForInventoryItemWithPOOutput"
+				constraint (!SourcingEventLine.Status.Cancelled
+				or			!SourcingEventLine.Status.Closed)
+					"CannotDeleteDistributionForCancelledOrClosedLine"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotDeleteDistributionWhileEventIsPendingEventApproval"
+					
+              

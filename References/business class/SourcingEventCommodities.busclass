@@ -1,0 +1,142 @@
+SourcingEventCommodities is a BusinessClass 
+    owned by ss
+    prefix is ECC
+
+    Ontology
+    	part of SourcingEvent
+    		relative key is CommodityCode
+    	    	    			    			
+    Patterns
+        implements DynamicCreation
+        
+    Transient Fields
+    	NotifiedSupplier
+
+	Relations
+		SupplierCommodityCodeRel 
+        	one-to-many relation to SupplierCommodityCode 
+            Field Mapping uses part of key 
+            	related.SupplierGroup	= Company.SourcingGroup
+            Instance Selection
+            	where (related.Supplier.Active
+            	and	   related.SupplierSourceId.Active 	
+            	and	   CommodityCode within related.CommodityCode)
+        
+        ApprovedSupplierCommodityCodeRel 
+        	one-to-many relation using SupplierCommodityCodeRel
+            Instance Selection
+            	where (related.Approved)
+            	
+		ValidatedSupplierCommodityCodeRel
+			one-to-many relation using SupplierCommodityCodeRel
+			Instance Selection
+				where (related.Supplier.SupplierStatus.Validated)
+		
+		ApprovedAndValidatedSupplierCommodityCodeRel
+			one-to-many relation using SupplierCommodityCodeRel
+			Instance Selection
+				where (related.Approved
+				and    related.Supplier.SupplierStatus.Validated)
+		
+		EventNotificationRel
+        	one-to-one relation to SourcingEventNotification
+        	Field Mapping uses part of key
+        		related.Company          = Company
+        		related.SourcingEvent    = SourcingEvent
+        		related.NotifiedSupplier = NotifiedSupplier
+
+		EventPlanHolderRel
+        	one-to-one relation to SourcingEventPlanHolder
+        	Field Mapping uses part of key
+        		related.Company          = Company
+        		related.SourcingEvent    = SourcingEvent
+        		related.NotifiedSupplier = NotifiedSupplier
+
+        SourcingEventCommoditiesRel is a SourcingEventCommodities set
+
+    Sets
+    	ByCommodity
+    		indexed
+    		Sort Order
+    			CommodityCode
+    			Company
+    			SourcingEvent
+    			    
+	Actions
+		Create is a Create Action
+			valid when (SourcingEvent.InEditableState)
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddCommodityCodeWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotAddCommodityCodeWhileEventIsPendingEventApproval"
+			
+			Field Rules		
+				CommodityCode
+					constraint (!CommodityCode within all SourcingEventCommoditiesRel.CommodityCode)
+						"AlreadyRegisteredForTheSameOrAHigherLevelCommodityCodeWithinSameStructure"
+					constraint (!all SourcingEventCommoditiesRel.CommodityCode within CommodityCode)
+						"CannotSelectAHigherLevelCommodityCodeWhenALowerLevelCommodityCodeIsAlreadySelected;MustDeleteLowerLevelCommodityCodeBeforeAdding"
+					
+		Update is an Update Action
+			valid when (!SourcingEvent.NeedsApproval)
+			Action Rules
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotUpdateCommodityCodeWhileEventIsPendingEventApproval"
+
+		Delete is a Delete Action
+			valid when (SourcingEvent.InEditableState)
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotDeleteCommodityCodeWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotDeleteCommodityCodeWhileEventIsPendingEventApproval"
+					
+		GetSuppliers is a Set Action
+			restricted
+			Parameters
+				ParmCompany             is a SourcingCompany
+				ParmSourcingEvent       is a SourcingEvent
+				OnlyApprovedCommodities is Boolean
+				OnlyValidatedSuppliers  is Boolean
+			
+			Instance Selection
+				where (ParmCompany         = Company
+				and    ParmSourcingEvent   = SourcingEvent)
+				
+			Action Rules
+			
+				Instance Rules
+					if  (OnlyApprovedCommodities
+					and !OnlyValidatedSuppliers)
+						for each ApprovedSupplierCommodityCodeRel
+							NotifiedSupplier.SupplierGroup	  = each.SupplierGroup
+							NotifiedSupplier.Supplier         = each.Supplier
+							NotifiedSupplier.SupplierSourceId = each.SupplierSourceId
+							invoke Update EventNotificationRel
+							invoke Update EventPlanHolderRel
+					else
+					if (!OnlyApprovedCommodities
+					and  OnlyValidatedSuppliers)
+						for each ValidatedSupplierCommodityCodeRel
+							NotifiedSupplier.SupplierGroup	  = each.SupplierGroup
+							NotifiedSupplier.Supplier         = each.Supplier
+							NotifiedSupplier.SupplierSourceId = each.SupplierSourceId
+							invoke Update EventNotificationRel
+							invoke Update EventPlanHolderRel
+					else
+					if (OnlyApprovedCommodities
+					and OnlyValidatedSuppliers)
+						for each ApprovedAndValidatedSupplierCommodityCodeRel
+							NotifiedSupplier.SupplierGroup	  = each.SupplierGroup
+							NotifiedSupplier.Supplier         = each.Supplier
+							NotifiedSupplier.SupplierSourceId = each.SupplierSourceId
+							invoke Update EventNotificationRel
+							invoke Update EventPlanHolderRel
+					else	
+						for each SupplierCommodityCodeRel
+							NotifiedSupplier.SupplierGroup	  = each.SupplierGroup
+							NotifiedSupplier.Supplier         = each.Supplier
+							NotifiedSupplier.SupplierSourceId = each.SupplierSourceId
+							invoke Update EventNotificationRel
+							invoke Update EventPlanHolderRel

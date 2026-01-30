@@ -1,0 +1,193 @@
+PfiWorkunitInputData is a BusinessClass
+    owned by pfi
+    prefix is PfiWD
+    default label is "WorkUnitInputData"
+    disable data area copy
+
+    Ontology
+        symbolic key is PfiWorkunitInputData
+
+    Patterns
+        implements CRUD
+        disable AsOfDateProcessing
+        disable Auditing
+        disable EffectiveDated
+        implements IncrementalReplication
+            indicator field is IsReplicated
+                replicate when false
+                    then set to true
+
+    Persistent Fields
+
+        Description  is a PfiDescription
+        Type         is Numeric size 1
+            States
+                Binary value is 1
+                Text   value is 2
+        InputType    is Numeric size 1
+            States
+                NonVariableData value is 1
+                VariablesAsJSON value is 2
+                VariablesAsXML  value is 3
+        BinaryData   is BinaryObject
+        TextData     is Text
+        CreationDate is TimeStamp
+        CreatedBy    is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+        InputDataStatus            is Numeric size 2
+            States
+                Database    value is 0
+                AmazonS3    value is 1
+                    default label is "AmazonS\3"
+                Uploading   value is 2
+                Uploaded    value is 3
+                Downloading value is 4
+                Downloaded  value is 5
+                Empty       value is 6
+        InputDataDownloadedTimestamp is TimeStamp
+        InputDataUploadedTimestamp is TimeStamp
+        IsReplicated is Boolean
+            default label is untranslatable
+
+	Derived Fields
+		S3InputDataDownloadMessage is a DerivedField
+    		type is TimeStamp
+    		default label is "DownloadLinkWillExpireIn2Minutes\.PleaseRefreshThePageIfItIsExpired"
+    		return system current timestamp
+
+		S3InputDataDownloadURL is a NativeField
+			type is Text
+            default label is "S\3InputDownloadURL"
+
+		IsS3DirectDownload is a DerivedField
+			type is Boolean
+            default label is "S\3DirectDownload"
+			if (IsAmazonS3InputData and IsS3InputDataDownloadURL)
+				return true
+			return false
+		IsDBDirectDownload is a DerivedField
+			type is Boolean
+            default label is "DBDirectDownload"
+			if (IsAmazonS3InputData and not IsS3InputDataDownloadURL)
+				return true
+			return false
+        CanDisplayInputData is a DerivedField
+            type is Boolean
+            default label is "InputDataDisplayed"
+            if (Type.Text and (InputDataStatus.Downloaded or InputDataStatus.Database or InputDataStatus.AmazonS3 or InputDataStatus.Uploading))
+                return true
+            return false
+
+        IsAmazonS3InputData is a DerivedField
+            type is Boolean
+            default label is "AmazonS\3InputData"
+            if (InputDataStatus.Uploaded or InputDataStatus.Downloading or InputDataStatus.Downloaded)
+                return true
+            return false
+
+        IsInputDataDownloaded is a DerivedField
+            type is Boolean
+            default label is "InputDataDownloaded"
+            if (InputDataStatus.Downloaded)
+                return true
+            return false
+
+        IsInputDataDownloading is a DerivedField
+            type is Boolean
+            default label is "InputDataDownloading"
+            if (InputDataStatus.Downloading)
+                return true
+            return false
+
+        InputDataElapsedTime is a DerivedField
+            type is Numeric size 10
+            return (system current timestamp - InputDataDownloadedTimestamp)
+
+        DownloadedInputDataRemainingTime is a DerivedField
+            type is Numeric size 10
+            return (7200 - InputDataElapsedTime)
+
+        DownloadedInputDataRemainingTimeInMinutes is a DerivedField
+            type is Numeric size 10
+            default label is "DownloadedInputDataCopyWillBeDeletedIn(Minutes)"
+            if (DownloadedInputDataRemainingTime > 0)
+                return DownloadedInputDataRemainingTime / 60
+            return 0
+
+        IsThereInputDataRemainingTime is a DerivedField
+            type is Boolean
+            default label is "InputDataRemainingTime"
+            if (IsInputDataDownloaded and DownloadedInputDataRemainingTimeInMinutes > 0)
+                return true
+            return false
+
+        NoInputDataRemainingTime is a DerivedField
+            type is Boolean
+            if (IsInputDataDownloaded and DownloadedInputDataRemainingTimeInMinutes = 0)
+                return true
+            return false
+
+        WorkunitStatus is a DerivedField
+            type is Numeric size 2
+            return PfiWorkunit.Status
+
+        WorkunitCloseDate is a DerivedField
+            type is TimeStamp
+            return PfiWorkunit.CloseDate
+
+    Local Fields
+    	IsS3InputDataDownloadURL is Boolean
+
+    Field Rules
+
+        Type
+            default to Type.Text
+            required
+
+        CreationDate
+            default to current time
+
+        CreatedBy
+            default to actor
+
+        InputType
+            default to InputType.NonVariableData
+
+    Sets
+
+        ByIsReplicatedUniqueID
+            sql name is PfiWD01
+            indexed
+            Sort Order
+                IsReplicated
+                UniqueID
+
+    Actions
+
+        Create is a Create Action
+
+        Update is an Update Action
+
+            Exit Rules
+                IsReplicated = false
+
+        Delete is a Delete Action
+
+        DownloadInputData is an Instance Action
+            restricted
+
+        CopyInputData is an Instance Action
+            restricted
+
+            Parameters
+                DestinationWorkUnit is a PfiWorkunit
+
+            Action Rules
+                invoke Create
+                    invoked.PfiWorkunit  = DestinationWorkUnit
+                    invoked.Description  = Description
+                    invoked.Type         = Type
+                    invoked.InputType    = InputType
+                    invoked.BinaryData   = BinaryData
+                    invoked.TextData     = TextData
+                    invoked.CreationDate = CreationDate
+                    invoked.CreatedBy    = CreatedBy

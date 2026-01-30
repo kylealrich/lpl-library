@@ -1,0 +1,493 @@
+RecurringJournalSchedule is a BusinessClass
+	owned by GeneralLedger
+	
+	prefix is GLRJQ
+	
+	Ontology
+		symbolic key is RecurringJournalSchedule
+
+	Patterns
+
+	Persistent Fields
+		PeriodSelected					is Boolean
+		PeriodProcessed					is Boolean
+
+	Local Fields
+		
+
+	Derived Fields
+		JournalizeMessage				is a MessageField
+			restricted
+			"Journalized"
+
+		DerivedUpdatedTransactionAmount is a DerivedField
+			type is like InternationalAmount
+			return sum RecurringJournalBridgeRel.UpdatedTransactionAmount
+
+		DerivedUpdatedUnitsAmount is a DerivedField
+			type is like UnitsAmount
+			return sum RecurringJournalBridgeRel.UpdatedUnitsAmount
+	Relations
+		EntityLedgerPeriodRel
+			one-to-one relation to EntityLedgerPeriod
+			Field Mapping uses ByEntityLedger
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AccountingEntity			= AccountingEntity
+				related.Ledger						= RecurringJournalControl.Ledger
+				related.GeneralLedgerClosePeriod	= GeneralLedgerClosePeriod
+		RecurringJournalBridgeRel
+			one-to-many relation to RecurringJournalBridge
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AccountingEntity			= AccountingEntity
+				related.RecurringJournalControl		= RecurringJournalControl
+		RecurringJournalTransactionRel
+			one-to-many relation to RecurringJournalTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AccountingEntity			= AccountingEntity
+				related.RecurringJournalControl		= RecurringJournalControl
+		PreviousRecurringJournalScheduleRel
+			one-to-many relation to RecurringJournalSchedule
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+				related.AccountingEntity				= AccountingEntity
+				related.RecurringJournalControl 		= RecurringJournalControl
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod < GeneralLedgerClosePeriod
+				and    related.PeriodSelected)
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.AccountingEntityGroup			= actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity				= AccountingEntity
+		SystemClosingControlRel
+			one-to-one relation to SystemClosingControl
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.AccountingEntity	 		= AccountingEntity
+				related.GeneralLedgerSystemCode		= "RJ"	
+#ifdef module cb			
+		CashCodeFundEditRel
+			one-to-many relation to CashCodeFundEdit
+			Field Mapping uses ByOriginatingTransaction
+		 		related.CashManagementGroup		= FinanceEnterpriseGroup
+		  		related.OriginatingTransaction	= reference to RecurringJournalControl
+		ExceedesCashCodeFundBalanceRel
+			one-to-many relation to CashCodeFundEdit
+			Field Mapping uses ByExceedesFundBalance
+		 		related.CashManagementGroup		= FinanceEnterpriseGroup
+		  		related.OriginatingTransaction	= reference to RecurringJournalControl
+		 		related.ExceedesFundBalance		= true
+#endif
+
+	Conditions
+		EntityCurrentPeriod
+			when (AccountingEntity.CurrentPeriod	= GeneralLedgerClosePeriod)
+		CannotChangePeriodSelect
+			restricted
+			when ((RecurringJournalBridgeRel exists
+			and    RecurringJournalControl.Status.Released)
+			or     PendingApproval
+			or     PeriodProcessed)
+		CanBeJournalized
+			restricted
+			when (RecurringJournalControl.Status.Released
+			and   PeriodSelected
+			and   GeneralLedgerClosePeriod	<= AccountingEntity.CurrentPeriod
+			and  !PeriodProcessed
+			and  !RecurringJournalControl.JournalizeProcess)
+		CanBeUnprocessed
+			restricted
+			when (RecurringJournalControl.Status.Released
+			and   PeriodProcessed
+			and   RecurringJournalTransactionRel exists
+			and  !RecurringJournalControl.JournalizeProcess)
+		FuturePeriods
+			restricted
+			when (GeneralLedgerClosePeriod		> AccountingEntity.CurrentPeriod)
+		OpenEntityLedgerPeriod
+			restricted
+			when (EntityLedgerPeriodRel.OpenPeriod)
+		PendingApproval
+			restricted
+			when (RecurringJournalControl.ApprovalPeriod entered
+			and   GeneralLedgerClosePeriod		= RecurringJournalControl.ApprovalPeriod)
+		DeletedJournal
+			restricted
+			when (RecurringJournalControl.Status.Deleted)
+
+
+
+
+
+		EditsForJournalizing
+			restricted
+			when (RecurringJournalControl.JournalWithoutAmountOrUnit
+			or    RecurringJournalControl.DerivedEntryAmount entered
+			or    RecurringJournalControl.DerivedAutoAmount entered)
+		ForJournalizeSchedule
+			restricted
+			when (RecurringJournalControl.Status.Released
+			and   PeriodSelected
+			and   GeneralLedgerClosePeriod	<= AccountingEntity.CurrentPeriod
+			and  !RecurringJournalControl.JournalizeProcess)
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+		DisplayAmount
+			restricted
+			when (RecurringJournalBridgeRel exists
+			and   RecurringJournalControl.Status.Released
+			and   RecurringJournalControl.StatusDisplay.Processed)
+
+
+	Sets
+    	ByProcessedPeriodJournal
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			AccountingEntity
+    			GeneralLedgerClosePeriod
+    			PeriodSelected
+    			PeriodProcessed
+    			RecurringJournalControl
+
+	Field Rules
+		PeriodSelected
+			if (CannotChangePeriodSelect)
+				cannot be changed
+					"CannotUnselectPeriod"
+
+
+	Rule Blocks
+		JournalAmountAndUnitEdit
+			constraint (!RecurringJournalControl.JournalWithoutAmountOrUnit)
+				"CannotRelease;NoTransactionExistWithAmountsOrUnits"
+			constraint (!RecurringJournalControl.DerivedEntryAmount entered)
+				"CannotRelease;DebitsDoNotEqualCredits"
+			constraint (!RecurringJournalControl.DerivedAutoAmount entered)
+				"CannotRelease;AutoDebitsDoNotEqualAutoCredits"
+
+	Actions
+ 		Create is a Create Action
+			restricted
+
+    	Update is an Update Action
+    		valid when (!DeletedJournal)
+    		Entrance Rules
+    			if (PeriodProcessed)
+					constraint (PeriodSelected)
+						"CannotUnselectPeriodAlreadyProcessed"
+	
+		Delete is a Delete Action
+			restricted
+
+		Journalize is an Instance Action
+			completion message is "JournalizeComplete"
+			valid when (CanBeJournalized)
+			Local Fields	
+				LocalPendingMatrixApproval  	is Boolean
+				LocalCanMoveToPendingApproval  	is Boolean
+
+			Entrance Rules
+				if (!RecurringJournalBridgeRel exists)
+					include JournalAmountAndUnitEdit
+				constraint (!PeriodProcessed)
+					"RecurringJournalIsAlreadyProcessedForPeriod"
+				constraint (PeriodSelected)
+					"PeriodNotSelectedForJournalize"
+				constraint (EntityLedgerPeriodRel.OpenPeriod)
+					"CannotJournalizeWhenPeriodIsClosed"
+				constraint (!FuturePeriods)
+					"RecurringJournalCannotBeProcessedForFuturePeriod"
+#ifdef module cb			
+				if (FinanceEnterpriseGroup.FundAccounting)
+					invoke Update CashCodeFundEditRel
+					constraint (ExceedesCashCodeFundBalanceRel !exists)
+						"<first ExceedesCashCodeFundBalanceRel.ErrorMessage>"
+#endif
+				if (PeriodSelected																	
+				and !AccountingEntity.JournalApproval.None											
+				and !RecurringJournalControl.ApprovalCode = AccountingEntity.BypassApprovalCode 	
+				and RecurringJournalControl.TotalDebit	> AccountingEntity.JournalApprovalAmount)	
+					invoke ResetLastUpdateUser RecurringJournalControl								
+
+			Action Rules
+				if (PeriodSelected)
+					LocalPendingMatrixApproval = false
+					LocalCanMoveToPendingApproval = false
+					if (FinanceEnterpriseGroup.EnableResponsibilityMatrix)
+						for each RecurringJournalTransactionRel
+							invoke SubmitForApproval each
+								invoked.PrmApprovalPeriod = GeneralLedgerClosePeriod 
+							if (!LocalPendingMatrixApproval and each.ResponsibilityMatrixApprovalProcessorRel exists
+							and !each.ResponsibilityMatrixApprovalProcessorRel.Status.Approved)
+								LocalPendingMatrixApproval = true
+								if(!LocalCanMoveToPendingApproval and each.ResponsibilityMatrixApprovalProcessorRel.Status.PendingApproval)
+									LocalCanMoveToPendingApproval = true	
+
+					if(LocalPendingMatrixApproval)
+						if(LocalCanMoveToPendingApproval)
+							invoke UpdateApprovalPeriod Released RecurringJournalControl
+								invoked.PrmApprovalPeriod			= GeneralLedgerClosePeriod	
+					else
+						if ((RecurringJournalBridgeRel exists)
+						or  (!AccountingEntity.JournalApproval.None
+						and (RecurringJournalControl.TotalDebit		<= AccountingEntity.JournalApprovalAmount
+						or   AccountingEntity.BypassApprovalCode = RecurringJournalControl.ApprovalCode))	
+						or  (AccountingEntity.JournalApproval.None))
+							invoke ApprovedJournalize
+						else
+							invoke ApproveRecurringJournal Released RecurringJournalControl
+								invoked.PrmApprovalPeriod			= GeneralLedgerClosePeriod
+
+
+		ApprovedJournalize is an Instance Action
+			completion message is "ApprovedJournalizeComplete"
+			restricted
+			Local Fields	
+				AsyncId							is a AsyncActionRequest
+				LocalSystemCode					is a GeneralLedgerSystemCode
+				LocalJournalizeGroup			is like JournalizeGroup
+				LocalCurrencyTable				is a CurrencyTable       
+
+			Action Rules
+				if (PeriodSelected)
+					invoke UpdateRecurringJournal RecurringJournalControl
+						invoked.PrmProcessingJournal	= true
+						if (AccountingEntity.CurrentPeriod	= GeneralLedgerClosePeriod)
+							invoked.PrmLastProcessedPeriod	= GeneralLedgerClosePeriod
+					LocalSystemCode				= "RJ"
+		            increment LocalSystemCode.LastJournalizeGroup
+					LocalJournalizeGroup 		= LocalSystemCode.DerivedJournalizeGroup						 
+					PeriodProcessed				= true
+					
+				if(SystemClosingControlRel exists
+				and SystemClosingControlRel.CurrencyTable != blank)
+					LocalCurrencyTable = SystemClosingControlRel.CurrencyTable
+				else
+				 	LocalCurrencyTable = FinanceEnterpriseGroup.CurrencyTable
+
+			Exit Rules
+					if (RecurringJournalBridgeRel exists)
+						invoke CreateGLTransactionDetail RecurringJournalBridgeRel in background
+							run after AsyncId
+							assign async action request id to AsyncId
+							invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							invoked.PrmAccountingEntity	= AccountingEntity
+							invoked.PrmJournalControl	= RecurringJournalControl
+							invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+						invoke JournalizeTransactions  GLTransactionDetail in background
+							run after AsyncId
+							invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							invoked.PrmCurrencyTable	= LocalCurrencyTable
+							invoked.PrmRJReference 		= reference to RecurringJournalControl 
+					else
+						if (last RecurringJournalTransactionRel.RecurringJournalTransaction > 100)
+							invoke CreateGLTransactionDetail RecurringJournalTransaction in background
+								run after AsyncId
+								assign async action request id to AsyncId
+								invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmAccountingEntity	= AccountingEntity
+								invoked.PrmJournalControl	= RecurringJournalControl
+								invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+								invoked.PrmUnprocess		= false
+								invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							invoke JournalizeTransactions  GLTransactionDetail in background
+								run after AsyncId
+								invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+								invoked.PrmCurrencyTable	= LocalCurrencyTable
+								invoked.PrmDefaultCurrencyAmount = true
+								invoked.PrmRJReference 		= reference to RecurringJournalControl 
+						else
+							if (SystemClosingControlRel exists
+							and SystemClosingControlRel.CurrencyTable != blank)
+								invoke CreateGLTransactionDetail RecurringJournalTransaction in foreground 
+							 		invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							 		invoked.PrmAccountingEntity	= AccountingEntity
+							 		invoked.PrmJournalControl	= RecurringJournalControl
+							 		invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+							 		invoked.PrmUnprocess		= false
+							 		invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							 	invoke JournalizeTransactions  GLTransactionDetail in background
+							 		invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							 		invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							 		invoked.PrmCurrencyTable	= LocalCurrencyTable
+									invoked.PrmRJReference 		= reference to RecurringJournalControl 
+							 		invoked.PrmDefaultCurrencyAmount = true		
+							else
+								invoke CreateGLTransactionDetail RecurringJournalTransaction in foreground	
+									invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+									invoked.PrmAccountingEntity	= AccountingEntity
+									invoked.PrmJournalControl	= RecurringJournalControl
+									invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+									invoked.PrmUnprocess		= false
+									invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+								invoke JournalizeTransactions  GLTransactionDetail in background
+									invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+									invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+									invoked.PrmRJReference 		= reference to RecurringJournalControl 
+									
+
+		Unprocess is an Instance Action
+			completion message is "UnprocessComplete"
+			valid when (CanBeUnprocessed)
+			Local Fields	
+				AsyncId							is a AsyncActionRequest
+				LocalSystemCode					is a GeneralLedgerSystemCode
+				LocalJournalizeGroup			is like JournalizeGroup
+				LocalCurrencyTable				is a CurrencyTable 
+			Entrance Rules
+				include JournalAmountAndUnitEdit
+				constraint (EntityLedgerPeriodRel.OpenPeriod)
+					"CannotJournalizeWhenPeriodIsClosed"
+				if(SystemClosingControlRel exists
+				and SystemClosingControlRel.CurrencyTable != blank)
+					LocalCurrencyTable = SystemClosingControlRel.CurrencyTable
+				else
+				 	LocalCurrencyTable = FinanceEnterpriseGroup.CurrencyTable	
+
+			Action Rules
+				if (PeriodSelected
+				and PeriodProcessed)
+					invoke UpdateRecurringJournal RecurringJournalControl
+						invoked.PrmProcessingJournal	= true
+						if (AccountingEntity.CurrentPeriod	= GeneralLedgerClosePeriod
+						and PreviousRecurringJournalScheduleRel exists) 
+							invoked.PrmLastProcessedPeriod	= last PreviousRecurringJournalScheduleRel.GeneralLedgerClosePeriod
+						else
+							if (!PreviousRecurringJournalScheduleRel exists) 
+								invoked.PrmLastProcessedPeriod	= "NONE"
+					LocalSystemCode				= "RJ"
+		            increment LocalSystemCode.LastJournalizeGroup
+					LocalJournalizeGroup 		 = LocalSystemCode.DerivedJournalizeGroup						 
+					PeriodProcessed				= false
+					
+					if (last RecurringJournalTransactionRel.RecurringJournalTransaction > 100)
+						invoke CreateGLTransactionDetail RecurringJournalTransaction in background
+							run after AsyncId
+							assign async action request id to AsyncId
+							invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							invoked.PrmAccountingEntity	= AccountingEntity
+							invoked.PrmJournalControl	= RecurringJournalControl
+							invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+							invoked.PrmUnprocess		= true
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+						invoke JournalizeTransactions  GLTransactionDetail in background
+							run after AsyncId
+							invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							invoked.PrmCurrencyTable	= LocalCurrencyTable
+							invoked.PrmDefaultCurrencyAmount = true	
+					else	
+						if (SystemClosingControlRel exists
+						and SystemClosingControlRel.CurrencyTable != blank)
+							invoke CreateGLTransactionDetail RecurringJournalTransaction in foreground
+						 		invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+						 		invoked.PrmAccountingEntity	= AccountingEntity
+						 		invoked.PrmJournalControl	= RecurringJournalControl
+						 		invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+						 		invoked.PrmUnprocess		= true
+						 		invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+						 	invoke JournalizeTransactions  GLTransactionDetail in background
+						 		invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+						 		invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+						 		invoked.PrmCurrencyTable	= LocalCurrencyTable
+						 		invoked.PrmDefaultCurrencyAmount = true
+						else 			
+							invoke CreateGLTransactionDetail RecurringJournalTransaction in foreground
+								invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmAccountingEntity	= AccountingEntity
+								invoked.PrmJournalControl	= RecurringJournalControl
+								invoked.PrmClosePeriod		= GeneralLedgerClosePeriod
+								invoked.PrmUnprocess		= true
+								invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							invoke JournalizeTransactions  GLTransactionDetail in background
+								invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmJournalizeGroup	= LocalJournalizeGroup	
+		
+		BatchJournalize is a Set Action
+			restricted
+			Parameters
+				PrmEnterpriseGroup			is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmAccountingEntity			is a AccountingEntity
+					default label is "AccountingEntity"
+				PrmClosePeriod				is a GeneralLedgerClosePeriod
+					default label is "Period"
+				PrmRJJournalizeResult		is a RJJournalizeResult
+
+			Queue Mapping Fields
+				PrmAccountingEntity.PostingCategory
+				
+			Parameter Rules
+				PrmEnterpriseGroup
+					required
+				PrmAccountingEntity
+					required
+				PrmClosePeriod
+					required
+				PrmRJJournalizeResult
+					required
+
+			Local Fields
+				LocalErrorMessage				is Alpha 300
+
+			Set Is
+				PrmEnterpriseGroup
+				PrmAccountingEntity
+
+			Instance Selection
+				where (FinanceEnterpriseGroup		= PrmEnterpriseGroup
+				and	   AccountingEntity				= PrmAccountingEntity
+				and	   GeneralLedgerClosePeriod		= PrmClosePeriod
+
+
+				and    RecurringJournalControl.Status.Released
+				and    PeriodSelected
+				and   !PeriodProcessed
+				and   !RecurringJournalControl.JournalizeProcess)
+
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingEntity
+				GeneralLedgerClosePeriod
+
+			Action Rules
+				Empty Set Rules
+
+				Set Rules
+
+
+
+
+				Instance Rules
+#ifdef module cb			
+					if (FinanceEnterpriseGroup.FundAccounting)
+						invoke Update CashCodeFundEditRel
+					if (ExceedesCashCodeFundBalanceRel exists)
+						LocalErrorMessage		= first ExceedesCashCodeFundBalanceRel.ErrorMessage
+					else
+#endif
+					if (EditsForJournalizing)
+						LocalErrorMessage		= RecurringJournalControl.DerivedJournalizeEditMessage
+					else
+						if (RecurringJournalControl.ApprovalPeriod entered)
+							LocalErrorMessage		= RecurringJournalControl.ApprovalMessage
+						else
+							if (EntityLedgerPeriodRel.OpenPeriod)
+								LocalErrorMessage		= JournalizeMessage
+								invoke Journalize
+	
+					invoke Create RJJournalizeResultDetail
+						invoked.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.RJJournalizeResult	  		= PrmRJJournalizeResult
+						invoked.AccountingEntity			= AccountingEntity
+						invoked.GeneralLedgerClosePeriod	= GeneralLedgerClosePeriod
+						invoked.RecurringJournalControl		= RecurringJournalControl
+						invoked.ErrorMessage				= LocalErrorMessage
+						

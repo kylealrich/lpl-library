@@ -1,0 +1,298 @@
+ExpenseManagementTravelPlanDetail is a BusinessClass
+	default label is "TravelPlanDetail"
+    owned by ap
+    prefix is XTPD
+    sql name is XMTravelPlanDetail
+
+    Ontology
+        symbolic key is ExpenseManagementTravelPlanDetail
+		    sql name is XMTravelPlanDetail
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+		PayablesCompany
+			disable surrogates
+        Vendor
+
+        ExpenseManagementInterfaceExpenseType
+        ExpenseDate						is an ExchangeDate
+        Status							is Numeric size 1
+            States
+                Entered         	value is 0
+                Approved        	value is 1
+                UpdateUnapproved	value is 2
+                Closed				value is 3
+        CurrencyTable
+        Currency						is a FromCurrency
+		RequestAmount					is an InternationalAmount
+        CommittedAmount					is a CurrencyAmount
+        CommittedReportAmount			is a FinanceCurrencyAmount
+        ExpensedAmount					is an InternationalAmount
+        AccountingEntity
+        FinanceStructure				 is a FinanceCodeBlock
+
+
+	Field Rules
+		PayablesCompany
+			default to ExpenseManagementTravelPlan.PayablesCompany
+			required
+			
+		Vendor
+			default to ExpenseManagementTravelPlan.Vendor
+			required
+		
+		ExpenseDate
+			force default to ExpenseManagementTravelPlan.ExpenseDate
+			
+		CurrencyTable
+			default to CompanySystemClosingControlRel.CurrencyTable
+			default to PayablesCompany.CurrencyTable
+
+		Currency
+			default to ExpenseManagementTravelPlan.Currency
+			required
+			
+		CommittedAmount
+			if (!Status.Closed)
+				CommittedAmount = RequestAmount - ExpensedAmount
+				if (CommittedAmount < 0)
+					CommittedAmount = 0
+			
+		CommittedReportAmount
+			required
+			initialize CommittedReportAmount	
+	
+		AccountingEntity
+			default to PayablesCompany.AccountingEntity
+
+		FinanceStructure
+			required
+
+	Local Fields
+
+		ActionCompleteMessage			is Alpha size 250			
+
+    Derived Fields
+		ActionExceedsBudgetMessage is a MessageField
+			restricted
+			"Warning:BudgetsHaveBeenExceeded:<action type>Complete"
+
+		ActionCompleteNoErrors is a MessageField
+			restricted
+			"<action type>Complete"
+
+	Conditions
+		CommitmentExists
+			restricted
+			when (GLCommitRel exists)
+		
+		BudgetEditErrorExists
+			restricted
+			when (BudgetEditErrorsRel exists)
+
+		ReleasedCommitmentExists
+			restricted
+			when (CommitmentExists
+			and   GLCommitRel.Status = 3)
+
+    Sets
+		ByInterfaceExpenseType
+			indexed
+			Sort Order
+				VendorGroup
+				ExpenseManagementTravelPlan
+				ExpenseManagementInterfaceExpenseType
+			
+
+	Relations
+      	GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup      = PayablesCompany.AccountingEntity.FinanceEnterpriseGroup	
+				related.GeneralLedgerSystemCode     = "AP"
+
+		CompanySystemClosingControlRel
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode		= "AP"
+				related.Company						= PayablesCompany
+
+		GLCommitRel
+			one-to-one relation to GLCommit
+      		valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction  = reference to this instance
+
+		BudgetEditErrorsRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup				= PayablesCompany.FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup		= UniqueID
+		
+	
+	Rule Blocks
+		ValidateData
+			if (VendorGroup.FinanceEnterpriseGroup.AccountingUnitOrder not entered)
+				FinanceStructure.AccountingUnit		= blank
+			if (VendorGroup.FinanceEnterpriseGroup.ProjectOrder not entered)
+				FinanceStructure.Project 			= blank
+
+		EditCommitmentIncrease
+			invoke CheckTransaction BudgetTemplate
+				invoked.PrmFinanceEnterpriseGroup   		= PayablesCompany.FinanceEnterpriseGroup
+				invoked.PrmBudgetEditGroup					= UniqueID
+				invoked.PrmTransactionCodeBlock				= FinanceStructure
+				invoked.PrmDate								= ExpenseDate
+				invoked.PrmReportAmounts.FunctionalAmount 	= CommittedReportAmount.FunctionalAmount.EnteredCurrencyAmount - old CommittedReportAmount.FunctionalAmount.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ProjectAmount		= CommittedReportAmount.ProjectAmount.EnteredCurrencyAmount - old CommittedReportAmount.ProjectAmount.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ReportAmount1      = CommittedReportAmount.ReportAmount1.EnteredCurrencyAmount - old CommittedReportAmount.ReportAmount1.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ReportAmount2      = CommittedReportAmount.ReportAmount2.EnteredCurrencyAmount - old CommittedReportAmount.ReportAmount2.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ReportAmount3      = CommittedReportAmount.ReportAmount3.EnteredCurrencyAmount - old CommittedReportAmount.ReportAmount3.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ReportAmount4      = CommittedReportAmount.ReportAmount4.EnteredCurrencyAmount - old CommittedReportAmount.ReportAmount4.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.ReportAmount5      = CommittedReportAmount.ReportAmount5.EnteredCurrencyAmount - old CommittedReportAmount.ReportAmount5.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.AlternateAmount    = CommittedReportAmount.AlternateAmount.EnteredCurrencyAmount - old CommittedReportAmount.AlternateAmount.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.AlternateAmount2   = CommittedReportAmount.AlternateAmount2.EnteredCurrencyAmount - old CommittedReportAmount.AlternateAmount2.EnteredCurrencyAmount
+				invoked.PrmReportAmounts.AlternateAmount3   = CommittedReportAmount.AlternateAmount3.EnteredCurrencyAmount - old CommittedReportAmount.AlternateAmount3.EnteredCurrencyAmount
+			
+			if (BudgetEditErrorExists)
+				ActionCompleteMessage = ActionExceedsBudgetMessage
+		
+	Actions
+		Approve is an Instance Action
+			restricted
+			Action Rules
+				Status = Status.Approved
+
+		CloseTravelDetail is an Instance Action
+			restricted
+			Action Rules
+				Status = Status.Closed
+				if (CommittedAmount entered)
+					invoke Update
+						initialize invoked.CommittedAmount
+						initialize invoked.CommittedReportAmount					
+
+		PerformBudgetEdit is an Instance Action
+			restricted			
+			Action Rules
+				invoke CheckTransaction BudgetTemplate		
+					invoked.PrmFinanceEnterpriseGroup   		= PayablesCompany.FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup					= UniqueID
+					invoked.PrmHeaderUniqueID                   = ExpenseManagementTravelPlan.UniqueID
+					invoked.PrmTransactionCodeBlock				= FinanceStructure
+					invoked.PrmDate								= ExpenseDate
+					invoked.PrmReportAmounts.FunctionalAmount 	= CommittedReportAmount.FunctionalAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount1      = CommittedReportAmount.ReportAmount1.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount2      = CommittedReportAmount.ReportAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount3      = CommittedReportAmount.ReportAmount3.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount4      = CommittedReportAmount.ReportAmount4.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount5      = CommittedReportAmount.ReportAmount5.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount    = CommittedReportAmount.AlternateAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount2   = CommittedReportAmount.AlternateAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount3   = CommittedReportAmount.AlternateAmount3.EnteredCurrencyAmount
+					
+				if (BudgetEditErrorExists)
+					ActionCompleteMessage = ActionExceedsBudgetMessage
+
+		Create is a Create Action
+			completion message is "<ActionCompleteMessage>"
+			Field Rules
+				FinanceStructure
+					if (Vendor entered)
+						default to Vendor.ExpenseDefault
+							default individual fields
+					if (ExpenseManagementInterfaceExpenseType entered)
+						default to ExpenseManagementInterfaceExpenseType.FinanceStructure
+							default individual fields
+			Exit Rules
+				include ValidateData
+				invoke TravelDetailUpdated ExpenseManagementTravelPlan
+				ActionCompleteMessage = ActionCompleteNoErrors
+
+				if  (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+		        or   GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+					invoke CreateCommitment
+
+		CreateCommitment is an Instance Action
+			default label is untranslatable
+			restricted
+			Exit Rules
+				invoke CreateCommitment GLCommit
+					invoked.HeaderUniqueID 					= ExpenseManagementTravelPlan.UniqueID
+					invoked.AccountingEntity				= AccountingEntity
+					invoked.FinanceEnterpriseGroup			= PayablesCompany.FinanceEnterpriseGroup
+					invoked.System							= "AP"
+					invoked.FinanceCodeBlock				= FinanceStructure
+					invoked.CurrencyCode					= Currency
+					invoked.TransactionAmount				= CommittedAmount
+					invoked.ReportCurrencyAmount			= CommittedReportAmount     
+					invoked.TransactionDate					= ExpenseDate	
+					invoked.OriginatingTransaction			= reference to this instance
+					invoked.DimensionCode					= FinanceStructure.DimensionCode
+					invoked.TransBusinessObjectRef			= reference to ExpenseManagementTravelPlan
+
+				if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+					invoke PerformBudgetEdit
+
+		Update is an Update Action
+			completion message is "<ActionCompleteMessage>"
+			Action Rules
+				include ValidateData
+			Exit Rules
+				ActionCompleteMessage = ActionCompleteNoErrors
+				if (CommitmentExists)
+					if (GLCommitRel.Status.Unreleased)
+						invoke MaintainUnreleasedCommitment GLCommitRel
+							invoked.TransactionAmount        = CommittedAmount
+							invoked.ReportCurrencyAmount     = CommittedReportAmount
+							invoked.TransactionDate          = ExpenseDate
+							invoked.AccountingEntity         = AccountingEntity
+							invoked.FinanceCodeBlock         = FinanceStructure
+							invoked.CurrencyCode             = Currency
+						if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+							invoke Delete BudgetEditErrorsRel		
+			        		invoke PerformBudgetEdit
+					else		
+
+
+
+
+
+
+
+						if (CommittedAmount changed)
+							invoke ChangeReleasedCommitment GLCommitRel
+								invoked.PrmChangedCurrAmount.FunctionalAmount 	= CommittedReportAmount.FunctionalAmount.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ProjectAmount		= CommittedReportAmount.ProjectAmount.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ReportAmount1      = CommittedReportAmount.ReportAmount1.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ReportAmount2      = CommittedReportAmount.ReportAmount2.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ReportAmount3      = CommittedReportAmount.ReportAmount3.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ReportAmount4      = CommittedReportAmount.ReportAmount4.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.ReportAmount5      = CommittedReportAmount.ReportAmount5.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.AlternateAmount    = CommittedReportAmount.AlternateAmount.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.AlternateAmount2   = CommittedReportAmount.AlternateAmount2.EnteredCurrencyAmount
+								invoked.PrmChangedCurrAmount.AlternateAmount3   = CommittedReportAmount.AlternateAmount3.EnteredCurrencyAmount
+								invoked.PrmLastTransAmount       				= CommittedAmount
+						if (RequestAmount	changed)
+							if (RequestAmount	> old RequestAmount)
+								Status = Status.UpdateUnapproved
+								invoke TravelDetailUpdated ExpenseManagementTravelPlan
+								if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+									invoke Delete BudgetEditErrorsRel		
+					        		include EditCommitmentIncrease
+					        else
+					        	invoke ReleaseUpdatedGLCommitRecords ExpenseManagementTravelPlan
+
+		
+
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Purge GLCommitRel
+				invoke Delete BudgetEditErrorsRel		
+		
+		Purge is a Purge Action
+

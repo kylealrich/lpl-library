@@ -1,0 +1,181 @@
+AsyncQueueMapping is a BusinessClass
+    owned by async
+    prefix is QM
+    stored in environment
+    contains environment data
+	disable data area copy
+		preserve target data
+
+
+
+
+    Ontology
+		symbolic key is AsyncQueueMapping
+		
+    Patterns
+        disable Auditing
+        disable EffectiveDated
+
+    Persistent Fields
+    	Actor									
+    	DataArea								
+		ImplementingClass 	    is a BusinessView 
+    		default label is "Class"
+    	AsyncAction 		    is a BusinessAction 
+			default label is "Action"
+		SaveHistory 		    is a AsyncSaveHistory 
+		Priority 			    is a AsyncPriority    
+		AsyncLogProducer
+		MappingField1		    is an AsyncMappingField
+		MappingField2		    is an AsyncMappingField
+		NotificationInformation is an AsyncTriggerNotification 
+		
+	Conditions
+		HasAuditRecords
+			default label is "AuditRecordsExist"
+			when (AuditingRel exists)		
+
+	Field Rules
+		SaveHistory
+			required
+			default to SaveHistory.QueueDefault 
+			initial value is 1 
+		Priority
+			required
+			default to Priority.Normal 
+			initial value is 4 
+			
+		AsyncAction
+			constraint (ImplementingClass entered)
+				"<ImplementingClass label>RequiredWhenEntering<AsyncAction label>"
+				
+		MappingField2				
+			constraint (MappingField1 entered)
+				"<MappingField1 label>RequiredWhenEntering<MappingField2 label>"							
+							
+    Transient Fields
+    	AsyncLoadVersion 	
+    	AsyncDataAreaType   
+
+	Derived Fields
+		AsyncAuditingEnabled is a NativeField
+			type is Boolean
+			default label is untranslatable
+			restricted
+
+
+    Sets
+    	Mappings
+    		indexed
+    		Sort Order
+    			Actor
+    			DataArea
+				ImplementingClass
+    			AsyncAction
+    			MappingField1
+    			MappingField2
+
+    	MappingsByQueue
+    		indexed
+    		Sort Order
+    			AsyncQueueDefinition
+    			Actor
+    			DataArea
+				ImplementingClass
+    			AsyncAction
+    			MappingField1
+    			MappingField2
+
+    Relations
+    	AsyncThrottledSystemRequests                     
+    		one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+				related.ImplementingClass = ImplementingClass
+				related.AsyncAction		  = AsyncAction
+			Instance Selection
+				where (related.SystemRequest = 7 
+				and   (not DataArea entered or related.DataArea = DataArea))
+			
+		AuditingRel
+			one-to-many relation to AsyncAuditEntry
+			Field Mapping uses ByBusClassID
+				related.Reference.BusinessClassName = "AsyncQueueMapping"
+				related.Reference.BusinessObjectKey = UniqueID
+	
+	Rule Blocks
+		CreateUpdateEdits
+			constraint (Actor entered or DataArea entered or ImplementingClass entered or MappingField1 entered) 
+    			"MustEnterOneOf<Actor label>,<DataArea label>,<ImplementingClass label>Or<MappingField1 label>"
+    			
+    		if (not ImplementingClass entered)
+    			if (Actor entered)
+    				if (DataArea entered)
+    			 		confirmation required
+    						"ThisMappingWillOverrideMappingsBasedOnClassThatDoNoSpecifyActorAndDataArea.YouMayNeedToReviewAndCreateAdditionalMappingsAsNeeded.Continue?"
+    				else
+    					confirmation required
+    						"ThisMappingWillOverrideMappingsBasedOnDataAreaOrClassThatDoNoSpecifyActor.YouMayNeedToReviewAndCreateAdditionalMappingsAsNeeded.Continue?"
+				else
+				if (DataArea entered)
+					confirmation required
+    					"ThisMappingWillOverrideMappingsBasedOnClassThatDoNoSpecifyDataArea.YouMayNeedToReviewAndCreateAdditionalMappingsAsNeeded.Continue?"
+    Actions
+    	Create is a Create Action
+    		Action Rules
+    			include CreateUpdateEdits
+    			
+    		Exit Rules
+				if (AsyncAuditingEnabled) 
+					invoke Create AsyncAuditEntry  
+    	
+    	Delete is a Delete Action
+    		Entrance Rules
+    			if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry
+    	
+    	Update is an Update Action
+    		Action Rules
+    			include CreateUpdateEdits
+    			
+    			if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+    	
+		ResolveQueue is a Set Action
+			disable checkpoint
+			restricted
+			Parameters
+				AsyncActionRequest
+			Results
+				AsyncQueueDefinition
+				
+		UpdateSystemPurgeQueuesGroup is a Set Action 
+			default label is "UpdateQueueGroupForSystemPurgeQueues"
+
+			disable checkpoint
+			Local Fields
+				LocalGroup is an AsyncQueueGroup
+			Instance Selection
+				where (AsyncQueueDefinition.AsyncQueueGroup not entered) 
+			
+			Sort Order is primary
+			    
+			Action Rules
+				Instance Rules
+					if (AsyncQueueDefinition.AsyncQueueGroup not entered  
+				    and AsyncThrottledSystemRequests exists)
+						LocalGroup = "System Purge Queue Group"
+			
+						if (AsyncQueueDefinition.QueuesByDataArea)
+							LocalGroup = LocalGroup + "-" + DataArea
+						
+						if (not LocalGroup exists)
+							invoke Create AsyncQueueGroup
+								resume on error
+								invoked.AsyncQueueGroup = LocalGroup
+								invoked.Description = "System Purge Processing Queue Group"
+								invoked.MaxActiveActions = 1
+								invoked.Suspended = false
+						
+						invoke Update AsyncQueueDefinition
+							resume on error
+							invoked.AsyncQueueGroup = LocalGroup

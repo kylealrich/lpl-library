@@ -1,0 +1,210 @@
+KanbanCountLine is a BusinessClass
+    owned by mscm
+    prefix is MSKCL
+
+    Ontology
+        symbolic key is KanbanCountLine
+    
+    Persistent Fields
+        Item
+        Status                  is Numeric size 1
+            States 
+                InProgress              value is 1
+                Cancelled               value is 7
+                Error                   value is 8
+                Completed               value is 9
+        Requested               is like Quantity
+        Notes                   is Text
+        IsOutOfSync             is Boolean
+    
+    Relations
+        KanbanCountBinRel
+            one-to-many relation to KanbanCountBin
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.KanbanCount                 = KanbanCount
+                related.KanbanCountLine             = KanbanCountLine
+        
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = KanbanCount.InventoryLocation
+                related.Item                        = Item
+
+    Local Fields
+        LocalRequisition            is like Requisition
+        LocalQuantity               is like Quantity
+        LocalBinQuantity            is like Quantity
+        ErrorOccured                is Boolean
+        ErrorMessage                is Text
+
+    Derived Fields
+        DerivedIsBinExist is a DerivedField
+            type is Boolean
+            for each KanbanCountBinRel
+                if (each.BinNotExist)
+                    return false
+            return true
+
+        DerivedOutOfSyncMessage is a MessageField
+            restricted
+            "CountingIsNotPermitted;KanbanConfigurationIsOutOfSync;ContactYourAdministratorForDetails"
+        
+        DerivedErrorMessage is a DerivedField
+            type is MessageField
+            if (IsOutOfSync and Status.Cancelled)
+                return DerivedOutOfSyncMessage
+            else
+            if (Notes entered)
+                return Notes
+                
+    Actions
+        Create is a Create Action
+            restricted
+            Exit Rules
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+        
+        ProcessKanbanCount is a Set Action
+            restricted
+
+            Parameters
+                PrmFinanceEnterpriseGroup       is a FinanceEnterpriseGroup
+                    default label is "FinanceEnterpriseGroup"
+                PrmMobileSupplyChainUpload      is an MobileSupplyChainUpload
+                    context of PrmFinanceEnterpriseGroup
+                    default label is "MobileSupplyChainUpload"
+                PrmCompany                      is an InventoryCompany
+                    default label is "Company"
+                PrmInventoryLocation        is an InventoryLocation
+                    default label is "InventoryLocation"
+                PrmKanbanCount                  is an KanbanCount
+                    default label is "MobileSupplyChainParCount"
+
+            Sort Order
+                Company
+                InventoryLocation
+                KanbanCount
+                KanbanCountLine
+            
+            Instance Selection
+                where ((KanbanCount.MobileSupplyChainUpload = PrmMobileSupplyChainUpload) 
+                or     (Company                             = PrmCompany
+                and    InventoryLocation                    = PrmInventoryLocation
+                and    KanbanCount                          = PrmKanbanCount
+                and    Status.Error))
+
+            Local Fields
+                NewRequisition                  is a Requisition view
+                LocalErrorOccured               is Boolean
+                LocalErrorMessage               is Text
+                LocalOutSync                    is Boolean
+                LocalOutSyncMessage             is Text
+            
+            Accumulators
+                ItemsOutSyncCount
+                LinesCount
+            
+            Action Rules
+                KanbanCount Set Rules
+                    Entrance Rules
+                        initialize LinesCount
+                        initialize ItemsOutSyncCount
+                        initialize LocalErrorOccured
+                        initialize LocalErrorMessage
+
+                    Exit Rules
+                        if (not LocalErrorOccured)
+                            invoke Release KanbanCount.Requisition
+                                resume on error
+                                    LocalErrorOccured       = true
+                                    LocalErrorMessage       = error message                            
+                                    
+                        invoke Update KanbanCount
+                            invoked.ItemsProcessed                  = LinesCount
+                            if (LinesCount = ItemsOutSyncCount)
+                                invoked.Status                      = KanbanCount.Status.Cancelled
+                            else
+                            if (LocalErrorOccured)
+                                invoked.Status                      = KanbanCount.Status.ProcessedWithErrors
+                                invoked.Notes                       = LocalErrorMessage
+                            else
+                                invoked.Status                      = KanbanCount.Status.Completed
+
+                        if (PrmMobileSupplyChainUpload entered)
+                            invoke Update PrmMobileSupplyChainUpload
+                                invoked.Status = MobileSupplyChainUpload.Status.UploadComplete
+            
+                Instance Rules
+                    initialize ErrorOccured
+                    initialize LocalOutSync
+                    LinesCount += 1
+
+                    if (Requested entered)
+                        LocalQuantity     = ItemLocationRel.ReorderPoint / ItemLocationRel.KanbanNumberOfBins
+                        LocalBinQuantity  = first KanbanCountBinRel.Requested 
+
+                        if (not ItemLocationRel.UseKanban 
+                        or not DerivedIsBinExist 
+                        or Requested < ItemLocationRel.MinimumOrderQuantity 
+                        or LocalQuantity not = LocalBinQuantity) 
+                            IsOutOfSync = true
+
+                        if (IsOutOfSync)
+                            ItemsOutSyncCount          += 1
+                            Status                      = Status.Cancelled
+                        else
+                            if (KanbanCount.Requisition not entered)
+                                invoke CreateFromParLocation Requisition
+                                    resume on error
+                                        ErrorOccured    = true
+                                        ErrorMessage    = error message
+                                    assign result to NewRequisition
+                                    invoked.Company  			    = Company                          
+                                    invoked.RequestingLocation		= KanbanCount.InventoryLocation    
+                                    invoked.RequisitionSource		= RqSource.ParLocationCounts
+                                    invoked.Requester			    = actor.agent(Employee).Employee.Requester.Requester
+
+                                if (not ErrorOccured)
+                                    LocalRequisition                = NewRequisition.Requisition                    
+                                    invoke Update KanbanCount
+                                        invoked.Requisition     	= LocalRequisition
+                            else
+                                LocalRequisition                    = KanbanCount.Requisition
+                            
+                            if (LocalRequisition entered)
+                                invoke Create RequisitionLine
+                                    resume on error
+                                        ErrorOccured    = true
+                                        ErrorMessage    = error message                                
+                                    invoked.Company                     = Company
+                                    invoked.Requisition                 = LocalRequisition
+                                    invoked.RequestingLocation          = KanbanCount.InventoryLocation
+                                    invoked.ItemEntryMethod             = ItemEntryMethod.Item
+                                    invoked.Item                        = Item
+                                    invoked.EnteredUOM                  = ItemLocationRel.DefaultTransactionUOM
+                                    invoked.Quantity                    = Requested  
+
+                            if (not ErrorOccured)                    
+                                Status              = Status.Completed
+                            else 
+                                LocalErrorOccured   = true
+                                LocalErrorMessage   = ErrorMessage
+                                Notes               = ErrorMessage
+                                Status              = Status.Error
+                                    
+    
+    Sets
+        ByItemLocation
+            Sort Order
+                Item
+                InventoryLocation
+                Company
+                KanbanCount
+                KanbanCountLine

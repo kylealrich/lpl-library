@@ -1,0 +1,529 @@
+IntercompanyBillingSettlementDetailLine is a BusinessClass
+	owned by intercobilling
+	prefix is IBSDL
+	sql name is "ICBSettlementDetailLine"
+
+	Ontology
+		symbolic key is IntercompanyBillingSettlementDetailLine
+
+	Persistent Fields
+        IntercompanyBillingDocumentHeader
+        InvoiceLine                         is a Sequence
+		SelectedAmount				        is like InternationalAmount
+		Type                                is Alpha size 1
+            States
+                Receivables					value is "R"
+                Payables                 	value is "P"
+		VoidSequence						is a Sequence // valid only for Type "P"
+
+	Transient Fields
+
+
+    Local Fields
+
+	Derived Fields
+		
+        DerivedDistributionSetState is a DerivedField
+			type is Numeric size 1
+			restricted
+			if (!IntercompanyBillingSettlementHeader.Status.Unreleased)
+                return 3
+            else
+                if (IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.CreditMemo)
+                    if (sum ICBReceivableApplyDistribution set.DistributionAmount.CurrencyAmount != SelectedAmount)
+                        return 1
+                    else
+                        return 2
+                else
+                    if (sum ICBReceivableApplyDistribution set.DistributionAmount.CurrencyAmount != (SelectedAmount * -1))
+                        return 1
+                    else
+                        return 2
+
+		DerivedPayablesDistributionSetState is a DerivedField
+			type is Numeric size 1
+			restricted
+			if (!IntercompanyBillingSettlementHeader.Status.Unreleased)
+                return 3
+            else
+                if (sum ICBPayablesApplyDistribution set.DistributionAmount.CurrencyAmount != SelectedAmount)
+					return 1
+				else
+					return 2
+
+        DerivedCurrencyRoundTo is a DerivedField
+			type is Decimal 5.4
+			restricted
+			if (IntercompanyBillingDocumentHeader.ReceivableEntity.Company.Currency.NumberOfDecimals = 2)
+				return .01
+			else
+			if (IntercompanyBillingDocumentHeader.ReceivableEntity.Company.Currency.NumberOfDecimals = 0)
+				return 1
+			else
+			if (IntercompanyBillingDocumentHeader.ReceivableEntity.Company.Currency.NumberOfDecimals = 3)
+				return .001
+			else
+				return .01
+				
+	Conditions
+		
+		IsReceivablesLine
+			restricted
+			when (Type.Receivables)
+
+		IsPayablesLine
+			restricted
+			when (Type.Payables)
+
+		HasLineNotReleased
+			restricted
+			when ((IsReceivablesLine
+			and   !ReceivableInvoiceDetailRel.IsOpen)
+			or    (IsPayablesLine
+			and   !PayablesInvoicePaymentRel.Status.Released))
+
+	Relations
+
+        ICBReceivableApplyDistributionDescendingRel
+			one-to-many relation to ICBReceivableApplyDistribution
+			Field Mapping uses ICBReceivableApplyDistributionDescending
+				related.IntercompanyBillingGroup                            = IntercompanyBillingGroup
+                related.IntercompanyBillingSettlementHeader.SettlementID    = IntercompanyBillingSettlementHeader.SettlementID
+                related.IntercompanyBillingDocumentHeader                   = IntercompanyBillingDocumentHeader
+                related.InvoiceLine                                         = InvoiceLine
+
+		ICBPayablesApplyDistributionDescendingRel
+			one-to-many relation to ICBPayablesApplyDistribution
+			Field Mapping uses ICBPayablesApplyDistributionDescending
+				related.IntercompanyBillingGroup                            = IntercompanyBillingGroup
+                related.IntercompanyBillingSettlementHeader.SettlementID    = IntercompanyBillingSettlementHeader.SettlementID
+                related.IntercompanyBillingDocumentHeader                   = IntercompanyBillingDocumentHeader
+                related.InvoiceLine                                         = InvoiceLine
+				related.VoidSequence										= VoidSequence
+
+        ReceivableInvoiceDetailRel
+			one-to-one relation to ReceivableInvoiceDetail
+			Field Mapping uses Set8
+				related.Company								= IntercompanyBillingDocumentHeader.ReceivableEntity.Company
+				related.AlternateReceivableInvoiceType		= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoiceType
+				related.ReceivableInvoiceDetail.Invoice		= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+				related.ReceivableInvoiceDetail.PaymentSeq	= InvoiceLine
+
+		LocalReceivablePaymentRemittanceForThisInvoiceDetailRel 
+			one-to-many relation to ReceivablePaymentRemittance
+			Field Mapping uses ByInvoice
+				related.InvoiceCompany							= IntercompanyBillingDocumentHeader.ReceivableEntity.Company
+				related.ReceivableInvoiceType					= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoiceType
+				related.ReceivableInvoice						= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+				related.InvoiceDetail							= InvoiceLine
+			Instance Selection
+				where (related.Status.Unapplied
+				or	   related.Status.ApplicationNotPerfomed)
+
+		AssociatedReceivableGLDistributionRel 
+			one-to-many relation to ReceivableGLDistribution
+			Field Mapping uses Set2
+				related.ReceivableCompanyDataGroup.TransactionCompany	 = IntercompanyBillingDocumentHeader.ReceivableEntity.Company
+				related.BatchNumber										 = ReceivableInvoiceDetailRel.ReceivableInvoiceRel.BatchNumber
+				related.TransType										 = ReceivableInvoiceDetailRel.AlternateReceivableInvoiceType
+				related.Invoice											 = IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+			Instance Selection
+				where (related.AssociatedLine							 = ReceivableInvoiceDetailRel.AssociatedLine
+				and    related.AccumulationType.Detail
+				and    related.DistributionSource.AccountsReceivable
+				and	   related.DistributionAmount.CurrencyAmount entered)
+
+		PayablesInvoicePaymentRel
+			one-to-one relation to PayablesInvoicePayment
+			Field Mapping uses symbolic key
+				related.Company									= IntercompanyBillingDocumentHeader.PayableEntity.Company
+				related.PayablesInvoice							= IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice
+				related.PayablesInvoicePayment.PaymentSequence	= InvoiceLine
+				related.PayablesInvoicePayment.VoidSequence		= VoidSequence
+
+		PayablesFundApplyDistributionRel
+			one-to-many relation to PayablesFundApplyDistribution
+			Field Mapping uses symbolic key
+				related.Company									= IntercompanyBillingDocumentHeader.PayableEntity.Company
+				related.PayablesInvoice							= IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice
+				related.PayablesInvoicePayment.PaymentSequence	= InvoiceLine
+				related.PayablesInvoicePayment.VoidSequence		= VoidSequence
+
+	Sets
+
+		ByReceivableInvoiceLine
+			Instance Selection
+				where (IsReceivablesLine)
+			Sort Order
+				IntercompanyBillingGroup
+                IntercompanyBillingSettlementHeader.SettlementID
+                IntercompanyBillingDocumentHeader 
+                InvoiceLine
+
+		ByPayablesInvoiceLine
+			Instance Selection
+				where (IsPayablesLine)
+			Sort Order
+				IntercompanyBillingGroup
+                IntercompanyBillingSettlementHeader.SettlementID
+                IntercompanyBillingDocumentHeader 
+                InvoiceLine
+				VoidSequence
+
+	Actions
+
+        Create is a Create Action
+        	restricted
+			Entrance Rules
+				if (not IntercompanyBillingSettlementHeader.BypassReleasedSelectionsValidation)
+					constraint (!HasLineNotReleased)
+						"LineIsNotInAReleasedStatus"
+
+        	
+		Update is an Update Action
+			restricted
+				
+
+        Delete is a Delete Action
+			restricted
+
+		UpdateVoidSequence is an Instance Action
+			restricted
+			Parameters
+				PrmVoidSequence		is a Sequence
+			Entrance Rules
+				invoke Delete PayablesFundApplyDistributionRel 
+			Action Rules
+				VoidSequence = PrmVoidSequence
+			Exit Rules
+				for each ICBPayablesApplyDistribution set
+					invoke UpdateVoidSequence each
+						invoked.PrmVoidSequence = PrmVoidSequence
+					invoke Create PayablesFundApplyDistribution		
+						invoked.Company									= each.PayableEntity.Company
+						invoked.PayablesInvoice 						= each.PayableEntity.PayablesInvoice
+						invoked.PayablesInvoicePayment.PaymentSequence	= each.InvoiceLine
+						invoked.PayablesInvoicePayment.VoidSequence		= PrmVoidSequence
+						invoked.OriginalPayablesInvoiceDistribution		= each.OriginalPayablesInvoiceDistribution
+						invoked.DistributionAccount						= each.ApplyFundDistributionAccount
+						invoked.OriginalCurrency						= each.OriginalCurrency
+						invoked.DistributionAmount.CurrencyAmount 		= each.DistributionAmount.CurrencyAmount
+						invoked.DistributionAmount.ExchangeDate			= each.DistributionAmount.ExchangeDate
+					
+		SettlementMatchDistributionsForFundAccounting is an Instance Action 
+			restricted
+			Local Fields
+				LocalAmountRemaining		is like InternationalAmount
+				LocalDistributionOpenAmount	is like InternationalAmount
+				LocalSelectedAmount			is like InternationalAmount
+				LocalSumPendingRemitAmount	is like InternationalAmount
+				LocalMatchSuccessful		is Boolean
+			Action Rules
+				invoke Delete ICBReceivableApplyDistribution set
+				initialize LocalMatchSuccessful
+
+				if (ReceivableInvoiceDetailRel.AssociatedLine entered)
+					LocalMatchSuccessful = true
+
+					if (LocalMatchSuccessful)
+						if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+							LocalAmountRemaining = SelectedAmount
+						else
+							LocalAmountRemaining = SelectedAmount * -1
+
+						for each AssociatedReceivableGLDistributionRel
+							LocalDistributionOpenAmount = each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+
+							if (each.DistributionAmount.CurrencyAmount > 0)
+								if (LocalAmountRemaining < LocalDistributionOpenAmount)
+									LocalSelectedAmount 	= LocalAmountRemaining
+									LocalAmountRemaining 	= 0
+								else
+									LocalSelectedAmount 	= LocalDistributionOpenAmount
+									LocalAmountRemaining   -= LocalDistributionOpenAmount
+							else
+								if (LocalAmountRemaining > LocalDistributionOpenAmount)
+									LocalSelectedAmount 	= LocalAmountRemaining
+									LocalAmountRemaining 	= 0
+								else
+									LocalSelectedAmount 	= LocalDistributionOpenAmount
+									LocalAmountRemaining   -= LocalDistributionOpenAmount
+
+							invoke Create ICBReceivableApplyDistribution set
+								invoked.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+								invoked.InvoiceLine											= InvoiceLine
+								invoked.ReceivableEntity							        = IntercompanyBillingSettlementDetail.ReceivableEntity
+								invoked.ApplyFundDistributionAccount			            = each.GeneralLedgerAccount
+								invoked.DistributionAmount.CurrencyAmount 		            = LocalSelectedAmount
+								invoked.DistributionAmount.ExchangeDate			            = each.DistributionAmount.ExchangeDate
+								invoked.OriginalCurrency						            = each.OriginalCurrency
+								invoked.OriginalLastDistributionSequence					= each.LastDistributionSequence
+								invoked.OriginalReceivableGLDistribution					= each.ReceivableGLDistribution
+								invoked.Description											= each.Description
+							
+							if (LocalAmountRemaining = 0)
+								end for each
+						
+						if (LocalAmountRemaining != 0)
+							LocalMatchSuccessful = false
+				
+				constraint (LocalMatchSuccessful)
+					"Distribution_MatchWasNotSuccessful.EitherProrateDistributionsOrSelectDistributionsManually."
+
+
+		SettlementSelectOpenDistributions is an Instance Action
+			default label is untranslatable
+			restricted
+			Local Fields
+				LocalAmountRemaining		is like InternationalAmount
+				LocalDistributionOpenAmount	is like InternationalAmount
+				LocalSelectedAmount			is like InternationalAmount
+			Action Rules
+				invoke Delete ICBReceivableApplyDistribution set
+
+				if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+					LocalAmountRemaining = SelectedAmount
+				else
+					LocalAmountRemaining = SelectedAmount * -1
+
+				for each IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.ProrateDistributionsRel
+					LocalDistributionOpenAmount = each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+
+					if (each.DistributionAmount.CurrencyAmount > 0)
+						if (LocalAmountRemaining < LocalDistributionOpenAmount)
+							LocalSelectedAmount 	= LocalAmountRemaining
+							LocalAmountRemaining 	= 0
+						else
+							LocalSelectedAmount 	= LocalDistributionOpenAmount
+							LocalAmountRemaining   -= LocalDistributionOpenAmount
+					else
+						if (LocalAmountRemaining > LocalDistributionOpenAmount)
+							LocalSelectedAmount 	= LocalAmountRemaining
+							LocalAmountRemaining 	= 0
+						else
+							LocalSelectedAmount 	= LocalDistributionOpenAmount
+							LocalAmountRemaining   -= LocalDistributionOpenAmount
+
+					if (LocalSelectedAmount != 0)
+						invoke Create ICBReceivableApplyDistribution set
+							invoked.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+							invoked.InvoiceLine											= InvoiceLine
+							invoked.ReceivableEntity							        = IntercompanyBillingSettlementDetail.ReceivableEntity
+							invoked.ApplyFundDistributionAccount			            = each.GeneralLedgerAccount
+							invoked.DistributionAmount.CurrencyAmount 		            = LocalSelectedAmount
+							invoked.DistributionAmount.ExchangeDate			            = each.DistributionAmount.ExchangeDate
+							invoked.OriginalCurrency						            = each.OriginalCurrency
+							invoked.OriginalLastDistributionSequence					= each.LastDistributionSequence
+							invoked.OriginalReceivableGLDistribution					= each.ReceivableGLDistribution
+							invoked.Description											= each.Description
+					
+					if (LocalAmountRemaining = 0)
+						end for each
+
+				
+        ProrateAndSelectAllForSettlementDetail is an Instance Action
+			restricted
+			Local Fields
+				LocalAdjustmentPercent 		is a Percent
+				LocalInvoiceOpenAmount 		is an InternationalAmount
+				LocalSumInvoiceFundApplied 	is an InternationalAmount
+				LocalApplyAmount 			is an InternationalAmount
+				LocalSumApplyAmounts 		is an InternationalAmount
+				LocalNewAmount 				is an InternationalAmount
+				LocalOldAmount 				is an InternationalAmount
+				LocalPreviousFundApplied	is an InternationalAmount
+				LocalApplicationAmount		is an InternationalAmount
+				LocalDifference				is an InternationalAmount
+				LocalSumRoundAmounts 		is an InternationalAmount
+				LocalAmountToAdd			is an InternationalAmount
+				LocalDistributionOpenAmount	is an InternationalAmount
+
+			Action Rules
+
+				if (Type.Receivables)
+					invoke Delete ICBReceivableApplyDistribution set
+					
+					LocalSumInvoiceFundApplied 	= sum IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.ProrateDistributionsRel.FundAppliedAmount
+					
+					if (IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.CreditMemo)
+						LocalInvoiceOpenAmount 	= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.InvoiceAmount.CurrencyAmount - LocalSumInvoiceFundApplied
+					else
+						LocalInvoiceOpenAmount 	= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.InvoiceAmount.CurrencyAmount + LocalSumInvoiceFundApplied
+
+					if (LocalInvoiceOpenAmount = SelectedAmount)
+						for each IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.ProrateDistributionsRel
+							if ((each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount) != 0)
+								invoke Create ICBReceivableApplyDistribution set
+									invoked.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+									invoked.InvoiceLine											= InvoiceLine
+									invoked.ReceivableEntity							        = IntercompanyBillingSettlementDetail.ReceivableEntity
+									invoked.ApplyFundDistributionAccount			            = each.GeneralLedgerAccount
+									invoked.DistributionAmount.CurrencyAmount 		            = each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+									invoked.DistributionAmount.ExchangeDate			            = each.DistributionAmount.ExchangeDate
+									invoked.OriginalCurrency						            = each.OriginalCurrency
+									invoked.OriginalLastDistributionSequence					= each.LastDistributionSequence
+									invoked.OriginalReceivableGLDistribution					= each.ReceivableGLDistribution
+									invoked.Description											= each.Description
+
+					else
+						for each IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.ProrateDistributionsRel
+
+							LocalAdjustmentPercent 	= ((each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount) / LocalInvoiceOpenAmount)
+							LocalApplyAmount		= SelectedAmount * LocalAdjustmentPercent
+							
+							round LocalApplyAmount to nearest DerivedCurrencyRoundTo
+
+							if (LocalApplyAmount > 0
+							and LocalApplyAmount > (each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount))
+								LocalApplyAmount	= each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+							
+							if (LocalApplyAmount < 0
+							and LocalApplyAmount < (each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount))
+								LocalApplyAmount	= each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+
+							if (LocalApplyAmount != 0)
+								LocalSumApplyAmounts += LocalApplyAmount
+								invoke Create ICBReceivableApplyDistribution set
+									invoked.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+									invoked.InvoiceLine											= InvoiceLine
+									invoked.ReceivableEntity							        = IntercompanyBillingSettlementDetail.ReceivableEntity
+									invoked.ApplyFundDistributionAccount			            = each.GeneralLedgerAccount
+									invoked.DistributionAmount.CurrencyAmount 		            = LocalApplyAmount
+									invoked.DistributionAmount.ExchangeDate			            = each.DistributionAmount.ExchangeDate
+									invoked.OriginalCurrency						            = each.OriginalCurrency
+									invoked.OriginalLastDistributionSequence					= each.LastDistributionSequence
+									invoked.OriginalReceivableGLDistribution					= each.ReceivableGLDistribution
+									invoked.Description											= each.Description
+
+						if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+							LocalApplicationAmount = SelectedAmount
+						else
+							LocalApplicationAmount = SelectedAmount * -1
+
+						if (LocalSumApplyAmounts != LocalApplicationAmount)
+
+							LocalDifference = LocalApplicationAmount - LocalSumApplyAmounts	
+							
+							for each ICBReceivableApplyDistributionDescendingRel
+
+								LocalDistributionOpenAmount  = each.ReceivableGLDistributionRel.DistributionAmount.CurrencyAmount - each.ReceivableGLDistributionRel.FundAppliedAmount
+								
+								if (each.ReceivableGLDistributionRel.DistributionAmount.CurrencyAmount > 0)
+									if (LocalDifference <= LocalDistributionOpenAmount)
+										LocalAmountToAdd	 = LocalDifference
+										LocalDifference		 = 0
+									else
+										LocalAmountToAdd	 = LocalDistributionOpenAmount
+										LocalDifference		-= LocalDistributionOpenAmount
+								else
+									if (LocalDifference >= LocalDistributionOpenAmount)
+										LocalAmountToAdd	 = LocalDifference
+										LocalDifference		 = 0
+									else
+										LocalAmountToAdd	 = LocalDistributionOpenAmount
+										LocalDifference		-= LocalDistributionOpenAmount
+
+								LocalOldAmount	= each.DistributionAmount.CurrencyAmount
+								LocalNewAmount 	= LocalOldAmount + LocalAmountToAdd
+
+								if (LocalNewAmount = 0)
+									invoke Delete each
+								else
+									invoke Update each
+										invoked.DistributionAmount.CurrencyAmount 				= LocalNewAmount
+										invoked.TransientSupplyOldFundAppliedAmount				= true
+										invoked.TransientOldFundAppliedAmount					= LocalOldAmount
+
+								if (LocalDifference = 0)
+									end for each
+				else 
+				if (Type.Payables)
+					invoke Delete ICBPayablesApplyDistribution set
+					
+					LocalSumInvoiceFundApplied 	= 0
+					for each IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.first PayablesInvoicePaymentRel.ICBProrateDistributionsRel
+						LocalSumInvoiceFundApplied += each.FundAppliedAmount
+
+					LocalInvoiceOpenAmount 	= IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.InvoiceAmount.CurrencyAmount - LocalSumInvoiceFundApplied
+
+					if (LocalInvoiceOpenAmount = SelectedAmount)
+						for each IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.first PayablesInvoicePaymentRel.ICBProrateDistributionsRel
+							if ((each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount) != 0)
+								invoke Create ICBPayablesApplyDistribution set
+									invoked.IntercompanyBillingDocumentHeader		= IntercompanyBillingDocumentHeader
+									invoked.InvoiceLine								= InvoiceLine
+									invoked.VoidSequence							= VoidSequence
+									invoked.PayableEntity							= IntercompanyBillingSettlementDetail.PayableEntity
+									invoked.ApplyFundDistributionAccount			= each.GLFinanceCodeBlock
+									invoked.DistributionAmount.CurrencyAmount 		= each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+									invoked.DistributionAmount.ExchangeDate			= each.DistributionAmount.ExchangeDate
+									invoked.OriginalCurrency						= each.InvoiceCurrency
+									invoked.OriginalPayablesInvoiceDistribution		= each.PayablesInvoiceDistribution
+
+					else
+						for each IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.first PayablesInvoicePaymentRel.ICBProrateDistributionsRel
+
+							LocalAdjustmentPercent 	= ((each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount) / LocalInvoiceOpenAmount)
+							LocalApplyAmount		= SelectedAmount * LocalAdjustmentPercent
+							
+							round LocalApplyAmount to nearest DerivedCurrencyRoundTo
+
+							if (LocalApplyAmount > 0
+							and LocalApplyAmount > (each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount))
+								LocalApplyAmount	= each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+							
+							if (LocalApplyAmount < 0
+							and LocalApplyAmount < (each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount))
+								LocalApplyAmount	= each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+
+							if (LocalApplyAmount != 0)
+								LocalSumApplyAmounts += LocalApplyAmount
+								invoke Create ICBPayablesApplyDistribution set
+									invoked.IntercompanyBillingDocumentHeader		= IntercompanyBillingDocumentHeader
+									invoked.InvoiceLine								= InvoiceLine
+									invoked.VoidSequence							= VoidSequence
+									invoked.PayableEntity							= IntercompanyBillingSettlementDetail.PayableEntity
+									invoked.ApplyFundDistributionAccount			= each.GLFinanceCodeBlock
+									invoked.DistributionAmount.CurrencyAmount 		= LocalApplyAmount
+									invoked.DistributionAmount.ExchangeDate			= each.DistributionAmount.ExchangeDate
+									invoked.OriginalCurrency						= each.InvoiceCurrency
+									invoked.OriginalPayablesInvoiceDistribution		= each.PayablesInvoiceDistribution
+
+						LocalApplicationAmount = SelectedAmount
+
+						if (LocalSumApplyAmounts != LocalApplicationAmount)
+
+							LocalDifference = LocalApplicationAmount - LocalSumApplyAmounts	
+							
+							for each ICBPayablesApplyDistributionDescendingRel
+
+								LocalDistributionOpenAmount  = each.PayablesInvoiceDistributionRel.DistributionAmount.CurrencyAmount - each.PayablesInvoiceDistributionRel.FundAppliedAmount
+								
+								if (each.PayablesInvoiceDistributionRel.DistributionAmount.CurrencyAmount > 0)
+									if (LocalDifference <= LocalDistributionOpenAmount)
+										LocalAmountToAdd	 = LocalDifference
+										LocalDifference		 = 0
+									else
+										LocalAmountToAdd	 = LocalDistributionOpenAmount
+										LocalDifference		-= LocalDistributionOpenAmount
+								else
+									if (LocalDifference >= LocalDistributionOpenAmount)
+										LocalAmountToAdd	 = LocalDifference
+										LocalDifference		 = 0
+									else
+										LocalAmountToAdd	 = LocalDistributionOpenAmount
+										LocalDifference		-= LocalDistributionOpenAmount
+
+								LocalOldAmount	= each.DistributionAmount.CurrencyAmount
+								LocalNewAmount 	= LocalOldAmount + LocalAmountToAdd
+
+								if (LocalNewAmount = 0)
+									invoke Delete each
+								else
+									invoke Update each
+										invoked.DistributionAmount.CurrencyAmount 				= LocalNewAmount
+										invoked.TransientSupplyOldFundAppliedAmount				= true
+										invoked.TransientOldFundAppliedAmount					= LocalOldAmount
+
+								if (LocalDifference = 0)
+									end for each

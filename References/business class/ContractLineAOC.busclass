@@ -1,0 +1,176 @@
+ContractLineAOC is a BusinessClass
+	owned by po
+	prefix is CAOC
+
+	Ontology
+		part of ContractLine
+			relative key is ContractLineAOC is a SequenceNumber
+
+	Persistent Fields
+		Company		is a PurchasingCompany
+			disable surrogates
+		AOC			is an AddOnCharge
+		AOCRate		is an AddOnChargePercent
+			default label is "Rate"
+		UnitCost	is like UnitCost
+			precision is ContractLine.DerivedNumberOfDecimalsCost
+		ZeroCost	is Boolean
+		Taxable		is Boolean
+		TaxCode
+
+
+	Local Fields
+		LocalCompanyTaxCodeCount	is Numeric 6
+		LocalTaxEntity				is a TaxEntity
+		RoundedValue
+
+	Conditions
+		ContractLineAOCExists
+			restricted
+			when (ContractLineAOC != 0)
+		AvailableToUpdateAOC
+			restricted
+			when (ContractLine.CanAddLine
+			and  !ContractLine.ContractLineState.Closed)
+		NeedsACost
+			when (UnitCost = 0
+			and   AOCRate  = 0
+			and   ZeroCost = false)
+
+	Relations
+		PoCompanyRel
+			one-to-many relation to PurchasingCompany
+			Field Mapping uses Set2
+				related.ProcurementGroup = ContractGroup
+		ContractLineAOCRel
+			one-to-many relation to ContractLineAOC
+			Field Mapping uses part of key
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+				related.ContractLine	= ContractLine
+			Instance Selection
+				where (related.ContractLineAOC	!= ContractLineAOC
+				and    related.AOC				 = AOC
+				and    related.Company			 = Company)
+
+		EntityTaxCodeRel
+			one-to-one relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= LocalTaxEntity.FinanceEnterpriseGroup
+				related.TaxEntity 				= LocalTaxEntity
+				related.TaxCode 				= TaxCode
+
+	Field Rules
+		ContractLineAOC
+			autosequence
+				minimize contention
+		AOC
+			required
+			constraint (!ContractLineAOCRel exists)
+				"AOCCodeAlreadyExistsForThisContractLine"
+
+		ZeroCost
+			default to false
+		AOCRate
+			initial value is AOC.AddOnChargePercent
+
+			constraint (UnitCost = 0)
+				"AddOnCostRateCannotBeEnteredWhenThereIsAUnitCost"
+			constraint (ZeroCost = false)
+				"AddOnCostRateCannotBeEnteredWhenTheZeroCostFlagIsYes"
+		UnitCost
+			constraint (ZeroCost = false)
+				"UnitCostCannotBeEnteredWhenTheZeroCostFlagIsYes"
+			if (AOC.AddOnChargeType.Allowance)
+				constraint (UnitCost < 0)
+					"UnitCostCannotBeGreaterThanZeroForAllowanceTypeAOC"
+
+			initialize RoundedValue
+			RoundedValue.RoundInput			= UnitCost
+			RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+			RoundedValue.RoundTo			= ContractLine.DerivedRoundTo
+			RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+			UnitCost 						= RoundedValue.RoundResult
+
+		Taxable
+			if (Taxable changed
+			and Taxable not entered)
+				default to false
+			initial value is AOC.Taxable
+		TaxCode
+			initial value is AOC.TaxCode
+			if (!Taxable)
+				force default to blank
+			if (Taxable)
+				required
+
+			initialize LocalCompanyTaxCodeCount
+			for each PoCompanyRel
+				if (each.TaxEntityRel.UseTaxCodeAccounts)
+					LocalTaxEntity	= each.TaxEntityRel.TaxEntity
+					if (EntityTaxCodeRel exists)
+						LocalCompanyTaxCodeCount = LocalCompanyTaxCodeCount + 1
+				else
+					LocalCompanyTaxCodeCount = LocalCompanyTaxCodeCount + 1
+			constraint (LocalCompanyTaxCodeCount > 0)
+				"TaxCode<TaxCode>DoesNotExistForAnyCompanyInThisProcurementGroup"
+
+	Actions
+		Create is a Create Action
+			restricted
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+			Field Rules
+				Company
+					default to AOC.Company
+				AOCRate
+					default to AOC.AddOnChargePercent
+				Taxable
+					default to AOC.Taxable
+				TaxCode
+					default to AOC.TaxCode
+
+		Update is an Update Action
+			valid when (AvailableToUpdateAOC)
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+
+			Action Rules
+				constraint (UnitCost != 0 or AOCRate != 0 or ZeroCost = true)
+					"MustEnterEitherTheUnitCost,AddOnCostRateOrSetTheZeroCostFlagToYes"
+
+		Delete is a Delete Action
+			valid when (AvailableToUpdateAOC)
+			Entrance Rules
+
+		FastUpdate is an Update Action
+			restricted
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+
+		Purge is a Purge Action
+			restricted
+
+		PurgeContractLineAOC is a Set Action
+			restricted
+
+			Parameters
+				PrmContractGroup	is like ContractGroup
+				PrmContract			is like Contract
+				PrmContractLine		is like ContractLine
+
+			Instance Selection
+				include deleted records
+				where (ContractGroup	= PrmContractGroup
+				and   Contract			= PrmContract
+				and   ContractLine		= PrmContractLine)
+
+			Action Rules
+				Instance Rules
+					invoke Purge

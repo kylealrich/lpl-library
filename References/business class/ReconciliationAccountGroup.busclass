@@ -1,0 +1,146 @@
+ReconciliationAccountGroup is a BusinessClass
+    owned by reconciliation
+    prefix is REAG
+
+    Ontology
+    	symbolic key is ReconciliationAccountGroup
+
+    Persistent Fields
+    	ReconciliationAccountType
+    	Description					is Alpha 250
+		Active
+		
+	Context Fields
+		GeneralLedgerCloseConfiguration
+		GeneralLedgerClosePeriod
+		ReconciliationAccountStructure
+	
+	Local Fields
+		NewParentReportGroup 		is a ReconciliationAccountGroup
+	
+	Derived Fields
+		NewParentReportGroupIsAChildAccountGroup is a DerivedField
+			type is Boolean
+			restricted
+   			for each NewParentReportGroup and ancestors
+				if (each.ParentAccountGroup = ReconciliationAccountGroup)
+					return true
+					end for each
+							
+	Field Rules
+		ReconciliationAccountType
+			if (ParentAccountGroup entered)
+				force default to ParentAccountGroup.ReconciliationAccountType
+			if (IsUsed)
+				cannot be changed
+					"CannotUpdateAccountTypeWhenReportGroup<ReconciliationAccountGroup>IsAssignedToAnyReconciliationAccounts"
+		
+		Description
+			default to ReconciliationAccountGroup
+			
+	Relations
+		ReconciliationAccountStructureRel 
+			one-to-many relation to ReconciliationAccountStructure
+			Field Mapping uses symbolic key
+				related.ReconciliationManagementGroup	= ReconciliationManagementGroup
+		
+		ParentAccountGroupRel
+			one-to-one relation to ReconciliationAccountGroup
+			Field Mapping uses symbolic key
+				related.ReconciliationManagementGroup	= ReconciliationManagementGroup
+				related.ReconciliationAccountGroup		= ParentAccountGroup 
+				
+	Sets
+		ByParentAccountGroup
+			Sort Order
+				ReconciliationManagementGroup
+				ParentAccountGroup
+				ReconciliationAccountGroup
+	
+	Conditions
+		HasParentAccountGroup
+			restricted
+    		when (ParentAccountGroup entered)
+    	
+    	DisableCreateWithin
+    		restricted
+    		when (HasParentAccountGroup)
+    			
+    	HasChild
+    		restricted
+    		when (ReconciliationAccountGroup children exist)
+    	
+    	IsUsed
+    		restricted
+    		when (ReconciliationAccount set exists
+			or    PeriodEndReconciliation(ReconciliationAccountGroup) set exists)
+		
+		CanReparent
+			restricted
+			when (!HasChild
+			and   !IsUsed)
+			
+		CanRemoveParent
+			restricted
+			when (HasParentAccountGroup
+			and	  !IsUsed)
+    							
+    Attach Rules
+		constraint (Active)
+			"ReportGroupIsInactive"
+			
+	Actions
+		UpdateReconciliationAccountType is an Update Action
+			restricted
+
+		Create is a Create Action
+			Action Rules
+				if (ParentAccountGroup entered)
+					constraint (!ParentAccountGroupRel.HasParentAccountGroup)
+		     			"CanOnlyDefinedTwoLevelsForTheReportGroupHierarchy"
+		
+		Update is an Update Action
+			Exit Rules
+				if (!HasParentAccountGroup
+				and ReconciliationAccountType changed)
+					invoke UpdateReconciliationAccountType ReconciliationAccountGroup children
+						invoked.ReconciliationAccountType = ReconciliationAccountType
+		
+		ReparentReportGroup is an Instance Action
+			valid when (CanReparent)
+			Parameters
+				PrmParentReportGroup is a ReconciliationAccountGroup
+					default label is "NewParentReportGroup"
+					
+			Parameter Rules
+				PrmParentReportGroup
+					required
+						"NewParentReportGroupIsRequired"
+						
+					constraint (PrmParentReportGroup != ReconciliationAccountGroup)
+						"CannotSelectReportGroupToBeItsOwnParent"
+						
+					constraint (PrmParentReportGroup != ParentAccountGroup)
+						"NewParentIsTheSameAsCurrentParent"
+					
+					if (PrmParentReportGroup.ReconciliationAccountType entered)
+						constraint (PrmParentReportGroup.ReconciliationAccountType = ReconciliationAccountType)
+							"NewParentMustHaveTheSameAccountType"
+							
+			Action Rules
+				NewParentReportGroup = PrmParentReportGroup
+				
+				constraint (!NewParentReportGroupIsAChildAccountGroup)
+					"CannotChooseAChildReportGroupToBeTheNewParentReportGroup"
+				
+				constraint (!PrmParentReportGroup.HasParentAccountGroup)
+	     			"CanOnlyDefinedTwoLevelsForTheReportGroupHierarchy"
+		     	
+				ParentAccountGroup = NewParentReportGroup
+				
+		RemoveParentReportGroup is an Instance Action
+			valid when (CanRemoveParent)
+			Action Rules
+				initialize ParentAccountGroup
+				
+		Delete is a Delete Action

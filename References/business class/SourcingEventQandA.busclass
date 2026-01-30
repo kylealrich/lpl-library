@@ -1,0 +1,296 @@
+SourcingEventQandA is a BusinessClass
+	owned by ss
+	prefix is EQR
+	default label is "SourcingEventQ&A"
+
+	Ontology
+		part of SourcingEvent
+			relative key is SourcingEventQandA is a Sequence 
+
+	Persistent Fields
+		Question		is Alpha size 250
+		Answer			is Text
+		Status			is Numeric size 1
+			States
+				Unanswered	value is 1
+				Answered	value is 2
+		BuyerCreated	is Boolean
+		DateReceived	is TimeStamp
+		AnswerPostDate	is TimeStamp
+		Supplier
+		SupplierSourceId
+		Private			is Boolean
+		Attachment
+		AnswerAttachment is an Attachment
+
+	Derived Fields
+		AnswerQuestionMessage is a MessageField
+			restricted
+			"AnswerQuestion"
+
+		ViewAnswerMessage is a MessageField
+			restricted
+			"ViewAnswer"
+
+		NoDataAnonymous is a MessageField
+			restricted
+			"PleaseSignInToAskAQuestion."
+
+		NoDataSignedIn is a MessageField
+			restricted
+			"To_Ask_A_Question,_Click_The_Supplier_Create"
+
+		AnswerQuestion is a ConditionalField
+			type is Text
+			restricted
+			if (Status.Unanswered)
+				AnswerQuestionMessage
+			else
+				blank
+				
+		QuestionAnswer is a ConditionalField
+			type is Alpha size 20
+			if (Status.Answered)
+				ViewAnswerMessage
+			else
+				blank
+
+		NoDataResponse is a ConditionalField
+			type is Text
+			restricted
+			if (actor.agent(SupplierSourceId).Supplier.IsAnonymous)
+				NoDataAnonymous
+			else
+				NoDataSignedIn
+
+		NonChangableFieldsChanged is a DerivedField
+			type is Boolean
+			restricted
+			if (NonChangableFields changed)
+				return true
+			else
+				return false
+		
+		DerivedBuyer is a StringField
+			type is AlphaUpper size 3
+   			restricted
+			SourcingEvent.Buyer
+
+		DerivedFromEmail is a DerivedField
+			type is Alpha size 100
+			if (Company.EmailAddressOption.UseCompanyEmailAddress)
+				return Company.EventEmailAddress
+			else
+				return SourcingEvent.Buyer.EmailAddress
+	
+	Context Fields
+		SupplyManagementReportContext	is a SupplyManagementReport
+   	
+   	Field Groups
+   		BuyerOnlyFields
+   			Question
+   			Status
+   			DateReceived
+   			AnswerPostDate
+   			Supplier
+   			SupplierSourceId
+   		
+   		NonChangableFields
+   		   	Question
+   			Answer
+   			Status
+   			DateReceived
+   			AnswerPostDate
+   			Supplier
+   			SupplierSourceId
+   			
+	Conditions
+		AllowSupplierView
+			when (Status.Answered
+			and   !Private)
+		AnswersOnlySuppliersCanView
+   			restricted
+			when (Status.Answered
+			and   Private)
+		NotAnswered 
+   			restricted
+			when (Status.Unanswered)
+		SupplierCreated
+   			restricted
+			when (!BuyerCreated
+			and   SourcingEventQandA entered)
+		CanCreate
+			restricted
+			when (!SourcingEvent.IsTemplate
+			and    SourcingEvent.AllowSupplierQandA
+			and  ((!SourcingEvent.InformalQuote
+			and    SourcingEvent.InQandAPeriodFormal)
+			or    (SourcingEvent.InformalQuote
+			and    SourcingEvent.InQandAPeriodInformal)))
+		SupplierCanCreate
+			restricted
+			when (SupplierSourceId.HasActor
+			and   CanCreate)			
+		IsAnswered
+   			restricted
+			when (Status.Answered)
+		BuyerActorContextExists
+   			restricted
+			when (ActorContextBuyerRel exists)
+		CategoryActorContextExists
+   			restricted
+			when (ActorContextCategoryRel exists)
+		SubCategoryActorContextExists
+   			restricted
+			when (ActorContextSubCategoryRel exists)
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		HasAnswerAttachment
+			restricted
+			when (AnswerAttachment entered)
+
+	Field Rules
+		SourcingEventQandA
+			autosequence 
+		Question
+			required
+		BuyerCreated
+			cannot be changed
+		DateReceived
+			cannot be changed
+		Supplier
+			initial value is actor.agent(SupplierSourceId).Supplier
+			required
+		SupplierSourceId
+			initial value is actor.agent(SupplierSourceId).SupplierSourceId
+			required
+
+	Relations	
+		SupplierRel is a Supplier set
+		
+		SupplierGroupRel is a SupplierGroup set
+		
+		ActorContextBuyerRel
+			one-to-many relation to ActorContext
+			Field Mapping uses symbolic key
+				related.Actor                    = actor
+			Instance Selection
+				where (related.ContextProperty.KeyField   = "Buyer")	
+				
+		ActorContextCategoryRel
+			one-to-many relation to ActorContext
+			Field Mapping uses symbolic key
+				related.Actor                    = actor
+			Instance Selection
+				where (related.ContextProperty.KeyField   = "Category")	
+
+		ActorContextSubCategoryRel
+			one-to-many relation to ActorContext
+			Field Mapping uses symbolic key
+				related.Actor                    = actor
+			Instance Selection
+				where (related.ContextProperty.KeyField   = "SubCategory")
+		
+		SourcingEventQAndARel
+			one-to-many relation to SourcingEventQandA
+			Field Mapping uses part of key
+			Instance Selection
+				where 	(related.Company			= Company
+				and 	related.SourcingEvent		= SourcingEvent
+				and 	related.Private				= SupplyManagementReportContext.Private)
+				
+	StateCycles
+		QandALifeCycle is a StateCycle
+			state field is Status
+		
+			Unanswered is a State
+			
+				Create is a Create Action  
+					valid when (CanCreate)
+			
+					Field Rules
+						SourcingEventQandA
+							autosequence
+						BuyerCreated
+							default to true
+						DateReceived
+							default to current timestamp
+							required
+				
+				SupplierCreate is a Create Action
+					valid when (SupplierCanCreate)
+					Action Rules
+						constraint (!SourcingEvent.IsTemplate)
+							"CannotCreate_Q&_AForEventTemplates"
+						constraint (SourcingEvent.AllowSupplierQandA)
+							"Q&_ANotAllowedForEvent"
+						if (!SourcingEvent.InformalQuote)
+							constraint (SourcingEvent.InQandAPeriodFormal)
+								"DateOutsideThe_Q&_ADatesDefinedForEvent"
+						else
+							constraint (SourcingEvent.InQandAPeriodInformal)
+								"EventStatusMustBeOpenFor_Q&_A"
+						DateReceived = current timestamp
+						if (!SourcingEvent.PostingOptions.DoNotDisplayOnPortal)   
+							send email
+								to SourcingEvent.Buyer.EmployeeWorkEmailAddress
+								from SupplierGroupRel.AdminEmailAddress
+								cc SupplierSourceId.EmailAddress
+								subject "<Company.BuyerFinalQANDAEmailSubject>"
+								Contents
+									"<Company.BuyerFinalQANDAEmailContent>"
+									"<Question>" 
+							
+				Update is an Update Action
+					restricted    				
+				Delete is a Delete Action
+					restricted
+
+				AnswerQuestion is an Update Action
+					Field Rules
+						Answer
+							required
+					Action Rules
+						if (BuyerOnlyFields changed)
+							constraint (BuyerCreated)
+								"CannotModifyQuestionsSubmittedByASupplier"					
+						make transition to Answered
+						
+			Answered is a State
+				Entrance Rules
+					AnswerPostDate 	= current timestamp
+							
+					if (SupplierSourceId.ReceiveEmailNotification)
+						if (!SourcingEvent.PostingOptions.DoNotDisplayOnPortal)
+							if (Company.SendQAndAAnsweredEmail)
+								send email
+									to SupplierSourceId.EmailAddress
+									from DerivedFromEmail
+									subject "<Company.FinalQANDAEmailSubject>"
+									Contents
+										"<Company.FinalQANDAEmailContent>"
+										"Question:<Question>"
+										"Answer:<Answer>"
+
+							if (Company.CreateQAndAAnsweredMessage)
+								invoke Create SupplierContactMessage
+									invoked.SupplierGroup 					= SupplierSourceId.SupplierGroup
+									invoked.Supplier 						= SupplierSourceId.Supplier
+									invoked.SupplierSourceId				= SupplierSourceId
+									invoked.CreationDateTime				= current timestamp
+									invoked.MessageTitle					= Company.FinalQANDAEmailSubject
+									invoked.MessageText						= Company.FinalQANDAEmailContent + SupplierSourceId.SupplierGroup.NewLine + "Question: " + Question + SupplierSourceId.SupplierGroup.NewLine + "Answer: " + Answer
+									invoked.Status							= 1
+									invoked.Priority						= 2
+									invoked.SystemGenerated					= true
+									invoked.ReleaseStatus					= 2
+									invoked.OriginatingEvent    			= SourcingEvent
+									invoked.OriginatingCompany  			= Company
+ 									invoked.MessageOwner        			= SourcingEvent.Buyer
+ 
+				Update is an Update Action
+					valid when (NonChangableFieldsChanged)
+					Action Rules
+						constraint (!NonChangableFields changed)
+							"CannotChangeWhenAnswered"

@@ -1,0 +1,204 @@
+EffectiveDatedEntry is a BusinessClass
+    owned by la
+    prefix is EFDE
+
+    Ontology
+
+		part of EffectiveDatedGroup
+    		relative key is Sequence is Numeric size 6
+
+	Patterns
+    	disable Auditing
+        disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+		RecordID			is BusinessObjectReference
+		EntryID				is UniqueID
+ 				
+ 	Derived Fields
+ 		PreviousEntry is a NativeField
+ 			type is UniqueID
+ 			
+ 		PreviousTransaction is a NativeField
+ 			type is UniqueID
+ 			
+ 		ObjectKey is a NativeField
+ 			type is Alpha size 100
+ 			
+ 		ObjectExists is a NativeField
+ 			type is Boolean
+ 			restricted
+ 			
+ 		EntryStatus is a NativeField
+ 			type is Numeric size 1
+ 			restricted
+ 			
+		ObjectMissingMessage is a MessageField
+			"BusinessObjectMissing"
+
+		AuditMissingMessage is a MessageField
+			"AuditEntryMissing"
+			
+		PreviousPendingMessage is a MessageField
+			"PreviousPendingTransaction<PreviousTransaction>"
+			
+		RedMessage is a DerivedField
+			type is MessageField
+			if (ObjectMissing)
+				return ObjectMissingMessage
+			else
+			if (EntryMissing)
+				return AuditMissingMessage
+			else
+			if (PreviousPending)
+				return PreviousPendingMessage
+				
+		YellowMessage is a DerivedField
+			type is MessageField
+			return "AuditEntryProcessed"
+			
+		CouldBe82353 is a NativeField
+			type is Boolean
+			restricted
+			
+		InBackground is a NativeField
+			type is Boolean
+			restricted 
+			
+		IgnoreIntegrityRules is a NativeField
+			type is Boolean
+			restricted
+			
+ 	Conditions
+ 		BusinessObjectExists
+ 			when (ObjectExists)
+ 			
+ 		EntryMissing
+ 			when (EntryStatus = 0 and !ObjectMissing)
+ 			
+ 		ObjectMissing
+ 			when (not ObjectExists)
+ 		
+ 		EntryProcessed
+ 			when (EntryStatus = 2)
+ 			
+ 		TargetMissing
+ 			when (EffectiveDatedGroup.Status.New and ObjectMissing or EntryMissing)
+ 			
+ 		CanCancel
+ 			default label is untranslatable			
+ 			when (EffectiveDatedGroup.Status.New and (TargetMissing or EntryProcessed))
+ 			
+ 		PreviousPending
+ 			when (EffectiveDatedGroup.CanProcess and PreviousEntry != blank) 
+ 			
+ 		RedAlert
+ 			when (EffectiveDatedGroup.CanProcess and TargetMissing or PreviousPending)
+ 			
+ 		YellowAlert
+ 			when (EffectiveDatedGroup.CanProcess and EntryProcessed)
+ 			
+ 	Field Rules 
+		
+	   	RecordID		
+	   		required
+	   	EntryID
+			required
+
+	Relations
+		PreviousPendingRel
+			one-to-one relation to EffectiveDatedGroup 
+				Field Mapping uses symbolic key
+					related.EffectiveDatedGroup	= PreviousTransaction
+	
+	Sets
+		ByEntry
+			indexed
+			no duplicates
+			Sort Order
+				RecordID
+				EntryID
+			
+	Actions
+		Create is a Create Action
+			restricted
+		
+		ChangeEffectiveDate is an Instance Action
+			valid when (EffectiveDatedGroup.Status.New)
+			restricted
+			Parameters
+				NewEffectiveDate is Date
+				NewEffectiveTimeZone is a TimeZone
+				
+		Cancel is a Delete Action
+			valid when (CanCancel)
+
+
+		ApplyPendingRules is an Instance Action
+			valid when (EffectiveDatedGroup.Status.New)
+			restricted 
+			
+		Process is an Instance Action
+			valid when (EffectiveDatedGroup.Status.New)
+			restricted
+			Action Rules
+				if (InBackground)
+					constraint (not EntryProcessed)
+						"AuditEntryAlreadyProcessed"
+					
+					constraint (IgnoreIntegrityRules or not ObjectMissing)
+						"<RecordID.BusinessClassName>DoesNotExist"
+						
+					constraint (IgnoreIntegrityRules or not TargetMissing)
+						"<RecordID.BusinessClassName>MissingEntry"												
+				else
+					if (EntryProcessed)
+						confirmation required
+							"AuditEntryAlreadyProcessed.Continue?"
+									
+					if (TargetMissing)						
+						if (ObjectMissing)
+							confirmation required
+								"<RecordID.BusinessClassName>DoesNotExist.Continue?"
+						else
+							confirmation required
+								"<RecordID.BusinessClassName>MissingEntry.Continue?"
+				
+		Delete is a Delete Action	
+			valid when (EffectiveDatedGroup.Status.Complete)
+			restricted
+			
+		CancelNew is an Instance Action
+			valid when (EffectiveDatedGroup.Status.New)
+			restricted
+
+		CancelSet is a Set Action
+			restricted
+
+			Parameters
+				ParamGroup is an EffectiveDatedGroup
+					default label is "Group"
+
+			Parameter Rules
+				ParamGroup
+					required
+
+			Instance Selection
+				where (ParamGroup = EffectiveDatedGroup)
+
+			Action Rules
+				Instance Rules
+					invoke CancelNew
+
+				Set Rules
+
+					Exit Rules
+						invoke FinishCancel ParamGroup
+
+		Fix82353 is an Instance Action
+			default label is untranslatable
+			restricted
+			valid when (CouldBe82353)
+	

@@ -1,0 +1,363 @@
+ProcessFlowQueue is a BusinessClass
+    owned by la
+    prefix is PFQU
+    disable data area copy
+
+    Ontology
+        symbolic key is ProcessFlowQueue
+
+    Patterns
+        implements CRUD
+        implements CreateStamp
+        disable Auditing
+        disable EffectiveDated
+
+    Persistent Fields
+        Type               is Numeric size 1
+            States
+                Trigger             value is 0
+                Cancel              value is 1
+                Execute             value is 2
+                TakeDecidingAction  value is 3
+        EventType          is Numeric size 1
+            States
+                ServiceTriggerAsynch value is 0
+                ServiceTriggerSynch  value is 1
+                ProcessTriggerAsynch value is 2
+                ProcessTriggerSynch  value is 3
+        Status             is Numeric size 1
+            States
+                New        value is 0
+                Reset      value is 1
+                Pending    value is 2
+                Hold       value is 3
+                Complete   value is 8
+                Failed     value is 9
+        Name               is Alpha 50
+        Title              is Alpha size 50
+        ObjectKey          is BusinessObjectReference
+        SqlName            is Alpha size 15 
+        CategoryKey        is Alpha 15
+        CategoryValue      is Alpha 20
+        FlowCriteria       is a ProcessFlowCriteriaOccurs
+        WorkUnitID         is Numeric size 12 
+
+        ActivityID         is Numeric size 6
+        ExecuteTime        is TimeStamp
+        FailureCount       is Numeric size 6
+        ErrorMessage       is Text
+            disable Auditing
+        WorkUnitHolder     is BusinessObjectReference
+        QueueTask          is BusinessObjectReference
+        ExecuteAction      is a PfiActionTaken
+        ExecuteActionURL   is Text
+        ActionReason       is AlphaUpper size 20 
+        ActionComment      is Text
+        AuthenticatedActor is an Actor                 
+            as of CurrentDate
+        IsProxy            is Boolean                    
+            default label is "Proxy"
+        EffectiveDate      is Date
+
+    Derived Fields
+    	CurrentDate is a NativeField
+    		type is Date
+    		
+        MaxRetriesConfig is a DerivedField
+            type is Numeric size 3
+            return config.processflow_max_retry
+
+        MaxRetries is a DerivedField
+            type is Numeric size 3
+            if (MaxRetriesConfig > 0)
+                return MaxRetriesConfig
+            else
+                return 10
+
+        CurrentIsProxy is a NativeField
+            type is Boolean
+
+    Field Rules
+        QueueTask
+            if (Type.Execute)
+                required
+            else
+                cannot be entered
+
+    Conditions
+        IsNew
+            default label is "New"
+            when (Status.New)
+        IsReset
+            default label is "Reset"
+            when (Status.Reset)
+        IsPending
+            default label is "Pending"
+            when (Status.Pending)
+        IsHold
+            default label is "OnHold"
+            when (Status.Hold)
+        IsComplete
+            default label is "Complete"
+            when (Status.Complete)
+        IsFailed
+            default label is "Failed"
+            when (Status.Failed)
+        IsTriggerError
+            default label is "TriggerError"
+            when (Type.Trigger
+            and   ErrorMessage entered)
+        IsNonTriggerError
+            default label is "NonTriggerError"
+            when (not Type.Trigger
+            and   ErrorMessage entered)
+
+    Sets
+
+        ByStamp
+            indexed
+            Sort Order
+                create stamp
+                ProcessFlowQueue
+
+        ByNewStamp
+            indexed
+            Sort Order
+                create stamp
+                ProcessFlowQueue
+            Instance Selection
+                where (IsNew)
+
+        ByResetStamp
+            indexed
+            Sort Order
+                create stamp
+                ProcessFlowQueue
+            Instance Selection
+                where (IsReset)
+
+        ByCompleteStamp
+            Sort Order
+                create stamp
+                ProcessFlowQueue
+            Instance Selection
+                where (IsComplete)
+
+        ByExecCompleteStamp
+            Sort Order
+                ExecuteTime
+                ProcessFlowQueue
+            Instance Selection
+                where (IsComplete)
+
+        ByFailedStamp
+            indexed
+            Sort Order
+                ExecuteTime
+                ProcessFlowQueue
+            Instance Selection
+                where (IsFailed)
+
+    Actions
+
+        PurgeCompleteFlows is a Set Action
+            Parameters
+                ThruDate             is Date
+                PurgeOffsetDays     is Numeric size 3
+
+            Local Fields
+                LocalThruDate     is Date
+                    value is ThruDate
+
+
+
+            Parameter Rules
+                ThruDate
+                    if (ThruDate entered)
+                        LocalThruDate = (ThruDate + 1 day)
+                    else
+                    if (not PurgeOffsetDays entered)
+                        required
+                            "MustEnterThruDateOrOffset"
+                    else
+                        LocalThruDate  = current date - (PurgeOffsetDays - 1)
+
+
+                PurgeOffsetDays
+                    constraint (not ThruDate entered)
+                        "CannotEnterBothThruDateAndOffset"
+
+            Instance Selection
+                where (Status.Complete
+                and    ExecuteTime < LocalThruDate)
+
+            Sort Order
+                Status
+                ExecuteTime
+                create stamp
+                ProcessFlowQueue
+
+            Action Rules
+
+                Instance Rules
+                    invoke Complete.PurgeRecord
+
+        ResetFailedFlows is a Set Action
+            run in foreground
+
+            Instance Selection
+                where (Status.Failed)
+
+            Sort Order
+                Status
+                ExecuteTime
+                create stamp
+                ProcessFlowQueue
+
+            Action Rules
+                Instance Rules
+                    if (current timestamp - 3600 > ExecuteTime)
+                        invoke Failed.Reset
+
+    StateCycles
+
+        MessageLifeCycle is a StateCycle
+            state field is Status
+            initial state is New
+
+
+
+
+
+            New is a State
+
+                Create is a Create Action
+                    restricted
+
+                    Action Rules
+                        AuthenticatedActor        = authenticated actor
+                        IsProxy                 = CurrentIsProxy
+
+                MakePending is an Instance Action
+                    restricted
+
+                    Action Rules
+                        make transition to Pending
+
+
+
+
+
+            Reset is a State
+
+                MakePending is an Instance Action
+                    restricted
+
+                    Action Rules
+                        ExecuteTime = current timestamp
+                        make transition to Pending
+
+
+
+
+
+            Pending is a State
+
+                Complete is an Instance Action
+                    restricted
+
+                    Action Rules
+                        ExecuteTime = current timestamp
+                        make transition to Complete
+
+                SetAsFailed is an Instance Action
+
+                    Action Rules
+                        ErrorMessage    = "ManuallyFailed"
+                        ExecuteTime     = current timestamp
+                        FailureCount     = FailureCount + 1
+                        make transition to Failed
+
+                Failed is an Instance Action
+                    restricted
+
+                    Parameters
+                        Message is Text
+
+                    Action Rules
+                        ErrorMessage    = Message
+                        ExecuteTime     = current timestamp
+                        FailureCount     = FailureCount + 1
+
+                        if (FailureCount >= MaxRetries)
+                            make transition to Hold
+                        else
+                            make transition to Failed
+
+                SetAsNew is an Instance Action
+
+                    Action Rules
+                        make transition to New
+
+                SetAsReset is an Instance Action
+
+                    Action Rules
+                        make transition to Reset
+
+
+
+
+
+            Hold is a State
+
+                Update is an Update Action
+
+                Delete is a Delete Action
+
+                PurgeRecord is a Purge Action
+                    confirmation required
+                        "ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+
+                Reset is an Instance Action
+
+                    Action Rules
+                        ErrorMessage    = ""
+                        make transition to Reset
+
+
+
+
+
+            Complete is a State
+
+                Delete is a Delete Action
+
+                PurgeRecord is a Purge Action
+                    confirmation required
+                        "ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+
+
+
+
+
+            Failed is a State
+
+                Update is an Update Action
+
+                Delete is a Delete Action
+
+                PurgeRecord is a Purge Action
+                    confirmation required
+                        "ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+
+                PlaceOnHold is an Instance Action
+
+                    Action Rules
+                        make transition to Hold
+
+                Reset is an Instance Action
+
+                    Action Rules
+                        ErrorMessage    = ""
+                        ExecuteTime = current timestamp
+                        make transition to Reset

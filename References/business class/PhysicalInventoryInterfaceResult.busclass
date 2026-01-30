@@ -1,0 +1,236 @@
+PhysicalInventoryInterfaceResult is a BusinessClass
+	owned by ic
+	
+	prefix is Phys
+	sql name is PIInterfaceResult
+	
+	Ontology
+		symbolic key is PhysicalInventoryInterfaceResult
+	
+	Patterns
+		implements StaticJava
+        disable AuditIndex
+       	disable EffectiveDated
+		
+	
+	Persistent Fields
+		RunGroup				
+		RunTime							is TimeStamp
+		Status							is Numeric 1
+			States
+				InProcess		       	value is 0
+				Complete				value is 1
+				Incomplete 				value is 2
+			disable Auditing
+		RecordsProcessed				is Numeric 10
+		Company                         is an InventoryCompany
+		SelectID                        is an PhysicalInventorySelect
+		ReportOnly                      is Boolean
+		CreateNewFreezeRecords          is Boolean
+	
+	Derived Fields
+	
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+			 
+        CompleteMessage is a MessageField
+        	restricted
+        	"Complete"
+        	
+        CompleteReportOnlyMessage is a MessageField
+        	restricted
+        	"Complete-ReportOnly"
+        
+        IncompleteMessage is a MessageField
+        	restricted
+        	"Incomplete"
+        	
+        NoRecordsMessage is a MessageField
+        	restricted
+        	"AllErrorsProcessed"
+        
+        InProcessMessage is a MessageField
+        	restricted
+        	"InProcess"
+        
+        DerivedStatus is a DerivedField
+        	type is Alpha 50
+        	if (Status.InProcess)
+        		return InProcessMessage
+        	else
+        	if (Status.Complete
+        	and !ReportOnly)
+        		return CompleteMessage
+        	else
+        	if (Status.Complete
+        	and ReportOnly)
+        		return CompleteReportOnlyMessage
+        	else
+        	if (Status.Incomplete
+        	and NoImportRecordsToProcess)
+        		return NoRecordsMessage
+        	else
+        		return IncompleteMessage
+        		
+        DerivedRecordsProcessed is a DerivedField
+			type is Numeric 7
+			return (InterfacedPhysicalInventoryFreezeCount + ToBeInterfacedNoErrorsCount + ToBeInterfacedWithErrorsCount)
+			
+		InterfacedPhysicalInventoryFreezeCount is a DerivedField
+			type is Numeric 7	
+			return (instance count of PhysicalInventoryFreezeFinishedRel)
+			
+		ToBeInterfacedNoErrorsCount is a DerivedField
+			type is Numeric 7
+			return (instance count of PhysicalInventoryImportNoErrorsRel)
+		
+		ToBeInterfacedWithErrorsCount is a DerivedField
+			type is Numeric 7
+			return (instance count of PhysicalInventoryImportWithErrorsRel)
+	Conditions
+	
+		Incomplete
+			restricted
+			when (Status = 2) 
+			
+		IncompleteWithErrors
+			restricted
+			when (Status = 2
+			and   PhysicalInventoryImportWithErrorsRel exists)
+			
+		NoRecordsToProcess
+			when (Status entered
+			and   DerivedRecordsProcessed = 0)
+			
+		EligibleForRerun
+			restricted
+			when (RecordsToBeProcessed
+			or    ShowErrorPanel)
+		
+		NoImportRecordsToProcess
+			restricted
+			when (!ShowErrorPanel
+			and   !RecordsToBeProcessed)
+		
+		ShowErrorPanel
+			restricted
+			when (PhysicalInventoryImportWithErrorsRel exists)
+			
+		RecordsToBeProcessed
+			restricted
+			when (PhysicalInventoryImportNoErrorsRel exists)
+			
+		HasFinishedFreezeRecords
+			restricted
+			when (PhysicalInventoryFreezeFinishedRel exists)
+			
+	Relations
+	
+		PhysicalInventoryFreezeRel
+			one-to-many relation to PhysicalInventoryFreeze
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.OriginatingInterfaceRun	= PhysicalInventoryInterfaceResult)
+				
+		PhysicalInventoryFreezeFinishedRel
+			one-to-many relation to PhysicalInventoryFreeze
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.OriginatingInterfaceRun	= PhysicalInventoryInterfaceResult
+				and    related.CreateInProcess          = false
+				and    related.UpdateInProcess          = false)
+	
+		PhysicalInventoryImportNoErrorsRel
+			one-to-many relation to PhysicalInventoryImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup    = RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PhysicalInventoryInterfaceResult
+				and    related.RecordInError 	 = false)
+		
+		PhysicalInventoryImportWithErrorsRel
+			one-to-many relation to PhysicalInventoryImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup    = RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PhysicalInventoryInterfaceResult
+				and    related.RecordInError	 = true)
+	
+	Sets
+	
+		ByRunTime
+			Sort Order
+				RunTime descending
+				PhysicalInventoryInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+		
+		ByRunGroup
+			Sort Order
+				RunGroup
+				PhysicalInventoryInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+				
+	Actions
+			
+		Create is an Action
+			restricted
+			
+		Update is an Action
+			restricted
+			
+		Delete is an Action
+			valid when (!Status.InProcess)
+		
+		Purge is a Purge Action
+			restricted
+		
+		RerunInterface is an Instance Action
+			valid when (EligibleForRerun)
+			Parameters
+				PrmRunGroup						is a RunGroup
+					default label is "RunGroup"
+				PrmCompany                     	is an InventoryCompany
+					default label is "Company"
+				PrmSelectID                    is a PhysicalInventorySelect
+					default label is "SelectID"
+				PrmReportOnly                  is Boolean
+					default label is "ReportOnly"
+				PrmCreateNewFreezeRecords      is Boolean
+					default label is "CreateNewFreezeRecords"
+				
+			Parameter Rules
+				PrmRunGroup
+					initial value is RunGroup
+				PrmReportOnly
+					initial value is ReportOnly
+				PrmCreateNewFreezeRecords
+					initial value is CreateNewFreezeRecords
+				PrmCompany
+					initial value is Company
+				PrmSelectID
+					initial value is SelectID
+					
+			Action Rules
+			
+				invoke InterfacePhysicalInventoryCounts PhysicalInventoryImport
+					invoked.PrmRunGroup       				= PrmRunGroup
+					invoked.PrmCompany                      = PrmCompany
+					invoked.PrmSelectID                     = PrmSelectID
+					invoked.ReportOnly                      = PrmReportOnly
+					invoked.CreateNewFreezeRecords          = PrmCreateNewFreezeRecords
+		
+		Finish is an Instance Action
+			restricted
+			
+			Action Rules
+				if (Status != Status.Incomplete)
+					Status = Status.Complete
+					
+				RecordsProcessed = DerivedRecordsProcessed
+				
+					
+	
+	

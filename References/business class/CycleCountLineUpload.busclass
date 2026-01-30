@@ -1,0 +1,145 @@
+CycleCountLineUpload is a BusinessClass
+    owned by mscm
+    prefix is MSCCL
+
+    Ontology
+        symbolic key is CycleCountLineUpload
+    
+    Persistent Fields
+        InventoryLocation
+        Item
+        EnteredCount    is like Quantity
+        FreezePage      is Numeric size 4
+        FreezeLine      is like PhysicalInventoryFreezeLine
+        Status          is Numeric size 1
+            States
+                InProgress          value is 1
+                ProcessedWithError  value is 8
+                Completed           value is 9
+        ErrorStatus     is Numeric size 2
+            States
+                NoError                     value is 0
+                NoBinEntered                value is 1
+                NoLotEntered                value is 2
+                NoSerialTrackedEntered      value is 3
+
+    Local Fields
+        ErrorOccured                is Boolean
+    
+    Derived Fields
+        DerivedErrorMessage is a DerivedField
+            type is MessageField
+            if (ErrorStatus.NoBinEntered)
+                return DerivedNoBinEnteredMessage
+            else
+            if (ErrorStatus.NoLotEntered)
+                return DerivedNoLotEnteredMessage
+            else
+            if (ErrorStatus.NoSerialTrackedEntered)
+                return DerivedNoSerialTrackedEnteredMessage
+        
+        DerivedNoBinEnteredMessage is a MessageField
+            restricted
+            "BinIsRequired;CreateNewFreezeRecordToEnterQuantityAndBin"
+        
+        DerivedNoLotEnteredMessage is a MessageField
+            restricted
+            "LotIsRequired;CreateNewFreezeRecordToEnterQuantityAndLot"
+
+        DerivedNoSerialTrackedEnteredMessage is a MessageField
+            restricted
+            "SerialIsRequired;CreateNewFreezeRecordToEnterQuantityAndSerial"
+    Relations
+        PhysicalInventoryFreezeRel
+			one-to-one relation to PhysicalInventoryFreeze
+			Field Mapping uses symbolic key
+				related.Company												= Company
+				related.PhysicalInventorySelect								= CycleCountUpload.SelectId
+				related.PhysicalInventoryFreeze.PhysicalInventoryFreezePage	= FreezePage
+				related.PhysicalInventoryFreeze.PhysicalInventoryFreezeLine	= FreezeLine
+        
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                                             = Company
+                related.InventoryLocation                                   = InventoryLocation
+                related.Item                                                = Item
+    
+    Actions
+        Create is a Create Action
+            restricted
+            Exit Rules
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+        ProcessCycleCount is a Set Action
+            restricted
+            Local Fields
+                LineErrorOccured    is Boolean
+
+            Parameters
+                PrmInventoryCompany             is a InventoryCompany
+                    default label is "Company"
+                PrmMobileSupplyChainUpload      is a MobileSupplyChainUpload
+                    default label is "MobileSupplyChainUpload"
+            
+            Sort Order
+                Company
+                CycleCountUpload
+                CycleCountLineUpload
+            
+            Instance Selection
+                where (CycleCountUpload.Company                         = PrmInventoryCompany
+                and    CycleCountUpload.MobileSupplyChainUpload         = PrmMobileSupplyChainUpload)
+            
+            Action Rules
+                CycleCountUpload Set Rules
+                    Entrance Rules
+                        initialize LineErrorOccured
+                        invoke ValidatePhysicalSelect CycleCountUpload
+
+                    Exit Rules
+                        if (CycleCountUpload.ErrorStatus.NoError and not LineErrorOccured)
+                            invoke TransitionToComplete CycleCountUpload
+                        else
+                            invoke TransitionToError CycleCountUpload
+                        
+                        invoke Update PrmMobileSupplyChainUpload
+                            invoked.Status = MobileSupplyChainUpload.Status.UploadComplete
+
+                Instance Rules
+                    if (CycleCountUpload.ErrorStatus.NoError)
+                        if (ItemLocationRel.BinTracked and PhysicalInventoryFreezeRel.Bin not entered)
+                            ErrorStatus   = ErrorStatus.NoBinEntered
+
+                        else        
+                        if (ItemLocationRel.LotTracked.LotRequiredAtReceipt and PhysicalInventoryFreezeRel.Lot not entered)
+                            ErrorStatus   = ErrorStatus.NoLotEntered
+                                
+                        else
+                        if (ItemLocationRel.SerialTracked.SerialRequiredAtReceipt and PhysicalInventoryFreezeRel.Serial not entered)
+                            ErrorStatus   = ErrorStatus.NoSerialTrackedEntered
+
+                        if(ErrorStatus.NoError)
+                            invoke Update PhysicalInventoryFreezeRel
+                                invoked.EnteredCount    = EnteredCount
+
+                            Status              = Status.Completed
+                        else
+                            Status              = Status.ProcessedWithError
+                            LineErrorOccured    = true
+                    else
+                        Status            = Status.ProcessedWithError
+    
+    Sets
+        ByItemLocation
+            Sort Order
+                Item
+                Company
+                InventoryLocation
+                CycleCountUpload
+                CycleCountLineUpload

@@ -1,0 +1,133 @@
+GLRowView is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLRWV
+	default label is "Row"
+
+	Ontology
+		symbolic key is GLRowView
+
+	Patterns
+
+	Persistent Fields
+		Description is Text
+		InstanceSelection	is Alpha 300
+			is condition for "GeneralLedgerTotal"
+		Lock				is Boolean
+	
+	Field Rules
+		Lock
+			if (ApplicationAdministratorActorRoleRel not exists)
+				if (!create stamp.actor = actor)
+					cannot be changed
+
+	Derived Fields
+		DerivedCreatedBy is a DerivedField
+			type is Alpha size 60
+			restricted
+			return create stamp.actor
+
+	Actions
+		Create is an Action
+		Update is an Action
+			Entrance Rules
+				if (Lock)
+					if (Description != old Description)
+						constraint (create stamp.actor = actor)
+							"ThisHasBeenLockedForEditing"
+		Delete is an Action
+			Entrance Rules
+				if (Lock)
+					constraint (create stamp.actor = actor)
+						"ThisHasBeenLockedForDeletion"
+				if (IsActorFavoriteRow) 
+					invoke Delete ActorFavoriteRowRel
+		
+		CopyRowView is an Instance Action
+			default label is "CopyRow"
+
+			Parameters
+				PrmGLRowView 			is Alpha 50
+				PrmDescription			is Text
+							
+			Parameter Rules
+				PrmGLRowView
+					initial value is "Copy-" + GLRowView.GLRowView
+				PrmDescription
+					initial value is "Copy-" + Description
+
+			Local Fields
+				LocalGLRowView			        is a GLRowView view
+				LocalGLRowAttribute				is a GLRowAttribute view
+				LocalGLRowDimension				is a GLRowDimension view
+			
+			Action Rules
+				
+				invoke Create GLRowView
+					assign result to LocalGLRowView
+					fill in fields from this instance
+						except invoked.GLRowView
+						except invoked.Description
+					invoked.GLRowView 	= PrmGLRowView
+					invoked.Description = PrmDescription
+				
+			Exit Rules
+				if (GLRowRel exists)
+					for each GLRowRel
+						invoke Create each
+							assign result to LocalGLRowDimension
+							fill in fields from each
+								except invoked.GLRowDimension
+								except invoked.GLRowView
+							invoked.GLRowView  = LocalGLRowView.GLRowView
+
+						if (each.GLRowAttributeRel exists)
+							for each each.GLRowAttributeRel
+								invoke Create each
+									assign result to LocalGLRowAttribute
+									fill in fields from each
+										except invoked.GLRowView 	   			
+										except invoked.GLRowDimension	
+								 	invoked.GLRowView 		= LocalGLRowView.GLRowView
+									invoked.GLRowDimension	= LocalGLRowDimension.GLRowDimension
+
+		RemoveRowFromFavorite is an Instance Action
+			restricted
+			completion message is "RowRemoved_fromFavorites"
+			valid when (IsActorFavoriteRow)	
+			Action Rules
+				invoke Delete ActorFavoriteRowRel
+
+		AddRowToFavorite is an Instance Action
+			restricted
+			completion message is "RowAdded_toFavorites"
+			valid when (!IsActorFavoriteRow)
+			Action Rules
+				invoke Create GLFavoriteRow
+					invoked.FinanceEnterpriseGroup     	= FinanceEnterpriseGroup 
+					invoked.GLRowView 					= GLRowView
+					invoked.Actor						= actor
+		
+	Conditions
+		IsActorFavoriteRow
+			when (ActorFavoriteRowRel exists)
+				
+	
+	Relations
+		GLRowRel
+			one-to-many relation to GLRowDimension
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView			    = GLRowView
+	
+		ApplicationAdministratorActorRoleRel
+            one-to-many relation to ActorRole
+            Field Mapping uses symbolic key
+                related.Actor           = actor
+                related.ActorRole.Role  = "ApplicationAdministrator_ST"
+
+		ActorFavoriteRowRel
+			one-to-one relation to GLFavoriteRow
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView				= GLRowView
+				related.Actor					= actor

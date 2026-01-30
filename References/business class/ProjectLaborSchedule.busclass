@@ -1,0 +1,299 @@
+ProjectLaborSchedule is a BusinessClass
+    owned by Projects
+    prefix is PJLSC
+
+	Ontology
+		symbolic key is ProjectLaborSchedule
+        		
+	Persistent Fields
+		Description				
+		Active
+        FirstPeriodStartDate 	is Date
+        Frequency				is Numeric size 1
+			States
+				Weekly      	value is 1
+				BiWeekly    	value is 2
+				SemiMonthly 	value is 3
+				Monthly     	value is 4
+				FourWeekly  	value is 5        
+		ProjectEffortSchedule
+   		DefaultSelectionGroup	is a GLTransactionDetail group
+   			default label is "LaborDistributionDefaultSelectionGroup"
+
+    Local Fields    
+        CalculatedStartDate			is Date	
+        LocalActualStartDate		is Date	
+        LocalActualEndDate			is Date	
+        PeriodThruDate				is Date
+ 		LocalPeriodThruDate			is Date
+		LocalEffortSchedule			is a ProjectEffortSchedule
+
+	Derived Fields
+		SalaryDivisor is a DerivedField
+			type is Numeric size 2
+			restricted
+			if (Frequency.Weekly)
+				return 52
+			else
+			if (Frequency.BiWeekly)
+				return 26
+			else
+			if (Frequency.SemiMonthly)
+				return 24
+			else
+			if (Frequency.Monthly)
+				return 12
+			else
+			if (Frequency.FourWeekly)
+				return 13
+			
+	Conditions
+
+	Relations
+		ProjectEmployeeRel
+			one-to-many relation to ProjectEmployee
+			Field Mapping uses ByProjectLaborSchedule
+				related.HROrganization		 = FinanceEnterpriseGroup.HROrganization
+				related.ProjectLaborSchedule = ProjectLaborSchedule
+
+		OpenProjectSchedulePeriodRel is a ProjectSchedulePeriod set 
+			Instance Selection
+				where (related.Status.Open)
+
+		OpenLaborPeriodRel  
+			one-to-many relation using OpenProjectSchedulePeriodRel			
+			Instance Selection
+				where (related.OpenAssignmentLaborExists)
+						
+		ProcessedProjectAssignmentLaborRel is a ProjectAssignmentLabor set  
+			Instance Selection
+				where (related.Status.Processed
+				or     related.Status.Certified)
+
+		ProcessedProjectEmployeeLaborPeriodRel is a ProjectEmployeeLaborPeriod set
+			Instance Selection
+				where (related.Status.Processed
+				or     related.Status.Certified)
+			
+		ProcessedLaborPeriodRel  
+			one-to-many relation using OpenProjectSchedulePeriodRel			
+			Instance Selection
+				where (related.ProcessedProjectAssignmentLaborExists)
+
+		UncertifiedProjectAssignmentEffortRel is a ProjectAssignmentEffort set
+			Instance Selection
+				where (!related.Certified)
+
+		NewProjectLaborPeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectLaborSchedule	= ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.Begin	= LocalActualStartDate
+				and    related.DateRange.End	= LocalActualEndDate)
+
+	Sets
+		
+	Attach Rules
+		constraint (Active)
+			"ProjectLaborSchedule<ProjectLaborSchedule>IsInactive"
+
+	Field Rules
+		Description 
+			required
+			default to ProjectLaborSchedule
+			
+		FirstPeriodStartDate
+			required
+			if (Frequency.Monthly)
+				constraint (FirstPeriodStartDate day = 1)
+					"FirstPayPeriodStartDayMustBe1ForMonthlyPayFrequency"
+			if (Frequency.SemiMonthly)
+				constraint (FirstPeriodStartDate day = 1
+				or          FirstPeriodStartDate day = 16)
+					"FirstPeriodStartDayMustBe1Or16ForSemiMonthlyFrequency"
+			if (ProjectSchedulePeriod set exist)
+				cannot be changed
+					"FirstPeriodStartDateCannotBeChanged;ProjectSchedulePeriodsExist"
+							
+		Frequency
+			required
+			if (ProjectSchedulePeriod set exist)
+				cannot be changed
+					"FrequencyCannotBeChanged;ProjectSchedulePeriodsExist"
+
+		ProjectEffortSchedule
+
+			if (ProcessedProjectEmployeeLaborPeriodRel exists
+			and old ProjectEffortSchedule entered)
+				cannot be changed
+					"ProjectAssignmentLaborExists;_EffortScheduleCannotBeChanged;_Use_Change_Effort_ScheduleAction"
+			if	(Frequency.Weekly)
+				LocalActualEndDate		= FirstPeriodStartDate + 6 days	
+			if	(Frequency.BiWeekly)
+				LocalActualEndDate		= FirstPeriodStartDate + 13 days
+			if	(Frequency.SemiMonthly)
+				if (FirstPeriodStartDate day = 16)
+		  			LocalActualEndDate	= FirstPeriodStartDate + 1 month - 16 days 
+				else
+					LocalActualEndDate	= FirstPeriodStartDate + 14 days		
+			if	(Frequency.Monthly)	
+				LocalActualEndDate		= FirstPeriodStartDate + 1 month - 1 day			
+			if	(Frequency.FourWeekly)		
+				LocalActualEndDate		= FirstPeriodStartDate + 27 days					
+			constraint (ProjectEffortSchedule.FirstPeriodStartDate <= LocalActualEndDate)
+				"EffortScheduleMustBeginBeforeEndOfFirstPeriodOfLaborSchedule"
+			constraint (ProjectEffortSchedule.Frequency >= Frequency)
+				"EffortScheduleFrequencyMustMatchOrBeLargerThanLaborScheduleFrequency"
+				
+	Actions 
+		Create is an Action
+			Action Rules
+				if (ProjectEffortSchedule not entered)
+					LocalEffortSchedule	= ProjectLaborSchedule
+					if (LocalEffortSchedule not exists)
+						confirmation required
+							"AutomaticallyGenerateMatchingEffortSchedule?_IfNot,_Effort_ScheduleIsRequired"
+					else
+						constraint (ProjectEffortSchedule entered)
+							"EffortScheduleRequired"
+			Exit Rules
+				LocalPeriodThruDate	= FirstPeriodStartDate + 1 year - 1 day
+   				CalculatedStartDate	= FirstPeriodStartDate    
+				invoke CreatePeriods
+				if (ProjectEffortSchedule not entered)
+					LocalEffortSchedule = ProjectLaborSchedule
+					if (LocalEffortSchedule not exists)
+						invoke CreateNoRules ProjectEffortSchedule
+							fill in fields from this instance
+							invoked.ProjectEffortSchedule = LocalEffortSchedule
+						for each ProjectSchedulePeriod set
+							invoke Create ProjectEffortPeriod
+								fill in fields from each
+								invoked.ProjectEffortSchedule = LocalEffortSchedule
+						ProjectEffortSchedule = LocalEffortSchedule
+										
+		Update is an Action
+			Action Rules
+			Field Rules
+				ProjectEffortSchedule
+					required
+			Exit Rules
+  				if (FirstPeriodStartDate changed)
+					LocalPeriodThruDate = FirstPeriodStartDate + 1 year - 1 day
+    				CalculatedStartDate = FirstPeriodStartDate    
+  					invoke CreatePeriods
+				if (ProjectEffortSchedule changed
+				and old ProjectEffortSchedule not entered)
+					invoke ChangeEffortSchedule
+						invoked.NewEffortSchedule = ProjectEffortSchedule
+								
+		Delete is an Action	
+			Action Rules
+				constraint (ProjectEmployeeRel not exists)
+					"CannotDelete;ProjectLaborScheduleUsedByEmployees"
+		
+		CreatePeriods is an Action
+			restricted
+			Action Rules
+				if (LocalPeriodThruDate > 0)					
+					while	(CalculatedStartDate <= LocalPeriodThruDate)					 			
+						LocalActualStartDate				= CalculatedStartDate
+						if	(Frequency.Weekly)
+							LocalActualEndDate				= CalculatedStartDate + 6 days	
+						if	(Frequency.BiWeekly)
+							LocalActualEndDate				= CalculatedStartDate + 13 days
+						if	(Frequency.SemiMonthly)
+							if (CalculatedStartDate day = 16)
+					  			LocalActualEndDate			= CalculatedStartDate + 1 month - 16 days 
+							else
+								LocalActualEndDate			= CalculatedStartDate + 14 days		
+						if	(Frequency.Monthly)	
+							LocalActualEndDate				= CalculatedStartDate + 1 month - 1 day			
+						if	(Frequency.FourWeekly)		
+							LocalActualEndDate				= CalculatedStartDate + 27 days
+						if (NewProjectLaborPeriodRel not exists)				
+							invoke Create ProjectSchedulePeriod  
+								invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.ProjectLaborSchedule	= ProjectLaborSchedule
+								invoked.DateRange.Begin			= LocalActualStartDate
+								invoked.DateRange.End			= LocalActualEndDate
+							
+						CalculatedStartDate					= LocalActualEndDate + 1 day
+	
+		CreatePeriodDates is an Instance Action
+			Parameters
+  				PeriodThruDate					is Date
+			Parameter Rules
+				PeriodThruDate 
+					required	
+
+			Action Rules
+				LocalPeriodThruDate 		= PeriodThruDate
+				if (FirstPeriodStartDate entered)
+					if (ProjectSchedulePeriod set exists)
+						CalculatedStartDate = last ProjectSchedulePeriod set.DateRange.End + 1 day
+						invoke CreatePeriods					
+					else
+						CalculatedStartDate = FirstPeriodStartDate
+						invoke CreatePeriods
+
+		ChangeEffortSchedule is an Instance Action
+			run in background
+			Parameters
+				NewEffortSchedule	is a ProjectEffortSchedule
+			Parameter Rules
+				NewEffortSchedule
+					required
+					constraint (ProjectLaborSchedule.first ProjectSchedulePeriod set.DateRange.End >= NewEffortSchedule.first ProjectEffortPeriod set.DateRange.Begin)
+						"EffortScheduleMustBeginBeforeEndOfFirstPeriodOfLaborSchedule"
+					constraint (NewEffortSchedule.Frequency >= Frequency)
+						"EffortScheduleFrequencyMustMatchOrBeLargerThanLaborScheduleFrequency"
+			Action Rules
+				invoke ChangeEffortSchedule ProjectEmployeeRel
+					invoked.NewEffortSchedule = NewEffortSchedule
+				invoke Delete UncertifiedProjectAssignmentEffortRel
+				ProjectEffortSchedule = NewEffortSchedule
+			Exit Rules				
+				invoke CreateProjectAssignmentEffort ProjectAssignmentLabor
+					invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.PrmProjectLaborSchedule		= ProjectLaborSchedule
+					invoked.NewEffortSchedule 			= NewEffortSchedule
+				
+					
+				
+		GenerateEffortSchedules is a Set Action   
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			Local Fields
+				LocalEffortSchedule		is a ProjectEffortSchedule
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    ProjectEffortSchedule not entered)
+			Action Rules
+				Instance Rules
+					LocalEffortSchedule = ProjectLaborSchedule
+					if (LocalEffortSchedule not exists)
+						invoke CreateNoRules ProjectEffortSchedule
+							fill in fields from this instance
+							invoked.ProjectEffortSchedule = LocalEffortSchedule
+						for each ProjectSchedulePeriod set
+							invoke Create ProjectEffortPeriod
+								fill in fields from each
+								invoked.ProjectEffortSchedule = LocalEffortSchedule
+						ProjectEffortSchedule = LocalEffortSchedule
+						invoke ChangeEffortSchedule ProjectEmployeeRel
+							invoked.NewEffortSchedule = LocalEffortSchedule
+
+					
+						
+
+
+
+					

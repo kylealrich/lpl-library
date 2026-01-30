@@ -1,0 +1,305 @@
+ContractLineImportTierCost is a BusinessClass
+	owned by po
+	
+	prefix is Conti
+	
+	Ontology
+		symbolic key is ContractLineImportTierCost
+		
+	Patterns
+		disable Auditing 
+       	disable EffectiveDated
+	
+	Persistent Fields
+	
+		TierCost						is a ContractUnitCost	
+			precision is ContractLineImport.DerivedNumberOfDecimalsCost	
+		ManufacturerNumber
+		VendorItem                      is like VendorItem
+		GPOContractNumber
+	
+	Transient Fields
+		ItemNumber						is a Item
+			derive value from ContractLineImport.ItemNumber
+
+	Local Fields
+	
+		LocalUpdatedBaseCost			is a ContractUnitCost	
+		LocalOriginalBaseCost			is a ContractUnitCost
+		LocalTolerancePercent			is Percent size 6.3
+		ToleranceError					is Boolean
+		LocalUpdateContract             is a Contract
+		LocalUpdateContractLine         is a ContractLine 
+		ToleranceAmtExceeded			is Boolean	
+		TolerancePctExceeded			is Boolean
+		LocalTier                       is like ContractTier
+		RoundedValue
+	
+	Derived Fields
+	
+		DerivedTolerancePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (LocalTolerancePercent * 100)
+
+		ChangePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (((LocalUpdatedBaseCost - LocalOriginalBaseCost) / (LocalOriginalBaseCost)) * 100)
+			
+		DerivedChangePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (LocalOriginalBaseCost not = 0)
+				if (ChangePercent < 0)
+					return ChangePercent * -1
+				else
+					return ChangePercent
+			else
+				return 0
+
+		ChangeAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (LocalUpdatedBaseCost - LocalOriginalBaseCost)
+			
+		DerivedChangeAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (LocalOriginalBaseCost not = 0)
+				if (ChangeAmount < 0)
+					return ChangeAmount * -1
+				else
+					return ChangeAmount
+			else
+				return 0
+	
+	Conditions
+	
+		GPOContractNumberEntered
+			when (GPOContractNumber entered)
+
+	Relations
+	
+		ContractLineTierCostRel 
+			one-to-one relation to ContractLineTierCost
+			Field Mapping uses symbolic key
+				related.ContractGroup	= ContractGroup
+        		related.Contract        = LocalUpdateContract
+        		related.ContractLine    = LocalUpdateContractLine
+        		related.ContractTier    = LocalTier
+        
+        ContractLinePriceChangeRel 
+			one-to-many relation to ContractLinePriceChange
+			Field Mapping uses ByBaseCost
+				related.ContractGroup	= ContractGroup
+        		related.Contract        = LocalUpdateContract
+        		related.ContractLine    = LocalUpdateContractLine
+        		related.ItemNumber      = ContractLineImportRel.ItemNumber
+        		related.UOM             = ContractLineImportRel.UOM
+        		related.VendorItem      = ContractLineImportRel.VendorItem
+        		related.ContractTier    = ContractImportTier
+        		
+        ContractLineImportRel 
+			one-to-one relation to ContractLineImport
+			Field Mapping uses symbolic key
+				related.ContractGroup         = ContractGroup
+        		related.ContractImport        = ContractImport
+        		related.ContractLineImport    = ContractLineImport
+
+		ContractGPOItemRel
+			one-to-one relation to ContractGPOItem
+			Field Mapping uses ByGPOContract
+				related.GPOContractNumber    = GPOContractNumber
+				related.TierLevel       	 = ContractImportTier
+				related.ManufacturerPart     = ManufacturerNumber
+				
+	Sets
+	
+		ByGPOContractNumber
+			Sort Order
+				ContractGroup
+				GPOContractNumber
+				ContractImportTier
+				ManufacturerNumber
+				VendorItem
+				ContractImport
+				ContractLineImport
+			Instance Selection
+				where (GPOContractNumberEntered)		
+
+	Field Rules
+	
+		TierCost
+		
+			constraint (!TierCost < 0)
+				"TierCostCannotBeLessThanZero"
+				
+	Actions
+	
+		Create is a Create Action
+		
+			Action Rules
+				GPOContractNumber 	= ContractImport.GPOContractNumber
+				ManufacturerNumber 	= ContractLineImport.ManufacturerInformation.ManufacturerNumber
+				VendorItem          = ContractLineImport.VendorItem
+				if (ContractLineImport.UpdateFunction = blank)
+					invoke Update ContractLineImport
+						invoked.UpdateFunction = "U" 
+						if (ContractImport.MultiplePriceProgram)
+							invoked.BaseCost =  TierCost
+				
+		Update is an Update Action
+		
+		Delete is a Delete Action
+		
+		CompareContractLineTierCost is an Instance Action
+			restricted
+			Parameters
+				CompareContract		    is a Contract
+				CompareContractLine     is a ContractLine
+				CompareFromDate         is Date
+				CompareToDate           is Date
+				ShowZeroDifference      is Boolean
+				CompareFromTier         is a ContractImportTier
+				
+			Action Rules
+				LocalUpdateContract     = CompareContract
+				LocalUpdateContractLine = CompareContractLine
+				LocalTier               = CompareFromTier
+				if  (TierCost != ContractLineTierCostRel.TierCost
+				or   ShowZeroDifference)
+					invoke Create ContractLinePriceChange
+						invoked.FromImport		        = ContractImport
+						invoked.FromLineNumber          = ContractLineImport
+						invoked.ContractGroup			= ContractGroup
+						invoked.Contract				= CompareContract
+						invoked.ContractLine            = CompareContractLine
+						invoked.ContractTier            = ContractImportTier
+						invoked.FromTier                = CompareFromTier
+						invoked.ProcessingType      	= 2 
+						invoked.ItemNumber				= ContractLineImport.ItemNumber		
+						invoked.VendorItem              = ContractLineImport.VendorItem        
+						invoked.UOM                     = ContractLineImport.UOM
+						invoked.ManufacturerInformation = ContractLineImport.ManufacturerInformation	
+						invoked.BaseCost                = ContractLineTierCostRel.TierCost
+						invoked.FutureCost              = TierCost
+						invoked.EffectiveDate           = CompareFromDate
+						invoked.ExpirationDate          = CompareToDate
+						if (ContractLineImportRel.EffectiveDate entered)
+							invoked.FutureCostDate          = ContractLineImportRel.EffectiveDate
+						else
+							invoked.FutureCostDate          = ContractLineTierCostRel.EffectiveDate
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		UpdateContractLineTierCost is an Instance Action
+			restricted
+			Parameters
+				UpdateContract			is a Contract
+				UpdateContractLine      is a ContractLine
+				TolerancePercent		is Percent size 6.3
+				Connector
+				ToleranceAmount			is an InternationalAmount
+				RejectAllCostIncreases	is Boolean
+				
+			Action Rules
+			
+				LocalUpdateContract     = UpdateContract
+				LocalUpdateContractLine = UpdateContractLine
+				LocalTier               = ContractImportTier
+				if (ContractLineTierCostRel exists)
+					if ((TolerancePercent > 0
+					or   ToleranceAmount  > 0
+					or   RejectAllCostIncreases) 
+					and  TierCost != ContractLineTierCostRel.TierCost)
+						LocalUpdatedBaseCost  = TierCost
+						LocalOriginalBaseCost = ContractLineTierCostRel.TierCost
+						LocalTolerancePercent = TolerancePercent
+						if (!RejectAllCostIncreases)
+							if (TolerancePercent > 0)
+								if (DerivedChangePercent > DerivedTolerancePercent)
+									TolerancePctExceeded = true
+							if (ToleranceAmount > 0)
+								if (DerivedChangeAmount > ToleranceAmount)
+									ToleranceAmtExceeded = true
+							if (Connector = "O" or Connector = blank)
+								if (TolerancePctExceeded or ToleranceAmtExceeded)
+									ToleranceError = true
+							else
+								if (TolerancePctExceeded and ToleranceAmtExceeded)
+									ToleranceError = true
+						else
+							if (DerivedChangePercent > DerivedTolerancePercent
+							or  DerivedChangeAmount > ToleranceAmount)									
+								ToleranceError = true
+								
+					if (ToleranceError)
+						if (!ContractLinePriceChangeRel exists)
+							invoke Create ContractLinePriceChange
+								invoked.FromImport		        = ContractImport
+								invoked.FromLineNumber          = ContractLineImport
+								invoked.ContractGroup			= ContractGroup
+								invoked.Contract				= UpdateContract
+								invoked.ContractLine            = UpdateContractLine
+								invoked.ContractTier            = ContractImportTier
+								invoked.ItemNumber				= ContractLineImport.ItemNumber		
+								invoked.VendorItem              = ContractLineImport.VendorItem        
+								invoked.UOM                     = ContractLineImport.UOM
+								invoked.ManufacturerInformation = ContractLineImport.ManufacturerInformation		
+								invoked.ProcessingType      	= 1 
+								invoked.BaseCost                = ContractLineTierCostRel.TierCost
+								invoked.FutureCost              = TierCost
+								invoked.ExpirationDate          = ContractLineImportRel.ExpirationDate
+								if (ContractLineImportRel.EffectiveDate entered)
+									invoked.FutureCostDate          = ContractLineImportRel.EffectiveDate
+								else
+									invoked.FutureCostDate          = ContractLineTierCostRel.EffectiveDate
+					else
+						invoke Update ContractLineTierCostRel
+							invoked.NonManualUpdate         = true
+							invoked.ExpirationDate          = ContractLineImportRel.ExpirationDate
+							if (ContractLineImportRel.EffectiveDate entered)
+								invoked.EffectiveDate       = ContractLineImportRel.EffectiveDate 
+							if (ContractLineImportRel.EffectiveDate > current corporate date
+							and invoked.ContractLine.HasBeenActivated)
+								invoked.effective date 		= ContractLineImportRel.EffectiveDate
+							invoked.TierCost                = TierCost
+				else
+					invoke Create ContractLineTierCost 
+						invoked.ContractGroup         = ContractGroup
+						invoked.Contract              = UpdateContract
+						invoked.ContractLine          = UpdateContractLine
+						invoked.ContractTier          = ContractImportTier
+					    invoked.ExpirationDate        = ContractLineImportRel.ExpirationDate
+					    if (ContractLineImportRel.EffectiveDate entered)
+							invoked.EffectiveDate       = ContractLineImportRel.EffectiveDate 
+						invoked.TierCost              = TierCost
+				
+
+
+				
+			

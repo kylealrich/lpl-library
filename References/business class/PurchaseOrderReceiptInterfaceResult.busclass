@@ -1,0 +1,340 @@
+PurchaseOrderReceiptInterfaceResult is a BusinessClass
+	owned by po
+	prefix is PORIR
+    sql name is POReceiptInterfaceResult
+	
+	Ontology
+		symbolic key is PurchaseOrderReceiptInterfaceResult
+		
+	Patterns
+        disable AuditIndex
+
+       	disable EffectiveDated
+	
+	Persistent Fields
+		RunGroup				is AlphaUpper 30
+		RunTime					is TimeStamp
+		Status					is Numeric 1
+			disable Auditing 
+			States
+				InProcess       value is 0
+				Complete		value is 1
+				Incomplete 		value is 2
+		RunType					is Numeric 1
+			States
+				Receivers						value is 1
+				AdjustmentsAndSubstitutions 	value is 2
+		InterfaceCounts 
+		ErrorRunGroup			is AlphaUpper 30
+		OriginalRunGroup		is AlphaUpper 30
+		RecordsProcessed		is Numeric 10
+		Company					is a PurchasingCompany
+		EnableGTINProcessing    is Boolean  
+		EnableGLNProcessing    	is Boolean  
+		IncludeRecordsInError	is Boolean
+		ReleaseReceipts			is Boolean
+		ReleaseOption
+		AllowDropshipReceivers	is Boolean
+		AllowMatchItemOrVendorItem is Boolean
+			default label is "AllowMatchOnEitherItemOrVendorItem"
+		MoveErrorsToNewRunGroup is Boolean
+		ErrorRunGroupPrefix     is AlphaUpper 15
+		
+	Transient Fields
+		TransientRunGroup		is like RunGroup
+			derive value from DerivedResubmitRunGroup
+			
+	Derived Fields
+	
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+			 
+        InterfacedReceiptAmount is a DerivedField
+            type is like InternationalAmount
+			return (sum PurchaseOrderReceiptRel.ReceiptAmount)
+
+		InterfacedReceiptCount is a DerivedField
+			type is Numeric 7	
+			return (instance count of PurchaseOrderReceiptRel)
+			
+		DerivedResubmitRunGroup is a DerivedField
+			type is like RunGroup
+			if  (ErrorRunGroup entered)
+				return ErrorRunGroup
+			else
+				return RunGroup
+
+		InProcessMessage is a MessageField
+        	restricted
+        	"InProcess"
+        	
+		CompleteMessage is a MessageField
+        	restricted
+        	"Complete"
+        	
+        IncompleteMessage is a MessageField
+        	restricted
+        	"Incomplete"
+        	
+        NoRecordsMessage is a MessageField
+        	restricted
+        	"AllErrorsProcessed"
+
+		NoRecordsFoundForRunGroupMsg is a MessageField
+			restricted
+			"NoRecordsFoundForRunGroup"
+			        
+        DerivedStatus is a DerivedField
+        	type is Alpha 50
+        	if (Status.InProcess)
+        		return InProcessMessage
+        	else
+        	if (Status.Complete)
+        		return CompleteMessage
+        	else
+        	if (Status.Incomplete
+        	and !HasPendingReceipts
+        	and !HasPendingAdjustments)
+        		return NoRecordsMessage
+        	else
+        		return IncompleteMessage 
+		
+		DerivedOneYearReplicationData is a DerivedField 
+        	type is Boolean
+            if ((current date - create date) <  360)
+                return true
+            else
+                return false
+		
+		DerivedReleaseOption is a MessageField
+			restricted
+			"Yes_(<ReleaseOption>)"
+
+		DerivedReleaseNo is a MessageField
+			restricted
+			"No"
+
+		DerivedReleaseReceipts is a DerivedField
+			type is Alpha 50
+			default label is "ReleaseReceipts"
+			if (ReleaseReceipts)
+				return DerivedReleaseOption
+			else
+				return DerivedReleaseNo
+	Field Rules
+	
+		OriginalRunGroup
+			if (RunGroup like "*ERRORS_*")
+				if (ErrorRunGroupRel exists)
+					OriginalRunGroup = first ErrorRunGroupRel.OriginalRunGroup
+				else
+					OriginalRunGroup = RunGroup
+			else
+				OriginalRunGroup = RunGroup
+	
+	Conditions
+		ReceiptsCreated
+			restricted
+			when (RunType.Receivers
+			and   PurchaseOrderReceiptRel exists)
+
+		AdjustmentsCreated
+			restricted
+			when (RunType.AdjustmentsAndSubstitutions
+			and   POReceiptAdjustmentAndInspectionRel exists)
+
+		AdditionsCreated
+			restricted
+			when (RunType.AdjustmentsAndSubstitutions
+			and   PurchaseOrderReceiptLineRel exists)
+
+		HasPendingReceipts
+			restricted
+			when (RunType.Receivers
+			and   PurchaseOrderReceiptImportRel exists)
+			
+		HasPendingAdjustments
+			restricted
+			when (RunType.AdjustmentsAndSubstitutions
+			and   POReceiptAdjustmentAndInspectionImportRel exists)
+			
+		IncompleteHasPendingRecords
+			when (Status.Incomplete
+        	and  (HasPendingReceipts
+        	or    HasPendingAdjustments))
+			
+		IncompleteNoPendingRecords
+        	when (Status.Incomplete
+        	and   !HasPendingReceipts
+        	and   !HasPendingAdjustments)
+
+		NoRecordsToProcess
+			when (Status entered
+			and   RecordsProcessed not entered)
+
+		NoRecordsFoundForRunGroup
+			when (!ReceiptsCreated
+			and   !HasPendingReceipts
+			and   !AdjustmentsCreated
+			and   !AdditionsCreated
+			and   !HasPendingAdjustments)
+
+		IsValidForActorContext
+			restricted
+			when (FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+		
+		IsComplete
+			restricted
+			when (Status.Complete)
+			
+	Relations
+		PurchaseOrderReceiptImportRel
+			one-to-many relation to PurchaseOrderReceiptImport
+			Field Mapping uses ByInterfaceRun
+				related.InterfaceRun 		= PurchaseOrderReceiptInterfaceResult
+			Instance Selection
+                where (related.Company.FinanceEnterpriseGroup    = FinanceEnterpriseGroup)
+			
+		POReceiptAdjustmentAndInspectionImportRel
+			one-to-many relation to POReceiptAdjustmentAndInspectionImport
+			Field Mapping uses ByInterfaceRun
+				related.InterfaceRun 		= PurchaseOrderReceiptInterfaceResult
+			Instance Selection
+                where (related.Company.FinanceEnterpriseGroup    = FinanceEnterpriseGroup)
+			
+		PurchaseOrderReceiptRel
+			one-to-many relation to PurchaseOrderReceipt
+			Field Mapping uses ByInterfaceRun
+			Instance Selection
+                where (related.Company.FinanceEnterpriseGroup    = FinanceEnterpriseGroup
+				and    related.OriginatingInterfaceRun			 = PurchaseOrderReceiptInterfaceResult
+				and    !related.InterfaceInProcess)
+
+		PurchaseOrderReceiptLineRel
+			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses ByInterfaceRun
+			Instance Selection
+                where (related.Company.FinanceEnterpriseGroup    = FinanceEnterpriseGroup
+				and    related.OriginatingInterfaceRun			 = PurchaseOrderReceiptInterfaceResult
+				and    !related.InterfaceInProcess)
+
+		POReceiptAdjustmentAndInspectionRel
+			one-to-many relation to POReceiptAdjustmentAndInspection
+			Field Mapping uses ByInterfaceRun
+            Instance Selection
+                where (related.Company.FinanceEnterpriseGroup    = FinanceEnterpriseGroup
+				and    related.OriginatingInterfaceRun			 = PurchaseOrderReceiptInterfaceResult
+				and    !related.InterfaceInProcess)
+				
+		ErrorRunGroupRel
+			one-to-many relation to PurchaseOrderReceiptInterfaceResult
+			Field Mapping uses ByErrorRunGroup
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.ErrorRunGroup		   = RunGroup
+		
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				PurchaseOrderReceiptInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+		
+		ByRunGroup
+			Sort Order
+				RunGroup
+				PurchaseOrderReceiptInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+				
+		ByOriginalRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				OriginalRunGroup
+				RunTime descending
+				PurchaseOrderReceiptInterfaceResult
+				
+		ByErrorRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				ErrorRunGroup
+				PurchaseOrderReceiptInterfaceResult
+
+	Actions
+			
+		Create is an Action
+			restricted
+		Update is an Action
+			restricted
+			
+		Delete is an Action
+			valid when (!Status.InProcess)
+			
+		Purge is a Purge Action
+			restricted
+		
+		ResubmitInterface is an Instance Action
+			valid when (IncompleteHasPendingRecords)
+			Parameters
+				ResubmitFinanceEnterpriseGroup 		is a FinanceEnterpriseGroup	
+					default label is "FinanceEnterpriseGroup"	
+				ResubmitRunGroup					is a RunGroup
+					default label is "RunGroup"
+				ResubmitCompany						is a PayablesCompany
+				ResubmitReleaseReceipts				is Boolean
+				ResubmitReleaseOption				is a ReleaseOption
+				ResubmitAllowDropshipReceivers		is Boolean
+				ResubmitAllowMatchItemOrVendorItem  is Boolean
+					default label is "AllowMatchOnEitherItemOrVendorItem"
+				ResubmitIncludeRecordsInError		is Boolean
+				ResubmitMoveErrorsToNewRunGroup  	is Boolean
+					default label is "MoveErrorsToNewRunGroup"
+				ResubmitErrorRunGroupPrefix			is AlphaUpper 15
+					default label is "ErrorRunGroupPrefix"
+
+			Parameter Rules
+				ResubmitFinanceEnterpriseGroup	
+					default to FinanceEnterpriseGroup
+				ResubmitRunGroup					
+					initial value is TransientRunGroup
+				ResubmitCompany					
+					initial value is Company
+				ResubmitReleaseReceipts
+ 					initial value is ReleaseReceipts
+				ResubmitReleaseOption
+ 					initial value is ReleaseOption
+				ResubmitAllowMatchItemOrVendorItem
+					initial value is AllowMatchItemOrVendorItem
+				ResubmitIncludeRecordsInError		
+					initial value is true
+				ResubmitMoveErrorsToNewRunGroup  
+					initial value is MoveErrorsToNewRunGroup
+				ResubmitErrorRunGroupPrefix		
+					initial value is ErrorRunGroupPrefix
+					
+			Action Rules
+				if  (RunType.Receivers)
+					invoke InterfaceReceipts PurchaseOrderReceiptImport
+						
+						invoked.PrmFinanceEnterpriseGroup		= ResubmitFinanceEnterpriseGroup 
+						invoked.PrmRunGroup       				= ResubmitRunGroup
+						invoked.PrmCompany        				= ResubmitCompany
+						invoked.ReleaseReceipts 				= ResubmitReleaseReceipts
+						invoked.ReleaseOption 					= ResubmitReleaseOption
+						invoked.AllowDropshipReceivers			= ResubmitAllowDropshipReceivers
+						invoked.AllowMatchItemOrVendorItem		= ResubmitAllowMatchItemOrVendorItem
+						invoked.IncludeRecordsInError			= ResubmitIncludeRecordsInError
+						invoked.MoveErrorsToNewRunGroup 		= ResubmitMoveErrorsToNewRunGroup
+						invoked.PrmErrorRunGroupPrefix 			= ResubmitErrorRunGroupPrefix
+				else	
+				if  (RunType.AdjustmentsAndSubstitutions)
+					invoke InterfaceAdjustmentsAndSubstitutions POReceiptAdjustmentAndInspectionImport
+						invoked.PrmFinanceEnterpriseGroup		= ResubmitFinanceEnterpriseGroup 
+						invoked.PrmRunGroup       				= ResubmitRunGroup
+						invoked.PrmCompany        				= ResubmitCompany
+						invoked.ReleaseReceipts 				= ResubmitReleaseReceipts
+						invoked.IncludeRecordsInError			= ResubmitIncludeRecordsInError
+						invoked.MoveErrorsToNewRunGroup 		= ResubmitMoveErrorsToNewRunGroup
+						invoked.PrmErrorRunGroupPrefix 			= ResubmitErrorRunGroupPrefix
+

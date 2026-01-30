@@ -1,0 +1,276 @@
+GLTranslationRateInterface is a BusinessClass
+    owned by GeneralLedger
+    prefix is GLCUL
+    default label is "GlobalLedgerPeriodRateInterface"
+
+	Ontology
+		symbolic key is GLTranslationRateInterface
+
+    Patterns
+        disable Auditing
+        disable EffectiveDated
+		disable AsOfDateProcessing
+		
+    Persistent Fields
+		GeneralLedgerTranslationCode
+			default label is "GlobalLedgerTranslationCode"
+
+		Scenario
+		FromCurrency
+		ToCurrency
+		TranslationDate
+		BudgetTranslationRate
+    	Rate								is a CurrencyExchangeRate
+    	ErrorDescription					is Alpha 150
+		
+	Local Fields
+		LocalTranslationDate				is a TranslationDate
+		LocalTranslationCode				is like GeneralLedgerTranslationCode
+		LocalCurrencyRelationship 			is a CurrencyRelationship
+		LocalScenario						is a Scenario
+		LocalRate							is a CurrencyExchangeRate
+		LocalSavedCalendarPeriod			is a GeneralLedgerCalendarPeriod
+
+	Derived Fields
+		CurrencyRelationshipError	is a MessageField
+			restricted
+			"CurrencyRelationshipDoesNotExistBetween<LocalCurrencyRelationship.FromCurrency>And<LocalCurrencyRelationship.ToCurrency>"			
+		GLPeriodError				is a MessageField
+			restricted
+			"GlobalLedgerPeriodDoesNotExistFor<LocalTranslationDate month>/<LocalTranslationDate day>/<LocalTranslationDate year>"
+		TranslationCodeError		is a MessageField
+			restricted
+			"TranslationCodeDoesNotExist:<LocalTranslationCode>"
+		RecordExistsError			is a MessageField
+			restricted
+			"RecordAlreadyExists"
+		BudgetScenarioError			is a MessageField
+			restricted
+			"BudgetTranslationRateRequiresBudgetScenario"
+		ActualsScenarioError		is a MessageField
+			restricted
+			"ScenarioIsNotValidForANon-BudgetRate:<LocalScenario>"
+		ScenarioError				is a MessageField
+			restricted
+			"ScenarioDoesNotExist:<LocalScenario>" 
+		TranslationRateTypeError	is a MessageField
+			restricted
+			"TranslationCodeWithNoCalculationRateTypeCannotBeInterfaced"
+		NegativeRateError			is a MessageField
+			restricted
+			"RateCannotBeNegative"			
+		RateRequiredError			is a MessageField
+			restricted
+			"PeriodRateIsRequired"
+		DerivedEndDate				is a DerivedField
+			type is Date
+			if (GlCalendarPeriod2Rel exists)
+				return GlCalendarPeriod2Rel.Date
+			return GlCalendarPeriodUpdRel.Date
+		DerivedCalendarPeriod		is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			return GlCalendarPeriodRel.GeneralLedgerCalendarPeriod
+						
+	Transient Fields
+		IsErrorTransaction				is Boolean
+			derive value from ErrorTransaction
+			
+		TransientCalendarPeriod		is a GeneralLedgerCalendarPeriod
+		TransUpdatedCalendarPeriod	is a GeneralLedgerCalendarPeriod
+			derive value from DerivedCalendarPeriod
+			
+	Field Rules
+		GLTranslationRateInterface
+			required
+				"SequenceNumberIsRequired"
+				
+		GeneralLedgerTranslationCode
+			required
+				"Global_\Ledger_\Translation_\CodeIsRequired"
+		Rate
+			required
+			
+		TranslationDate
+			default to DerivedEndDate
+			constraint (GlCalendarPeriodRel exists)
+				"PeriodDoesNotExistForEnteredDate"
+			required
+		FromCurrency
+			LocalCurrencyRelationship.FromCurrency 	= FromCurrency
+			LocalCurrencyRelationship.ToCurrency	= ToCurrency
+			constraint (LocalCurrencyRelationship exists)
+				"CurrencyRelationshipBetween<FromCurrency>To<ToCurrency>DoesNotExist"
+			required
+		ToCurrency
+			required
+				
+ 	Conditions
+ 		ErrorTransaction
+ 			restricted
+ 			when (ErrorDescription entered)
+ 		ActionTypeCreate
+ 			restricted
+ 			when (action type.Create)
+
+	Relations
+		GlCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.PeriodType.EndDate
+				and	   related.Date			   = TranslationDate)
+		
+		GlCalendarPeriod2Rel
+			one-to-one relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.GeneralLedgerCalendarPeriod = TransientCalendarPeriod
+		
+		GlCalendarPeriodUpdRel
+			one-to-one relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.GeneralLedgerCalendarPeriod = TransUpdatedCalendarPeriod
+		
+		GeneralLedgerTranslationRateRel
+			one-to-one relation to GeneralLedgerTranslationRate
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.GeneralLedgerTranslationCode		= GeneralLedgerTranslationCode
+				related.BudgetTranslationRate				= BudgetTranslationRate
+				related.Scenario							= LocalScenario
+				related.GeneralLedgerTranslationRate.CurrencyRelationship.FromCurrency	= FromCurrency
+				related.GeneralLedgerTranslationRate.CurrencyRelationship.ToCurrency	= ToCurrency
+				related.TranslationDate						= TranslationDate
+				
+
+	Sets
+
+    Actions
+		Create is a Create Action
+			
+		Update is an Update Action
+			Entrance Rules
+				LocalSavedCalendarPeriod = DerivedCalendarPeriod
+				
+			Action Rules
+				if (!LocalSavedCalendarPeriod = TransUpdatedCalendarPeriod)
+					TranslationDate		= DerivedEndDate
+		Delete is a Delete Action
+		
+		ImportToCurrencyPeriodRate is a Set Action
+
+			completion message is "CurrencyPeriodRateInterfaceCompleted"
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmReplaceExistingRecords	is Boolean
+					default label is "ReplaceExistingRecords"
+				PrmIncludeRecsInError		is Boolean
+					default label is "IncludeRecordsInError"
+			
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup)	
+
+			Local Fields
+				FailedRecordCount	is Numeric 12
+				PassedRecordCount	is Numeric 12
+						
+			Action Rules
+				Empty Set Rules
+
+
+
+				Set Rules
+					Exit Rules
+						if (PassedRecordCount entered
+						or  FailedRecordCount entered)
+							invoke Create GLTranslationRateInterfaceResult
+								invoked.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+								invoked.RunTime					= current timestamp
+								invoked.PassedCount				= PassedRecordCount
+								invoked.FailedCount				= FailedRecordCount
+
+				Instance Rules
+					LocalCurrencyRelationship.FromCurrency 	= FromCurrency
+					LocalCurrencyRelationship.ToCurrency	= ToCurrency
+					LocalTranslationDate 					= TranslationDate
+					LocalTranslationCode 					= GeneralLedgerTranslationCode
+					LocalScenario							= Scenario
+					LocalRate								= Rate
+					
+					if (PrmIncludeRecsInError)
+						initialize ErrorDescription
+					
+					if (!BudgetTranslationRate)
+						if (!LocalScenario entered)
+							LocalScenario = FinanceEnterpriseGroup.ActualsScenario
+							
+					if (!ErrorDescription entered)
+						if (!GeneralLedgerTranslationCode exists)
+							ErrorDescription		= TranslationCodeError
+						else
+							if (GeneralLedgerTranslationCode.RateType.NoCalculation)
+								ErrorDescription		= TranslationRateTypeError
+
+					if (!ErrorDescription entered)
+						if (!GlCalendarPeriodRel exists)
+							ErrorDescription	= GLPeriodError
+
+					if (!ErrorDescription entered)
+						if (!LocalCurrencyRelationship exists)
+							ErrorDescription = CurrencyRelationshipError
+						
+					if (!ErrorDescription entered
+					and LocalScenario != 0)
+						if (LocalScenario !exists)
+							ErrorDescription = ScenarioError
+							
+					if (!ErrorDescription entered)
+						if (BudgetTranslationRate)
+							if (LocalScenario = FinanceEnterpriseGroup.ActualsScenario)
+								ErrorDescription = BudgetScenarioError
+							
+					if (!ErrorDescription entered)
+						if (!BudgetTranslationRate
+						and LocalScenario != 0)
+							if (!LocalScenario = FinanceEnterpriseGroup.ActualsScenario)
+								ErrorDescription = ActualsScenarioError
+								
+					if (!ErrorDescription entered)
+						if (!LocalRate entered)
+							ErrorDescription	= RateRequiredError
+						else
+							if (LocalRate < 0)
+								ErrorDescription	= NegativeRateError
+								
+					if (!ErrorDescription entered)
+						if (!GeneralLedgerTranslationRateRel exists)
+							invoke Create GeneralLedgerTranslationRate
+								resume on error
+									ErrorDescription = error message								
+								invoked.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+								invoked.GeneralLedgerTranslationCode	= GeneralLedgerTranslationCode
+
+								invoked.Scenario						= LocalScenario
+								invoked.GeneralLedgerTranslationRate.CurrencyRelationship = LocalCurrencyRelationship
+								invoked.TranslationDate					= TranslationDate
+								invoked.GeneralLedgerCalendarPeriod		= GlCalendarPeriodRel.GeneralLedgerCalendarPeriod
+								invoked.Rate							= Rate
+								invoked.BudgetTranslationRate			= BudgetTranslationRate
+						else
+							if (PrmReplaceExistingRecords)
+								invoke Update GeneralLedgerTranslationRateRel
+									resume on error
+										ErrorDescription = error message								
+									invoked.Rate						= Rate
+							else
+								ErrorDescription	= RecordExistsError
+				
+					if (!ErrorDescription entered)
+						PassedRecordCount += 1
+						invoke Delete
+					else
+						FailedRecordCount += 1
+

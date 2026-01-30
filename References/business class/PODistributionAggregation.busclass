@@ -1,0 +1,259 @@
+PODistributionAggregation is a BusinessClass
+	owned by po
+	prefix is POA1
+
+	Ontology
+		symbolic key is PODistributionAggregation
+
+	Patterns
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp		
+
+	Persistent Fields
+		SummaryAccount                      	is a FinanceCodeBlock
+			default label is "Account"
+		SummaryAmount                       	is an InternationalAmount
+			default label is "Amount"
+		Status                                  is Numeric 2
+			States
+				ApprovalNotRequired		value is 0
+				PendingApproval			value is 1
+				Approved				value is 2
+				ManuallyApproved		value is 3
+				Rejected				value is 4
+				RejectedOther			value is 5
+				ManuallyRejected		value is 6
+				Unreleased				value is 7
+				UnreleasedOther			value is 8
+				ManuallyUnreleased		value is 9
+				Canceled				value is 10
+				Created					value is 11
+
+	Transient Fields
+		InputAmount						is an InternationalAmount
+		BypassLedgerEdits
+
+	Local Fields
+		LocalFunctionalAmount				is a CurrencyAmount
+		LocalReportCurrencyExchangeGroup	is a ReportCurrencyExchangeGroup
+	
+	Derived Fields
+
+		ApprovalTitle			is a StringField
+			type is Alpha 200
+			restricted
+			"Purchase Order "
+			PurchaseOrder
+			" Vendor "
+			PurchaseOrder.Vendor
+			" | Distribution - "
+			SummaryAccount
+			" for Amt "
+
+		DerivedApprovalTitle	is a DerivedField
+			type is Alpha 200
+			restricted
+			return ApprovalTitle + " " + SummaryAmount
+
+	Relations
+
+		OtherNonApprovedDistributionAggrationRel
+			one-to-many relation to PODistributionAggregation
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.Status != 2)
+
+		OtherPendingDistributionAggrationRel
+			one-to-many relation to PODistributionAggregation
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.Status = 1)
+
+		OtherDistributionAggrationRel
+			one-to-many relation to PODistributionAggregation
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+
+		PurchaseOrderLineDistributionRel
+			one-to-many relation to PurchaseOrderLineDistribution
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+			Instance Selection
+				where (related.DistributionAggregation = PODistributionAggregation)
+
+		ResponsibilityMatrixRel
+			one-to-many relation to ResponsibilityMatrix
+			Field Mapping uses ByPriorityAndDimensionCount
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+			Instance Selection
+                where (related.Active)
+
+		ResponsibilityMatrixApprovalProcessorRel
+			one-to-one relation to ApprovalProcessor
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup							= Company.FinanceEnterpriseGroup
+				related.ApprovalProcessor.ApprovalType					= blank
+				related.ApprovalProcessor.SystemCode					= "PO"
+				related.ApprovalProcessor.ApprovalTransactionForm		= ApprovalTransactionForm.PurchaseOrder
+				related.ApprovalProcessor.TransactionHeader1     		= Company
+				related.ApprovalProcessor.TransactionHeader2			= PurchaseOrder
+				related.ApprovalProcessor.TransactionHeader3			= blank
+				related.ApprovalProcessor.TransactionHeader4			= blank
+				related.ApprovalProcessor.TransactionLine1				= blank
+				related.ApprovalProcessor.TransactionLine2				= blank
+				related.ApprovalProcessor.Transaction					= PODistributionAggregation
+
+		AccountingEntityRel
+			one-to-one relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		   = Company.FinanceEnterpriseGroup
+				related.AccountingEntity			   = SummaryAccount.ToAccountingEntity
+
+
+	Conditions
+
+	
+	Sets
+		BySummaryAccount
+			Sort Order
+				Company
+				PurchaseOrder
+				SummaryAccount
+				PODistributionAggregation
+
+	Field Rules
+
+	Actions
+
+		Create is a Create Action
+			restricted
+			Entrance Rules
+				BypassLedgerEdits = true
+			Action Rules
+				Status = 11
+
+		Update is an Update Action
+			restricted
+			Entrance Rules
+				BypassLedgerEdits = true
+
+		CalculateAggregationUpdate is an Update Action
+			restricted
+			Entrance Rules
+				BypassLedgerEdits = true
+			Action Rules
+				SummaryAmount += InputAmount
+
+		Purge is a Purge Action
+			restricted
+
+		Approve is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 2
+				if (OtherPendingDistributionAggrationRel !exists)
+					invoke Released.Approve PurchaseOrder 
+
+		Reject is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 4
+				
+				if (OtherDistributionAggrationRel exists)
+					for each OtherDistributionAggrationRel
+						invoke Update each
+							invoked.Status = 5
+						invoke CancelPAService each.ResponsibilityMatrixApprovalProcessorRel
+				
+				invoke Released.Reject PurchaseOrder
+
+		Unrelease is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 7
+				
+				if (OtherDistributionAggrationRel exists)
+					for each OtherDistributionAggrationRel
+						invoke Update each 
+							invoked.Status = 8
+						invoke CancelPAService each.ResponsibilityMatrixApprovalProcessorRel
+
+				invoke Released.Unrelease PurchaseOrder
+		
+		ManualApprove is an Instance Action
+			restricted
+			Action Rules
+				Status = 3
+				invoke ManualApprove ResponsibilityMatrixApprovalProcessorRel
+
+		ManualReject is an Instance Action
+			restricted
+			Parameters
+				PrmActionReason			is AlphaUpper 20
+				PrmComment				is Alpha size up to 500
+			Action Rules
+				Status = 6
+				invoke ManualReject ResponsibilityMatrixApprovalProcessorRel
+					invoked.PrmActionReason		= PrmActionReason
+					invoked.PrmComment			= PrmComment
+
+		ManualUnrelease is an Instance Action
+			restricted
+			Parameters
+				PrmActionReason			is AlphaUpper 20
+				PrmComment				is Alpha size up to 500
+			Action Rules
+				Status = 9
+				invoke ManualUnrelease ResponsibilityMatrixApprovalProcessorRel
+					invoked.PrmActionReason		= PrmActionReason
+					invoked.PrmComment			= PrmComment
+
+		CancelApproval is an Instance Action
+			restricted
+			Action Rules
+				Status = 10
+				invoke CancelPAService ResponsibilityMatrixApprovalProcessorRel
+
+		SubmitForApproval is an Instance Action
+			restricted
+			Action Rules
+				if (AccountingEntityRel.FunctionalCurrency != PurchaseOrder.Currency)
+					LocalReportCurrencyExchangeGroup.CurrencyTable			  = PurchaseOrder.CurrencyTable
+					LocalReportCurrencyExchangeGroup.FinanceEnterpriseGroup	  = Company.FinanceEnterpriseGroup
+					LocalReportCurrencyExchangeGroup.BaseAmount.ToCurrency	  = AccountingEntityRel.FunctionalCurrency
+					LocalReportCurrencyExchangeGroup.ExchangeDate			  = PurchaseOrder.PurchaseOrderDate
+					LocalReportCurrencyExchangeGroup.TransactionAmount		  = SummaryAmount
+					LocalReportCurrencyExchangeGroup.FromCurrency			  = PurchaseOrder.Currency
+					LocalFunctionalAmount									  = LocalReportCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+				else
+					LocalFunctionalAmount									  = SummaryAmount
+				invoke SubmitForMatrixApproval first ResponsibilityMatrixRel
+					invoked.PrmFinanceEnterpriseGroup 		= Company.FinanceEnterpriseGroup
+					invoked.PrmApprovalType					= blank
+					invoked.PrmSystemCode					= "PO"
+					invoked.PrmApprovalTransactionForm		= ApprovalTransactionForm.PurchaseOrder
+					invoked.PrmTransactionHeader1			= Company
+					invoked.PrmTransactionHeader2			= PurchaseOrder
+					invoked.PrmTransactionHeader3			= blank
+					invoked.PrmTransactionHeader4			= blank
+					invoked.PrmTransactionLine1				= blank
+					invoked.PrmTransactionLine2				= blank
+					invoked.PrmTransaction					= PODistributionAggregation
+					invoked.PrmFinanceCodeBlock				= SummaryAccount
+					invoked.PrmApprovalTitle				= DerivedApprovalTitle
+					invoked.PrmApprovalAmount				= LocalFunctionalAmount
+

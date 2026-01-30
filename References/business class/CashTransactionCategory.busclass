@@ -1,0 +1,390 @@
+CashTransactionCategory is a BusinessClass
+    owned by cashmgmt
+    prefix is CMCTC
+
+    Ontology
+    	symbolic key is CashTransactionCategory
+
+    Persistent Fields
+		Description						is Alpha 250
+		UncategorizedCategory			is Boolean
+		NaturalBalance					is a DebitCreditIndicator
+		CategoryAccount					is a FinanceCodeBlockFull
+			default label is "AccountInformation"
+
+		StatementLinePostingOption
+		PostingCashCode					is a CashCode
+			default label is "OverrideBankAccountCashCode"
+		CashAllocationCode
+		ReconciliationTolerancePercent 	is Percent 3
+			default label is "TolerancePercent"
+		ReconciliationToleranceAmount	is an InternationalAmount
+			default label is "ToleranceAmount"
+		AlwaysReconcile					is Boolean
+		RequireBankStatementLineDetail	is Boolean
+		Active
+		OverrideEventCode				is a GeneralLedgerEvent	
+		PostingCompany					is a GeneralLedgerCompany	
+			default label is "OverridePostingCompany"
+			disable surrogates
+	
+	Local Fields
+		NewParentCategory				is a CashTransactionCategory
+		
+	Derived Fields
+		ReconciledLinesAmountByCategory	is a DerivedField
+			type is like InternationalAmount
+			return (sum ReconciledBankStatementLineRel.LineAmount)
+
+		NumReconciledLinesByCategory is a ComputeField
+			type is Numeric size 5
+			(instance count of ReconciledBankStatementLineRel)
+
+		UnreconciledLinesAmountByCategory is a DerivedField
+			type is like InternationalAmount
+			return (sum UnReconciledBankStatementLineRel.LineAmount)
+
+		NumUnreconciledLinesByCategory is a ComputeField
+			type is Numeric size 5
+			(instance count of UnReconciledBankStatementLineRel)
+
+		StatementLineAmount	is a DerivedField
+			type is like InternationalAmount
+			return (sum BankStatementLineRel.LineAmount)
+
+		UncategorizedCategoryName is a MessageField
+			restricted
+			"Uncategorized"
+
+		UncategorizedCategoryDescription is a MessageField
+			restricted
+			"UncategorizedBankTransaction"
+
+		ForecastPeriodAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum CashForecastPeriodAmountRel.ForecastAmount)
+
+		StatementToForecastDifference is a DerivedField
+			type is like InternationalAmount
+			return (StatementLineAmount - ForecastPeriodAmount)
+			
+		NewParentCategoryIsAChildCategory is a DerivedField
+			type is Boolean
+			restricted
+   			for each NewParentCategory and ancestors
+				if (each.ParentTransactionCategory = CashTransactionCategory)
+					return true
+					end for each
+
+	Context Fields
+		CashManagementAccount
+		BankStatement
+		BankStatementLine
+		CashTransactionProcessingRule
+		CashForecast
+		ForecastDate
+		
+	Field Rules
+		Description
+			default to CashTransactionCategory
+			
+		NaturalBalance
+			default to ParentTransactionCategory.NaturalBalance
+			if (ParentTransactionCategory entered
+			and ParentTransactionCategory.NaturalBalance != NaturalBalance)
+				confirmation required
+					"ParentCategory<ParentTransactionCategory>HasADifferentNaturalBalanceDefined;WouldYouLikeToContinue?"
+			
+		StatementLinePostingOption
+			if (StatementLinePostingOption changed
+			and StatementLinePostingOption.NonPosting)
+				confirmation required
+					"ChangingPostingOptionToNoneWillRemovePostingData"
+		
+		CategoryAccount
+			if (StatementLinePostingOption changed
+			and StatementLinePostingOption.NonPosting)
+				initialize CategoryAccount
+			if (CashAllocationCode entered)
+				cannot be entered
+					"CanEnterEitherAccountingInformationOrAnAllocationCode"
+			constraint (StatementLinePostingOption entered)
+				"MustSelectAPostingOptionWhenCategoryAccountEntered"
+					
+		CashAllocationCode
+			if (StatementLinePostingOption changed
+			and StatementLinePostingOption.NonPosting)
+				initialize CashAllocationCode
+			if (CategoryAccount entered)
+				cannot be entered
+					"CanEnterEitherAccountingInformationOrAnAllocationCode"
+			constraint (StatementLinePostingOption entered)
+				"MustSelectAPostingOptionWhenCashAllocationCodeEntered"
+
+
+
+
+
+		
+		PostingCompany
+			if (StatementLinePostingOption.NonPosting)
+				initialize PostingCompany
+			constraint (StatementLinePostingOption.PostToCashLedger)
+				"PostingCompanyOnlyAllowedForPostToCashLedgerPostingOption"
+
+				
+		PostingCashCode
+			if (StatementLinePostingOption.NonPosting)
+				initialize PostingCashCode
+			constraint (StatementLinePostingOption.PostToCashLedger)
+				"PostingCashCodeOnlyAllowedForPostToCashLedgerPostingOption"
+
+		ReconciliationTolerancePercent
+			constraint (!ReconciliationToleranceAmount entered)
+				"EnterEitherToleranceAmountOrTolerancePercent"
+			constraint (!AlwaysReconcile entered)
+				"CannotEnterTolerancePercentIfAlwaysReconcileSelected"
+
+		ReconciliationToleranceAmount
+			constraint (!AlwaysReconcile entered)
+				"CannotEnterToleranceAmountIfAlwaysReconcileSelected"
+
+		RequireBankStatementLineDetail
+			if (RequireBankStatementLineDetail)
+				constraint (!StatementLinePostingOption.PostToCashLedger)
+					"PostingOptionCannotBePostToCashLedgerWhenRequiringBankStatementLineDetails"
+					
+		Active
+			initial value is true
+			if (CashTransactionCategory = CashManagementGroup.StatementCurrencyGainLossCategory)
+				constraint (Active)
+					"CannotInactivate;CategoryIsDefinedAsTheStatementCurrencyGainLossCategoryOn_\Cash_\Management_\Group"
+					
+		OverrideEventCode	
+			if (StatementLinePostingOption.NonPosting)
+				initialize OverrideEventCode
+								
+	Conditions
+		HasBankLineActivity
+			restricted
+			when (ReconciledBankStatementLineRel exists
+			or	  UnReconciledBankStatementLineRel exists)
+
+		HasParentCategory
+			restricted
+    		when (ParentTransactionCategory entered)
+    		
+    	HasChild
+    		restricted
+    		when (CashTransactionCategory children exist)
+    	
+    	BankOrForecastDetailsExist
+    		restricted
+			when (BankStatementLineRel exists
+			or    CashForecastPeriodAmountRel exists)
+
+    	HasAccountingInformation
+    		restricted
+    		when (CategoryAccount entered
+			or	  CashAllocationCode entered)
+		
+		CashAllocationCodeEntered
+			restricted
+			when (CashAllocationCode entered)
+			
+		CategoryAccountEntered
+			restricted
+			when (CategoryAccount entered)
+							
+	Relations
+		ReconciledBankStatementLineRel
+			one-to-many relation to BankStatementLine
+			Field Mapping uses ByCategory
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankStatement			= BankStatement
+				related.CashTransactionCategory	= CashTransactionCategory
+			Instance Selection
+				where (related.LineStatus.Reconciled)
+
+		UnReconciledBankStatementLineRel
+			one-to-many relation to BankStatementLine
+			Field Mapping uses ByCategory
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankStatement			= BankStatement
+				related.CashTransactionCategory	= CashTransactionCategory
+			Instance Selection
+				where (related.LineStatus.Unreconciled)
+
+		ActiveCashForecastAccountRel
+			one-to-many relation to CashForecastAccount
+			Field Mapping uses ByCashManagementAccount
+				related.CashManagementGroup		  				  = CashManagementGroup
+				related.CashForecastAccount.CashManagementAccount = CashManagementAccount
+			Instance Selection
+				where (related.CashForecast.Status.Active
+				and    BankStatementRel.StatementDate within related.CashForecast.ForecastDateRange)
+						
+		CashForecastPeriodAmountRel
+			one-to-one relation to CashForecastPeriodAmount
+			Field Mapping uses symbolic key
+  				related.CashManagementGroup							 = CashManagementGroup
+				related.CashForecast								 = CashForecast 
+				related.CashForecastAccount.CashManagementAccount	 = CashManagementAccount
+				related.CashForecastPeriod 							 = BankStatementRel.StatementDate 
+				related.CashForecastCategory.CashTransactionCategory = CashTransactionCategory
+
+		CashForecastDetailRel
+			one-to-many relation to CashForecastDetail
+			Field Mapping uses symbolic key
+				related.CashManagementGroup							 = CashManagementGroup
+				related.CashForecast								 = CashForecast 
+				related.CashForecastAccount.CashManagementAccount	 = CashManagementAccount
+				related.CashForecastPeriod							 = BankStatementRel.StatementDate 
+				related.CashForecastCategory.CashTransactionCategory = CashTransactionCategory
+
+		BankStatementRel
+			one-to-one relation to BankStatement
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankStatement			= BankStatement
+
+		BankStatementLineRel
+			one-to-many relation to BankStatementLine
+			Field Mapping uses ByCategory
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankStatement			= BankStatement
+				related.CashTransactionCategory	= CashTransactionCategory
+
+		UncategorizedCategoryRel
+			one-to-many relation to CashTransactionCategory
+			Field Mapping uses ByUncategorizedCategory
+				related.CashManagementGroup		= CashManagementGroup
+				related.UncategorizedCategory	= true
+
+	Sets
+		ByUncategorizedCategory
+			Sort Order
+				CashManagementGroup
+				UncategorizedCategory
+				CashTransactionCategory
+				
+	Attach Rules
+		if (parentcontext.name != "BankStatementTotal")
+			constraint (Active)
+				"Category<CashTransactionCategory>IsInactive"
+			
+	Actions
+		Create is a Create Action
+			Exit Rules
+				if (!UncategorizedCategoryRel exist)
+					invoke CreateUncategorizedCategory 
+		
+		Update is an Update Action
+			Field Rules
+				UncategorizedCategory
+					cannot be changed
+		
+		ReparentCategory is an Instance Action
+			Parameters
+				PrmParentCategory is a CashTransactionCategory
+				
+			Parameter Rules
+				PrmParentCategory
+					required
+						"NewParentCategoryIsRequired"
+						
+					constraint (PrmParentCategory != CashTransactionCategory)
+						"CannotSelectCategoryToBeItsOwnParent"
+						
+					constraint (PrmParentCategory != ParentTransactionCategory)
+						"NewParentIsTheSameAsCurrentParent"
+					
+					constraint (PrmParentCategory != CashManagementGroup.StatementCurrencyGainLossCategory)
+  						"NewParentCategoryCannotBeTheStatementCurrencyGainLossCategoryDefinedOn_\Cash_\Management_\Group"
+  					
+			Action Rules
+				NewParentCategory = PrmParentCategory
+				
+				constraint (!NewParentCategoryIsAChildCategory)
+					"CannotChooseAChildCategoryToBeTheNewParentCategory"
+					
+				ParentTransactionCategory = NewParentCategory
+				
+		RemoveParentCategory is an Instance Action
+			valid when (HasParentCategory)
+			Action Rules
+				initialize ParentTransactionCategory
+				
+		CreateForecastCategory is an Instance Action 
+			Parameters
+				PrmCashManagementGroup	is a CashManagementGroup
+				PrmCashForecast			is a CashForecast
+			
+			Parameter Rules
+				PrmCashManagementGroup	required
+				PrmCashForecast			required
+				
+			Action Rules
+				constraint (PrmCashForecast.IsUpdatable)
+					"CashForecast<PrmCashForecast>MustBeInANewOrActiveStatusToUpdate"
+				
+				if (PrmCashForecast.HaveBuiltForecast)
+					invoke AddCategory CashForecastCategory
+						invoked.CashManagementGroup 			  			   = PrmCashManagementGroup
+						invoked.CashForecast 			  					   = PrmCashForecast
+						invoked.CashForecastCategory.CashTransactionCategory   = CashTransactionCategory
+						invoked.ParentForecastCategory.CashTransactionCategory = ParentTransactionCategory
+						invoked.ForecastCreationParameter 					   = PrmCashForecast.ForecastCreationParameter
+						if (PrmCashForecast.Status.Active)
+							invoked.ForecastCreationParameter.ForecastDateRange.Begin = current corporate date
+				else	
+					invoke Create CashForecastCategory
+						invoked.CashManagementGroup 			  			   = PrmCashManagementGroup
+						invoked.CashForecast 			  					   = PrmCashForecast
+						invoked.CashForecastCategory.CashTransactionCategory   = CashTransactionCategory
+						invoked.ParentForecastCategory.CashTransactionCategory = ParentTransactionCategory
+						invoked.ForecastCreationParameter 					   = PrmCashForecast.ForecastCreationParameter
+
+		CreatePositionCategory is an Instance Action 
+			Parameters
+				PrmCashManagementGroup	 is a CashManagementGroup
+				PrmCashManagementAccount is a CashManagementAccount
+				PrmBankStatement		 is a BankStatement
+			
+			Parameter Rules
+				PrmCashManagementGroup	 required
+				PrmCashManagementAccount required
+				PrmBankStatement		 required
+			
+			Local Fields
+				BankStatementPosition
+				
+			Action Rules
+				constraint (!BankStatementPosition set exists)
+					"Category<CashTransactionCategory>AlreadyExistsOnCashPositionWorksheet"
+				
+				invoke Update BankStatementPosition
+					invoked.CashManagementGroup 	= PrmCashManagementGroup
+					invoked.CashManagementAccount	= PrmCashManagementAccount
+					invoked.BankStatement			= PrmBankStatement
+					invoked.CashTransactionCategory = CashTransactionCategory
+					
+		CreateUncategorizedCategory is an Instance Action
+			default label is untranslatable
+			restricted
+			Action Rules
+				invoke Create
+					invoked.CashManagementGroup		= CashManagementGroup
+					invoked.CashTransactionCategory	= UncategorizedCategoryName
+					invoked.Description				= UncategorizedCategoryDescription
+					invoked.UncategorizedCategory	= true
+					invoked.Active					= true
+
+		Delete is a Delete Action
+		
+		Purge is a Purge Action
+			restricted

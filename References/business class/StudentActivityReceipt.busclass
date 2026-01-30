@@ -1,0 +1,595 @@
+StudentActivityReceipt is a BusinessClass
+    owned by studentactivities
+    prefix is SARC
+
+    Ontology
+    	symbolic key is StudentActivityReceipt
+
+    Persistent Fields
+		StudentActivityBankAccount
+		BankTransactionType
+		StudentActivityBankTransaction
+		ReferenceNumber					is Alpha 30
+		Description						is Alpha 500
+		ReceiptType						is Numeric 2
+			States
+				Cash		value is 1
+				Check		value is 2
+				CreditCard	value is 3
+				PayPal		value is 4
+		StudentRecord
+		ReceiptDate						is Date
+		ReceiptAmount					is an InternationalAmount
+		Status							is Numeric 2
+			States
+				Entered					value is 0
+				Released				value is 1		
+				Deposited				value is 2		
+				Returned				value is 3
+		ReturnNumber					is Numeric 10
+		ReturnDate						is Date
+		AddedFromStudentRecord			is Boolean
+		StudentActivityReceiptBatch	
+		StudentActivityClubSponsor
+		NSFRepayment					is Boolean
+		PayorName						is Alpha 60
+		PayorAddress					is a PostalAddressV2	
+			holds pii
+		SchoolAccountCode
+		PrintedReceipt					is an AlternateAttachment
+		
+	Derived Fields
+	
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforStudentActivityReceipt"
+
+		ContextMessageText is a MessageField
+			restricted
+			"ReceiptNumber<StudentActivityReceipt>"
+	
+		TotalDetailAmount			is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentActivityReceiptDetailRel.DetailAmount)
+
+		OutOfBalanceAmount			is a DerivedField
+			type is like InternationalAmount
+			return (ReceiptAmount - TotalDetailAmount)
+
+		ReturnedPaymentDescription	is a MessageField
+			"ReturnedPayment<ReferenceNumber>Returned<ReturnDate>"			
+
+		ReturnedPaymentBankFeeDescription	is a MessageField
+			"ReturnedPayment<ReferenceNumber>BankFee"			
+
+		DerivedName is a MessageField
+			"<StudentRecord.StudentFirstName>_<StudentRecord.StudentLastName>"
+
+		DetailsPostedToDifferentStudent is a DerivedField
+			type is Boolean
+			if (DetailPostedToDifferentStudentRel exists)
+				return true
+			else
+				return false
+				
+		SchoolDisplay is a LabelField
+			"School:<StudentActivitySchool.SchoolName>"
+			
+		ReceiptDisplay is a LabelField
+			"ReceiptNumber:<StudentActivityReceipt>"
+			
+		ReceiptDateDisplay is a LabelField
+			"ReceiptDate:<ReceiptDate>"
+			
+		ReceiptAmountDisplay is a LabelField
+			"ReceiptAmount:<ReceiptAmount>"
+			
+		ReferenceNumberDisplay is a LabelField
+			"ReferenceNumber:<ReferenceNumber>"
+			
+		ClubSponsorDisplay is a LabelField
+			"ClubSponsor:<StudentActivityClubSponsor>"
+			
+		StudentDisplay is a LabelField
+			"StudentId:<StudentRecord>"
+			
+		StudentNameDisplay is a LabelField
+			"StudentName:<StudentRecord.StudentFirstName>_<StudentRecord.StudentLastName>"
+			
+		PayorNameDisplay is a LabelField
+			"PayorName:<PayorName>"
+			
+		SchoolAddressDisplay is a LabelField
+			"<StudentActivitySchool.Address.Municipality>_<StudentActivitySchool.Address.StateProvince>_<StudentActivitySchool.Address.PostalCode>"
+			
+		PayorAddressDisplay is a LabelField
+			"<PayorAddress.Municipality>_<PayorAddress.StateProvince>_<PayorAddress.PostalCode>"
+
+	Local Fields
+		LocalAttributeCtr   	is Numeric 2			
+
+	Transient Fields
+		SchoolActivityAccount
+		Amount					is an InternationalAmount
+		CurrentReceiptNumber	is Numeric 10
+		TransactionCurrencyCode	is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+	Context Fields
+
+	Sets
+		ByReferenceNumber
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				ReferenceNumber
+				StudentActivityReceipt
+				
+		ByBatchNumber
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				StudentActivityReceiptBatch
+				StudentRecord
+
+	Relations
+		SchoolActivityAccountRel
+			one-to-many relation to SchoolActivityAccount
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= StudentActivitySchool
+
+		StudentRecordReceiptRel
+			one-to-many relation to StudentRecord
+			Field Mapping uses ByStudentActivityReceipt
+				related.StudentActivityDistrict						= StudentActivityDistrict
+				related.CurrentReceiptRecord.StudentActivitySchool	= StudentActivitySchool
+				related.CurrentReceiptRecord.StudentActivityReceipt	= StudentActivityReceipt
+
+		StudentActivityReceiptDetailRel	is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (!related.BankAccountOffset)
+
+		BankOffsetDetailRel	is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (related.BankAccountOffset)
+
+		DetailPostedToDifferentStudentRel is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (!related.StudentRecord	= StudentRecord)
+		
+		UnreleasedReceiptDetailsRel is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (related.Status.Entered)
+		
+		UnDepositedReceiptDetailsRel is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (related.Status.Released)
+
+		ForClosing is a StudentActivityReceiptDetail set
+			Instance Selection
+				where (related.StudentActivityDistrict	= StudentActivityDistrict
+						and    related.StudentActivitySchool	= StudentActivitySchool
+						and    related.DepositDate				<= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod.Date
+						and    related.Status.Deposited)
+
+
+
+
+
+
+		
+		
+	Conditions
+		ReceiptExists
+			when (StudentActivityReceipt exists)
+
+		EnteredReceipt
+			when (StudentActivityReceipt exists
+			and   Status.Entered)
+
+		LinkedToDeposit
+			when (StudentActivityBankTransaction entered)
+			
+		CreatedFromDeposit
+			when (StudentActivityBankTransaction entered
+			and   Status.Entered)
+
+		CanBeAssigned
+			when (!CreatedFromDeposit
+			and   !StudentActivityBankTransaction entered)
+
+		CanBeUnnassigned
+			when (!CreatedFromDeposit
+			and  (StudentActivityBankTransaction entered
+			and   Status.Released
+			and   StudentActivityBankTransaction.Status.Entered))
+
+		Deposited
+			when (Status.Deposited) 
+
+		CreatedFromBatch
+			when (StudentActivityReceiptBatch entered)
+			
+		CanBeCreated
+			restricted
+			when (not CreatedFromBatch 
+			or	  StudentActivityReceiptBatch.Status.Entered)
+
+		OutOfBalance
+			when (!NSFRepayment
+			and   !TotalDetailAmount = ReceiptAmount)
+
+		DetailsCanBeEntered
+			when (Status.Entered
+			and   !NSFRepayment)
+
+		DetailsCanBeViewed
+			when ((!NSFRepayment
+			and    !Status.Entered)
+			or    (NSFRepayment
+			and   (Status.Deposited
+			or     Status.Returned)))
+
+		HasFormattedReceipt
+			when (StudentActivitySchool.ReceiptDocumentTemplate entered
+			and   PrintedReceipt entered)
+
+		CanUpdateFormattedReceipt
+			when (!Status.Entered
+			and   StudentActivitySchool.ReceiptDocumentTemplate entered)
+
+
+
+
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with PrintedReceipt
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with PrintedReceipt
+
+	Field Rules
+
+
+
+		CurrentReceiptNumber
+			initial value is StudentActivitySchool.CurrentReceiptNumber
+
+		ReceiptDate	
+			initial value is current corporate date
+			default to current corporate date
+
+		SchoolActivityAccount
+			constraint (!NSFRepayment)
+				"ActivityNotAllowedForNSFRepayments"
+			constraint (!SchoolActivityAccount.StudentActivityAccount.ActivityLevel.Group)
+				"CannotSelectGroupLevelActivity"
+			constraint (!SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+				"CannotSelectAssetTypeActivity"
+
+		Amount
+			initial value is SchoolActivityAccount.FeeAmount
+			default to SchoolActivityAccount.FeeAmount
+			constraint (SchoolActivityAccount entered)
+				"StudentActivityRequiredIfAmountEntered"
+
+		StudentRecord
+
+			if (AddedFromStudentRecord)
+				if (StudentActivityReceiptBatch entered)
+					cannot be changed
+						"CannotChangeStudentIDAddedFromBatch<StudentActivityReceiptBatch>"
+				else
+					cannot be changed
+						"CannotChangeStudentIDWhenReceiptAddedFromStudentRecord"
+
+		PayorName
+			default to DerivedName
+
+		StudentActivityReceiptBatch
+			cannot be changed
+
+		Description
+			default to StudentActivityReceiptBatch.Description
+			
+
+		PayorAddress
+			if (PayorAddress.DeliveryAddress.AddressLine1 entered
+			and !PayorAddress.Country entered)
+				PayorAddress.Country = StudentActivityDistrict.EnterpriseGroup.DefaultCountry
+
+		SchoolAccountCode
+			if (StudentActivityDistrict.AccountCodeRequired)
+				required
+			constraint (SchoolAccountCode.StudentActivityAccountCode.CodeType.AllTransactions or SchoolAccountCode.StudentActivityAccountCode.CodeType.Receipt)
+				"AccountCodeMustBeForReceiptsOrAllTransactions"
+
+	Rule Blocks
+
+		
+		
+	Actions
+		ReleaseUnreleasedDetails is an Instance Action
+			restricted
+			Action Rules
+				invoke Release Entered UnreleasedReceiptDetailsRel
+
+				if (Status.Deposited)
+					invoke DepositRecord Released UnDepositedReceiptDetailsRel
+						invoked.PrmDepositDate	= StudentActivityBankTransaction.TransactionDate
+
+		UpdateFormattedReceipt is an Instance Action
+			valid when (CanUpdateFormattedReceipt)
+			Action Rules
+				PrintedReceipt.File		= StudentActivitySchool.ReceiptDocumentTemplate.ReceiptDocumentTemplateGroup.File document
+				PrintedReceipt.Title	= "Receipt.rtf"
+				PrintedReceipt.MimeType	= "application/rtf"
+				if (PrintedReceipt.FSMAttachmentIDM.IDMUniqueId entered)
+
+					PrintedReceipt.ExecuteUploadToIDM = true
+				else
+
+					include IDM.CreateRules 
+						replace AttachmentField with PrintedReceipt
+
+		UploadToIDM is an Instance Action  
+			valid when (PrintedReceipt.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with PrintedReceipt	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (PrintedReceipt.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with PrintedReceipt			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+
+	StateCycles
+		ActivityReceiptLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+					valid when (CanBeCreated)
+					Action Rules
+						if  (StudentActivityReceipt	= CurrentReceiptNumber
+						or   !StudentActivityReceipt entered)
+							if (StudentActivityReceipt entered
+							and !StudentActivitySchool.CurrentReceiptNumber	= CurrentReceiptNumber)
+								confirmation required
+									"LastReceiptNumberOnSchoolHasChanged_-_CurrentReceiptNumberIs<StudentActivitySchool.CurrentReceiptNumber>_-_Continue?"
+							increment StudentActivitySchool.LastReceiptNumber
+							StudentActivityReceipt	= StudentActivitySchool.LastReceiptNumber
+						else
+							constraint (StudentActivitySchool.AllowReceiptNumberOverride)
+								"SchoolDoesNotAllowReceiptNumberToBeOverridden"
+							confirmation required
+								"ReceiptNumberHasBeenOverriddenWithNumber<StudentActivityReceipt>_-_Continue?"
+					
+					Exit Rules
+						if (SchoolActivityAccount entered)
+							invoke Create Entered StudentActivityReceiptDetail
+								invoked.StudentActivityDistrict	= StudentActivityDistrict
+								invoked.StudentActivitySchool	= StudentActivitySchool
+								invoked.StudentActivityReceipt	= StudentActivityReceipt
+								invoked.SchoolActivityAccount	= SchoolActivityAccount
+								invoked.DetailAmount			= Amount
+
+							
+				UpdateReceiptHeader is an Instance Action
+					restricted
+					Parameters
+						PrmReferenceNumber	is Alpha 10	
+						PrmReceiptDate		is Date
+
+					Action Rules
+						ReferenceNumber	= PrmReferenceNumber
+						ReceiptDate		= PrmReceiptDate
+
+						invoke Update Entered StudentActivityReceiptDetail set
+							invoked.ReceiptDate	= PrmReceiptDate
+
+				UpdateReceiptAmount is an Instance Action
+					restricted
+					Action Rules
+						ReceiptAmount	= TotalDetailAmount
+						if (StudentActivityReceiptBatch	entered
+						and !StudentActivityReceiptDetail set exists)
+							invoke DeleteReceipt
+					
+
+				Update is an Update Action
+					Field Rules
+						NSFRepayment
+							constraint (!StudentActivityReceiptDetail set exists)
+								"DetailLinesNotAllowedForNSFRepayments"
+							
+					Exit Rules
+						if (ReceiptDate changed)
+							invoke Update Entered StudentActivityReceiptDetail set
+								invoked.ReceiptDate	= ReceiptDate
+								
+						if ((ReferenceNumber	changed
+						or   ReceiptDate	changed)
+						and (AddedFromStudentRecord
+						and  !StudentActivityReceiptBatch entered))
+							invoke Update StudentRecord set
+								invoked.ReferenceNumber	= ReferenceNumber
+								invoked.ReceiptDate		= ReceiptDate
+
+						if (SchoolAccountCode changed)
+							invoke Update Entered StudentActivityReceiptDetail set
+								initialize invoked.GLAccount
+						
+				
+				DeleteReceipt is an Instance Action
+					Action Rules
+						if 	(AddedFromStudentRecord
+						and  !StudentActivityReceiptBatch entered)
+							invoke Update StudentRecord set
+			 					initialize invoked.CurrentReceiptRecord
+								initialize invoked.ReferenceNumber
+
+						invoke Update StudentAssignedActivity set
+							initialize invoked.CurrentReceiptAmount
+							initialize invoked.StudentActivityReceipt
+							initialize invoked.StudentActivityReceiptDetail
+
+						invoke Delete Entered StudentActivityReceiptDetail set
+
+						
+					Exit Rules
+						invoke Delete Entered this instance
+												
+				
+				Delete is a Delete Action
+					restricted
+
+				Release is an Instance Action
+					valid when (!CreatedFromBatch)
+					Action Rules
+						constraint (ReceiptAmount	entered)
+							"ReceiptAmountRequired"
+							
+						if (!NSFRepayment)
+							constraint (TotalDetailAmount = ReceiptAmount)
+								"ReceiptAmountOutOfBalanceBy<OutOfBalanceAmount>"
+							
+						invoke Release Entered StudentActivityReceiptDetail set
+						
+						if (AddedFromStudentRecord
+						and !StudentActivityReceiptBatch entered)
+							invoke Update StudentRecord set
+								initialize invoked.CurrentReceiptRecord
+								initialize invoked.ReferenceNumber
+
+					Exit Rules
+						make transition to Released
+						if (StudentActivitySchool.ReceiptDocumentTemplate entered)
+							invoke UpdateFormattedReceipt
+					
+
+			Released is a State
+
+				Delete is a Delete Action
+					valid when (!CreatedFromBatch)
+					Entrance Rules
+						invoke Delete Released StudentActivityReceiptDetail set
+
+				AssignReceipt is an Instance Action
+					valid when (CanBeAssigned)
+					Parameters
+						PrmBankAccount			is a StudentActivityBankAccount
+						PrmBankTransactionType	is a BankTransactionType
+						PrmDepositNumber		is a StudentActivityBankTransaction
+					
+					Parameter Rules
+						PrmBankTransactionType
+							initial value is "20"
+							default to "20"
+							
+						PrmDepositNumber
+							constraint (PrmDepositNumber.Status.Entered)
+								"CanOnlyAssignReceiptToOpenDeposit"
+					
+					Action Rules
+						
+						if (PrmBankAccount.BankAccountActivity.GLAccount !entered)
+							constraint (all StudentActivityReceiptDetail set.SchoolActivityAccount.StudentActivityAccount.GLAccount !entered)
+								"CannotAssignReceiptsWithPostingActivityToNonPostingBankDepositActivity<PrmBankAccount.BankAccountActivity>"				
+						StudentActivityBankAccount		= PrmBankAccount
+						BankTransactionType				= PrmBankTransactionType
+						StudentActivityBankTransaction	= PrmDepositNumber
+					
+				UnassignReceipt is an Instance Action
+					valid when (CanBeUnnassigned)
+					Action Rules
+						initialize StudentActivityBankAccount
+						initialize BankTransactionType
+						initialize StudentActivityBankTransaction
+
+				Deposit is an Instance Action
+					restricted
+					Action Rules
+						if (NSFRepayment)
+							invoke CreateNSFDetail Entered StudentActivityReceiptDetail
+								invoked.StudentActivityDistrict		= StudentActivityDistrict
+								invoked.StudentActivitySchool		= StudentActivitySchool
+								invoked.StudentActivityReceipt		= StudentActivityReceipt
+								invoked.SchoolActivityAccount		= StudentActivityBankAccount.NonSufficientFundsActivity
+								invoked.DetailAmount				-= ReceiptAmount
+
+							invoke Release Entered StudentActivityReceiptDetail set
+
+						invoke DepositRecord Released UnDepositedReceiptDetailsRel 
+							invoked.PrmDepositDate	= StudentActivityBankTransaction.TransactionDate
+					Exit Rules
+						make transition to Deposited
+			
+			Deposited is a State
+
+				ReinstateReceipt is an Instance Action
+					restricted
+					Action Rules
+						constraint (all StudentActivityReceiptDetail set.Status.Deposited)
+							"CannotVoidDepositReceipt<StudentActivityReceipt>AlreadyPosted"			
+
+						invoke Delete Deposited BankOffsetDetailRel
+						
+						invoke ReinstateDetailLine Deposited StudentActivityReceiptDetailRel
+
+						initialize StudentActivityBankAccount
+						initialize BankTransactionType
+						initialize StudentActivityBankTransaction
+
+					Exit Rules
+						make transition to Released
+			
+
+				ReturnedPayment is an Instance Action
+					restricted
+					Parameters
+						ReturnTransactionNumber is Numeric 10
+						PrmReturnDate			is Date
+					
+					Action Rules
+						ReturnNumber	= ReturnTransactionNumber
+						ReturnDate		= PrmReturnDate
+						
+						invoke ReturnedPayment StudentActivityReceiptDetail set
+					
+					Exit Rules						
+						make transition to Returned
+						
+						
+			Returned is a State
+				VoidReturnedPayment is an Instance Action
+					restricted
+					Action Rules
+						initialize ReturnNumber
+						initialize ReturnDate
+						
+						invoke ReturnedPayment StudentActivityReceiptDetail set
+					
+					Exit Rules						
+						make transition to Deposited
+				
+								

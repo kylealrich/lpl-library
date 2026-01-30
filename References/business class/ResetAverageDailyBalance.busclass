@@ -1,0 +1,268 @@
+ResetAverageDailyBalance is a BusinessTask
+    owned by ad
+
+    Parameters
+        FinanceEnterpriseGroup
+        ResetOption						is Numeric 1
+			default label is "RebuildOption"
+        	States
+        		ResetAll					    value is 1
+        			default label is "Reset ADB"
+        		CalculateUREDailyBalanceOnly	value is 2
+        			default label is "Rebuild ADB for URE"
+        		RebuildForAnAccount				value is 3
+        			default label is "Rebuild ADB Account"
+				RecalculatePreviousYear			value is 4
+					default label is "Rebuild Previous Year ADB"
+				RecalculateCurrentYear			value is 5
+					default label is "Rebuild Current Year ADB"
+		LimitedResetOption				is Numeric 1
+			default label is "RebuildOption"
+        	States
+        		ResetAll					    value is 1
+        			default label is "Reset ADB"
+        		CalculateUREDailyBalanceOnly	value is 2
+        			default label is "Rebuild ADB for URE"
+        		RebuildForAnAccount				value is 3
+					default label is "Rebuild ADB Account"
+		ReportingBasis
+		PrmFiscalYear		 		is like GeneralLedgerCloseYear
+			default label is "FiscalYear"
+		AccountingEntity
+		GeneralLedgerChartAccount
+		AccountingUnit
+		FinanceDimension1
+		Dimension1					is like AccountingUnit
+		Dimension2					is like AccountingUnit
+		Dimension3					is like AccountingUnit
+		PrmADBCodeBlock				is like ADBCodeBlock
+
+    Parameter Rules
+        FinanceEnterpriseGroup
+			required
+		ResetOption
+			if (FinanceEnterpriseGroup.NewAverageDailyBalanceProcess)
+				required
+		LimitedResetOption
+			if (FinanceEnterpriseGroup.ExistingAverageDailyBalanceProcess)
+				required
+		ReportingBasis
+			constraint (ReportingBasis.AverageDailyBalance)
+				"ReportingBasis_<ReportingBasis>IsNotAverageDailyBalanceEnabled"
+			if (not ResetOption.ResetAll
+			and not LimitedResetOption.ResetAll)
+				required
+			if  (not ResetOption.RecalculatePreviousYear
+			and  not ResetOption.ResetAll
+			and  not LimitedResetOption.ResetAll)
+				constraint (ReportingBasis.ADBRunDate entered)
+					"NoRecordsToProcess.RunDailyBalanceForReportingBasis_<ReportingBasis>"		
+			if (ResetOption.RecalculateCurrentYear)
+				constraint (ReportingBasis.ADBRunDate >= ReportingBasis.BasisStartDate)
+					"LastADBRunWasOnAPreviousYear;RunDailyBalanceForTheCurrentYear"
+		PrmFiscalYear
+			if (ResetOption.RecalculateCurrentYear)
+				force default to ReportingBasis.BasisYear
+			if (not ResetOption.ResetAll
+			and not LimitedResetOption.ResetAll)
+				required
+			if (ResetOption.RecalculatePreviousYear)
+				constraint (PrmFiscalYear < ReportingBasis.BasisYear)
+					"FiscalYearMustBeEarlierThanTheCurrentBasisYear"
+
+		AccountingEntity
+			if ((ResetOption.RebuildForAnAccount
+			or LimitedResetOption.RebuildForAnAccount)
+			and !FinanceEnterpriseGroup.ADBSelection.None)
+				required
+	 				"<FinanceEnterpriseGroup.AccountingEntityLabel>IsRequired"    
+		GeneralLedgerChartAccount
+			if (ResetOption.RebuildForAnAccount
+			or LimitedResetOption.RebuildForAnAccount)
+				required
+	 				"<FinanceEnterpriseGroup.AccountLabel>IsRequired"    
+
+    Actions
+        ResetAverageDailyBalance is an Instance Action
+
+            Action Rules
+            	initialize PrmADBCodeBlock
+				if (FinanceEnterpriseGroup.ExistingAverageDailyBalanceProcess)
+					ResetOption = LimitedResetOption
+				if (ResetOption.ResetAll)
+					confirmation required
+						"ExistingAverageDailyBalanceRecordsWillBePermanentlyDeleted.Continue?"
+					invoke ResetDailyBalance ReportingBasis in background
+	            		invoked.PrmFinanceEnterpriseGroup = FinanceEnterpriseGroup
+				else
+					if (ResetOption.CalculateUREDailyBalanceOnly)
+						constraint (FinanceEnterpriseGroup.IncludeUREInAverageDailyBalance)
+							"IncludeUndistributedRetainedEarningsIsNotEnabledForFinanceEnterpriseGroup_<FinanceEnterpriseGroup>"
+						confirmation required
+							"U\R\EAverageDailyBalanceWillBeRecalculatedForFiscalYear_<PrmFiscalYear>.Continue?"
+					else
+					if (ResetOption.RebuildForAnAccount)
+						if (FinanceEnterpriseGroup.ADBSelection.Account)
+							if (GeneralLedgerChartAccount = FinanceEnterpriseGroup.DisplayUndistributedRetainedEarnings)
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>.Continue?"
+							else
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>UpToLastRunDate.Continue?"
+						else
+						if (FinanceEnterpriseGroup.ADBSelection.AccountAndAccountingUnit)
+							PrmADBCodeBlock.AccountingUnit = AccountingUnit
+							if (GeneralLedgerChartAccount = FinanceEnterpriseGroup.DisplayUndistributedRetainedEarnings)
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.AccountingUnitLabel>_<AccountingUnit>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>.Continue?"
+							else
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.AccountingUnitLabel>_<AccountingUnit>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>UpToLastRunDate.Continue?"
+						else
+						if (FinanceEnterpriseGroup.ADBSelection.AccountAndDimension1)
+							PrmADBCodeBlock.FinanceDimension1 = FinanceDimension1
+							if (GeneralLedgerChartAccount = FinanceEnterpriseGroup.DisplayUndistributedRetainedEarnings)
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.FinanceDimension1Label>_<FinanceDimension1>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>.Continue?"
+							else
+								confirmation required
+									"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.FinanceDimension1Label>_<FinanceDimension1>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>UpToLastRunDate.Continue?"
+						else
+							confirmation required
+								"AverageDailyBalanceFor<FinanceEnterpriseGroup.AccountingEntityLabel>_<AccountingEntity>_<FinanceEnterpriseGroup.AccountLabel>_<GeneralLedgerChartAccount>WillBeRecalculatedForFiscalYear_<PrmFiscalYear>UpToLastRunDate.Continue?"
+
+					if (FinanceEnterpriseGroup.NewAverageDailyBalanceProcess)
+						if (FinanceEnterpriseGroup.ADBDimensions.Dimension1 entered)
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.AccountingUnit)
+								PrmADBCodeBlock.AccountingUnit     = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Project)
+								PrmADBCodeBlock.Project            = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension1)
+								PrmADBCodeBlock.FinanceDimension1  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension2)
+								PrmADBCodeBlock.FinanceDimension2  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension3)
+								PrmADBCodeBlock.FinanceDimension3  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension4)
+								PrmADBCodeBlock.FinanceDimension4  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension5)
+								PrmADBCodeBlock.FinanceDimension5  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension6)
+								PrmADBCodeBlock.FinanceDimension6  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension7)
+								PrmADBCodeBlock.FinanceDimension7  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension8)
+								PrmADBCodeBlock.FinanceDimension8  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension9)
+								PrmADBCodeBlock.FinanceDimension9  = Dimension1
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension1.Type = CodeBlockDimensionType.Dimension10)
+								PrmADBCodeBlock.FinanceDimension10 = Dimension1
+
+						if (FinanceEnterpriseGroup.ADBDimensions.Dimension2 entered)
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.AccountingUnit)
+								PrmADBCodeBlock.AccountingUnit     = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Project)
+								PrmADBCodeBlock.Project            = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension1)
+								PrmADBCodeBlock.FinanceDimension1  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension2)
+								PrmADBCodeBlock.FinanceDimension2  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension3)
+								PrmADBCodeBlock.FinanceDimension3  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension4)
+								PrmADBCodeBlock.FinanceDimension4  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension5)
+								PrmADBCodeBlock.FinanceDimension5  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension6)
+								PrmADBCodeBlock.FinanceDimension6  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension7)
+								PrmADBCodeBlock.FinanceDimension7  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension8)
+								PrmADBCodeBlock.FinanceDimension8  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension9)
+								PrmADBCodeBlock.FinanceDimension9  = Dimension2
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension2.Type = CodeBlockDimensionType.Dimension10)
+								PrmADBCodeBlock.FinanceDimension10 = Dimension2
+
+						if (FinanceEnterpriseGroup.ADBDimensions.Dimension3 entered)
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.AccountingUnit)
+								PrmADBCodeBlock.AccountingUnit     = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Project)
+								PrmADBCodeBlock.Project            = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension1)
+								PrmADBCodeBlock.FinanceDimension1  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension2)
+								PrmADBCodeBlock.FinanceDimension2  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension3)
+								PrmADBCodeBlock.FinanceDimension3  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension4)
+								PrmADBCodeBlock.FinanceDimension4  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension5)
+								PrmADBCodeBlock.FinanceDimension5  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension6)
+								PrmADBCodeBlock.FinanceDimension6  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension7)
+								PrmADBCodeBlock.FinanceDimension7  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension8)
+								PrmADBCodeBlock.FinanceDimension8  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension9)
+								PrmADBCodeBlock.FinanceDimension9  = Dimension3
+							else
+							if (FinanceEnterpriseGroup.ADBDimensions.Dimension3.Type = CodeBlockDimensionType.Dimension10)
+								PrmADBCodeBlock.FinanceDimension10 = Dimension3
+
+					invoke RecalculateDailyBalance ReportingBasis
+	            		invoked.PrmFinanceEnterpriseGroup = FinanceEnterpriseGroup
+	            		invoked.PrmReportingBasis         = ReportingBasis
+	            		invoked.PrmFiscalYear			  = PrmFiscalYear
+						invoked.PrmRecalculateOption	= ResetOption		
+						if (ResetOption.RebuildForAnAccount)
+		            		invoked.PrmAccountingEntity		= AccountingEntity
+		            		invoked.PrmAccount				= GeneralLedgerChartAccount
+		            		invoked.PrmDimension1           = Dimension1
+		            		invoked.PrmDimension2           = Dimension2
+		            		invoked.PrmDimension3           = Dimension3
+		            		invoked.PrmADBCodeBlock	        = PrmADBCodeBlock
+							if (FinanceEnterpriseGroup.ADBSelection.AccountAndAccountingUnit)
+								invoked.PrmADBOrganizationDimension		= AccountingUnit
+							if (FinanceEnterpriseGroup.ADBSelection.AccountAndDimension1)
+								invoked.PrmADBOrganizationDimension		= FinanceDimension1
+							if (GeneralLedgerChartAccount.SystemAccount.UndistributedRetainedEarnings)
+								invoked.PrmADBAccount     = ADBAccountType.SystemUndistributedRetainedEarnings
+							else
+								if (GeneralLedgerChartAccount.ChartSection.BalanceSheet)
+									invoked.PrmADBAccount = ADBAccountType.NormalBalanceSheet
+								else
+									invoked.PrmADBAccount = ADBAccountType.IncomeStatement

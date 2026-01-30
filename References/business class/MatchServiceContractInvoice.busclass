@@ -1,0 +1,526 @@
+MatchServiceContractInvoice is a BusinessClass
+    owned by ma
+    prefix is MSvCI
+
+    Ontology
+        symbolic key is MatchServiceContractInvoice
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements Archivable
+
+    Persistent Fields
+		VendorGroup 			
+	Transient Fields
+		BypassStructureRelationEdit  
+        OriginalInvoice		 				is a PayablesInvoice
+        	derive value from DerivedOriginalInvoice
+		
+	Local Fields
+		LocalCompletionMessage				is Alpha 100
+		LocalLineCount						is Numeric 9
+		CreateFromBatchSwitch			    is Boolean
+		NextSentence						is Boolean
+
+	Context Fields
+		GeneralLedgerCompanyGroup
+	
+	Derived Fields
+		CreateDetailCompleteMessage is a MessageField
+			restricted
+			"CreateDetailComplete."
+
+		LinesAddedMessage is a MessageField
+			restricted
+			"LinesAdded"
+		LinesNotCreated is a MessageField
+			restricted
+			"LinesWithInvoiceQuantityOfZeroNotCreated"
+
+		DerivedOriginalInvoice is a DerivedField
+			type is like PayablesInvoice
+			restricted
+			return first MatchInvoiceReferenceRel.PayablesInvoice
+
+		NumberOfLinesForSetActionConfig		is a DerivedField
+			type is Numeric 9
+			return config.match_invoice_number_of_lines_set_action	        
+
+		NumberOfLinesForSetAction		is a DerivedField
+			type is Numeric 9
+			if (NumberOfLinesForSetActionConfig not entered)
+				return 20
+			else
+				return NumberOfLinesForSetActionConfig
+
+		DerivedCompanyWithinGLCompanyGroup is a DerivedField
+        	type is Boolean
+        	if (GeneralLedgerCompanyGroup not entered)
+        		return true
+        	if (GLCompanyGroupMemberRel exists)
+        		return true
+        	return false
+
+    Conditions
+
+        PayablesInvoiceNotMatched
+            restricted
+            when (PayablesInvoice.MatchStatus.Unmatched
+            and   !PayablesInvoice.MatchProcessType.Expense
+            and   (PayablesInvoice.Status.Unreleased
+                or    PayablesInvoice.Status.Released
+                or    PayablesInvoice.Status.PendingApproval
+                or	  PayablesInvoice.Status.Approved))
+
+		CanCreateDistributionSummary 
+			restricted 
+			when ((PayablesInvoice.Status = 1
+			or     PayablesInvoice.Status = 2
+			or     PayablesInvoice.Status = 8
+			or     PayablesInvoice.Status = 9)
+			and    PayablesInvoice.PayablesInvoiceDistributionSummaryRel !exists
+			and    MatchCompanyRel.SummarizeAllDistributions = true)
+
+		HasDistributionSummary 
+			restricted 
+			when (PayablesInvoice.PayablesInvoiceDistributionSummaryRel exists)
+		
+		PayablesInvoiceAddOnChargeExists
+            restricted
+            when (PayablesInvoiceAddOnChargeRel exists)
+
+		HasPayablesInvoiceDetail
+			restricted
+			when (first PayablesInvoiceDetailRel exists)
+
+		CreateContractDetailValid
+			restricted
+			when (PayablesInvoice.IsUpdateable
+			and   PayablesInvoice.MatchProcessType.ServiceContract
+			and  !Contract.ContractStatus.Closed
+			and  !Contract.ContractStatus.Inactive
+			and  !Contract.ContractTypeAllowsZeroMaxQuantity
+			and  !Contract.OnHold
+		   	and  !PayablesInvoice.InvoiceType.DebitMemo
+		   	and  !PayablesInvoice.InvoiceType.CreditMemo
+			and	 !HasPayablesInvoiceDetail)
+
+		Memo
+			restricted
+			when  (PayablesInvoice.InvoiceType.DebitMemo 
+			or     PayablesInvoice.InvoiceType.CreditMemo) 
+
+		CreateAOCValid
+			restricted
+			when (!PayablesInvoiceAddOnChargeRel exists)
+
+		OnlineCreateAOCValid
+			restricted
+			when (CreateAOCValid
+			and   PayablesInvoice.IsUpdateable)
+
+		HasOpenMessages
+			restricted
+			when (first OpenMessagesForContractRel exists)
+
+		HasChargeback
+			when (ChargebackInvoiceRel exists)
+
+		AllowDelete
+			restricted
+			when (PayablesInvoice.IsUpdateable
+			and   !PayablesInvoice.BackgroundProcessing.MatchInvoice)
+
+		CreditForRebill
+			restricted
+			when (PayablesInvoice.InvoiceType.CreditMemo
+			and   PayablesInvoice.InvoiceSource = "Y" 
+			and   PayablesInvoice.MatchInvoiceReferenceRel exists)
+
+		IsValidForActorContext
+			restricted
+			when (Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+
+		DerivedPastDue
+			restricted
+			when (PayablesInvoice.IsPastDue)
+
+		DerivedShowPayments
+			restricted
+			when (PayablesInvoice.SupplierShowPaymentLinks)
+
+		DerivedImageEntered
+			restricted
+			when (PayablesInvoice.InvoiceImageEntered)
+
+		DerivedProofOfDeliveryExists
+			restricted
+			when (PayablesInvoice.ProofOfDeliveryExists)
+
+		HasMessageDialog
+			restricted
+			when (SupplierContactMessageRel exists)
+    Relations
+
+		ContractLineRel
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup				= Company.VendorGroup
+				related.Contract 					= Contract
+			Instance Selection
+				where (related.CanUseForInvoicePayment)
+
+        InventoryCompanyRel
+            one-to-one relation to InventoryCompany
+            required
+            Field Mapping uses symbolic key
+                related.Company 				= Company
+
+        MatchCompanyRel
+            one-to-one relation to MatchCompany
+            required
+            Field Mapping uses symbolic key
+                related.Company 				= Company
+
+        PayablesInvoiceAddOnChargeRel
+        	one-to-many relation to PayablesInvoiceAddOnCharge
+            Field Mapping uses symbolic key 
+                related.Company                 = Company
+                related.PayablesInvoice			= PayablesInvoice
+                related.PurchaseOrder			= blank 
+				related.PurchaseOrderLine 		= blank 
+				related.Contract 				= Contract 
+        
+        PayablesInvoiceDetailRel
+            one-to-many relation to PayablesInvoiceDetail
+            Field Mapping uses symbolic key 
+                related.Company                 = Company
+                related.PayablesInvoice			= PayablesInvoice
+                related.PurchaseOrder			= blank 
+				related.PurchaseOrderLine 		= blank 
+				related.Contract 				= Contract 
+
+        MatchInvoiceMessageRel
+            one-to-many relation to MatchInvoiceMessage
+            Field Mapping uses symbolic key 
+                related.Company 				= Company
+                related.PayablesInvoice			= PayablesInvoice
+
+        OpenMessagesForContractRel
+            one-to-many relation to MatchInvoiceMessage
+            Field Mapping uses symbolic key
+                related.Company 				= Company
+                related.PayablesInvoice			= PayablesInvoice
+            Instance Selection
+                where (related.IsOpenMessage)
+
+		PayablesAccrualCodeDetailRel
+			one-to-one relation to PayablesAccrualCodeDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup			= Company.VendorGroup
+				related.PayablesAccrualCode	= PayablesInvoice.AccrualCode
+				related.Company				= Company
+
+		MatchServiceContractInvoicesSet2Rel
+			one-to-many relation to MatchServiceContractInvoice
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.PayablesInvoice	= PayablesInvoice
+			Instance Selection
+				where (related.Contract != Contract)
+
+		InvoicesForAContractRel
+			one-to-many relation to MatchServiceContractInvoice
+			Field Mapping uses ByContract
+				related.Company			= Company
+				related.Contract 		= Contract
+
+		OriginalInvoiceDetailRel
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.PayablesInvoice	= OriginalInvoice
+		
+		OriginalInvoiceAddOnChargeRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.PayablesInvoice	= OriginalInvoice
+		
+		MatchInvoiceReferenceRel
+			one-to-many relation to MatchInvoiceReference
+			Field Mapping uses Set2
+				related.Company								= Company
+				related.Vendor								= PayablesInvoice.Vendor
+                related.OriginalInvoice					 	= PayablesInvoice
+
+		ChargebackInvoiceRel
+			one-to-one relation to PayablesInvoice
+			Field Mapping uses ByCompanyVendorInvoice
+				related.Company 						= Company
+				related.Vendor 							= PayablesInvoice.Vendor
+				related.Invoice 						= PayablesInvoice.Invoice
+				related.Suffix 							= 111		
+				related.CancelSequence					= blank		
+				related.InvoiceDate						= PayablesInvoice.InvoiceDate			
+			 
+		GLCompanyGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= GeneralLedgerCompanyGroup
+				related.Company						= Company
+
+		GeneralLedgerCompanyRel			
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		SupplierContactMessageRel
+			one-to-many relation to SupplierContactMessage
+			Field Mapping uses symbolic key
+				related.SupplierGroup				= actor.agent(SupplierSourceId).SupplierGroup
+ 				related.Supplier  			 		= actor.agent(SupplierSourceId).Supplier
+				related.SupplierSourceId            = actor.agent(SupplierSourceId).SupplierSourceId
+			Instance Selection
+				where (related.OriginatingCompany			= Company
+				and    related.OriginatingInvoice           = PayablesInvoice)
+
+		PayablesInvoiceDistributionForSummaryRel
+			one-to-many relation to PayablesInvoiceDistribution 
+			Field Mapping uses Set9		
+				related.Company					= Company
+				related.Vendor					= PayablesInvoice.Vendor
+				related.PayablesInvoice			= PayablesInvoice
+			Instance Selection
+				where (related.DistributionType	= "D"
+				and    related.TaxType         != "A")
+
+    Sets
+		ByContract
+			Sort Order
+				Company
+				Contract
+				PayablesInvoice
+
+		ByVendorGroupContract
+			Sort Order
+				VendorGroup
+				Contract
+				PayablesInvoice
+				Company
+
+	Field Rules	
+		VendorGroup 
+			VendorGroup = Company.VendorGroup 
+	Rule Blocks
+		CommonEdits
+
+			constraint (PayablesInvoice.MatchProcessType.ServiceContract
+			or          PayablesInvoice.IsChargeback)
+				"ContractShouldBeEnteredForServiceContractInvoiceOnly"
+
+			constraint (PayablesInvoice.Status.Unreleased
+			or			PayablesInvoice.Status.Approved
+			or			PayablesInvoice.Status.PendingApproval
+			or          PayablesInvoice.MatchStatus.Unmatched
+			or			PayablesInvoice.MatchStatus.POCostMessagesExist
+			or          PayablesInvoice.IsChargeback 
+			or          PayablesInvoice.IsPOCancel)
+				"InquireOnly;InvoiceIsReleased"
+
+			constraint  (Contract.Vendor = PayablesInvoice.Vendor)
+				"InvoiceVendorDifferentFromServiceContractVendor<Contract.Vendor>" 
+
+			constraint  (Contract.ProcessLevelGroup.ProcessLevel = PayablesInvoice.ServiceContract.ProcessLevelGroup.ProcessLevel)
+				"CannotAddContractWithADifferentProcessLevel"
+				
+			constraint  (Contract.TermsCode = PayablesInvoice.ServiceContract.TermsCode)
+				"CannotAddContractWithADifferentTermsCode"
+				
+			constraint  (Contract.ApPoPurchaseFrom = PayablesInvoice.ServiceContract.ApPoPurchaseFrom)
+				"CannotAddContractWithADifferentVendorOrPurchaseFromLocation"
+
+			constraint  (Contract.CurrencyCode = PayablesInvoice.InvoiceCurrency)
+				"CannotAddContractWithADifferentCurrencyCode"
+
+			if (Contract.RebatesExist)
+				constraint (MatchServiceContractInvoicesSet2Rel not exists)
+					"CannotAddMultipleContractsIfEitherContractUsesRebates"
+			else 
+				for each MatchServiceContractInvoicesSet2Rel
+					constraint (!each.Contract.RebatesExist) 
+						"CannotAddMultipleContractsIfEitherContractUsesRebates"
+
+			invoke ValidateContract Contract
+				invoked.EditDate			= PayablesInvoice.InvoiceDate
+				invoked.Source				= 3	
+				invoked.PrmVendor			= PayablesInvoice.Vendor
+				invoked.PrmVendorLocation	= PayablesInvoice.VendorLocationRel.VendorLocation
+
+				
+	Create Rules
+		if  (PayablesInvoice.MatchProcessType.AOCOnly)
+			constraint (!PayablesInvoice.MatchServiceContractInvoicesRel exists)
+				"CannotAddServiceContractsForAddOnChargeOnlyInvoice"
+
+	Create Exit Rules
+		invoke FastUpdate PayablesInvoice
+			invoked.Buyer	= Contract.Buyer
+
+    Actions
+        Create is a Create Action
+			Entrance Rules
+				include CommonEdits
+			Exit Rules
+				invoke FastUpdate PayablesInvoice
+					invoked.MatchProcessType = "V"
+
+        CreateNoRules is a Create Action
+			restricted 
+
+        Update is an Update Action
+			valid when (PayablesInvoice.IsUpdateable)
+			Entrance Rules
+				include CommonEdits
+				constraint (PayablesInvoice.MatchStatus < 2)
+					"InvoiceHasBeenMatched"
+
+
+		Delete is a Delete Action
+			default label is "Delete"
+			valid when (AllowDelete)
+			Entrance Rules
+				constraint (Contract not = PayablesInvoice.ServiceContract)
+					"CannotDeletePrimaryContract"
+					
+				constraint ((PayablesInvoice.Status.Unreleased
+				and          PayablesInvoice.MatchStatus < 2)
+				or			(PayablesInvoice.Status.Released				
+				and 		 PayablesInvoice.MatchObjectID not entered))	
+					"CannotDelete;MatchedInvoiceIsReleased"
+
+				for each PayablesInvoiceDetailRel
+					invoke DeleteNoInvoiceUpdate each 
+
+				for each PayablesInvoiceAddOnChargeRel
+					invoke DeleteNoInvoiceUpdate each 
+				     
+			Exit Rules
+				invoke InvoiceUpdate PayablesInvoice
+				
+		DeleteNoInvoiceUpdate is a Delete Action
+			restricted
+				
+		RestrictedDelete is a Delete Action
+			restricted
+
+
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+				
+		CreateDistributionSummary is an Instance Action 
+			valid when (CanCreateDistributionSummary)
+
+			Action Rules 
+				for each PayablesInvoiceDistributionForSummaryRel
+					invoke CalculateDistributionSummary each 
+
+		CreateDistributionSummarySet is a Set Action 
+			restricted 
+			Parameters 
+				ParmPayablesCompany		is a Company 
+				ParmInvoiceDate         is Date 
+
+			Instance Selection 
+				where (CanCreateDistributionSummary
+				and    PayablesInvoice.InvoiceDate >= ParmInvoiceDate)
+
+			Action Rules 
+				Instance Rules 
+
+					invoke CreateDistributionSummary  
+
+		CreateDetailFromContract is an Instance Action   
+			default label is "CreateDetailForAllContractLines"
+			valid when (CreateContractDetailValid)
+			Local Fields
+				LocalLineCount						is Numeric 9
+			Entrance Rules
+				constraint (PayablesInvoice.MatchStatus.Unmatched)
+					"InvoiceHasBeenMatched"
+			Action Rules
+				initialize LocalLineCount
+				for each ContractLineRel
+					if  (each.ContractLineState.Active
+					and  each.CanUseForInvoicePayment
+					and  !each.ErrorsExist
+					and  !each.OnHold)
+
+						invoke Active.UpdateInvoiceDetailsFromContractLine each
+							if (each.ServiceCode.Amount)
+								invoked.PrmQuantity					= 1
+								invoked.PrmUnitCost					= each.DerivedRemainingAmountInUse
+							else
+						 		invoked.PrmQuantity					= each.DerivedRemainingQuantityOrdered
+								invoked.PrmUnitCost					= each.BaseCost
+						LocalLineCount += 1
+
+				invoke InvoiceUpdate PayablesInvoice 
+
+			Exit Rules
+				if (LocalLineCount entered)
+					LocalCompletionMessage = CreateDetailCompleteMessage + LocalLineCount + LinesAddedMessage
+				else
+					LocalCompletionMessage = CreateDetailCompleteMessage + LinesNotCreated
+
+		CreateSupplierMessageAndDialog is an Instance Action  
+			valid when (PayablesInvoice.CreateBySupplierValid)
+			Parameters
+				ParmDialogMessage       is Alpha size 1000
+					default label is "Message"
+				ParmDialogAttachment	is an Attachment
+					default label is "Attachment"
+				ParmPriority            is Numeric 1
+					States
+						Low				value is 1
+						Normal			value is 2
+						High			value is 3
+					default label is "Priority"
+				ParmResponseRequested   is Boolean
+					default label is "ResponseRequired"
+
+			Parameter Rules
+				ParmDialogMessage
+					required
+
+				ParmPriority
+					initial value is 2
+
+			Local Fields
+				LocalSupplierContactMessage        is a SupplierContactMessage view
+
+			Action Rules
+
+				invoke Create SupplierContactMessage
+					assign result to LocalSupplierContactMessage
+					invoked.SupplierGroup  					= actor.agent(SupplierSourceId).SupplierGroup
+ 					invoked.Supplier    			 		= actor.agent(SupplierSourceId).Supplier
+					invoked.SupplierSourceId                = actor.agent(SupplierSourceId).SupplierSourceId
+					invoked.MessageTitle					= "Dialog for Invoice: " + PayablesInvoice.Invoice
+					invoked.MessageText                     = "User Created Message and Dialog for Invoice: " + PayablesInvoice.Invoice
+					invoked.Status							= 1
+					invoked.Priority						= ParmPriority
+					invoked.ReleaseStatus					= 2
+					invoked.OriginatingCompany              = Company
+					invoked.OriginatingInvoice              = PayablesInvoice
+
+				invoke Create SupplierMessageDialog
+					invoked.SupplierGroup  					= actor.agent(SupplierSourceId).SupplierGroup
+ 					invoked.Supplier    			 		= actor.agent(SupplierSourceId).Supplier
+					invoked.SupplierSourceId                = actor.agent(SupplierSourceId).SupplierSourceId
+					invoked.SupplierContactMessage 			= LocalSupplierContactMessage.SupplierContactMessage
+					invoked.Message                 		= ParmDialogMessage
+					invoked.MessageAttachment       		= ParmDialogAttachment
+					invoked.ResponseRequested       		= ParmResponseRequested

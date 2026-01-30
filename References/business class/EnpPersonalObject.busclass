@@ -1,0 +1,346 @@
+EnpPersonalObject is a BusinessClass
+    owned by bi
+    prefix is EPO
+
+	Ontology
+		symbolic key is EnpPersonalObject
+
+    Patterns
+        disable EffectiveDated
+        
+   	Persistent Fields
+		AlertName	    	is Alpha 100
+	  	UserName  	    	is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+	    Description	     	is Alpha 200
+	    AlertType	    	is AlphaUpper 1
+	    	States
+	    		Watch		value is "W"
+	    		Alert		value is "A"
+	    EnableStatus    	is AlphaUpper 1
+	    	States
+	    		Active		value is "T"
+	    		Inactive 	value is "F"	
+	    ProcessingStatus    is AlphaUpper 1
+	    	States
+	    		Active		value is "A"
+	    		Error		value is "E"
+	    		Inactive	value is "I"
+	    		Tripped		value is "T"	
+        EPODataSource       is Alpha 2 
+        FormOrigin          is Alpha 40
+        ListOrigin			is Alpha 40
+        Filter				is Text
+        Condition			is Text
+        Transaction			is Text
+        StartDateTime       is TimeStamp
+        EndDateTime         is TimeStamp
+        Frequency           is AlphaUpper 1
+        	States
+        		None		value is ""
+        		Once		value is "O"
+        		Daily		value is "D"
+        		Weekly		value is "W"
+        		Monthly		value is "M"
+        LastRunDateTime     is TimeStamp
+        NextProcessDateTime is TimeStamp
+        ProcessedCounter    is Numeric 6	
+        StopRule            is AlphaUpper 1
+        	States
+        		Enabled		value is "T"
+        		Disabled	value is "F"
+        ChartType			is Alpha 10	
+        	States
+        		Line		value is "Line"
+        		Bar			value is "Bar"
+        		Pie			value is "Pie"
+        		Gap			value is "Gap"
+        		Bubble		value is "Bubble"
+        		None		value is ""	
+        ClientXml           is Text
+			disable Auditing
+        ProcessingData      is BinaryObject 
+			disable Auditing
+		ScheduleId			is UniqueID
+		ChartWidgetId		is Alpha 100
+		SendToInbox			is Boolean
+		SendToEmail			is Boolean 
+		TriggerMessage		is Alpha 100
+	    ChartEnabled    	is Boolean
+	    AlertEnabled		is Boolean
+	    RunImmediately		is Boolean
+	   
+    Derived Fields
+    	IsOwner is a DerivedField
+    		type is Boolean
+    		default label is untranslatable
+			if (UserName = actor)
+				return true
+			else
+				return false  
+		RollingHistoryXML is a NativeField
+			type is Text
+		DecodeClientXML is a NativeField
+			type is Text
+		StartTimeMinutes is a DerivedField
+			type is Numeric size 2
+			return StartDateTime minutes % 60
+		WatchDataView is a NativeField
+			type is DataView
+			default label is "WatchData\View"
+
+    Transient Fields
+
+	Field Rules
+		AlertName
+			required
+		UserName
+			required
+	
+	Conditions
+		ScheduleChanged
+			when (StartDateTime changed
+			or  EndDateTime changed
+			or  Frequency changed)
+
+    Sets
+		ByUserName
+			no duplicates
+			indexed
+			Sort Order
+				UserName
+				AlertName
+				EnpPersonalObject
+				 
+        ByAlertName        
+            indexed
+            Sort Order
+                AlertName
+                EnpPersonalObject
+                
+	Relations
+    	AsyncActionRequestRel
+    		one-to-one relation to AsyncActionRequest
+    		Field Mapping uses symbolic key
+				related.AsyncActionRequest = ScheduleId
+
+	Actions
+		Create is an Action
+			Exit Rules
+				if (RunImmediately)
+					invoke Process
+				if (EnableStatus.Active)
+					invoke CreateSchedule
+
+		Update is an Action
+			Action Rules
+				if (EnableStatus.Active
+				and ScheduleChanged)
+					invoke UpdateSchedule
+				else
+				if (EnableStatus.Inactive)
+					invoke DeleteSchedule
+
+		Delete is an Action
+			Action Rules
+				if (AsyncActionRequestRel exists)
+					constraint (AsyncActionRequestRel.TriggersThatShouldNotBeDeleted not exists)
+						"RequestHasTriggersThatShouldNotBeDeleted."
+						
+					invoke ActualDeleteInternal AsyncActionRequestRel
+					
+		CreateSchedule is an Instance Action
+			restricted
+			Local Fields
+				LocalRequest is an AsyncActionRequest view
+			Action Rules
+				if (not AsyncActionRequestRel exists)
+					invoke CreateRequest AsyncActionRequest
+						assign result to LocalRequest
+						invoked.Group				= "bi"
+						invoked.ImplementingClass   = "EnpPersonalObject"
+						invoked.AsyncAction         = "Process"
+						invoked.ScheduleConcurrency = AsyncConcurrencyStrategy.NoConcurrency
+						invoked.ContinueOnMisfire   = true
+						invoked.NoOfRetries         = 3
+						invoked.Name                = "BI_WATCH_" + AlertName
+						invoked.NotificationType    = AsyncActionRequestRel.NotificationType.OnFailure
+						invoked.ActionParameters    = WatchDataView
+						if (Frequency.Once)
+							invoked.ScheduleType    = AsyncActionRequestRel.ScheduleType.RunOnce	
+							invoked.TimeToExec      = StartDateTime
+						else
+						if (Frequency.Daily)
+							invoked.ScheduleType    = AsyncActionRequestRel.ScheduleType.ByDateInMonth	
+							invoked.TimeToExec      = StartDateTime
+							invoked.ScheduleHour    = StartDateTime hours
+							invoked.ScheduleMinute  = StartTimeMinutes
+							invoked.LastTimeToExec  = EndDateTime
+						else
+						if (Frequency.Weekly)
+							invoked.ScheduleType    = AsyncActionRequestRel.ScheduleType.ByDay	
+							invoked.TimeToExec      = StartDateTime
+							invoked.ScheduleHour    = StartDateTime hours
+							invoked.ScheduleMinute  = StartTimeMinutes
+							invoked.ScheduleWeekDay = StartDateTime week day
+							invoked.LastTimeToExec  = EndDateTime
+						else
+						if (Frequency.Monthly)
+							invoked.ScheduleType    = AsyncActionRequestRel.ScheduleType.ByDateInMonth	
+							invoked.TimeToExec      = StartDateTime
+							invoked.ScheduleHour    = StartDateTime hours
+							invoked.ScheduleMinute  = StartTimeMinutes
+							invoked.ScheduleDay     = StartDateTime day
+							invoked.LastTimeToExec  = EndDateTime
+			Exit Rules
+				ScheduleId = LocalRequest.AsyncActionRequest
+		
+		UpdateSchedule is an Instance Action
+			restricted
+			Action Rules
+				if (not AsyncActionRequestRel exists)
+					invoke CreateSchedule
+				else
+				if (Frequency.Once)
+					invoke Update AsyncActionRequestRel
+						invoked.Name              = "BI_WATCH_" + AlertName
+						invoked.ScheduleType      = AsyncActionRequestRel.ScheduleType.RunOnce
+						invoked.ScheduleYearType  = blank
+						invoked.AsyncScheduleYear = blank
+						invoked.ScheduleMonth     = blank
+						invoked.ScheduleDay       = blank
+						invoked.ScheduleHour      = blank
+						invoked.ScheduleMinute    = blank
+						invoked.ScheduleWeekDayOccurence = blank
+						invoked.ScheduleWeekDay = blank
+						invoked.TimeToExec      = StartDateTime
+						if (not invoked.PendingScheduling)
+							invoked.PendingScheduling = true
+						if (not invoked.IsScheduled)
+							invoked.IsScheduled = true
+				else
+				if (Frequency.Daily)
+					invoke ScheduleDateTime AsyncActionRequestRel
+						invoked.Name              = "BI_WATCH_" + AlertName
+					    invoked.ScheduleType      = AsyncActionRequestRel.ScheduleType.ByDateInMonth
+					    invoked.ScheduleYearType  = blank
+						invoked.AsyncScheduleYear = blank
+					    invoked.ScheduleMonth     = 0
+					    invoked.ScheduleDay       = 0
+					    invoked.ScheduleHour      = StartDateTime hours
+					    invoked.ScheduleMinute    = StartTimeMinutes
+					    invoked.TimeToExec        = StartDateTime
+					    invoked.LastTimeToExec    = EndDateTime
+						if (not invoked.PendingScheduling)
+							invoked.PendingScheduling = true
+						if (not invoked.IsScheduled)
+							invoked.IsScheduled = true
+				else
+				if (Frequency.Weekly)
+					invoke ScheduleWeekDay AsyncActionRequestRel
+						invoked.Name              = "BI_WATCH_" + AlertName
+					    invoked.ScheduleType      = AsyncActionRequestRel.ScheduleType.ByDay
+					    invoked.ScheduleYearType  = blank
+						invoked.AsyncScheduleYear = blank
+					    invoked.ScheduleMonth     = 0
+					    invoked.ScheduleHour      = StartDateTime hours
+					    invoked.ScheduleMinute    = StartTimeMinutes
+					    invoked.ScheduleWeekDay   = StartDateTime week day
+					    invoked.ScheduleWeekDayOccurence = 0
+					    invoked.TimeToExec        = StartDateTime
+					    invoked.LastTimeToExec    = EndDateTime
+						if (not invoked.PendingScheduling)
+							invoked.PendingScheduling = true
+						if (not invoked.IsScheduled)
+							invoked.IsScheduled = true
+				else
+				if (Frequency.Monthly)
+					invoke ScheduleDateTime AsyncActionRequestRel
+						invoked.Name              = "BI_WATCH_" + AlertName
+					    invoked.ScheduleType      = AsyncActionRequestRel.ScheduleType.ByDateInMonth
+					    invoked.ScheduleYearType  = blank
+						invoked.AsyncScheduleYear = blank
+					    invoked.ScheduleMonth     = 0
+					    invoked.ScheduleDay       = StartDateTime day
+					    invoked.ScheduleHour      = StartTimeMinutes
+					    invoked.ScheduleMinute    = StartDateTime minutes
+					    invoked.TimeToExec        = StartDateTime
+					    invoked.LastTimeToExec    = EndDateTime
+						if (not invoked.PendingScheduling)
+							invoked.PendingScheduling = true
+						if (not invoked.IsScheduled)
+							invoked.IsScheduled = true
+			Exit Rules
+				ScheduleId = AsyncActionRequestRel.AsyncActionRequest
+					
+		DeleteSchedule is an Instance Action
+			Action Rules
+				if (AsyncActionRequestRel exists)
+					constraint (AsyncActionRequestRel.TriggersThatShouldNotBeDeleted not exists)
+						"RequestHasTriggersThatShouldNotBeDeleted."
+				
+					invoke ActualDeleteInternal AsyncActionRequestRel
+			Exit Rules
+				ScheduleId = blank					
+					
+		Definition is an Update Action
+		
+		UpdateEnableStatus is an Instance Action
+			restricted
+			Action Rules
+				if ((EnableStatus changed) and (ScheduleId != blank))
+					if (AsyncActionRequestRel exists)			
+						if (EnableStatus = EnableStatus.Inactive)
+							invoke Update AsyncActionRequestRel
+								invoked.PendingScheduling = false					
+						else
+						if (EnableStatus = EnableStatus.Active)
+		    				invoke Update AsyncActionRequestRel
+								invoked.PendingScheduling = true  				
+
+        Process is an Instance Action			
+            restricted
+
+      		Exit Rules
+       			ProcessedCounter = ProcessedCounter + 1
+       			LastRunDateTime = current timestamp  
+
+
+
+
+
+
+
+
+       			
+		CreateInboxItem is an Instance Action
+			restricted
+			Parameters
+				Description is Alpha 100
+				Details is Text
+			Action Rules
+				invoke Create UserNotification
+					invoked.SourceType   = 3	
+					invoked.Actor        = actor
+					invoked.Description  = TriggerMessage
+					invoked.Details      = Details
+					invoked.Priority     = 1	
+					invoked.Status       = 0	
+					invoked.SourceObject = reference to EnpPersonalObject
+					
+		SendEmail is an Instance Action
+			restricted
+			Parameters
+				EmailDescription is Text
+				Details is Text	
+				FromEmailAddress is Text
+			Action Rules
+				send email
+					to actor.ContactInfo.EmailAddress
+					from FromEmailAddress
+					subject "<EmailDescription>"
+					Contents
+        					"<Details>"
+					
+
+									
+		

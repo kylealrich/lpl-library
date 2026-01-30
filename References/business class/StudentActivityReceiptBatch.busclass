@@ -1,0 +1,173 @@
+StudentActivityReceiptBatch is a BusinessClass
+    owned by studentactivities
+    prefix is SARB
+
+    Ontology
+    	symbolic key is StudentActivityReceiptBatch
+
+    Persistent Fields
+		BatchDate					is Date
+		BatchAmount					is an InternationalAmount
+		Description					is Alpha 500
+		StudentActivitySchoolClass
+		SchoolActivityAccount
+		Actor
+		Status						is Numeric 2
+			States
+				Entered			value is 0
+				Released		value is 1		
+		StudentActivityBankAccount
+		BankTransactionType
+		StudentActivityBankTransaction
+
+		
+	Derived Fields
+		TotalReceiptAmount			is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentActivityReceipt set.ReceiptAmount)
+
+			
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+	Sets
+
+	Relations
+		StudentAssignedActivityRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses ByStudentActivityAccount
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.SchoolActivityAccount		= SchoolActivityAccount
+
+		StudentAssignedActivityByNameRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses ByStudentName
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+			Instance Selection
+				where (((SchoolActivityAccount			entered
+				and      related.SchoolActivityAccount	= SchoolActivityAccount)
+				or       SchoolActivityAccount			not entered)
+				and    ((StudentActivitySchoolClass		entered
+				and      related.EnrolledInClass)
+				or       StudentActivitySchoolClass		not entered))
+		
+		StudentEnrollmentRel
+			one-to-many relation to StudentEnrollment
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivitySchoolClass	= StudentActivitySchoolClass
+
+
+
+
+
+
+
+
+
+	Conditions
+		ReceiptBatchExists
+			when (StudentActivityReceiptBatch exists)
+
+		StudentActivityAccountEntered
+			when (SchoolActivityAccount entered)
+			
+		LinkedToDeposit
+			when (StudentActivityBankTransaction entered)
+			
+		CanBeAssigned
+			when (!StudentActivityBankTransaction entered)
+
+		CanBeUnnassigned
+			when (StudentActivityBankTransaction entered
+			and   StudentActivityBankTransaction.Status.Entered)
+
+
+
+
+
+	Field Rules
+		BatchDate	
+			initial value is current corporate date
+			default to current corporate date
+	
+		Actor
+			default to actor
+
+	Rule Blocks
+
+		
+		
+	Actions
+	
+
+	StateCycles
+		ActivityReceiptBatchLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+
+				Update is an Update Action
+				
+				Delete is a Delete Action
+				
+				Release is an Instance Action
+					
+					Action Rules
+						constraint (BatchAmount entered)
+							"BatchAmountRequired"
+							
+						constraint (TotalReceiptAmount = BatchAmount)
+							"BatchAmountDoesNotEqualTotalOfAllReceipts"
+							
+						invoke Release Entered StudentActivityReceipt set
+							
+					Exit Rules
+						make transition to Released
+
+			Released is a State
+				AssignBatchToDeposit is an Instance Action
+					valid when (CanBeAssigned)
+					Parameters
+						PrmBankAccount			is a StudentActivityBankAccount
+						PrmBankTransactionType	is a BankTransactionType
+						PrmDepositNumber		is a StudentActivityBankTransaction
+
+					Parameter Rules
+						PrmBankTransactionType
+							initial value is "20"
+							default to "20"
+
+					Action Rules
+						invoke AssignReceipt Released StudentActivityReceipt set
+							invoked.PrmBankAccount			= PrmBankAccount
+							invoked.PrmBankTransactionType	= PrmBankTransactionType
+							invoked.PrmDepositNumber		= PrmDepositNumber
+							
+						StudentActivityBankAccount		= PrmBankAccount
+						BankTransactionType				= PrmBankTransactionType
+						StudentActivityBankTransaction	= PrmDepositNumber
+
+
+				UnnasignBatchFromDeposit is an Instance Action
+					valid when (CanBeUnnassigned)
+					Action Rules
+						invoke UnassignReceipt Released StudentActivityReceipt set
+
+						initialize StudentActivityBankAccount
+						initialize BankTransactionType
+						initialize StudentActivityBankTransaction
+						
+				UnassignBatchFromVoidedTransaction is an Instance Action
+					restricted
+					Action Rules
+						initialize StudentActivityBankAccount
+						initialize BankTransactionType
+						initialize StudentActivityBankTransaction
+						
+				

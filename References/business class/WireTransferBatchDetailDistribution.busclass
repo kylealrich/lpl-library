@@ -1,0 +1,513 @@
+WireTransferBatchDetailDistribution is a BusinessClass
+	owned by cb
+	prefix is WTBDD
+	sql name is WireTransferDistribution
+	
+	Ontology
+		symbolic key is WireTransferBatchDetailDistribution
+
+	Persistent Fields								
+		PostingDate
+		GLFromEntity			 	 	is an AccountingEntity
+		DistributionDate				is an ExchangeDate
+		DistributionAccount		 	 	is a TransactionCodeBlock				 		
+		DistributionAmount		 	 	is a CurrencyAmount			
+		DistributionConfirmedAmount		is an InternationalAmount
+        GLBaseAmount				 	is a FinanceCurrencyAmount
+		Status						 	is Numeric 1
+    		States
+    			Entered						value is 0
+    			Released					value is 1
+    			Posted						value is 2
+    			PendingApproval				value is 3    
+    	Comment							is Text
+    	CashAccountDistribution			is Boolean
+		FeeDistribution					is Boolean
+		RelatedObjectReference			is BusinessObjectReference
+		
+	Local Fields
+		LocalCurrencyTable							is a CurrencyTable
+		LocalWireTransferBatchDetailDistribution	is a WireTransferBatchDetailDistribution view	
+		LocalGLBaseAmount				 			is a FinanceCurrencyAmount						
+		VoidWireTransferDistributions				is Boolean  									
+		BypassBudgetEditing							is Boolean										
+			
+	Derived Fields
+		DerivedCommentLinkName is a DerivedField
+			type is Alpha 12
+			restricted
+			if (Comment entered)
+				return ViewCommentMessage
+			else
+				return AddCommentMessage
+
+		AddCommentMessage is a MessageField
+			restricted
+			"AddComment"		
+
+		ViewCommentMessage is a MessageField
+			restricted
+			"ViewComment"	
+
+		WireTransferDistributionPostingMessage is a MessageField 
+			restricted
+			"WireTransferDistributionPosting"
+
+	Transient Fields
+		TransientFromCurrency		is a FromCurrency
+			derive value from WireTransferBatchDetail.Currency
+
+	Field Rules
+		PostingDate
+			initial value is WireTransferBatchDetail.PostingDate	
+			default to WireTransferBatchDetail.PostingDate			
+		
+		GLFromEntity
+
+
+			initial value is WireTransferBatchDetail.FromCompany.GeneralLedgerCompany.AccountingEntity				
+			default to WireTransferBatchDetail.FromCompany.GeneralLedgerCompany.AccountingEntity					
+
+		DistributionDate
+			initial value is WireTransferBatchDetail.TransactionDate
+			default to WireTransferBatchDetail.TransactionDate
+		
+		DistributionAccount
+
+			if (GLFromEntity.ValidSystems entered)
+				constraint (GeneralLedgerSystemCode within GLFromEntity.ValidSystems)
+					"InvalidSystemFor<CashManagementGroup.FinanceEnterpriseGroup.AccountingEntityLabel>"
+			if (DistributionAccount.ToAccountingEntity.ValidSystems entered)
+				constraint (GeneralLedgerSystemCode within DistributionAccount.ToAccountingEntity.ValidSystems)
+					"InvalidSystemForPosting<CashManagementGroup.FinanceEnterpriseGroup.AccountingEntityLabel>"
+			if (DistributionAccount.GeneralLedgerChartAccount.Account.SystemRestriction entered)
+				constraint (GeneralLedgerSystemCode within DistributionAccount.GeneralLedgerChartAccount.Account.SystemRestriction)
+					"InvalidSystemForAccount"
+			required
+				"DistributionAccountIsRequired"
+				
+		DistributionAmount
+			required
+				"DistributionAmountIsRequired"
+				
+		GLBaseAmount
+			required	
+ 			TransientFromCurrency	= WireTransferBatchDetail.Currency
+ 			LocalCurrencyTable		= CashManagementGroup.FinanceEnterpriseGroup.CurrencyTable
+ 				
+		FeeDistribution
+			if (InternalTransfer)
+				FeeDistribution = true
+			constraint (FeeAmountEntered)
+				"AFeeAmountMustBeEnteredToMarkAsAFeeDistribution"
+									
+	Conditions
+		CanViewCommentLink
+			restricted
+			when (DistributionExists
+			and  (Status.Entered
+			or    Comment entered))
+			
+		DistributionExists
+			when (WireTransferBatchDetailDistribution exists)
+
+		ExternalTransfer
+			when (WireTransferBatch.TransferType.External)
+		
+		InternalTransfer
+			when (WireTransferBatch.TransferType.Internal)
+				
+		FeeAmountEntered
+			when (WireTransferBatchDetail.FeeAmount entered)
+			
+		CanMarkAsFeeDistribution
+			when (ExternalTransfer
+			and	  FeeAmountEntered)
+		
+		ConfirmationDifferenceAlert
+			when (DistributionConfirmedAmount entered
+			and   DistributionAmount != DistributionConfirmedAmount)
+			
+		ShowFeeAlert
+			when (ExternalTransfer
+			and	  FeeDistribution)
+
+		BudgetErrorExists	
+			restricted
+			when (BudgetEditErrorRel exists)
+			
+		CommitmentExists	
+			restricted
+			when (GLCommitRel exists)
+			
+	Relations
+		GeneralLedgerSystemCodeRel	
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup          = CashManagementGroup
+				related.GeneralLedgerSystemCode         = "CB"
+
+		GLCommitRel	
+			one-to-one relation to GLCommit
+      		valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction  = reference to this instance
+
+		BudgetEditErrorRel	
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup              = CashManagementGroup
+				related.BudgetEditError.BudgetEditGroup     = UniqueID  
+
+		WireTransferBatchDetailRel	
+			one-to-one relation to WireTransferBatchDetail
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.WireTransferBatch		= WireTransferBatch
+				related.WireTransferBatchDetail	= WireTransferBatchDetail
+				        								
+	Sets
+		ByFeeDistribution
+			Sort Order
+				CashManagementGroup
+				WireTransferBatch
+				WireTransferBatchDetail
+				FeeDistribution
+				WireTransferBatchDetailDistribution
+	
+		ByBusinessObjectKey
+			Sort Order
+				CashManagementGroup
+				RelatedObjectReference.BusinessObjectKey
+				WireTransferBatch
+				WireTransferBatchDetail
+				WireTransferBatchDetailDistribution
+
+	Rule Blocks
+		ProcessBudgetAndCommitments	
+			if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	        or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+				if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+				and !BypassBudgetEditing)	
+		       		invoke PerformBudgetEdit
+				invoke CreateCommitment
+
+		ReverseReportCurrencyAmounts	
+			LocalGLBaseAmount.FunctionalAmount.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.AlternateAmount.EnteredCurrencyAmount		*= -1
+			LocalGLBaseAmount.AlternateAmount2.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.AlternateAmount3.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.ToFunctionalAmount.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.ToAlternateAmount.EnteredCurrencyAmount	*= -1
+			LocalGLBaseAmount.ToAlternateAmount2.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.ToAlternateAmount3.EnteredCurrencyAmount 	*= -1
+			LocalGLBaseAmount.ProjectAmount.EnteredCurrencyAmount 	 	*= -1
+			LocalGLBaseAmount.ReportAmount1.EnteredCurrencyAmount 		*= -1
+			LocalGLBaseAmount.ReportAmount2.EnteredCurrencyAmount 		*= -1
+			LocalGLBaseAmount.ReportAmount3.EnteredCurrencyAmount 		*= -1
+			LocalGLBaseAmount.ReportAmount4.EnteredCurrencyAmount 		*= -1
+			LocalGLBaseAmount.ReportAmount5.EnteredCurrencyAmount 		*= -1
+								
+  	Actions
+		RejectAllDistributions is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup
+				PrmWireTransferBatch		is a WireTransferBatch
+					
+			Parameter Rules
+				PrmCashManagementGroup		required
+				PrmWireTransferBatch		required
+				
+			Instance Selection
+				where (CashManagementGroup = PrmCashManagementGroup
+				and    WireTransferBatch = PrmWireTransferBatch
+				and    Status.PendingApproval)
+			
+			Action Rules
+				Instance Rules
+					invoke RejectDistributionRelease PendingApproval WireTransferBatchDetailDistribution
+
+		Purge is a Purge Action
+			restricted
+		
+		ReleaseDistribution is an Instance Action
+  			default label is untranslatable
+  			restricted
+  			Action Rules
+  				make transition to Released
+
+		MarkAsFeeDistribution is an Instance Action
+			default label is untranslatable
+			restricted
+  			Action Rules
+  				FeeDistribution = true
+		 		
+		UnmarkAsFeeDistribution is an Instance Action
+			default label is untranslatable
+			restricted
+  			Action Rules
+  				FeeDistribution = false
+  		
+  		FastUpdate is an Update Action
+  			default label is untranslatable
+  			restricted
+  			bypass field rules
+
+		DeleteWireTransferCommitment is an Instance Action	
+			default label is untranslatable
+			restricted
+			Action Rules
+				if (CommitmentExists)
+					invoke Purge GLCommitRel
+				if (BudgetErrorExists)
+					invoke Delete BudgetEditErrorRel
+
+		CreateCommitment is an Instance Action	
+			default label is untranslatable
+			restricted
+			Entrance Rules
+			Exit Rules
+				invoke CreateCommitment GLCommit
+					invoked.HeaderUniqueID 					= WireTransferBatchDetail.UniqueID	
+					invoked.AccountingEntity				= GLFromEntity
+					invoked.FinanceEnterpriseGroup			= CashManagementGroup
+					invoked.System							= "CB"
+					invoked.FinanceCodeBlock				= DistributionAccount
+					invoked.CurrencyCode					= TransientFromCurrency	
+					invoked.TransactionAmount				= DistributionAmount
+					invoked.ReportCurrencyAmount			= GLBaseAmount     
+					invoked.TransactionDate					= WireTransferBatchDetail.TransactionDate
+					if (VoidWireTransferDistributions)		
+						invoked.OriginatingTransaction		= reference to LocalWireTransferBatchDetailDistribution.WireTransferBatchDetailDistribution
+						invoked.TransactionAmount			= LocalWireTransferBatchDetailDistribution.DistributionAmount
+						invoked.ReportCurrencyAmount		= LocalWireTransferBatchDetailDistribution.GLBaseAmount   
+					else
+						invoked.OriginatingTransaction		= reference to this instance
+					invoked.DimensionCode					= DistributionAccount.DimensionCode
+					invoked.TransBusinessObjectRef			= reference to WireTransferBatchDetail
+					invoked.PrmAllowRebuild                 = true		
+
+		RecalculateCommitmentAmounts is an Instance Action				
+			default label is untranslatable
+			restricted
+			Action Rules			
+				invoke Purge GLCommitRel
+					invoked.PrmPurgeRecalculate = true					
+				invoke CreateCommitment
+					
+		PerformBudgetEdit is an Instance Action	
+			default label is untranslatable
+			restricted			
+			Action Rules
+				invoke CheckTransaction BudgetTemplate		
+					invoked.PrmFinanceEnterpriseGroup   		= CashManagementGroup
+					invoked.PrmBudgetEditGroup					= UniqueID
+					invoked.PrmHeaderUniqueID                   = WireTransferBatchDetail.UniqueID	
+					invoked.PrmTransactionCodeBlock				= DistributionAccount
+					invoked.PrmDate								= WireTransferBatchDetail.TransactionDate	
+					invoked.PrmReportAmounts.FunctionalAmount 	= GLBaseAmount.FunctionalAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount1      = GLBaseAmount.ReportAmount1.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount2      = GLBaseAmount.ReportAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount3      = GLBaseAmount.ReportAmount3.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount4      = GLBaseAmount.ReportAmount4.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount5      = GLBaseAmount.ReportAmount5.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount    = GLBaseAmount.AlternateAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount2   = GLBaseAmount.AlternateAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount3   = GLBaseAmount.AlternateAmount3.EnteredCurrencyAmount
+    			if (BudgetErrorExists)
+					confirmation required   
+                    	"Warning:BudgetsHaveBeenExceeded;ViewDetailsInBudgetErrorPanel;IfNotAddressed,ReleaseWillNotBeAllowed;Continue?"
+
+		MaintainUnreleasedCommitment is an Instance Action	
+			default label is untranslatable
+			restricted
+			Exit Rules
+				invoke MaintainUnreleasedCommitment GLCommitRel
+					invoked.TransactionAmount        = DistributionAmount
+					invoked.ReportCurrencyAmount     = GLBaseAmount
+					invoked.TransactionDate          = WireTransferBatchDetail.TransactionDate	
+					invoked.AccountingEntity         = GLFromEntity
+					invoked.FinanceCodeBlock         = DistributionAccount
+					invoked.CurrencyCode             = TransientFromCurrency	
+
+		VoidReleasedDistributions is a Delete Action	
+			default label is untranslatable
+			restricted
+			valid when (Status.Released)
+			Action Rules
+				BypassBudgetEditing					= true
+				LocalGLBaseAmount					= GLBaseAmount
+				include ReverseReportCurrencyAmounts
+				GLBaseAmount						= LocalGLBaseAmount
+				DistributionAmount				   	= DistributionAmount * -1
+				include ProcessBudgetAndCommitments
+				
+		CreateReleasedDistributionForVoid is an Instance Action  
+			default label is untranslatable
+			restricted				
+			Parameters
+				PrmBusinessObjectKey	is like UniqueID
+			Action Rules
+				BypassBudgetEditing	= true
+				LocalGLBaseAmount	= GLBaseAmount
+				include ReverseReportCurrencyAmounts	
+				invoke RecreateDistribution 
+					assign result to LocalWireTransferBatchDetailDistribution
+					fill in fields from this instance
+	            	invoked.DistributionAmount				   			= DistributionAmount * -1
+					invoked.GLBaseAmount								= LocalGLBaseAmount
+					if (DistributionConfirmedAmount entered)	
+						invoked.DistributionConfirmedAmount	   			= DistributionConfirmedAmount * -1	
+					invoked.Status										= Status.Released
+					invoked.RelatedObjectReference.BusinessObjectKey	= PrmBusinessObjectKey
+ 			Exit Rules
+				VoidWireTransferDistributions = true	
+				include ProcessBudgetAndCommitments
+
+		RecreateDistribution is a Create Action	
+			default label is untranslatable
+			restricted
+
+		UpdateReleasedDistributions is an Instance Action
+  			default label is untranslatable
+  			restricted
+			Action Rules
+				if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	        	or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+					invoke UpdateReleasedCommitment GLCommitRel
+						invoked.TransactionAmount        = 0
+						invoked.ReportCurrencyAmount     = GLBaseAmount
+						invoked.TransactionDate          = WireTransferBatchDetail.TransactionDate
+						invoked.AccountingEntity         = GLFromEntity
+						invoked.FinanceCodeBlock         = DistributionAccount
+						invoked.CurrencyCode             = TransientFromCurrency
+						invoked.TransientDistribCanceled = true
+
+				Status = Status.Posted
+				
+		UpdateAllDistributions is an Instance Action	
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmTransactionDateChanged	is Boolean
+				PrmTransactionDate			is Date		
+				PrmPostingDateChanged		is Boolean
+				PrmPostingDate				is Date
+			Action Rules
+				if (PrmPostingDateChanged)
+					PostingDate 			= PrmPostingDate
+				if (PrmTransactionDateChanged)
+					DistributionDate		= PrmTransactionDate
+					invoke RecalcCurrencyAmountsForAllDistributions
+					 	
+
+		RecalcCurrencyAmountsForAllDistributions is an Instance Action	
+            default label is untranslatable
+            restricted
+
+            Action Rules
+				initialize GLBaseAmount.FunctionalAmount
+				initialize GLBaseAmount.AlternateAmount
+				initialize GLBaseAmount.AlternateAmount2
+				initialize GLBaseAmount.AlternateAmount3
+				initialize GLBaseAmount.ToFunctionalAmount
+				initialize GLBaseAmount.ToAlternateAmount
+				initialize GLBaseAmount.ToAlternateAmount2
+				initialize GLBaseAmount.ToAlternateAmount3
+				initialize GLBaseAmount.ProjectAmount
+				initialize GLBaseAmount.ReportAmount1
+				initialize GLBaseAmount.ReportAmount2
+				initialize GLBaseAmount.ReportAmount3
+				initialize GLBaseAmount.ReportAmount4
+				initialize GLBaseAmount.ReportAmount5
+				invoke DistributionUpdates																
+
+  		DistributionUpdates is an Update Action	
+  			default label is untranslatable
+  			restricted
+																				  				  					
+  	StateCycles
+		StatementDistributionLifeCycle is a StateCycle
+			state field is Status
+		
+			Entered is a State
+		  		Create is a Create Action
+		  			valid when (WireTransferBatch.Status.New)
+					Action Rules
+						if (CashManagementGroup.FinanceEnterpriseGroup.FundAccounting)
+							if (CashManagementGroup.FinanceEnterpriseGroup.FundDimension.Dimension1)
+								if (DistributionAccount.FinanceDimension1 !entered)
+									DistributionAccount.FinanceDimension1 = WireTransferBatchDetail.FromFund
+								constraint (DistributionAccount.FinanceDimension1 = WireTransferBatchDetail.FromFund)
+									"FundMustEqualWireTransferDetailFromFund:<WireTransferBatchDetail.FromFund>"
+							if (CashManagementGroup.FinanceEnterpriseGroup.FundDimension.AccountingUnit)
+								if (DistributionAccount.AccountingUnit !entered)
+									DistributionAccount.AccountingUnit = WireTransferBatchDetail.FromAccountingUnit.AccountingUnit
+								constraint (DistributionAccount.AccountingUnit = WireTransferBatchDetail.FromAccountingUnit.AccountingUnit)
+									"FundMustEqualWireTransferDetailFromFund:<WireTransferBatchDetail.FromAccountingUnit.AccountingUnit>"
+		  			Exit Rules
+						include ProcessBudgetAndCommitments	
+		
+		  		Update is an Update Action
+		  			valid when (WireTransferBatch.Status.New)
+					Entrance Rules
+						constraint (!WireTransferBatchDetail.BudgetEditProcessing.InProcess)		
+							"CannotUpdate;BudgetEditInProgress"
+					Action Rules
+						if (CashManagementGroup.FinanceEnterpriseGroup.FundAccounting)
+							if (CashManagementGroup.FinanceEnterpriseGroup.FundDimension.Dimension1)
+								if (DistributionAccount.FinanceDimension1 !entered)
+									DistributionAccount.FinanceDimension1 = WireTransferBatchDetail.FromFund
+								constraint (DistributionAccount.FinanceDimension1 = WireTransferBatchDetail.FromFund)
+									"FundMustEqualWireTransferDetailFromFund:<WireTransferBatchDetail.FromFund>"
+							if (CashManagementGroup.FinanceEnterpriseGroup.FundDimension.AccountingUnit)
+								if (DistributionAccount.AccountingUnit !entered)
+									DistributionAccount.AccountingUnit = WireTransferBatchDetail.FromAccountingUnit.AccountingUnit
+								constraint (DistributionAccount.AccountingUnit = WireTransferBatchDetail.FromAccountingUnit.AccountingUnit)	
+									"FundMustEqualWireTransferDetailFromFund:<WireTransferBatchDetail.FromAccountingUnit.AccountingUnit>"
+		  			Exit Rules
+			  			if (CommitmentExists)	
+							if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+								if (DistributionAccount	!= GLCommitRel.FinanceCodeBlock
+								or  DistributionAmount 	!= GLCommitRel.TransactionAmount
+								or  GLBaseAmount 		!= GLCommitRel.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount)
+									invoke Delete BudgetEditErrorRel
+									invoke PerformBudgetEdit
+							invoke MaintainUnreleasedCommitment
+		
+		  		Delete is a Delete Action
+		  			valid when (WireTransferBatch.Status.New)
+		  			Entrance Rules
+						constraint (!WireTransferBatchDetail.BudgetEditProcessing.InProcess)		
+							"CannotDelete;BudgetEditInProgress"
+		  				invoke DeleteWireTransferCommitment	
+		  		
+		  		DistributionRelease is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to Released
+		  						
+		  		SetToPendingApproval is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to PendingApproval
+
+		  	PendingApproval is a State
+		  		RejectDistributionRelease is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to Entered
+
+		  	Released is a State	
+		  		ResetDistribution is an Instance Action	
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to Entered
+		  						
+		  	Posted is a State

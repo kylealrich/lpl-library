@@ -1,0 +1,197 @@
+SupplierMigration is a BusinessClass
+	owned by procurement
+	
+	prefix is SuMig
+	
+	Ontology
+		symbolic key is SupplierMigration
+	
+	Persistent Fields
+		SupplierName 					is Alpha size 30
+    	Supplier                        is like Supplier
+    	Vendor		
+    	TaxIdGroup
+    	MailingAddress 					is a PostalAddressV2	
+    		holds pii
+    	LoginName						is LoginName
+    		default label is "UserName"
+		Password                        is Password
+		MainContact						is an PersonName 
+			holds pii
+    	EmailAddress
+    	TelephoneNumber
+    	FaxNumber
+    	MobilePhone
+	
+	Local Fields
+		JSONResponse						is JSONObject
+		LocalEEUserRegistered				is Boolean
+
+	Transient Fields
+		TransientDisplayPasswordPolicy		is Boolean	
+		FieldToConvert						is Alpha 250
+		TransientResponseStatus				is Alpha 100
+		TransientSingleJSONNode				is Alpha 400
+
+	Derived Fields
+		ConvertToLowerCase is a NativeField
+			type is Alpha 250
+			restricted
+
+		LowerCaseEmailAddress is a DerivedField
+			type is LoginName
+			restricted
+			LowerCaseEmailAddress = ConvertToLowerCase
+
+		DerivedLoginNameLabel is a DerivedField
+			type is Alpha 25
+			if (SupplierGroup.SupplierExtEntityEnabled)
+				return "External User Identity"
+			else
+				return "User Name"
+
+	Relations
+		SupplierMigrationEmailExistsRel
+			one-to-many relation to SupplierMigration
+			Field Mapping uses ByEmailAddress
+				related.EmailAddress		= EmailAddress
+			Instance Selection
+				where (related.UniqueID		!= UniqueID)
+
+		SupplierSourceIdEmailExistsRel
+			one-to-many relation to SupplierSourceId
+			Field Mapping uses ByEmailAddress
+				related.EmailAddress		= EmailAddress
+
+	Conditions
+		EmailDoesNotExistOnSupplierSourceId
+			restricted
+			when (!SupplierSourceIdEmailExistsRel exists)
+
+	Field Rules
+		Password
+			if (SupplierGroup.SupplierExtEntityEnabled)
+				required
+					"PasswordIsRequiredAndMustMeetTheRequirementsUnderThe_Show_Password_Requirements."
+
+		EmailAddress
+			if (SupplierGroup.SupplierExtEntityEnabled)
+				required
+					"EmailAddressIsRequired"
+
+				FieldToConvert	= EmailAddress
+				EmailAddress	= LowerCaseEmailAddress
+
+				constraint (!SupplierMigrationEmailExistsRel exists)
+					"EmailAddressAlreadyExistsOnAnotherSupplierMigrationRecord."
+				constraint (!SupplierSourceIdEmailExistsRel exists)
+					"EmailAddressAlreadyExistsForASupplierInTheSystem."
+
+	Sets
+		ByEmailAddress
+			duplicates
+			Sort Order
+				EmailAddress
+				SupplierGroup
+
+	Actions
+		Create is a Create Action
+			Action Rules
+			
+				if (!SupplierGroup.SupplierExtEntityEnabled)
+					if (Password !entered)
+						Password = LoginName
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+		
+		RemoveAllSuppliers is an Instance Action
+			Parameters
+				PrmSupplierGroup is a SupplierGroup
+					default label is "SupplierGroup"
+					
+			Parameter Rules
+				PrmSupplierGroup
+					required
+					confirmation required
+						"ThisProcessWillRemoveAllSupplierAndSupplierContactRecordsForThisSupplierGroup;DoYouWantToContinue?"
+							
+			Action Rules
+				
+				invoke RemoveFromMigration Supplier
+					invoked.PrmSupplierGroup   = PrmSupplierGroup				
+
+		CreateSuppliers is a Set Action 
+				
+			Parameters
+				PrmSupplierGroup is a SupplierGroup
+					default label is "SupplierGroup"
+				
+					
+			Parameter Rules
+				PrmSupplierGroup
+					required
+					
+			Instance Selection
+				where ((SupplierGroup = PrmSupplierGroup
+				and    (!SupplierGroup.SupplierExtEntityEnabled
+				or     (SupplierGroup.SupplierExtEntityEnabled
+				and     EmailDoesNotExistOnSupplierSourceId))))
+			
+			Action Rules
+				Instance Rules
+					if (!SupplierGroup.SupplierExtEntityEnabled)
+						invoke Update
+							invoked.Password   = LoginName
+					
+					if (SupplierGroup.SupplierExtEntityEnabled) 
+						LocalEEUserRegistered = false
+
+						invoke RegisterUser ExternalUserExecutor
+							resume on error
+							assign result to JSONResponse
+							invoked.EntityId				= SupplierGroup.SupplierExtEntityGUID
+							invoked.IdentifierId 			= "PrimaryEmail"
+							invoked.IdentifierValue 		= EmailAddress
+							invoked.Password 				= Password 
+							invoked.EnableUserVerification	= false
+							invoked.FirstName				= MainContact.GivenName
+							invoked.LastName				= MainContact.FamilyName
+						TransientResponseStatus = JSONResponse select "$.responsestatus"
+						if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(TransientResponseStatus, "Success"))
+							TransientSingleJSONNode = JSONResponse select "$.response.user.userIdentity"
+							LoginName				= TransientSingleJSONNode
+							LocalEEUserRegistered	= true
+
+					if (!SupplierGroup.SupplierExtEntityEnabled
+					or  LocalEEUserRegistered)
+						invoke CreateFromMigration Supplier
+							invoked.SupplierGroup 	= SupplierGroup
+							invoked.SupplierName  	= SupplierName
+							invoked.Supplier        = Supplier
+							invoked.Vendor        	= Vendor
+							if (TaxIdGroup.TaxIdType entered)
+								invoked.TaxIdGroup.TaxIdType = TaxIdGroup.TaxIdType
+							else
+								invoked.TaxIdGroup.TaxIdType = "OTHER"
+							if (TaxIdGroup.TaxId entered)
+								invoked.TaxIdGroup.TaxId = TaxIdGroup.TaxId
+							else
+								invoked.TaxIdGroup.TaxId = 999999
+							invoked.MailingAddress  = MailingAddress
+							invoked.LoginName       = LoginName
+							invoked.Password 	    = Password
+							invoked.ConfirmPassword = Password
+							invoked.MainContact     = MainContact
+							if (EmailAddress entered)
+								invoked.EmailAddress = EmailAddress
+							else
+								invoked.EmailAddress = "Email@Email.com" 
+							if (TelephoneNumber.SubscriberNumber entered)
+								invoked.TelephoneNumber = TelephoneNumber
+							else
+								invoked.TelephoneNumber.SubscriberNumber = 9999999999
+							invoked.FaxNumber       = FaxNumber
+							invoked.MobilePhone     = MobilePhone
+							invoked.SameAsAddressAbove = true

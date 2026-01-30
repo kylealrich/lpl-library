@@ -1,0 +1,400 @@
+LandingPage is a BusinessClass
+	owned by lpdesigner
+	
+	prefix is LaPg
+	
+	Ontology
+		symbolic key is LandingPage
+	
+	Patterns
+		implements DynamicCreation
+		disable AsOfDateProcessing
+	
+	Persistent Fields
+		Description			is Alpha size 70
+			translatable
+		ActorGroup
+		Actor
+		LandingPageType		is Numeric size 1
+			States
+				Default			value is 0
+				User			value is 1
+		WebApp
+		DefaultLandingPage 	is Boolean
+		Configurable		is Boolean
+            default label is "AllowYourUsersToPersonalize"
+		Active				is Boolean
+		CopiedPage			is a LandingPage
+		PageStyle
+		IsTemplate			is Boolean
+			default label is "Template"
+
+	Local Fields
+		LocalLandingPage	  is a LandingPage
+		LocalWebApp			  is LPLName
+		LocalActorGroup		  is AlphaUpper size 30
+		LocalActor			  is Alpha size 30
+		LocalActive			  is Boolean
+		LocalOtherActivePages is Boolean
+
+	Field Rules
+		Description
+			required
+
+
+
+
+        Active
+			default to true
+
+        Configurable
+            default to false
+
+        LandingPageType
+            if (LandingPageType.Default)
+                initialize Actor
+            if (LandingPageType.User)
+                initialize ActorGroup
+
+    Derived Fields
+		LpdBaseURL is a DerivedField
+			type is Alpha 300
+			return base url(webapp is LandingPageWebapp)
+		
+		DesignerURL is a DerivedField
+			type is Text
+			return LpdBaseURL + "/LandingPageWebapp/pages/homePageDesigner.html"
+		
+		TemplateMF is a MessageField
+			"LandingPageIsATemplate;MakeACopyToMakeChanges"
+
+		ColumnLayout is a DerivedField
+			type is Numeric 2
+			if (PageStyle entered)
+				return PageStyle.ColumnLayout
+			else
+			if (DefaultPageStyleRel exists)
+				return first DefaultPageStyleRel.ColumnLayout
+			else
+				return 3
+
+    Conditions
+        ActiveDefault
+            restricted
+            when (Active
+            and   LandingPageType.Default)
+
+        Inactive
+            restricted
+            when (!Active)
+
+        ActorPage
+            restricted
+            when (Actor entered
+            and   Active)
+
+		HasAccessToLandingPage
+			restricted
+			when (Actor = actor								
+			or    (Actor = blank							
+			and    ActorGroup = blank)						
+			or	  (ActorGroupMemberShadowRel exists))		
+
+        ActiveNotTemplate
+            restricted
+            when (Active
+            and   !IsTemplate)
+
+ 	Relations
+        ActorGroupMemberShadowRel
+            one-to-one relation to ActorGroupMemberShadow
+            Field Mapping uses ByActorGroupResidenceGroupActor
+                related.ActorGroup 				= ActorGroup
+                related.ResidenceGroup 			= ActorGroup
+                related.Actor 					= actor
+                
+        DefaultPageStyleRel
+            one-to-many relation to PageStyle
+            Field Mapping uses symbolic key
+        	Instance Selection
+				where (related.Default
+				and    related.Active)
+
+		DuplicatePageRel
+		    one-to-many relation to LandingPage
+        	Field Mapping uses symbolic key
+			Instance Selection
+				where (related.LandingPage			!= LocalLandingPage
+				and    related.WebApp				 = LocalWebApp
+				and    related.ActorGroup			 = LocalActorGroup
+				and    related.Actor				 = LocalActor)
+
+	Rule Blocks
+
+		CheckForDuplicatePage
+			LocalOtherActivePages = false
+
+			if (DuplicatePageRel exists)
+				if ((LocalWebApp entered
+				and  LocalActorGroup entered)
+				or  (LocalWebApp entered
+				and  LocalActorGroup not entered)
+				or  (LocalWebApp not entered
+				and  LocalActorGroup entered))		
+					if (LocalActive)
+						if (any DuplicatePageRel.Active)
+							LocalOtherActivePages = true
+							confirmation required
+								"AnActivePageAlreadyExistsFor_Web_App_'<LocalWebApp>'_And_Actor_Group_'<LocalActorGroup>';OtherPageWillBeInactivated;Continue?"			
+					else
+						confirmation required
+							"PageAlreadyExistsFor_Web_App_'<LocalWebApp>'_And_Actor_Group_'<LocalActorGroup>';Continue?"
+ 		   
+    Actions
+		CreateTemplate is a Create Action
+			restricted
+			
+		UpdateTemplate is an Update Action
+			valid when (IsTemplate)
+
+			Action Rules
+				if (Active changed)				
+					Active = old Active			
+		
+		DeleteTemplate is a Delete Action
+			valid when (IsTemplate)
+
+		Create is a Create Action
+			effective date required
+		
+		CustomCreate is a Create Action
+			default label is "Create" 
+			effective date required
+
+			Action Rules
+				LocalLandingPage			= LandingPage
+				LocalWebApp					= WebApp
+				LocalActorGroup				= ActorGroup
+				LocalActor					= Actor
+				LocalActive					= Active
+				include CheckForDuplicatePage
+				
+			Exit Rules
+				if (LocalOtherActivePages)
+					for each DuplicatePageRel					
+						if (each.LandingPage != LandingPage)
+							invoke Inactivate each
+								invoked.PrmEffectiveDate		= effective date
+								
+		Update is an Update Action
+			valid when (!IsTemplate)
+			effective date required
+			Action Rules
+				constraint (!IsTemplate)
+					"CannotUpdateLandingPageTemplate"
+
+				LocalLandingPage			= LandingPage
+				LocalWebApp					= WebApp
+				LocalActorGroup				= ActorGroup
+				LocalActor					= Actor
+				LocalActive					= Active
+				include CheckForDuplicatePage
+				
+			Exit Rules
+				if (LocalOtherActivePages)
+					for each DuplicatePageRel					
+						if (each.LandingPage != LandingPage)
+							invoke Inactivate each
+								invoked.PrmEffectiveDate		= effective date
+
+		Delete is a Delete Action
+			valid when (!IsTemplate)
+			Action Rules
+				constraint (!IsTemplate)
+					"CannotDeleteLandingPageTemplate"		
+
+		Activate is an Instance Action
+			valid when (!Active)
+            Parameters
+				PrmEffectiveDate			is Date
+					default label is "EffectiveDate"
+                        
+            Parameter Rules
+				PrmEffectiveDate
+					initial value is current date
+					required
+
+			Action Rules
+				LocalLandingPage			= LandingPage
+				LocalWebApp					= WebApp
+				LocalActorGroup				= ActorGroup
+				LocalActor					= Actor
+				LocalActive					= true
+				include CheckForDuplicatePage
+			
+				effective date				= PrmEffectiveDate
+				Active = true
+
+			Exit Rules
+				if (LocalOtherActivePages)
+					for each DuplicatePageRel					
+						if (each.LandingPage != LocalLandingPage)
+							invoke Inactivate each
+								invoked.PrmEffectiveDate		= PrmEffectiveDate
+				
+		Inactivate is an Instance Action
+			valid when (Active)
+
+            Parameters
+				PrmEffectiveDate			is Date
+					default label is "EffectiveDate"
+                        
+            Parameter Rules
+				PrmEffectiveDate
+					initial value is current date
+					required
+
+			Action Rules
+				effective date				= PrmEffectiveDate
+				Active = false
+	   
+        Copy is an Instance Action
+            Parameters
+				PrmEffectiveDate			is Date
+					default label is "EffectiveDate"
+                PrmDescription          	is Alpha size 60
+					default label is "Description"
+                PrmWebApp               	is a WebApp
+					default label is "WebApp"
+				PrmLandingPageType		is Numeric size 1
+					default label is "LandingPageType"
+					States
+						Default			value is 0
+						User			value is 1
+                PrmActorGroup           	is a ActorGroup
+					default label is "ActorGroup"
+				PrmActor					is a Actor
+					default label is "Actor"
+                        
+            Parameter Rules
+				PrmEffectiveDate
+					initial value is current date
+					required
+                PrmDescription
+					required
+                PrmWebApp
+					initial value is WebApp
+				PrmLandingPageType
+					initial value is LandingPageType
+                PrmActorGroup
+					initial value is ActorGroup
+                PrmActor
+					initial value is Actor
+					if (PrmLandingPageType.User)
+						required
+                              
+			Local Fields
+				NewLandingPage				is a LandingPage view
+				
+			Action Rules
+	            if (PrmLandingPageType.Default)
+	                initialize PrmActor
+	            if (PrmLandingPageType.User)
+	                initialize PrmActorGroup
+
+				invoke Create 
+					assign result to NewLandingPage
+					fill in fields from this instance
+					invoked.effective date				= PrmEffectiveDate
+					invoked.LandingPage.Prefix			= 99
+					invoked.Description                 = PrmDescription
+					invoked.WebApp                      = PrmWebApp
+					invoked.LandingPageType				= PrmLandingPageType
+					invoked.ActorGroup                  = PrmActorGroup
+					invoked.Actor						= PrmActor
+					invoked.Active						= 0
+					invoked.CopiedPage					= LandingPage
+					invoked.IsTemplate					= 0
+				for each this instance.LandingPageDetail set
+					invoke Create LandingPageDetail
+						fill in fields from each
+						invoked.LandingPage				= NewLandingPage.LandingPage
+
+        UserCreate is an Instance Action
+			default label is "Create"    
+			valid when(Configurable)
+            Parameters
+                PrmDescription          	is Alpha size 60
+					default label is "Description"
+                        
+            Parameter Rules
+                PrmDescription
+					required
+                              
+			Local Fields
+				NewLandingPage				is a LandingPage view
+
+			Action Rules
+				invoke Create 
+					assign result to NewLandingPage
+					fill in fields from this instance
+					invoked.effective date				= current date
+					invoked.Description                 = PrmDescription
+					invoked.WebApp                      = WebApp
+                    invoked.Actor                       = actor
+                    invoked.CopiedPage					= LandingPage
+					invoked.LandingPageType				= 1
+					invoked.IsTemplate					= 0
+				for each this instance.LandingPageDetail set
+					invoke Create LandingPageDetail
+						fill in fields from each
+						invoked.LandingPage				= NewLandingPage.LandingPage
+						
+        UserNonWebappCreate is a Create Action
+			default label is "CreateNewPage"    
+                              
+			Action Rules
+				effective date				= current date
+				Actor                       = actor
+				LandingPageType				= 1
+				Configurable				= true
+				Active						= true
+
+		MassActivateLandingPages is a Set Action
+			run in background
+			Parameters
+				EffectiveDate			is Date
+				Date		    		is TimeStamp
+                        
+			Parameter Rules
+				EffectiveDate
+					initial value is current date
+				Date
+					required
+				
+			Instance Selection
+				where (!Active
+				and    update stamp >= Date)
+
+			Action Rules
+				Instance Rules
+					effective date		= EffectiveDate
+					Active 				= true
+
+		MassInactivateLandingPages is a Set Action
+			run in background
+						
+			Parameters
+				EffectiveDate			is Date
+                        
+			Parameter Rules
+				EffectiveDate
+					initial value is current date
+
+			Instance Selection
+				where (Active)
+
+			Action Rules
+				Instance Rules
+					effective date		= EffectiveDate
+					Active 				= false

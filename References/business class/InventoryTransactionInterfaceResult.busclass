@@ -1,0 +1,348 @@
+InventoryTransactionInterfaceResult is a BusinessClass
+	owned by ic
+	
+	prefix is ITIR
+	sql name is ITransactionInterfaceResult
+	
+	Ontology
+		symbolic key is InventoryTransactionInterfaceResult
+		
+	Patterns
+		implements StaticJava
+        disable AuditIndex
+       	disable EffectiveDated
+	
+	Persistent Fields
+		RunGroup				
+		RunTime							is TimeStamp
+		Status							is Numeric 1
+			States
+				InProcess		       	value is 0
+				Complete				value is 1
+				Incomplete 				value is 2
+			disable Auditing
+		ErrorRunGroup					is a RunGroup
+		OriginalRunGroup				is a RunGroup
+		RecordsProcessed				is Numeric 10
+		ReleaseInventoryTransactions   	is Boolean
+		IncludeInventoryTransactionsInError	is Boolean
+		MoveErrorsToNewRunGroup is Boolean
+		ErrorRunGroupPrefix     is AlphaUpper 15
+		
+	Local Fields
+		LocalCompany						is like InventoryCompany
+		LocalInventoryLocation				is like InventoryLocation
+		LocalInventoryDocumentType			is an InventoryDocumentType
+		LocalInventoryTransactionImport		is like InventoryTransactionImport
+	
+	Derived Fields
+	
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+			 
+        DerivedRunGroup is a DerivedField
+        	type is AlphaUpper 30
+        	if (ErrorRunGroup entered)
+        		return ErrorRunGroup
+        	else
+        		return RunGroup
+        
+        CompleteMessage is a MessageField
+        	restricted
+        	"Complete"
+        	
+        IncompleteMessage is a MessageField
+        	restricted
+        	"Incomplete"
+        	
+        NoRecordsMessage is a MessageField
+        	restricted
+        	"AllErrorsProcessed"
+        
+        InProcessMessage is a MessageField
+        	restricted
+        	"InProcess"
+        
+        DerivedStatus is a DerivedField
+        	type is Alpha 50
+        	if (Status.InProcess)
+        		return InProcessMessage
+        	else
+        	if (Status.Complete)
+        		return CompleteMessage
+        	else
+        	if (Status.Incomplete
+        	and NoErrorRecordsToProcess)
+        		return NoRecordsMessage
+        	else
+        		return IncompleteMessage
+        
+		InterfacedInventoryTransactionCount is a DerivedField
+			type is Numeric 7	
+			return (instance count of InventoryTransactionsRel)
+			
+		ErrorInventoryTransactionCountRunGroup is a DerivedField
+			type is Numeric 7
+			return (instance count of RunGroupProcessedInventoryTransactionImportRel)
+			
+		ErrorInventoryTransactionCountErrorRunGroup is a DerivedField
+			type is Numeric 7
+			return (instance count of ErrorRunGroupInventoryTransactionImportRel)
+			
+		DerivedRecordsProcessed is a DerivedField
+			type is Numeric 7
+			return (InterfacedInventoryTransactionCount)  
+
+	Field Rules
+	
+		OriginalRunGroup
+			if (RunGroup like "*ERRORS_*")
+				if (ErrorRunGroupRel exists)
+					OriginalRunGroup = first ErrorRunGroupRel.OriginalRunGroup
+				else
+					OriginalRunGroup = RunGroup
+			else
+				OriginalRunGroup = RunGroup
+	
+	Conditions
+		NoRecordsForRunGroup
+			restricted
+			when (InventoryTransactionsRel !exists
+			and   RunGroupProcessedInventoryTransactionImportRel !exists
+			and   ErrorRunGroupInventoryTransactionImportRel !exists)
+		
+		IncompleteErrorsNotMoved
+			restricted
+			when (Status.Incomplete
+			and	  ErrorRunGroup not entered)
+
+		IncompleteErrorsMoved
+			restricted
+			when (Status.Incomplete
+			and	  ErrorRunGroup entered)
+
+		IncompleteWithErrors
+			restricted
+			when ((IncompleteErrorsNotMoved
+			and   RunGroupProcessedInventoryTransactionImportRel exists)
+			or    (IncompleteErrorsMoved
+			and    ErrorRunGroup entered
+			and    ErrorRunGroupInventoryTransactionImportRel exists))
+
+		NoErrorRecordsToProcess
+			restricted
+			when (RunGroupProcessedInventoryTransactionImportRel !exists
+			and   ErrorRunGroupInventoryTransactionImportRel !exists)
+		
+		HasInventoryTransactionsCreated
+			restricted
+			when (InventoryTransactionsRel exists)
+
+		NoRecordsToProcess
+			when (Status entered
+			and   DerivedRecordsProcessed = 0)
+
+		ErrorRunGroupEntered
+			when (ErrorRunGroup entered)
+			
+		ShowRunGroupPanel
+			when (RunGroupProcessedInventoryTransactionImportRel exists)
+		
+		ShowErrorRunGroupPanel
+			when (ErrorRunGroupInventoryTransactionImportRel exists)
+			
+	Relations
+
+		InventoryTransactionImportWithErrorInRunGroupRel
+			one-to-many relation to InventoryTransactionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and    related.ErrorMessage entered)
+				
+		RunGroupInventoryTransactionImportRel
+			one-to-many relation to InventoryTransactionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+				
+		RunGroupInventoryTransactionImportDetailRel
+			one-to-many relation to InventoryTransactionImportLineDetail
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+			
+
+
+		RunGroupProcessedInventoryTransactionImportRel
+			one-to-many relation to InventoryTransactionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = InventoryTransactionInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		ErrorRunGroupInventoryTransactionImportRel
+			one-to-many relation to InventoryTransactionImport
+			valid when (ErrorRunGroupEntered)
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= ErrorRunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = InventoryTransactionInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		InventoryTransactionsRel
+			one-to-many relation to InventoryTransaction
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.OriginatingInterfaceRun	= InventoryTransactionInterfaceResult
+				and    related.InterfaceInProcess = 0
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+				
+		ErrorRunGroupRel
+			one-to-many relation to InventoryTransactionInterfaceResult
+			Field Mapping uses ByErrorRunGroup
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.ErrorRunGroup		   = RunGroup
+				
+		InventoryTransactionImportRel
+			one-to-one relation to InventoryTransactionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup					= RunGroup
+				related.Company						= LocalCompany
+				related.InventoryLocation			= LocalInventoryLocation
+				related.InventoryDocumentType		= LocalInventoryDocumentType
+				related.InventoryTransactionImport	= LocalInventoryTransactionImport
+				
+		InventoryTransactionImportLineDetailRel
+			one-to-many relation to InventoryTransactionImportLineDetail
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and	   related.InventoryTransactionImport	  = LocalInventoryTransactionImport)
+				
+				
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				InventoryTransactionInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+		
+		ByRunGroup
+			Sort Order
+				RunGroup
+				InventoryTransactionInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+				
+		ByOriginalRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				OriginalRunGroup
+				RunTime descending
+				InventoryTransactionInterfaceResult
+				
+		ByErrorRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				ErrorRunGroup
+				InventoryTransactionInterfaceResult
+
+	Actions
+			
+		Create is an Action
+			restricted
+			
+		Update is an Action
+			restricted
+			
+		Delete is an Action
+			valid when (!Status.InProcess)
+		
+		Purge is a Purge Action
+			restricted
+		
+		RerunForErrors is an Instance Action
+			valid when (IncompleteWithErrors)
+			Parameters
+				PrmRunGroup					is a RunGroup
+					default label is "RunGroup"
+				ReleaseInventoryTransactions is Boolean
+				PrmMoveErrorsToNewRunGroup  is Boolean
+					default label is "MoveErrorsToNewRunGroup"
+				PrmErrorRunGroupPrefix		is AlphaUpper 15
+					default label is "ErrorRunGroupPrefix"
+				
+			Parameter Rules
+				PrmRunGroup
+					initial value is DerivedRunGroup
+				ReleaseInventoryTransactions
+					initial value is true
+					
+			Action Rules
+			
+				invoke InterfaceInventoryTransactions InventoryTransactionImport
+					invoked.PrmRunGroup       				= PrmRunGroup
+					invoked.ReleaseInventoryTransactions	= ReleaseInventoryTransactions
+					invoked.IncludeInventoryTransactionsInError	= true
+					invoked.PrmMoveErrorsToNewRunGroup 		= PrmMoveErrorsToNewRunGroup
+					invoked.PrmErrorRunGroupPrefix 			= PrmErrorRunGroupPrefix
+		
+		UpdateErrorInformation is an Instance Action
+			restricted	
+			Parameters
+				PrmInventoryTransactionImportCompany is like InventoryCompany
+				PrmInventoryTransactionImportLocation is like InventoryLocation
+				PrmInventoryTransactionDocumentType is an InventoryDocumentType
+				PrmInventoryTransactionImport is like InventoryTransactionImport
+				
+			Action Rules
+				if (InventoryTransactionImportWithErrorInRunGroupRel exists)
+					Status = 2 
+					if (ErrorRunGroup not entered)
+						increment first RunGroupInventoryTransactionImportRel.Company.VendorGroupRel.LastErrorRunGroupNumber
+						ErrorRunGroup				= ErrorRunGroupPrefix + "ERRORS_" + first RunGroupInventoryTransactionImportRel.Company.VendorGroupRel.LastErrorRunGroupNumber
+					
+					LocalCompany						= PrmInventoryTransactionImportCompany
+					LocalInventoryLocation				= PrmInventoryTransactionImportLocation
+					LocalInventoryDocumentType			= PrmInventoryTransactionDocumentType
+					LocalInventoryTransactionImport		= PrmInventoryTransactionImport
+					
+					if  (MoveErrorsToNewRunGroup = true
+					and InventoryTransactionImportRel.RecordInError)
+						
+						invoke UpdateRunGroup InventoryTransactionImportRel
+							invoked.PrmRunGroup		= ErrorRunGroup
+							
+						invoke UpdateRunGroup InventoryTransactionImportLineDetailRel
+							invoked.PrmRunGroup		= ErrorRunGroup
+							
+		Finish is an Instance Action
+			restricted
+			Parameters
+				PrmCompleteStatus    		  is Boolean
+				PrmInventoryTransactionImportCompany is like InventoryCompany
+				PrmInventoryTransactionImportLocation is like InventoryLocation
+				PrmInventoryTransactionDocumentType is an InventoryDocumentType
+				PrmInventoryTransactionImport is like InventoryTransactionImport
+			
+			Action Rules
+				
+				invoke UpdateErrorInformation
+					invoked.PrmInventoryTransactionImportCompany = PrmInventoryTransactionImportCompany
+					invoked.PrmInventoryTransactionImportLocation = PrmInventoryTransactionImportLocation
+					invoked.PrmInventoryTransactionDocumentType = PrmInventoryTransactionDocumentType
+					invoked.PrmInventoryTransactionImport = PrmInventoryTransactionImport
+				
+				if (Status != Status.Incomplete)
+					Status = Status.Complete
+					
+				RecordsProcessed = DerivedRecordsProcessed								
+	

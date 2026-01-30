@@ -1,0 +1,141 @@
+ProjectAssignmentSplit is a BusinessClass
+    owned by Projects
+    prefix is PRJSA
+
+    Ontology
+        part of ProjectAssignment
+        	relative key is SequenceNumber is Numeric size 4
+
+    Persistent Fields
+		CommittedEffort		is Percent size 6.3
+		FinanceCodeBlock	is a FinanceCodeBlockNoProject 
+			default label is "FinanceStructure"
+		BurdenCodeBlock		is a FinanceCodeBlockNoProject 
+			default label is "FringeBurdenFinanceStructure"
+
+	Transient Fields
+		BypassStructureRelationEdit
+		
+	Context Fields
+		ProjectLaborSchedule
+		ProjectSchedulePeriod
+				
+    Derived Fields
+    	OtherCommittedEffort is a DerivedField
+    		type is Percent size 6.3
+    		return sum OtherProjectAssignmentSplits.CommittedEffort
+
+	Local Fields
+		LocalPeriod			is like ProjectSchedulePeriod
+	    LocalEachCodeBlock	is a FinanceCodeBlockNoProject
+	    LocalOldCodeBlock	is a FinanceCodeBlockNoProject
+
+	Conditions
+									
+    Relations
+    	OtherProjectAssignmentSplits
+    		one-to-many relation to ProjectAssignmentSplit
+    		Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Project					= Project
+    			related.Employee				= Employee
+    			related.ProjectAssignment		= ProjectAssignment
+    		Instance Selection
+    			where (related.SequenceNumber not = SequenceNumber)
+
+    	OpenLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where ((related.Status.Entered
+    			or      related.Status not entered)
+    			and     related.LaborPeriod.SequenceNumber = SequenceNumber
+    			and     related.OpenPeriod)
+    			
+    	UnfinishedLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+				where ((related.Status.Approved
+				or      related.Status.Processed
+				or      related.Status.PendingApproval)
+    			and     related.LaborPeriod.SequenceNumber = SequenceNumber)    			
+
+		ProjectAssignmentLaborRel
+			one-to-one relation to ProjectAssignmentLabor
+    		Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+    			related.Project						= Project
+    			related.Employee					= Employee
+    			related.ProjectAssignment			= ProjectAssignment
+    			related.LaborPeriod.Period			= LocalPeriod
+    			related.LaborPeriod.SequenceNumber	= SequenceNumber
+    			
+	Sets
+				
+    Field Rules
+    	SequenceNumber
+    		autosequence
+    	FinanceCodeBlock
+    		required
+    	CommittedEffort
+    		constraint (CommittedEffort + OtherCommittedEffort <= ProjectAssignment.CommittedEffort)
+    			"SumOfAssignmentSplitCommittedEffortCannotExceedAssignmentCommittedEffort"
+		BurdenCodeBlock
+			constraint (!Project.FringeBurden.No)
+				"ProjectDoesNotAllowBurden"
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint (Project.ProjectType.Posting)
+					"AssignmentValidForPostingProjectsOnly"
+				constraint (Employee.ProjectEmployee.Active)
+					"ProjectEmployeeMustBeActive"
+			Exit Rules
+				for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+					if (each.DateRange.Begin within ProjectAssignment.ProjectDateRange
+					or  each.DateRange.End within ProjectAssignment.ProjectDateRange)
+						invoke Create ProjectAssignmentLabor
+							fill in fields from this instance
+							invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+							invoked.LaborPeriod.SequenceNumber = SequenceNumber
+
+		CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+										
+		Update is an Update Action
+			Exit Rules
+				if (CommittedEffort changed)
+					invoke Update OpenLaborRel
+						invoked.PlannedPercent	= CommittedEffort
+					invoke ChangePlannedPercents ProjectAssignment
+				if (FinanceCodeBlock changed)
+					for each OpenLaborRel
+						LocalOldCodeBlock = old FinanceCodeBlock
+						LocalEachCodeBlock = each.FinanceCodeBlock
+						initialize LocalEachCodeBlock.Ledger
+						initialize LocalOldCodeBlock.Ledger
+						if (LocalEachCodeBlock = LocalOldCodeBlock)
+							invoke Update each
+								invoked.FinanceCodeBlock = FinanceCodeBlock
+																								
+		Delete is a Delete Action
+			Action Rules
+				constraint (UnfinishedLaborRel not exists)
+					"CannotDelete;_NonFinalizedLaborDistributionRecordsExist"				
+			Exit Rules
+				invoke Delete OpenLaborRel
+				if (CommittedEffort entered)
+					invoke ChangePlannedPercents ProjectAssignment
+
+		CreateSplitLabor is an Instance Action
+			restricted
+			Parameters
+				PrmPeriod		is like ProjectSchedulePeriod
+			Action Rules
+				LocalPeriod		= PrmPeriod
+				if (ProjectAssignmentLaborRel not exists)
+					invoke Create ProjectAssignmentLabor
+						fill in fields from this instance
+						invoked.LaborPeriod.Period 			= LocalPeriod
+						invoked.LaborPeriod.SequenceNumber	= SequenceNumber
+						invoked.SkipReduce					= true
+				

@@ -1,0 +1,176 @@
+LeaseWeightedAverageReportResult is a BusinessClass
+    owned by lm
+    prefix is LWARR
+	sql name is "LeaseWAReportResult"
+
+    Ontology
+        symbolic key is LeaseWeightedAverageReportResult 
+
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+		LeaseClassification
+		ReportOption					is AlphaUpper size 1
+            States
+                RemainingLeaseTerm			value is "R"
+                DiscountRate				value is "D"		
+		PayablesCompany
+		FiscalYear
+		GeneralLedgerCalendar
+		FiscalQuarter					is Numeric 1
+            States
+                FirstQuarter        value is 1
+                SecondQuarter       value is 2
+                ThirdQuarter        value is 3
+                FourthQuarter       value is 4           
+		WeightedAverageTotalLiability	is an InternationalAmount
+		WeightedAverageTotalPayments	is an InternationalAmount
+		WeightedAverageResultsTerm		is Decimal size 6.3
+		WeightedAverageResultsRate		is Percent size 5.3
+        CreationDate					is TimeStamp
+        CreatedBy						is an Operator
+
+	Transient Fields
+
+
+	Local Fields
+		LocalReportDate 	is Date
+		LocalLease			is like Lease
+		LocalLessor			is a Vendor
+		LocalReportDay		is Numeric 2
+
+	Sets		
+		ByCreationDateDescending
+			Sort Order
+				FinanceEnterpriseGroup
+				LeaseWeightedAverageReportResult  descending
+				CreationDate descending
+
+
+	Field Rules
+		FinanceEnterpriseGroup
+            default to actor.context.FinanceEnterpriseGroup
+        CreationDate
+			default to current timestamp
+
+		CreatedBy
+			default to actor
+	
+
+	Derived Fields
+
+
+    Conditions
+		
+
+							
+    Relations
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses ByTopNode
+				related.FinanceEnterpriseGroup				= actor.context.FinanceEnterpriseGroup	
+				related.TopNode								= GeneralLedgerCalendar.TopNode
+				related.Year								= FiscalYear
+				related.PeriodType							= "2"
+			Instance Selection
+				where (related.GeneralLedgerCalendarPeriod.Quarter	= FiscalQuarter)
+
+		LeasesForReportRel
+			one-to-many relation to Lease
+			Field Mapping uses Set6
+				
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup   = FinanceEnterpriseGroup
+                and    related.Company				            = PayablesCompany
+				and    related.EndDate				            >= LocalReportDate
+				and    related.Status				            = "1"
+				and    related.LeaseClassification	             = LeaseClassification)
+
+		NoShortTermLeaseRel
+			one-to-many relation to Lease
+			Field Mapping uses Set6
+				
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup   = FinanceEnterpriseGroup
+                and    related.Company				            = PayablesCompany
+				and    related.EndDate				            >= LocalReportDate
+				and    related.Status				            = "1"
+				and    !related.IsShortTermLease
+				and    related.LeaseClassification	            = LeaseClassification)
+
+		WeightedAverageReportPaymentsRel
+            one-to-many relation to LeasePaymentDetail
+            Field Mapping uses Set3
+                related.Company  = PayablesCompany
+                related.Lease	 = LocalLease
+                related.DueDate >= LocalReportDate
+			Instance Selection
+				where (related.Vendor = LocalLessor
+				and	   related.LeasePaymentDetail.ExecutoryCostCode not entered)
+
+        WeightedAverageReportLiabilityRel
+            one-to-many relation to LeasePaymentPeriodBalance      
+            Field Mapping uses ByCompanyLeaseVendorFiscalYearDueDate
+                related.Company = PayablesCompany
+                related.Lease   = LocalLease
+            Instance Selection
+            	where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+				and    related.PaymentDueDate >= LocalReportDate)
+
+	Actions
+		Create is a Create Action
+
+			Action Rules
+				LocalReportDate 	= GeneralLedgerCalendarPeriodRel.DerivedStartDate
+				LocalReportDay		= LocalReportDate day
+				if (LocalReportDay != 1 and LocalReportDay < 8)
+					LocalReportDate	= LocalReportDate - LocalReportDay + 1 day
+				else
+					if (LocalReportDay > 20)
+						LocalReportDate = LocalReportDate + 1 month
+						LocalReportDate = LocalReportDate - LocalReportDate day
+						LocalReportDate = LocalReportDate + 1 day
+				constraint (LocalReportDate entered)
+					"PeriodDoesNotExistForFiscalYear<FiscalYear>And<FiscalQuarter>,OnCalendar<GeneralLedgerCalendar>."
+				if (ReportOption.DiscountRate)
+					if (LeasesForReportRel exists)
+						initialize WeightedAverageTotalPayments
+						for each LeasesForReportRel
+							LocalLease	= each.Lease
+							LocalLessor	= each.Lessor
+							WeightedAverageTotalPayments	= sum WeightedAverageReportPaymentsRel.BasePaymentAmount + WeightedAverageTotalPayments
+				else
+					if (NoShortTermLeaseRel exists)
+						initialize WeightedAverageTotalLiability
+						for each NoShortTermLeaseRel
+							LocalLease	= each.Lease
+							LocalLessor	= each.Lessor				
+							WeightedAverageTotalLiability	= first WeightedAverageReportLiabilityRel.LiabilityBalance + WeightedAverageTotalLiability
+							WeightedAverageTotalLiability	= first WeightedAverageReportLiabilityRel.PrincipalAmount + WeightedAverageTotalLiability
+
+			Exit Rules
+				invoke CreateDetailRecords Lease
+					invoked.PrmFinanceEnterpriseGroup               = FinanceEnterpriseGroup
+                    invoked.PrmLeaseWeightedAverageReportResult 	= LeaseWeightedAverageReportResult 
+					invoked.PrmWeightedAverageTotalPayments			= WeightedAverageTotalPayments
+					invoked.PrmWeightedAverageTotalLiability		= WeightedAverageTotalLiability
+					invoked.PrmCompany								= PayablesCompany
+					invoked.PrmReportOption							= ReportOption
+					invoked.PrmClassification						= LeaseClassification
+					invoked.PrmReportDate							= LocalReportDate
+
+		Update is an Update Action
+			restricted
+
+		FastUpdate is an Update Action
+			restricted
+            bypass field rules
+							
+		Delete is a Delete Action
+
+
+		Purge is a Purge Action
+			restricted

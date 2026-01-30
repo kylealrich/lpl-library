@@ -1,0 +1,606 @@
+PurchaseOrderInterfaceResult is a BusinessClass
+	owned by po
+		
+	prefix is POPIR
+	
+	Ontology
+		symbolic key is PurchaseOrderInterfaceResult
+		
+	Patterns
+		implements StaticJava
+        disable AuditIndex
+       	disable EffectiveDated
+	
+	Persistent Fields
+		RunGroup				
+		RunTime					is TimeStamp
+		Status					is Numeric 1
+			States
+				InProcess       value is 0
+				Complete		value is 1
+				Incomplete 		value is 2
+			disable Auditing
+		Origin                  is Numeric 1
+			States
+				PurchaseOrderInterface   value is 1
+				StandingContract         value is 2
+				OtherModules             value is 3
+		ErrorRunGroup			is a RunGroup
+		OriginalRunGroup		is a RunGroup
+		RecordsProcessed						is Numeric 10
+		InterfaceCounts
+		Company					is like PurchasingCompany
+		DefaultBuyer            is like Buyer
+		ReleasePurchaseOrders   is Boolean
+		EnableGTINProcessing    is Boolean
+		IncludePurchaseOrdersInError	is Boolean
+		SpecificAction          is Numeric 1
+			States
+				Create              value is 1
+				Update              value is 2
+				Cancel              value is 3
+		MoveErrorsToNewRunGroup is Boolean
+		ErrorRunGroupPrefix     is AlphaUpper 15
+		ContractGroup           is like ContractGroup
+		Location                is like InventoryLocation
+		FutureDays              is Numeric 2
+		
+	Derived Fields
+	
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+			 
+        DerivedRunGroup is a DerivedField
+        	type is AlphaUpper 30
+        	if (ErrorRunGroup entered)
+        		return ErrorRunGroup
+        	else
+        		return RunGroup
+        
+        CompleteMessage is a MessageField
+        	restricted
+        	"Complete"
+        	
+        IncompleteMessage is a MessageField
+        	restricted
+        	"Incomplete"
+        	
+        NoRecordsMessage is a MessageField
+        	restricted
+        	"AllErrorsProcessed"
+        	
+        NoRecordsOrOtherResultMessage is a MessageField
+        	restricted
+        	"NoRecordsFoundToProcessOrRecordsProcessedOnANewerResultRecord"	
+        
+        InProcessMessage is a MessageField
+        	restricted
+        	"InProcess"
+
+
+
+			
+        DerivedStatus is a DerivedField
+        	type is Alpha 75
+        	if (Status.InProcess)
+        		return InProcessMessage
+        	else
+        	if (Status.Complete)
+        		return CompleteMessage
+        	else 
+			if (Status.Incomplete)
+				if (RunGroupPurchaseOrderImportRel not exists
+				and PurchaseOrderImportErrorRunGroupRel not exists)
+					return NoRecordsOrOtherResultMessage
+				else
+					return IncompleteMessage
+        
+        InterfacedPurchaseOrderAmount is a DerivedField
+            type is like InternationalAmount
+			return (sum PurchaseOrdersRel.TotalOrderAmount)
+
+		InterfacedPurchaseOrderCount is a DerivedField
+			type is Numeric 12	
+			return (instance count of PurchaseOrdersRel)
+			
+		ErrorPurchaseOrderCountRunGroup is a DerivedField
+			type is Numeric 12
+			return (instance count of RunGroupProcessedPurchaseOrderImportRel + instance count of RunGroupPurchaseOrderImportStandaloneLineRel + instance count of RunGroupPurchaseOrderImportStandaloneAddOnChargeRel)
+			
+		ErrorPurchaseOrderCountErrorRunGroup is a DerivedField
+			type is Numeric 12
+			return (instance count of ErrorRunGroupPurchaseOrderImportRel + instance count of ErrorRunGroupPurchaseOrderImportStandaloneLineRel + instance count of RunGroupPurchaseOrderImportStandaloneAddOnChargeRel)
+			
+		DerivedErrorCount is a DerivedField
+			type is Numeric 12
+			return (ErrorPurchaseOrderCountRunGroup + ErrorPurchaseOrderCountErrorRunGroup)
+		
+		DerivedRecordsProcessed is a DerivedField
+			type is Numeric 12
+			return (InterfacedPurchaseOrderCount + ErrorPurchaseOrderCountRunGroup + ErrorPurchaseOrderCountErrorRunGroup)
+		
+		DerivedPOCount is a DerivedField
+			type is Numeric 3
+			return (instance count of PurchaseOrdersRel)
+		DerivedContractCount is a DerivedField
+			type is Numeric 3
+			return (instance count of StandingContractsRel)
+		
+	Field Rules
+	
+		Origin
+			default to 1
+		
+		OriginalRunGroup
+			if (RunGroup like "*ERRORS_*")
+				if (ErrorRunGroupRel exists)
+					OriginalRunGroup = first ErrorRunGroupRel.OriginalRunGroup
+				else
+					OriginalRunGroup = RunGroup
+			else
+				OriginalRunGroup = RunGroup
+		
+	Conditions
+		IncompleteErrorsNotMoved
+			restricted
+			when (Status.Incomplete
+			and	  ErrorRunGroup not entered)
+
+		EligibleToDelete
+			restricted
+			when (Status.Complete
+			or   (Status.Incomplete
+			and   NoErrorRecordsToProcess))
+		
+		IncompleteErrorsMoved
+			restricted
+			when (Status.Incomplete
+			and	  ErrorRunGroup entered)
+
+		IncompleteWithErrors
+			restricted
+			when ((IncompleteErrorsNotMoved
+			and   (RunGroupProcessedPurchaseOrderImportRel exists
+			or     RunGroupPurchaseOrderImportStandaloneLineRel exists
+			or     RunGroupPurchaseOrderImportStandaloneAddOnChargeRel exists))
+			or    (IncompleteErrorsMoved
+			and   (ErrorRunGroupPurchaseOrderImportRel exists
+			or     ErrorRunGroupPurchaseOrderImportStandaloneAddOnChargeRel exists
+			or     ErrorRunGroupPurchaseOrderImportStandaloneLineRel exists)))
+
+		NoErrorRecordsToProcess
+			restricted
+			when (RunGroupProcessedPurchaseOrderImportRel !exists
+			and   RunGroupPurchaseOrderImportStandaloneLineRel !exists
+			and   RunGroupPurchaseOrderImportStandaloneAddOnChargeRel !exists
+			and   ErrorRunGroupPurchaseOrderImportRel !exists
+			and   ErrorRunGroupPurchaseOrderImportStandaloneAddOnChargeRel !exists
+			and   ErrorRunGroupPurchaseOrderImportStandaloneLineRel !exists)
+		
+		HasPurchaseOrdersCreated
+			restricted
+			when (PurchaseOrdersRel exists)
+
+		IncompleteWithPendingError
+			restricted
+			when ((IncompleteErrorsNotMoved and RunGroupPurchaseOrderImportRel exists)		
+			or    (IncompleteErrorsMoved and PurchaseOrderImportErrorRunGroupRel exists)) 	
+
+		NoRecordsToProcess
+			when (Status entered
+			and   DerivedRecordsProcessed = 0)
+
+		ErrorRunGroupEntered
+			when (ErrorRunGroup entered)
+			
+		ShowRunGroupPanel
+			when (RunGroupProcessedPurchaseOrderImportRel exists)
+		
+		ShowErrorRunGroupPanel
+			when (ErrorRunGroupPurchaseOrderImportRel exists)
+			
+		ShowRunGroupPanelForLines
+			when (RunGroupPurchaseOrderImportStandaloneLineRel exists)
+		
+		ShowErrorRunGroupPanelForLines
+			when (ErrorRunGroupPurchaseOrderImportStandaloneLineRel exists)
+			
+		ShowRunGroupPanelForAddOnCharges
+			when (RunGroupPurchaseOrderImportStandaloneAddOnChargeRel exists)
+		
+		ShowErrorRunGroupPanelForAddOnCharges
+			when (ErrorRunGroupPurchaseOrderImportStandaloneAddOnChargeRel exists)
+			
+		CompanySecurityGroupAllowsAccess
+			restricted
+			when (actor.context.CompanySecurityGroup = blank
+			or    CompanySecurityGroupMemberRel exists)
+			
+		SecurityGroupAllowsAccess
+			restricted
+			when (Company !entered
+			or   (Company entered
+			and   CompanySecurityGroupAllowsAccess))
+						
+	Relations
+
+		
+		RunGroupPurchaseOrderImportRel
+			one-to-many relation to PurchaseOrderImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+			
+		RunGroupPurchaseOrderImportLineRel
+			one-to-many relation to PurchaseOrderImportLine
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+				
+		RunGroupPurchaseOrderImportLineDistribRel
+			one-to-many relation to PurchaseOrderImportLineDistribution
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		RunGroupPurchaseOrderImportAddOnChargeRel
+			one-to-many relation to PurchaseOrderImportAddOnCharge
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+				
+		PurchaseOrderImportWithErrorInRunGroupRel
+			one-to-many relation to PurchaseOrderImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and	   related.ErrorMessage entered)
+		
+
+
+		RunGroupProcessedPurchaseOrderImportRel
+			one-to-many relation to PurchaseOrderImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		RunGroupPurchaseOrderImportStandaloneLineRel
+			one-to-many relation to PurchaseOrderImportLine
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		RunGroupPurchaseOrderImportStandaloneAddOnChargeRel
+			one-to-many relation to PurchaseOrderImportAddOnCharge
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= RunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		ErrorRunGroupPurchaseOrderImportRel
+			one-to-many relation to PurchaseOrderImport
+			valid when (ErrorRunGroupEntered)
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= ErrorRunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		ErrorRunGroupPurchaseOrderImportStandaloneLineRel
+			one-to-many relation to PurchaseOrderImportLine
+			valid when (ErrorRunGroupEntered)
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= ErrorRunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		ErrorRunGroupPurchaseOrderImportStandaloneAddOnChargeRel
+			one-to-many relation to PurchaseOrderImportAddOnCharge
+			valid when (ErrorRunGroupEntered)
+			Field Mapping uses ByRunGroup
+				related.RunGroup 		= ErrorRunGroup
+			Instance Selection
+				where (related.ResultProcessedBy = PurchaseOrderInterfaceResult
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+		
+		PurchaseOrderImportErrorRunGroupRel
+			one-to-many relation to PurchaseOrderImport
+			valid when (ErrorRunGroupEntered)
+			Field Mapping uses ByRunGroup
+				related.RunGroup		= ErrorRunGroup
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		PurchaseOrdersRel
+			one-to-many relation to PurchaseOrder
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.OriginatingInterfaceRun	= PurchaseOrderInterfaceResult
+				and    related.InterfaceInProcess = 0
+				and    related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+				
+		StandingContractsRel
+			one-to-many relation to Contract
+			Field Mapping uses ForStandingContract
+				related.ContractGroup      = ContractGroup
+			Instance Selection
+				where  ((related.ContractStatus.Active or related.ContractStatus.Amendment or related.ContractStatus.Addendum)
+				and    related.EffectiveDate <= current corporate date
+				and    related.OnHold = false
+				and   (related.ExpirationDate !entered
+				or     related.ExpirationDate >= current corporate date)
+				and   (related.MaximumReleaseNumber = 0
+				or     related.MaximumReleaseNumber > related.LastPORelease))
+						
+		ErrorRunGroupRel
+			one-to-many relation to PurchaseOrderInterfaceResult
+			Field Mapping uses ByErrorRunGroup
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.ErrorRunGroup		   = RunGroup
+		
+		ContractGroupRel
+			one-to-one relation to ContractGroup
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+
+		PurchasingCompanyRel
+			one-to-one relation to PurchasingCompany
+			Field Mapping uses symbolic key
+				related.Company = Company	
+				
+		LocationRel
+			one-to-one relation to InventoryLocation
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = Location
+
+		CompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company                     = Company
+
+		GeneralLedgerSystemCodeRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "PO"
+				
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				PurchaseOrderInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+		
+		ByRunGroup
+			Sort Order
+				RunGroup
+				PurchaseOrderInterfaceResult
+				FinanceEnterpriseGroup
+				UniqueID
+				
+		ByOriginalRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				OriginalRunGroup
+				RunTime descending
+				PurchaseOrderInterfaceResult
+				
+		ByErrorRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				ErrorRunGroup
+				PurchaseOrderInterfaceResult
+
+	Actions
+			
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			valid when (EligibleToDelete)
+		
+		Purge is a Purge Action
+			restricted
+		
+		RerunForErrors is an Instance Action
+			valid when (IncompleteWithPendingError)
+			Parameters
+				PrmFinanceEnterpriseGroup 	is a FinanceEnterpriseGroup	
+				PrmHROrganization           is an HROrganization
+				PrmRunGroup					is a RunGroup
+					default label is "RunGroup"
+				PrmCompany                  is a PurchasingCompany
+				DefaultBuyer                is a Buyer
+					context of PrmHROrganization
+				ReleasePurchaseOrders       is Boolean
+				PrmMoveErrorsToNewRunGroup  is Boolean
+					default label is "MoveErrorsToNewRunGroup"
+				PrmErrorRunGroupPrefix		is AlphaUpper 15
+					default label is "ErrorRunGroupPrefix"
+				PrmSpecificAction           is Numeric 1
+					States
+						Create              value is 1
+						Update              value is 2
+						Cancel              value is 3
+				EnableGTINProcessing        is Boolean	
+				
+			Parameter Rules
+				PrmFinanceEnterpriseGroup	
+					default to actor.context.FinanceEnterpriseGroup 
+				PrmHROrganization
+					default to actor.context.HROrganization
+				PrmRunGroup
+					initial value is DerivedRunGroup
+				PrmCompany
+					initial value is Company
+				PrmSpecificAction
+					initial value is SpecificAction
+				ReleasePurchaseOrders
+					initial value is true
+					
+			Action Rules
+			
+				invoke InterfacePurchaseOrders PurchaseOrderImport
+					invoked.PrmFinanceEnterpriseGroup		= PrmFinanceEnterpriseGroup 
+					invoked.PrmHROrganization 				= PrmHROrganization
+					invoked.PrmRunGroup       				= PrmRunGroup
+					invoked.PrmCompany        				= PrmCompany
+					invoked.DefaultBuyer      				= DefaultBuyer
+					invoked.ReleasePurchaseOrders 			= ReleasePurchaseOrders
+					invoked.IncludePurchaseOrdersInError 	= true
+					invoked.PrmMoveErrorsToNewRunGroup 		= PrmMoveErrorsToNewRunGroup
+					invoked.PrmErrorRunGroupPrefix 			= PrmErrorRunGroupPrefix
+					invoked.PrmSpecificAction            	= PrmSpecificAction
+					invoked.EnableGTINProcessing         	= EnableGTINProcessing
+		
+		UpdateErrorInformation is an Instance Action
+			restricted	
+			Action Rules
+			
+					
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+					if (PurchaseOrderImportWithErrorInRunGroupRel exists)
+						Status = Status.Incomplete 
+
+						if  (MoveErrorsToNewRunGroup = true 
+						and  ErrorRunGroup not entered)
+							increment first RunGroupPurchaseOrderImportRel.Company.VendorGroup.LastErrorRunGroupNumber
+							ErrorRunGroup				= ErrorRunGroupPrefix + "ERRORS_" + first RunGroupPurchaseOrderImportRel.Company.VendorGroup.LastErrorRunGroupNumber
+							
+							invoke UpdateRunGroup PurchaseOrderImportWithErrorInRunGroupRel
+								invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmRunGroup					= RunGroup
+								invoked.NewRunGroup					= ErrorRunGroup
+								
+							invoke UpdateRunGroup RunGroupPurchaseOrderImportLineRel
+								invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmRunGroup					= RunGroup
+								invoked.NewRunGroup					= ErrorRunGroup
+								
+							invoke UpdateRunGroup RunGroupPurchaseOrderImportLineDistribRel
+								invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmRunGroup					= RunGroup
+								invoked.NewRunGroup					= ErrorRunGroup
+								
+							invoke UpdateRunGroup RunGroupPurchaseOrderImportAddOnChargeRel
+								invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmRunGroup					= RunGroup
+								invoked.NewRunGroup					= ErrorRunGroup
+							
+		Finish is an Instance Action
+			restricted
+			Parameters
+				PrmCompleteStatus    is Boolean
+			
+			Action Rules
+				invoke UpdateErrorInformation
+				
+				if (Status != Status.Incomplete)
+					Status = Status.Complete
+				if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+				or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+					invoke ProcessInterfaceBatchEdits BudgetEditBatch
+						invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup 
+						invoked.PrmBusinessClassName		= "PurchaseOrder"
+					
+				RecordsProcessed = DerivedRecordsProcessed
+					
+
+
+
+
+
+
+				
+
+			
+
+
+
+
+
+
+							
+
+				
+
+
+
+
+
+				
+		CreatePurchaseOrdersFromStandingContracts is a Set Action
+			Parameters
+				PrmContractGroup is a ContractGroup
+				PrmCompany       is an InventoryCompany
+				PrmLocation      is an InventoryLocation
+				FutureDays       is Numeric size 2
+				
+			Parameter Rules
+			
+				PrmContractGroup
+					required
+				PrmCompany
+					if (PrmLocation entered)
+						constraint (PrmCompany entered)
+							"MustSelectCompanyIfLocationSelected"
+							
+			Action Rules			
+				Empty Set Rules
+					invoke CreatePurchaseOrdersFromStandingContracts ContractParticipant
+						invoked.PrmContractGroup    = PrmContractGroup
+						invoked.PrmCompany          = PrmCompany
+						invoked.PrmLocation         = PrmLocation
+						invoked.FutureDays          = FutureDays
+				Set Rules
+					Entrance Rules
+						invoke CreatePurchaseOrdersFromStandingContracts ContractParticipant
+							invoked.PrmContractGroup    = PrmContractGroup
+							invoked.PrmCompany          = PrmCompany
+							invoked.PrmLocation         = PrmLocation
+							invoked.FutureDays          = FutureDays
+				
+												
+	

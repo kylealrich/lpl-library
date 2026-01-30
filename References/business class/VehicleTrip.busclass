@@ -1,0 +1,381 @@
+VehicleTrip is a BusinessClass
+    owned by wh
+    prefix is VHTM
+
+    Ontology
+        symbolic key is VehicleTrip
+
+    Patterns 
+        disable AuditIndex
+        implements ForceUIRefreshOnStale
+
+    Persistent Fields
+        Vehicle
+        StartDateAndTime        is TimeStamp 
+        EndDateAndTime          is TimeStamp
+        VehicleOperator         is Alpha size 30
+        Status                  is Numeric size 1
+            States
+                Created         value is 0
+                    default label is "Scheduled"
+                Started         value is 1
+                InTransit       value is 2
+                Completed       value is 3
+        WarehouseDock
+
+    Field Rules
+        Vehicle
+            required
+
+        VehicleOperator
+            if (not TripCreated)
+                cannot be changed
+        
+        WarehouseDock
+            constraint(ActiveWarehouseDock)
+                "CannotUseInactive_Warehouse_Dock"
+                
+            if (WarehouseDock.DockType.UnloadingDock)
+                cannot be entered
+                    "DockTypeMustBe_Loading_DockOr_Open_Dock"
+
+    Rule Blocks
+        TransitionVehicleTripStatus
+            if (Status.Created)
+                make transition to InTransit
+            else
+            if (Status.InTransit)
+                make transition to Completed
+
+    Conditions
+        RecordExists
+            restricted
+            when(VehicleTrip exists)
+
+        TripCreated
+			restricted
+			when (Status.Created)
+
+        TripStarted
+			restricted
+			when (Status.Started)
+
+        InTransitTrip
+            restricted
+            when (Status.InTransit)
+
+        CompletedTrip
+            restricted
+            when (Status.Completed)
+
+        AllowStartTrip
+            restricted
+            when (RecordExists
+            and VehicleTripRel not exists
+            and VehicleTripLineRel exists)
+        
+        AllowedOperatingDays
+            restricted
+            when (not NonOperatingDates
+            and OperatingDays)
+
+        CurrentLoadIsOverTheLimit
+            restricted
+            when (DerivedCurrentLoadWeight > DerivedVehicleWeightCapacity)
+
+        CurrentVolumeIsOverTheLimit
+            restricted
+            when (DerivedCurrentLoadVolume > DerivedVehicleVolumeCapacity)
+        
+        IsOvertheVehicleCapacityLimit
+            restricted
+            when (CurrentLoadIsOverTheLimit
+            or CurrentVolumeIsOverTheLimit)
+
+        VehicleOperatorDisplayAsText
+            restricted
+            when (RecordExists 
+            and  not TripCreated)
+
+        WeightAlert 
+            when (DerivedFillRateWeight > 100%)
+
+        VolumeAlert
+            when (DerivedFillRateVolume > 100%)
+
+        ActiveWarehouseDock
+            when (WarehouseDock.Active)
+
+    Derived Fields
+        TripCreatedTagMsg                                       is a MessageField
+			restricted
+			"Scheduled"
+
+        TripStartedTagMsg                                       is a MessageField
+			restricted
+			"TripStarted"
+
+        InTransitTagMsg                                         is a MessageField
+            restricted
+			"InTransit"
+
+        CompletedTagMsg                                         is a MessageField
+            restricted
+			"Completed"
+
+        StatusMsgTagField                                       is a DerivedField
+			type is MessageField
+			default label is "Status"
+			if (TripCreated)
+				return TripCreatedTagMsg
+			if (TripStarted)
+				return TripStartedTagMsg
+            if(InTransitTrip)
+                return InTransitTagMsg
+            if(CompletedTrip)
+                return CompletedTagMsg
+
+        DerivedVehicleWeightCapacity                            is a DerivedField
+            type is like DimensionSize
+            return VehicleTypeRel.VehicleWeightCapacity
+
+        DerivedVehicleVolumeCapacity                            is a DerivedField
+            type is like DimensionSize
+            return VehicleTypeRel.VehicleVolumeCapacity
+
+        DerivedTotalLoadNumber                                  is a DerivedField
+            type is Numeric 6
+            default label is "Total_NumberOf_Load"
+            return instance count of VehicleTripLineRel.ShipmentLoadConsolidation 
+        
+        DerivedTotalNumberOfShipToLocation                      is a DerivedField
+            type is Numeric 6
+            default label is "Total_NumberOf_ShipTo_Location"
+            return instance count of VehicleTripLineRel.ShipTo 
+
+        DerivedTotalNumberOfShipment                            is a DerivedField
+            type is Numeric 6
+            default label is "Total_NumberOf_Shipment"
+            return VehicleTripLineRel.DerivedTotalShipmentLoad 
+
+        DerivedFillRateWeight                                   is a ComputeField
+            type is Percent size 6.3
+            default label is "Vehicle_Fill_Rate_%_Weight" 
+            (VehicleTripLineRel.DerivedCurrentLoadWeight / DerivedVehicleWeightCapacity)
+
+        DerivedFillRateVolume                                   is a ComputeField
+            type is Percent size 6.3
+            default label is "Vehicle_Fill_Rate_%_Volume" 
+            (VehicleTripLineRel.DerivedCurrentLoadVolume / DerivedVehicleVolumeCapacity)
+
+        DerivedCurrentVolume                                    is a DerivedField
+            type is like Volume 
+            restricted
+            return VehicleTripLineRel.DerivedCurrentLoadVolume
+
+        DerivedCurrentWeight                                    is a DerivedField
+            type is like DimensionSize
+            restricted
+            return sum VehicleTripLineRel.DerivedCurrentLoadWeight
+
+        DerivedCurrentLoadUOM                                   is a DerivedField
+            type is like UnitOfMeasure
+            restricted
+            return VehicleTripLineRel.DerivedCurrentLoadUOM
+
+        DerivedCurrentLoadWeight                                is a MessageField
+			"<DerivedCurrentWeight>_<DerivedCurrentLoadUOM>"
+
+        DerivedCurrentLoadVolume                                is a MessageField
+			"<DerivedCurrentVolume>_C\U"
+
+        DerivedVehicleVolume                                    is a MessageField
+			"<DerivedVehicleVolumeCapacity>_C\U"
+
+        MaximumVehicleCapacityText                              is a MessageField
+		    "Maximum_Vehicle_Capacity"
+
+        FillRatePercentageText                                  is a MessageField
+		    "Fill_Rate_Percentage"
+
+        CurrentLoadText                                         is a MessageField
+		    "Current_Shipment_Load"    
+
+        DerivedVehicleName	                                    is a MessageField
+			"<Vehicle>_-_<Vehicle.Description>"
+
+        WeightAndVolumeIsOverTheVehicleLimitMessage             is a MessageField
+            "VehicleHasReachedIts_Maximum_WeightAnd_LoadCapacity._DoYouWantToProceed?"
+
+        WeightIsOverTheVehicleLimitMessage                      is a MessageField
+            "VehicleHasReachedIts_Maximum_WeightCapacity._DoYouWantToProceed?"
+
+        VolumeIsOverTheVehicleLimitMessage                      is a MessageField
+            "VehicleHasReachedIts_Maximum_LoadCapacity._DoYouWantToProceed?"
+
+        WeightAlertMessage                                      is a MessageField
+            "Vehicle_Weight_Capacity_Exceeded"
+
+        VolumeAlertMessage                                      is a MessageField
+            "Vehicle_Volume_Capacity_Exceeded"
+
+        DerivedCurrentCorporateDate                             is a DerivedField
+            type is Date
+            restricted
+            return current corporate date
+
+        OperatingDays                                           is a ConditionalField                                                                             
+            type is Boolean
+            restricted
+            if((DerivedCurrentCorporateDate week day = 1 and Vehicle.DerivedVehicleOperationSunday)
+            or (DerivedCurrentCorporateDate week day = 2 and Vehicle.DerivedVehicleOperationMonday)
+            or (DerivedCurrentCorporateDate week day = 3 and Vehicle.DerivedVehicleOperationTuesday)
+            or (DerivedCurrentCorporateDate week day = 4 and Vehicle.DerivedVehicleOperationWednesday)
+            or (DerivedCurrentCorporateDate week day = 5 and Vehicle.DerivedVehicleOperationThursday)
+            or (DerivedCurrentCorporateDate week day = 6 and Vehicle.DerivedVehicleOperationFriday)
+            or (DerivedCurrentCorporateDate week day = 7 and Vehicle.DerivedVehicleOperationSaturday))
+                true
+            else
+                false
+
+        NonOperatingDates                                       is a DerivedField
+            type is Boolean
+            restricted
+            for each Vehicle.NonOperatingDateAndDescription.NonOperatingDateGroup
+                if(DerivedCurrentCorporateDate = each.NonOperatingDate)
+                    return true
+
+        CapacityOverTheLimitConfirmationMessage                 is a DerivedField
+            type is MessageField
+            restricted
+            if (CurrentLoadIsOverTheLimit
+            and CurrentVolumeIsOverTheLimit)
+                return WeightAndVolumeIsOverTheVehicleLimitMessage
+            else
+            if(CurrentLoadIsOverTheLimit)
+                return WeightIsOverTheVehicleLimitMessage
+            else
+            if(CurrentVolumeIsOverTheLimit)
+                return VolumeIsOverTheVehicleLimitMessage
+
+        DerivedActiveVehicleTrip                                  is a DerivedField
+            type is like VehicleTrip
+            restricted
+            return first CompanyVehicleTripRel.VehicleTrip
+        
+        DerivedActiveLocation                                is a DerivedField
+            type is like InventoryLocation
+            restricted
+            return first CompanyVehicleTripRel.InventoryLocation
+
+    Relations
+        VehicleTripLineRel is a VehicleTripLine set
+
+        VehicleRel 
+            one-to-many relation to Vehicle
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+            Instance Selection
+                where (related.Active)
+
+        VehicleTypeRel 
+            one-to-one relation to VehicleType
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.VehicleType                     = Vehicle.VehicleType
+
+        ShipmentLoadConsolidationRel
+            one-to-many relation to ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.Status.Released
+                and (related.Vehicle                    = Vehicle
+                or   related.Vehicle                      = blank)
+                and  related.ShipmentLoadInVehicleTrip)
+
+        VehicleTripRel
+            one-to-many relation to VehicleTrip
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+			    where (related.Vehicle                  = Vehicle
+                and (related.Status.Started 
+                or   related.Status.InTransit))
+            
+        CompanyVehicleTripRel
+            one-to-many relation to VehicleTrip
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+            Instance Selection
+			    where (related.Vehicle                  = Vehicle
+                and   (related.Status.Started 
+                or     related.Status.InTransit))
+        
+        WarehouseDockRel
+            one-to-many relation to WarehouseDock
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.Active)
+            
+
+    StateCycles
+        VehicleTripCycle is a StateCycle
+            state field is Status
+
+            Created is a State
+                StartTrip is an Instance Action
+                    completion message is "TripStarted"
+                    valid when (AllowStartTrip)
+
+                    Action Rules
+                        if(IsOvertheVehicleCapacityLimit)
+                            confirmation required
+                                "<CapacityOverTheLimitConfirmationMessage>"
+
+                        constraint(AllowedOperatingDays)
+                            "Cannot_Assign_Vehicle._ItIsCurrently_Non_Operational._PleaseCheck_VehicleSetup"
+
+                        constraint(CompanyVehicleTripRel not exists)
+                            "CannotStartTrip._TheVehicleIsCurrentlyBeingUsedOn_Location<DerivedActiveLocation>_Vehicle_Trip<DerivedActiveVehicleTrip>"
+
+                        include TransitionVehicleTripStatus
+                        StartDateAndTime = current timestamp
+
+                        invoke CreateDelivery VehicleTripLine
+                            invoked.PrmCompany           = Company
+                            invoked.PrmInventoryLocation = InventoryLocation
+                            invoked.PrmVehicleTrip       = VehicleTrip
+                    Exit Rules
+                        invoke Update Vehicle
+                            invoked.Availability = Vehicle.Availability.NotAvailable
+
+                Create is a Create Action
+                Update is an Update Action
+                Delete is a Delete Action
+
+            Started is a State
+                InTransit is an Instance Action
+                    valid when (TripStarted)
+                    restricted
+                    Action Rules
+                        include TransitionVehicleTripStatus
+
+            InTransit is a State
+                Complete is an Instance Action
+                    valid when (InTransitTrip)
+                    restricted
+                    Action Rules
+                        include TransitionVehicleTripStatus
+                        EndDateAndTime = current timestamp
+                    Exit Rules
+                        invoke Update Vehicle
+                            invoked.Availability = Vehicle.Availability.Available
+                            
+            Completed is a State
+
+

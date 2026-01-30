@@ -1,0 +1,667 @@
+ShipmentLoadLineTemplate is a BusinessClass
+    owned by wh
+    prefix is SHLT
+
+    Ontology
+        part of WarehouseShipment
+			delete cascades
+			relative key is WarehouseShipmentLine
+
+    Patterns 
+        implements ContextualParent
+		implements TemplateDriven by WarehouseShipmentLine
+			create instance
+				when (InventoryLocation.UseAsWarehouseLocation)
+    
+    Persistent Fields
+        Item
+        TransactionUOM                   is a UnitOfMeasure
+        TransactionUOMMultiplier         is a UOMMultiplier
+        PrintedQuantity                  is a Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        ShippedQuantity                  is a Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        StockWeight 
+        StockVolume 
+        ShipmentLoadConsolidation 
+        AddShipmentLine                  is Boolean
+            protected
+    
+    Local Fields    
+        LocalVolume                      is like StockVolume
+        LocalWeight                      is like StockWeight
+        LocalRemainingLineQuantity       is like Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        LocalRemainingContainerQuantity  is like Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        LoadedQuantity                   is like Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        LocalContainer                   is Numeric size 6
+        RoundedValue
+        LocalShipmentLoadContainerView       is a ShipmentLoadContainer view
+        LocalShipmentLoadContainer           is a ShipmentLoadContainer
+        LocalContainerVolume                 is like StockVolume
+        LocalContainerWeight                 is like StockWeight
+        LocalLoadNumber                      is like ShipmentLoadConsolidation   
+        LocalWarehouseShipment               is like WarehouseShipment
+        LocalWarehouseShipmentLine           is like WarehouseShipmentLine
+        LocalShippedQuantity                 is like Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        LocalPrmVolume                      is like StockVolume
+        LocalPrmWeight                      is like StockWeight
+        LocalCompany                        is like InventoryCompany
+        LocalInventoryLocation              is like InventoryLocation
+        LocalItem                           is like Item
+        LocalTransactionUOM                 is like UnitOfMeasure
+        LocalTransactionUOMMultiplier       is like UOMMultiplier
+    Context Fields
+        ContextLoadNumber                   is a ShipmentLoadConsolidation
+        ContextShipmentLoadContainer        is a ShipmentLoadContainer
+
+    Rule Blocks
+        FillContainerLoad
+            if (LocalPrmVolume > 0 or LocalPrmWeight > 0)
+                if (LocalRemainingLineQuantity > 0 
+                and LocalRemainingLineQuantity < 1
+                and LocalRemainingLineQuantity > LocalRemainingContainerQuantity)
+                    LoadedQuantity = LocalRemainingLineQuantity
+                else
+                if (LocalRemainingLineQuantity > LocalRemainingContainerQuantity)
+                    LoadedQuantity = LocalRemainingContainerQuantity
+                else
+                    LoadedQuantity = LocalRemainingLineQuantity
+
+                if (LocalRemainingLineQuantity > 1)
+                    initialize RoundedValue
+                    RoundedValue.RoundInput			= LoadedQuantity
+                    RoundedValue.RoundingType		= RoundedValue.RoundingType.Low
+                    RoundedValue.RoundTo		    = 1
+                    RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+                    LoadedQuantity 	                = RoundedValue.RoundResult
+
+                LocalVolume = DerivedLoadVolume
+                LocalWeight = DerivedLoadWeight
+            else
+                LoadedQuantity = LocalShippedQuantity
+                LocalVolume    = LocalPrmVolume
+                LocalWeight    = LocalPrmWeight 
+
+            LocalRemainingLineQuantity -= LoadedQuantity
+
+        ContainerCounter
+            initialize LocalShipmentLoadContainer
+            if (NoExistingShipmentLoadContainer)
+                invoke Create ShipmentLoadContainer
+                    assign result to LocalShipmentLoadContainerView
+                    invoked.Company                     = LocalCompany
+                    invoked.InventoryLocation           = LocalInventoryLocation
+                    invoked.ShipmentLoadConsolidation   = LocalLoadNumber
+        
+
+                LocalShipmentLoadContainer = LocalShipmentLoadContainerView.ShipmentLoadContainer
+                LocalContainerVolume       = DerivedContainerVolumeCapacity
+                LocalContainerWeight       = DerivedContainerWeightCapacity
+                if (LocalPrmVolume > 0 and LocalPrmWeight > 0)
+                    LocalRemainingContainerQuantity = DerivedContainerQuantity
+                else 
+                if(LocalPrmVolume = 0 and LocalPrmWeight  > 0
+                or (LocalPrmVolume > 0 and LocalPrmWeight = 0))
+                    LocalRemainingContainerQuantity = DerivedContainerQuantity
+            if(ShipmentLoadContainerNotFilledExists)
+                for each ShipmentLoadContainerNotFilledRel
+                    LocalContainerVolume       = each.DerivedContainerVolume
+                    LocalContainerWeight       = each.DerivedContainerWeight
+                    if  (LocalPrmVolume = 0 and LocalPrmWeight = 0)
+                        LocalRemainingLineQuantity = LocalRemainingLineQuantity
+                        LocalShipmentLoadContainer = each.ShipmentLoadContainer
+                        end for each
+                    else
+                    if (DerivedContainerRemainingQuantity <= LocalRemainingLineQuantity
+                    and DerivedContainerRemainingQuantity >= 1)
+                        LocalShipmentLoadContainer = each.ShipmentLoadContainer
+                        LocalRemainingContainerQuantity = DerivedContainerRemainingQuantity
+                        end for each
+                    else
+                    if(DerivedContainerRemainingQuantity >= LocalRemainingLineQuantity)
+                        LocalShipmentLoadContainer = each.ShipmentLoadContainer
+                        LocalRemainingContainerQuantity = LocalRemainingLineQuantity
+                        end for each
+
+            if (LocalShipmentLoadContainer not entered)
+                invoke Create ShipmentLoadContainer
+                    assign result to LocalShipmentLoadContainerView
+                    invoked.Company                     = LocalCompany
+                    invoked.InventoryLocation           = LocalInventoryLocation
+                    invoked.ShipmentLoadConsolidation   = LocalLoadNumber
+                
+                
+                LocalShipmentLoadContainer      = LocalShipmentLoadContainerView.ShipmentLoadContainer
+                LocalContainerVolume            = DerivedContainerVolumeCapacity
+                LocalContainerWeight            = DerivedContainerWeightCapacity
+                LocalRemainingContainerQuantity = DerivedContainerQuantity
+
+        CreateShipmentLoadLine
+            invoke Create ShipmentLoadLine
+                invoked.Company                   = LocalCompany
+                invoked.InventoryLocation         = LocalInventoryLocation
+                invoked.WarehouseShipment         = LocalWarehouseShipment
+                invoked.WarehouseShipmentLine     = LocalWarehouseShipmentLine
+                invoked.ShipmentLoadConsolidation = LocalLoadNumber
+                invoked.Item                      = LocalItem
+                invoked.ShipmentLoadContainer     = LocalShipmentLoadContainer
+                invoked.Quantity                  = LoadedQuantity
+                invoked.UnitOfMeasure             = LocalTransactionUOM
+                invoked.TransactionUOMMultiplier  = LocalTransactionUOMMultiplier
+                invoked.StockWeight               = LocalWeight
+                invoked.StockVolume               = LocalVolume
+                
+            invoke Update UpdateShipmentLoadContainerRel
+                invoked.RemainingVolumeCapacity  -= LocalVolume
+                invoked.RemainingWeightCapacity  -= LocalWeight
+        
+        CreateShipmentLoadLineToAddShipmentLine
+            invoke Create ShipmentLoadLine
+                fill in fields from this instance
+                invoked.ShipmentLoadConsolidation = ContextLoadNumber
+                invoked.ShipmentLoadContainer     = ContextShipmentLoadContainer
+                invoked.Quantity                  = ShippedQuantity
+                invoked.UnitOfMeasure             = TransactionUOM
+                invoked.TransactionUOMMultiplier  = TransactionUOMMultiplier
+                invoked.StockWeight               = StockWeight
+                invoked.StockVolume               = StockVolume
+            
+            invoke Update UpdateShipmentLoadContainerRel
+                invoked.RemainingVolumeCapacity  -= StockVolume
+                invoked.RemainingWeightCapacity  -= StockVolume
+
+    Conditions
+        CanAddContainers
+            restricted
+            when (StockWeight <= DerivedRemainingContainerWeight
+            and   StockVolume <= DerivedRemainingContainerVolume)
+
+        CanAddShipmentLoadContainers
+            restricted
+            when (StockWeight <= ContextShipmentLoadContainer.DerivedContainerWeight
+            and   StockVolume <= ContextShipmentLoadContainer.DerivedContainerVolume)
+
+        NoExistingContainer 
+            restricted
+            when (not ShipmentLoadLineContainerCountRel exists)
+        
+        NoExistingShipmentLoadContainer
+            restricted
+            when (not ShipmentLoadContainerRel exists)
+        
+        ConsolidatedLinesRelExist
+            restricted
+            when (ConsolidatedLinesRel exists)
+
+        NoStockWeightAndVolume
+            restricted
+            when (StockVolume not entered or StockWeight not entered)
+        
+        ShipmentLoadContainerNotFilledExists
+            restricted
+            when(ShipmentLoadContainerNotFilledRel exists)
+        
+        IsInShipmentLoad
+            restricted
+            when (ShipmentLoadRel exists)
+        
+        HasVehicle
+            restricted
+            when (ShipmentLoadConsolidationDerivedRel.HasVehicle)
+
+    Relations
+        ShipmentLoadLineContainerRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses ByShipmentLoadConsolidation
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+                related.WarehouseShipment         = LocalWarehouseShipment
+                related.ShipmentLoadContainer     = LocalShipmentLoadContainer
+
+        ShipmentLoadLineContainerCountRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses ByShipmentLoadConsolidation
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+                
+        ConsolidatedLinesRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses ByWarehouseShipmentLine
+                related.Company                  = Company
+                related.InventoryLocation        = InventoryLocation
+                related.WarehouseShipment        = WarehouseShipment
+                related.WarehouseShipmentLine    = WarehouseShipmentLine
+        
+        ShipmentLoadConsolidationRel
+            one-to-one relation to  ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                          = LocalCompany
+                related.InventoryLocation                = LocalInventoryLocation
+                related.ShipmentLoadConsolidation        = LocalLoadNumber
+
+        AddShipmentLoadConsolidationRel                  
+            one-to-one relation to  ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                          = Company
+                related.InventoryLocation                = InventoryLocation
+                related.ShipmentLoadConsolidation        = ContextLoadNumber
+        
+        ShipmentLoadContainerRel
+            one-to-many relation to ShipmentLoadContainer
+            Field Mapping uses symbolic key
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+
+        ShipmentLoadContainerNotFilledRel
+            one-to-many relation to ShipmentLoadContainer
+            Field Mapping uses symbolic key
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+            Instance Selection
+                where (related.DerivedContainerVolume > 0 
+                and    related.DerivedContainerWeight > 0)
+        
+        UpdateShipmentLoadContainerRel
+            one-to-one relation to ShipmentLoadContainer
+            Field Mapping uses symbolic key
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+                related.ShipmentLoadContainer     = LocalShipmentLoadContainer
+
+        ShipmentLoadContainerFilledCountRel
+            one-to-many relation to ShipmentLoadContainer
+            Field Mapping uses symbolic key
+                related.Company                   = LocalCompany
+                related.InventoryLocation         = LocalInventoryLocation
+                related.ShipmentLoadConsolidation = LocalLoadNumber
+            Instance Selection
+                where (related.DerivedOrderLoadVolume entered
+                or     related.DerivedOrderLoadWeight entered)
+        
+        AddShipmentLoadContainerFilledCountRel          
+            one-to-many relation to ShipmentLoadContainer
+            Field Mapping uses symbolic key
+                related.Company                   = Company
+                related.InventoryLocation         = InventoryLocation
+                related.ShipmentLoadConsolidation = ContextLoadNumber
+            Instance Selection
+                where (related.DerivedOrderLoadVolume entered
+                or     related.DerivedOrderLoadWeight entered)
+        
+        ShipmentLoadRel
+            one-to-many relation to ShipmentLoad
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.ShipmentLoadConsolidation       = ContextLoadNumber
+                related.WarehouseShipment               = WarehouseShipment
+
+        ShipmentLoadLineTemplateRel
+            one-to-one relation to ShipmentLoadLineTemplate
+            Field Mapping uses ByWarehouseShipmentLine
+                related.Company                         = LocalCompany
+                related.InventoryLocation               = LocalInventoryLocation
+                related.WarehouseShipment               = LocalWarehouseShipment
+                related.WarehouseShipmentLine           = LocalWarehouseShipmentLine
+            
+        ShipmentLoadConsolidationDerivedRel
+            one-to-one relation to ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                         = LocalCompany
+                related.InventoryLocation               = LocalInventoryLocation
+                related.ShipmentLoadConsolidation       = LocalLoadNumber
+        
+        WarehouseShipmentLineRel
+            one-to-one relation to WarehouseShipmentLine
+            Field Mapping uses symbolic key
+                related.Company                  = Company
+                related.InventoryLocation        = InventoryLocation
+                related.WarehouseShipment        = WarehouseShipment
+                related.WarehouseShipmentLine    = WarehouseShipmentLine
+        
+    Sets
+        ByWarehouseShipmentLine
+            Sort Order
+                Company
+                InventoryLocation
+                WarehouseShipment
+                WarehouseShipmentLine
+
+    Derived Fields
+        DerivedContainerVolumeCapacity         is a DerivedField
+            type is like DimensionSize
+            restricted
+            return ShipmentLoadConsolidationDerivedRel.DerivedContainerVolumeCapacity
+
+        DerivedContainerWeightCapacity         is a DerivedField
+            type is like DimensionSize
+            restricted
+            return ShipmentLoadConsolidationDerivedRel.DerivedContainerWeightCapacity
+
+        DerivedStockVolumePerQuantity          is a ComputeField
+            type is like StockVolume
+            restricted
+            (LocalPrmVolume / LocalShippedQuantity)
+
+        DerivedStockWeightPerQuantity         is a ComputeField
+            type is like StockWeight
+            restricted
+            (LocalPrmWeight / LocalShippedQuantity)
+
+        DerivedContainerVolumeQuantity        is a ComputeField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            (DerivedContainerVolumeCapacity / DerivedStockVolumePerQuantity)
+
+        DerivedContainerWeightQuantity        is a ComputeField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            (DerivedContainerWeightCapacity / DerivedStockWeightPerQuantity)
+
+        DerivedContainerQuantity              is a DerivedField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            if ((DerivedContainerVolumeQuantity < DerivedContainerWeightQuantity
+            and LocalPrmVolume entered)
+            or (DerivedContainerVolumeQuantity > DerivedContainerWeightQuantity
+            and LocalPrmWeight not entered))
+                return DerivedContainerVolumeQuantity
+            else
+                return DerivedContainerWeightQuantity
+
+        DerivedLoadVolume                     is a ComputeField
+            type is like DimensionSize
+            restricted
+            (LoadedQuantity * DerivedStockVolumePerQuantity)
+
+        DerivedLoadWeight                     is a ComputeField
+            type is like DimensionSize
+            restricted
+            (LoadedQuantity * DerivedStockWeightPerQuantity)
+
+        DerivedTotalContainerQuantityLoad     is a DerivedField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            return sum ShipmentLoadLineContainerRel.Quantity
+
+        DerivedNumberOfContainer              is a DerivedField
+            type is Numeric size 6
+            restricted
+            if (HasVehicle)
+                return ShipmentLoadConsolidationDerivedRel.DerivedNumberOfContainer
+            else
+                return ShipmentLoadConsolidationDerivedRel.MaxContainer
+        
+        DerivedAddNumberOfContainer              is a DerivedField          
+            type is Numeric size 6
+            restricted
+            if (ContextLoadNumber.HasVehicle)
+                return ContextLoadNumber.DerivedNumberOfContainer
+            else
+                return ContextLoadNumber.MaxContainer
+        
+        DerivedLastContainerNumber           is a DerivedField         
+            type is Numeric size 6
+            restricted
+            return last ShipmentLoadLineContainerCountRel.ShipmentLoadContainer
+
+        DerivedRoundTo			             is a DerivedField    
+			type is Decimal size 13.4
+            restricted
+			if (Item.NumberOfDecimalsQuantity = 4)
+				return .0001
+			else
+			if (Item.NumberOfDecimalsQuantity = 3)
+				return .001
+			else
+			if (Item.NumberOfDecimalsQuantity = 2)
+				return .01
+			else
+			if (Item.NumberOfDecimalsQuantity = 1)
+				return .1
+			else
+			if (Item.NumberOfDecimalsQuantity = 0)
+				return 1
+			else
+				return 0
+
+        DerivedContainerRemainingVolumeQuantity        is a ComputeField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            (LocalContainerVolume / DerivedStockVolumePerQuantity)
+
+        DerivedContainerRemainingWeightQuantity        is a ComputeField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            (LocalContainerWeight / DerivedStockWeightPerQuantity)
+
+        DerivedContainerRemainingQuantity              is a DerivedField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            restricted
+            if ((DerivedContainerRemainingVolumeQuantity < DerivedContainerRemainingWeightQuantity
+            and LocalPrmVolume entered)
+            or (DerivedContainerRemainingVolumeQuantity > DerivedContainerRemainingWeightQuantity
+            and LocalPrmWeight not entered))
+                return DerivedContainerRemainingVolumeQuantity
+            else
+                return DerivedContainerRemainingWeightQuantity
+        
+        DerivedShipmentLoadContainerCount          is a DerivedField
+            type is Numeric size 6
+            restricted
+            return instance count of ShipmentLoadContainerFilledCountRel
+        
+        DerivedAddShipmentLoadContainerCount          is a DerivedField   
+            type is Numeric size 6
+            restricted
+            return instance count of AddShipmentLoadContainerFilledCountRel
+        
+        DerivedEstimateContainerCount              is a DerivedField
+            type is Numeric size 6
+            restricted
+            if (StockWeight > StockVolume)
+                return StockWeight / DerivedContainerWeightCapacity
+            else
+                return StockVolume / DerivedContainerVolumeCapacity
+        
+        DerivedRemainingContainerVolume             is a DerivedField
+            type is like DimensionSize
+            restricted
+            return ShipmentLoadConsolidationDerivedRel.DerivedRemainingContainerVolume
+
+        DerivedRemainingContainerWeight             is a DerivedField
+            type is like DimensionSize
+            restricted
+            return ShipmentLoadConsolidationDerivedRel.DerivedRemainingContainerWeight
+        
+        DerivedPrintedQuantityInTransUOM            is a DerivedField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            default label is "PrintedQuantity"
+            return PrintedQuantity / TransactionUOMMultiplier
+        
+        DerivedShippedQuantityInTransUOM            is a DerivedField
+            type is like Quantity
+                precision is Item.NumberOfDecimalsQuantity
+            default label is "ShippedQuantity"
+            return ShippedQuantity / TransactionUOMMultiplier
+        
+        DerivedStockVolumetInTransUOM            is a DerivedField
+            type is like StockVolume
+                precision is Item.NumberOfDecimalsQuantity
+            default label is "StockVolume"
+            return StockVolume / TransactionUOMMultiplier
+        
+        DerivedStockWeightInTransUOM            is a DerivedField
+            type is like StockWeight
+                precision is Item.NumberOfDecimalsQuantity
+            default label is "StockWeight"
+            return StockWeight / TransactionUOMMultiplier
+	Field Rules
+        ShipmentLoadConsolidation
+            if (AddShipmentLine)
+                force default to LocalLoadNumber
+
+        Item
+            required
+
+        ShippedQuantity
+            required
+
+        TransactionUOM
+            required      
+
+	Actions		
+        Create is a Create Action
+        Update is an Update Action         
+        Delete is a Delete Action
+
+        FastUpdate  is an Update Action
+            restricted
+            bypass field rules
+    
+        AddToLoad is an Instance Action
+            valid when (not AddShipmentLine)
+            completion message is "Shipment_Line<WarehouseShipment>IsLoadedTo_Load_Number<ContextLoadNumber>"
+            Entrance Rules
+                LocalCompany            = Company
+                LocalInventoryLocation  = InventoryLocation
+                LocalLoadNumber         = ContextLoadNumber
+
+                if (StockVolume > 0 and StockWeight > 0)
+                    constraint (CanAddContainers)
+                        "CannotAddLine<WarehouseShipmentLine>;WillExceedContainerLimits"   
+            Action Rules
+                if (DerivedEstimateContainerCount > 20)
+                    confirmation required
+                        "Shipment_Line<WarehouseShipment>HasMoreThan50Items,WillBeSubmmitedInABatch;Continue?"
+                    invoke AddToLoadSetAction   
+                        invoked.PrmCompany                   = Company
+                        invoked.PrmInventoryLocation         = InventoryLocation
+                        invoked.PrmShipmentLoadConsolidation = ContextLoadNumber
+                        invoked.PrmWarehouseShipment         = WarehouseShipment
+                        invoked.PrmWarehouseShipmentLine     = WarehouseShipmentLine
+                        invoked.PrmShippedQuantity           = ShippedQuantity
+                        invoked.PrmItem                      = Item
+                        invoked.PrmStockWeight               = StockWeight
+                        invoked.PrmStockVolume               = StockVolume
+                        invoked.PrmTransactionUOM            = TransactionUOM
+                        invoked.PrmTransactionUOMMultiplier  = TransactionUOMMultiplier
+                else
+                    invoke AddToLoadSetAction    in foreground
+                        invoked.PrmCompany                   = Company
+                        invoked.PrmInventoryLocation         = InventoryLocation
+                        invoked.PrmShipmentLoadConsolidation = ContextLoadNumber
+                        invoked.PrmWarehouseShipment         = WarehouseShipment
+                        invoked.PrmWarehouseShipmentLine     = WarehouseShipmentLine
+                        invoked.PrmShippedQuantity           = ShippedQuantity
+                        invoked.PrmItem                      = Item
+                        invoked.PrmStockWeight               = StockWeight
+                        invoked.PrmStockVolume               = StockVolume
+                        invoked.PrmTransactionUOM            = TransactionUOM
+                        invoked.PrmTransactionUOMMultiplier  = TransactionUOMMultiplier
+        
+        AddToLoadSetAction is a Set Action
+            Parameters
+                PrmCompany                      is like Company
+                PrmInventoryLocation            is like InventoryLocation
+				PrmShipmentLoadConsolidation    is like ShipmentLoadConsolidation
+                PrmWarehouseShipment            is like WarehouseShipment
+                PrmWarehouseShipmentLine        is like WarehouseShipmentLine
+                PrmItem                         is like Item
+                PrmPrintedQuantity              is like Quantity
+                PrmShippedQuantity              is like Quantity
+                PrmStockVolume                  is like StockVolume
+                PrmStockWeight                  is like StockWeight
+                PrmTransactionUOM               is like UnitOfMeasure
+                PrmTransactionUOMMultiplier     is like UOMMultiplier
+            Action Rules
+                Set Rules
+                    Exit Rules
+                        LocalCompany                    = PrmCompany
+                        LocalInventoryLocation          = PrmInventoryLocation
+                        LocalLoadNumber                 = PrmShipmentLoadConsolidation
+                        LocalWarehouseShipment          = PrmWarehouseShipment
+                        LocalWarehouseShipmentLine      = PrmWarehouseShipmentLine
+                        LocalPrmVolume                  = PrmStockVolume
+                        LocalPrmWeight                  = PrmStockWeight
+                        LocalRemainingLineQuantity      = PrmShippedQuantity
+                        LocalShippedQuantity            = PrmShippedQuantity
+                        LocalItem                       = PrmItem
+                        LocalTransactionUOM             = PrmTransactionUOM
+                        LocalTransactionUOMMultiplier   = PrmTransactionUOMMultiplier
+                        while (LocalRemainingLineQuantity > 0) 
+                            include ContainerCounter
+                            if(LocalPrmVolume = 0 and LocalPrmWeight = 0)
+                                include FillContainerLoad
+                                    
+                                include CreateShipmentLoadLine
+                            else
+                            if (DerivedShipmentLoadContainerCount >= DerivedNumberOfContainer)
+                                constraint(LocalRemainingLineQuantity < 0)
+                                    "CannotAddLine<LocalWarehouseShipment>;WillExceedContainerLimits"   
+                            else
+                            if (DerivedShipmentLoadContainerCount <= DerivedNumberOfContainer
+                            or not ConsolidatedLinesRelExist)
+                                include FillContainerLoad
+
+                                include CreateShipmentLoadLine
+                            else 
+                                constraint (ConsolidatedLinesRelExist)
+                                    "Line<WarehouseShipmentLine>Of<WarehouseShipment>HasBeenAddedToADifferent_Load"
+                                end while
+
+                        invoke FastUpdate ShipmentLoadLineTemplateRel
+                            invoked.ShipmentLoadConsolidation = LocalLoadNumber
+                            invoked.AddShipmentLine           = true
+
+                        invoke Update ShipmentLoadConsolidationRel
+                            invoked.NumberOfFilledContainerUnits = DerivedShipmentLoadContainerCount
+        
+        AddShipmentLines is an Instance Action
+            valid when(not ShipmentLoadConsolidation.IsReleasedOrClosed)
+            Entrance Rules
+                if (StockVolume > 0 and StockWeight > 0
+                or (StockVolume = 0 and StockWeight  > 0)
+                or (StockVolume > 0 and StockWeight = 0))
+                    constraint (CanAddShipmentLoadContainers)
+                        "CannotAddLine<WarehouseShipmentLine>;WillExceedContainerLimits" 
+                
+            Action Rules  
+                if(StockWeight = 0 and StockVolume = 0)
+                    include CreateShipmentLoadLineToAddShipmentLine
+                else
+                if (DerivedAddShipmentLoadContainerCount >= DerivedAddNumberOfContainer)
+                    constraint(LocalRemainingLineQuantity < 0)
+                        "CannotAddLine<WarehouseShipmentLine>;WillExceedContainerLimits"         
+                else
+                if (DerivedAddShipmentLoadContainerCount <= DerivedAddNumberOfContainer
+                or not ConsolidatedLinesRelExist)           
+                    include CreateShipmentLoadLineToAddShipmentLine 
+                else 
+                    constraint (ConsolidatedLinesRelExist)
+                        "Line<WarehouseShipmentLine>Of<WarehouseShipment>HasBeenAddedToADifferent_Load"
+			Exit Rules
+                LocalLoadNumber = ContextLoadNumber
+                invoke Update 
+                    invoked.ShipmentLoadConsolidation = LocalLoadNumber
+                    invoked.AddShipmentLine           = true	
+        
+                invoke Update AddShipmentLoadConsolidationRel
+                    invoked.NumberOfFilledContainerUnits = DerivedAddShipmentLoadContainerCount

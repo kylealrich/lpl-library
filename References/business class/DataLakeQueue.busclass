@@ -1,0 +1,542 @@
+DataLakeQueue is a BusinessClass
+    owned by la
+    prefix is DAFQ
+	disable data area copy
+
+    Ontology
+    	symbolic key is DataLakeQueue
+
+	Patterns
+		implements CreateStamp
+		implements UpdateStamp
+		disable Auditing
+		disable AsOfDateProcessing
+		disable EffectiveDated
+
+    Persistent Fields
+        ReplicationSet
+            delete ignored
+        RepSetBC
+            delete ignored
+        DocumentName is Alpha size 200
+        DocumentSize is Numeric size 9 
+        Instances is Numeric size 9
+        Type is Numeric size 1
+            States
+                Batch    value is 0
+                Stream   value is 1
+        Compression is Numeric size 1
+            restricted
+            States
+                None     value is 0
+                Deflate  value is 1
+                Base64   value is 2
+
+        Document is BinaryObject
+        Status is Numeric size 1
+            States
+                New         value is 0
+                Cancelled   value is 1
+                Failed      value is 2
+                Sent        value is 3
+
+        ExecuteTime					is TimeStamp
+        ErrorCode                   is Numeric size 2
+            States
+                MissingTenant               value is 1
+                InvalidMessageFormat        value is 2
+                JSONDeserializationError    value is 3
+                UnknownError                value is 4
+                TooManyRequests             value is 5
+                AcknowledgmentTimeout       value is 6
+                PayloadTooLarge             value is 7
+                InvalidErrorCode            value is 99
+
+        ErrorMessage 				is Text
+
+
+        BatchId             is Alpha size 250
+        BatchSequence       is Numeric size 19
+        BatchSize           is Numeric size 19
+        BatchRevision       is Numeric size 19
+        BatchAbortIndicator is Boolean
+
+
+        HeaderAccountingEntity    is Alpha size 22
+        HeaderLocation            is Alpha size 22
+        HeaderDocumentId          is Alpha size 100
+        HeaderSource              is Alpha size 250
+        VariationId               is Numeric size 19
+        RevisionId                is Alpha size 22
+        SourcePublicationDate     is TimeStamp
+        Archived                  is Boolean
+
+    Conditions
+        RedAlert
+            when (Status.Failed
+            or   (Status.New and FailedTriggersExist)
+            or   ConnectionInvalid)
+
+        YellowAlert
+            when (Status.New and (ErrorCode != blank or ErrorMessage != blank))
+
+        ConnectionInvalid
+            restricted
+            when (Status.New and not IONConnectionRel.Status.Healthy)
+
+        FromRepSet
+            restricted
+            when (RepSetBC != blank)
+            
+		IsNewOrFailed
+			restricted
+			when (Status.New or Status.Failed)
+
+		IsNewOrFailedDataLakeQueue
+			restricted
+			when (IsNewOrFailed and Type.Batch)
+		
+		IsNewOrFailedStreamingQueue
+			restricted
+			when (IsNewOrFailed and Type.Stream)
+
+    Derived Fields
+        RedAlertMessage is a DerivedField
+            type is MessageField
+            restricted
+            if (Status.Failed)
+                return ErrorMessage
+            else
+            if (ConnectionInvalid)
+                if (IONConnectionRel.AlertMessage = blank)
+                    return ConnectionErrorMessage
+                else
+                    return IONConnectionRel.AlertMessage
+            else
+                return FailedTriggersExistMessage
+
+        YellowAlertMessage is a DerivedField
+            type is MessageField
+            restricted
+            return ErrorMessage
+
+        ConnectionErrorMessage is a MessageField
+            restricted
+            "<IONConnectionRel.Description>IsCurrently<IONConnectionRel.Status>"
+
+        UnCompressedMessage is a NativeField
+            type is BinaryObject
+
+    	FromLogicalId is a NativeField
+    		type is Alpha size 250
+
+        TenantId is a NativeField
+        	type is Alpha size 50
+
+		IsFailedTrigger is a DerivedField
+			type is Boolean
+			default label is "FailedTrigger"
+			return AutoDisableAsyncActionRequestRel.FailedTriggersExist
+			
+		IsSuspended is a DerivedField
+			type is Boolean 
+			default label is "Suspended"
+			return not AutoDisableAsyncActionRequestRel.IsAsyncActive
+
+		IsNotScheduled is a DerivedField
+			type is Boolean
+			default label is "NotScheduled"
+			return AutoDisableAsyncActionRequestRel.PendingScheduling
+				 				
+		SuspendedMessage is a DerivedField
+			type is MessageField
+			return AutoDisableAsyncActionRequestRel.SuspendedMessage
+
+		FailedTriggersExist is a DerivedField
+		    type is Boolean
+		    return AutoDisableAsyncActionRequestRel.FailedTriggersExist
+		
+		FailedTriggersExistMessage is a DerivedField
+			type is MessageField
+			return AutoDisableAsyncActionRequestRel.FailedTriggersExistMessage
+
+		SweepAction is a DerivedField
+		    type is Alpha size 50
+		    restricted
+		    if (Type.Batch)
+		        return "BatchSweep"
+		    else
+		        return "StreamSweep"
+
+		UpperCaseDataArea is a DerivedField
+			type is DataAreaName
+			restricted
+			return parentcontext.dataarea  
+
+		Enabled is a NativeField
+		    type is Boolean
+		    restricted
+
+        Configured is a NativeField
+            type is Boolean
+            restricted
+
+		PreEncoded is a DerivedField
+		    type is Boolean
+		    return (not Compression.None)
+
+		DeveloperMode is a NativeField
+		    type is Boolean
+
+		DerivedConnection is a DerivedField
+		    type is Numeric size 1
+		    if (Type.Batch)
+		        return 7
+		    else
+		        return 8
+
+		SaveHistory is a DerivedField
+		    type is Boolean
+		    if (config(datalake).savehistory = blank)
+		        return false
+		    else
+		        return config(datalake).savehistory
+
+		ConfigurationID is a NativeField
+		    type is Alpha size 30
+		    restricted
+
+        SaveHistoryConfigName is a NativeField
+            type is Alpha size 150
+            restricted
+
+	Relations
+		AutoDisableAsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "DataLakeQueue"
+				related.AsyncAction = SweepAction
+			Instance Selection
+				where (related.SystemRequest.AutoDisable)
+
+		IONConnectionRel
+		    one-to-one relation to IONConnection
+		    Field Mapping uses symbolic key
+		        related.IONConnection = DerivedConnection
+
+		SaveHistoryConfigurationRel
+		    one-to-many relation to ConfigurationParameter
+		    Field Mapping uses symbolic key
+		    Instance Selection
+		        where (related.ConfigurationParameter.ConfigurationID = ConfigurationID
+		        and    related.ConfigurationParameter.Name uppercase  = SaveHistoryConfigName uppercase)
+
+    Sets
+		ByProcessingOrder
+		    Sort Order
+		        Status
+		        Type
+		        ExecuteTime
+		        create stamp
+
+		ByReplicationSet
+		    Sort Order
+		        ReplicationSet
+		        RepSetBC
+		        create stamp
+		        Status
+		        DataLakeQueue
+
+		ByStamp
+			indexed
+			Sort Order
+				create stamp
+				DataLakeQueue
+
+    Field Rules
+        DocumentName required
+        DocumentSize required
+        Document required
+
+    Create Rules
+        constraint (Enabled)
+            "DataLakeDirectIngestionIsNotEnabled"
+
+    Actions
+        BatchSweep is a Set Action
+            run in background
+            disable checkpoint
+
+            Sort Order is ByProcessingOrder
+
+            Instance Selection
+                where (Status.New
+                and    Type.Batch)
+
+            Action Rules
+                Instance Rules
+                    if (not Configured)
+                        end set action instance loop
+
+        StreamSweep is a Set Action
+            run in background
+            disable checkpoint
+
+            Sort Order is ByProcessingOrder
+
+            Instance Selection
+                where (Status.New
+                and    Type.Stream)
+
+            Action Rules
+                Instance Rules
+                    if (not Configured)
+                        end set action instance loop
+
+        ResetAll is a Set Action
+            run in background
+            disable checkpoint
+
+            Instance Selection
+                where (Status.Failed)
+
+            Action Rules
+                Instance Rules
+                    invoke Failed.Reset
+
+    	CancelAllNew is a Set Action
+    		default label is "CancelAllNewMessages"
+    		run in background
+    		disable checkpoint
+    		Parameters
+				ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+    		
+    		Instance Selection
+    			where (Status.New
+				and    create stamp < LocalThruDate)
+    			
+    		Action Rules
+    			Instance Rules
+    				invoke Cancel
+
+    	Purge is a Set Action
+			run in background
+			disable checkpoint
+
+            Local Fields
+                LocalThruDate 	is Date
+                    value is ThruDate
+
+			Parameters
+				ParamStatus              is Numeric size 1
+					default label is "Status"
+					States
+                        Cancelled   value is 1
+                        Failed      value is 2
+                        Sent        value is 3
+
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+
+
+			Parameter Rules
+				ParamStatus
+					required
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else
+					if (not OffsetDays entered)
+						required
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+    		Instance Selection
+                where (Status = ParamStatus
+                    and    create stamp < LocalThruDate)
+			Action Rules
+				Instance Rules
+					if (Status.Cancelled)
+						invoke Cancelled.PurgeRecord
+					else
+					if (Status.Sent)
+						invoke Sent.PurgeRecord
+					else
+					if (Status.Failed)
+						invoke Failed.PurgeRecord
+
+		CancelAllFailed is a Set Action
+			default label is "CancelAllFailedMessages"
+			run in background
+			disable checkpoint
+
+	    	Instance Selection
+    			where (Status.Cancelled)
+	
+			Action Rules
+				Instance Rules
+					invoke Cancel
+
+		ResetFailedMessages is a Set Action
+			run in background
+			disable checkpoint
+			restricted
+			
+	    	Instance Selection
+	    		where (Status.Failed)
+
+								
+			Action Rules
+			    Instance Rules
+			        make transition to New
+
+		UpdateAsyncRequest is an Instance Action
+			restricted
+
+			Action Rules
+				if (first AutoDisableAsyncActionRequestRel.AsyncActionRequest exists)
+					invoke SetPendingScheduling first AutoDisableAsyncActionRequestRel.AsyncActionRequest
+						invoked.ParamPendingScheduling = true
+
+		EndWorkUpdateAsyncRequest is an Instance Action
+			default label is untranslatable
+			restricted
+			manual update
+
+
+		PurgeInstance is a Purge Action
+			restricted
+
+		TurnSaveHistoryOn is a Set Action
+		    run in foreground
+		    disable checkpoint
+		    valid when (not SaveHistory)
+		    no records message is "SaveHistoryTurnedOn"
+
+		    Instance Selection
+		        where (false)
+
+		    Action Rules
+		        Empty Set Rules
+                    invoke Import first SaveHistoryConfigurationRel
+                        invoked.ConfigurationParameter.ConfigurationID = ConfigurationID
+                        invoked.ConfigurationParameter.Name = SaveHistoryConfigName
+                        invoked.Value = true
+
+		TurnSaveHistoryOff is a Set Action
+		    run in foreground
+		    disable checkpoint
+		    valid when (SaveHistory)
+		    no records message is "SaveHistoryTurnedOff"
+
+		    Instance Selection
+		        where (false)
+
+		    Action Rules
+		        Empty Set Rules
+                    invoke Import first SaveHistoryConfigurationRel
+                        invoked.ConfigurationParameter.ConfigurationID = ConfigurationID
+                        invoked.ConfigurationParameter.Name = SaveHistoryConfigName
+                        invoked.Value = false
+
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+				Entrance Rules
+					invoke EndWorkUpdateAsyncRequest
+				
+				Create is a Create Action
+					restricted
+
+				Cancel is an Instance Action
+					Action Rules
+					    if (SaveHistory)
+                            make transition to Cancelled
+                        else
+                            invoke PurgeInstance
+
+				Complete is an Instance Action
+					restricted
+
+					Parameters
+						ParamMessage is Text
+							default label is "Message"
+						ParamErrorCode is Numeric size 2
+						    default label is "ErrorCode"
+
+					Action Rules
+					    if (SaveHistory)
+    						ErrorMessage		    = ParamMessage
+	    					ErrorCode               = ParamErrorCode
+                            make transition to Sent
+                        else
+                            invoke PurgeInstance
+
+				Failed is an Instance Action
+					restricted
+				
+					Parameters
+						ParamMessage is Text
+						    default label is "Message"
+						ParamErrorCode is Numeric size 2
+						    default label is "ErrorCode"
+
+					Action Rules
+						ErrorMessage		    = ParamMessage
+						ExecuteTime 		    = current timestamp
+						ErrorCode               = ParamErrorCode
+
+                        make transition to Failed
+
+			Cancelled is a State
+				PurgeRecord is a Purge Action
+					restricted
+
+			Sent is a State
+				PurgeRecord is a Purge Action
+					restricted
+					
+			Failed is a State
+				PurgeRecord is a Purge Action
+					restricted
+
+                Reset is an Instance Action
+                    Action Rules
+                        ErrorCode = blank
+                        ErrorMessage = blank
+                        make transition to New
+
+

@@ -1,0 +1,166 @@
+ContractSubcontractorComment is a BusinessClass
+    owned by po
+    prefix is CSCM
+
+    Ontology
+    	part of ContractSubcontractor
+    		relative key is CommentTitle is a Description 
+
+    Persistent Fields
+    	Description 			 		is Text
+    	Attachment 						is an AlternateAttachment
+
+	Local Fields
+		LocalAttributeCtr	is Numeric 2	
+		
+	Derived Fields
+		DerivedSupplierContactName is a StringField
+		    type is Alpha size 101
+		    restricted
+		    actor.agent(SupplierSourceId).SupplierSourceId.MainContact.FirstAndLastName
+		    
+		DerivedSupplierName is a StringField
+			type is Alpha size 30
+			restricted
+			actor.agent(SupplierSourceId).Supplier.SupplierName
+
+    Conditions
+		ClosedContract
+			restricted
+			when (Contract.ContractStatus.Closed)
+		HasAttachment
+			restricted
+			when (Attachment entered)
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment		
+
+	Actions 
+		Create is a Create Action
+			valid when (!ClosedContract)
+
+		SupplierAdd is a Create Action
+			valid when (!ClosedContract)
+			default label is "Add"
+			
+			Exit Rules
+				if (ContractGroup.SupplierGroupRel.EmailOnContractSubcontractorUpdate)
+					send email
+						to Contract.PrimaryContactRel.DerivedEmail
+						from Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						cc actor.agent(SupplierSourceId).SupplierSourceId.EmailAddress
+						cc Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						subject "CommentAddedForSubcontractor<ContractSubcontractor.Subcontractor.SubcontractorName>OnContract<Contract>"
+						Attachments
+							if (HasAttachment)
+								attachment Attachment.File
+									name is Attachment.Title
+									mime type is Attachment.MimeType
+						Contents 
+							"<DerivedSupplierContactName>Of<DerivedSupplierName>AddedComment<CommentTitle>OnContract<Contract>_-_<Contract.Name>"
+							if (Description entered)
+								"TextIs:<Description>"
+							if (Attachment entered)
+								"FileHasBeenAttached"
+			
+		Update is an Update Action
+			valid when (!ClosedContract)
+
+		SupplierUpdate is an Update Action
+			valid when (!ClosedContract)
+			default label is "Update"
+
+			Exit Rules
+				if (ContractGroup.SupplierGroupRel.EmailOnContractSubcontractorUpdate)
+					send email
+						to Contract.PrimaryContactRel.DerivedEmail
+						from Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						cc actor.agent(SupplierSourceId).SupplierSourceId.EmailAddress
+						cc Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						subject "CommentUpdatedForSubcontractor<ContractSubcontractor.Subcontractor.SubcontractorName>OnContract<Contract>"
+						Attachments
+							if (Attachment changed
+							and HasAttachment)
+								attachment Attachment.File
+									name is Attachment.Title
+									mime type is Attachment.MimeType
+						Contents 
+							"<DerivedSupplierContactName>Of<DerivedSupplierName>UpdatedComment<CommentTitle>OnContract<Contract>_-_<Contract.Name>"
+							if (Description changed
+							and old Description !entered)
+								"CommentTextHasBeenAdded"
+								"TextIs:<Description>"
+							else
+							if (Description changed
+							and Description !entered)
+								"CommentTextHasBeenRemoved"
+								"TextWas:<old Description>"
+							else
+							if (Description changed)
+								"CommentTextHasBeenUpdated"
+								"NewTextIs:<Description>"
+								
+							if (Attachment changed
+							and old Attachment !entered)
+								"FileHasBeenAttached"
+							else
+							if (Attachment changed
+							and Attachment !entered)
+								"FileAttachmentHasBeenRemoved"
+							else
+							if (Attachment changed)
+								"FileAttachmentHasBeenUpdatedFrom<old Attachment>To<Attachment>"
+			
+		Delete is a Delete Action
+			valid when (!ClosedContract)
+
+		SupplierDelete is a Delete Action
+			valid when (!ClosedContract)
+			default label is "Delete"
+
+			Exit Rules
+				if (ContractGroup.SupplierGroupRel.EmailOnContractSubcontractorUpdate)
+					send email
+						to Contract.PrimaryContactRel.Email
+						from Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						cc actor.agent(SupplierSourceId).SupplierSourceId.EmailAddress
+						cc Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+						subject "CommentDeletedForSubcontractor<ContractSubcontractor.Subcontractor.SubcontractorName>OnContract<Contract>"
+						Contents 
+							"<DerivedSupplierContactName>Of<DerivedSupplierName>DeletedComment<CommentTitle>OnContract<Contract>_-_<Contract.Name>"
+							"<Description>"
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

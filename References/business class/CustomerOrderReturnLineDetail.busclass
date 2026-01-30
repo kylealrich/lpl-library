@@ -1,0 +1,184 @@
+CustomerOrderReturnLineDetail is a BusinessClass
+    owned by oe
+    prefix is RLD
+
+    classic name is RETURNDTL
+
+    Ontology
+        symbolic key is CustomerOrderReturnLineDetail
+            classic set name is RLDSET1
+            classic name for CustomerOrderReturnLineDetail.UnitOfMeasure is UOM
+            classic name for CustomerOrderReturn is AUTH-NO
+            classic name for CustomerOrderReturnLine is LINE-NBR
+
+    Patterns
+        implements ContextualParent
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        UOMMultiplier
+            classic name is UOM-MULT
+        Quantity
+        CatchWeightQuantity is a Quantity
+            classic name is CATCH-WT-QTY
+            
+    Transient Fields
+    	TransientBillingLineType		is a BillingLineType
+    		derive value from CustomerOrderReturnLine.LineType
+
+	Local Fields
+		LocalInventoryTransaction     	is like InventoryTransaction
+		LocalInventoryTransactionLine 	is like InventoryTransactionLine	
+
+    Relations
+		BillingInvoiceLineLotSerialBinRel
+            one-to-one relation to BillingInvoiceLineLotSerialBin
+            Field Mapping uses symbolic key
+                related.Company                                      = Company
+                related.BillingInvoice				                 = CustomerOrderReturn.OriginalInvoice
+                related.BillingInvoiceLine                           = CustomerOrderReturnLine
+                related.BillingInvoiceLineLotSerialBin.UnitOfMeasure = CustomerOrderReturnLineDetail.UnitOfMeasure
+                related.BillingInvoiceLineLotSerialBin.Lot           = CustomerOrderReturnLineDetail.Lot
+                related.BillingInvoiceLineLotSerialBin.Sublot        = CustomerOrderReturnLineDetail.Sublot
+                related.BillingInvoiceLineLotSerialBin.Bin           = CustomerOrderReturnLineDetail.Bin
+                related.BillingInvoiceLineLotSerialBin.Serial        = CustomerOrderReturnLineDetail.Serial
+
+		StockOnHandDetailRel
+            one-to-one relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                         		  = Company
+                related.InventoryLocation                   	  = CustomerOrderReturnLine.InventoryLocation
+                related.Item                            		  = CustomerOrderReturnLine.Item
+                related.StockOnHandDetail.UnitOfMeasure 		  = CustomerOrderReturnLineDetail.UnitOfMeasure
+                related.StockOnHandDetail.Lot           		  = CustomerOrderReturnLineDetail.Lot
+                related.StockOnHandDetail.Sublot                  = CustomerOrderReturnLineDetail.Sublot
+                related.StockOnHandDetail.Bin           		  = CustomerOrderReturnLineDetail.Bin
+		
+		WarehouseShipmentLineDetailRel
+			one-to-one relation to WarehouseShipmentLineDetail
+			Field Mapping uses symbolic key
+				related.Company									  = Company
+				related.InventoryLocation						  = CustomerOrderReturnLine.InventoryLocation
+				related.WarehouseShipment			    		  = CustomerOrderReturn.WarehouseShipment
+				related.WarehouseShipmentLine					  = CustomerOrderReturnLine
+				related.WarehouseShipmentLineComponent			  = blank
+                related.WarehouseShipmentLineDetail.Bin           = CustomerOrderReturnLineDetail.Bin	
+                related.WarehouseShipmentLineDetail.Lot           = CustomerOrderReturnLineDetail.Lot
+                related.WarehouseShipmentLineDetail.Sublot        = CustomerOrderReturnLineDetail.Sublot
+                related.WarehouseShipmentLineDetail.UnitOfMeasure = CustomerOrderReturnLineDetail.UnitOfMeasure
+                related.WarehouseShipmentLineDetail.Serial		  = CustomerOrderReturnLineDetail.Serial
+    
+    	ItemSerialNumberRel
+    		one-to-one relation to ItemSerialNumber
+    		Field Mapping uses symbolic key
+    			related.Company										= Company
+    			related.Item										= CustomerOrderReturnLine.Item
+    			related.ItemSerialNumber							= CustomerOrderReturnLineDetail.Serial
+
+	Field Rules
+		CustomerOrderReturnLineDetail
+			if (CustomerOrderReturnLine.ItemLocation.BinTracked)
+				if (CustomerOrderReturnLineDetail.Bin not entered)
+					CustomerOrderReturnLineDetail.Bin = CustomerOrderReturnLine.ItemLocation.PreferredBin
+					
+					constraint (CustomerOrderReturnLineDetail.Bin entered)
+						"BinIsRequiredForLine<CustomerOrderReturnLine>"			
+			
+			if (CustomerOrderReturnLine.ItemLocation.IsSerialTracked)
+				constraint (CustomerOrderReturnLineDetail.Serial entered)
+					"SerialNumberIsRequired"			
+						
+				if (CustomerOrderReturnLine.ItemLocation.SerialTracked.SerialRequiredAtReceipt)
+					constraint (ItemSerialNumberRel.ItemSerialNumber.Issued)
+						"SerialNumberIsNotIssued"												
+				
+			if (CustomerOrderReturnLine.ItemLocation.IsLotTracked)
+				constraint (CustomerOrderReturnLineDetail.Lot entered)
+					"LotIsRequiredForLine<CustomerOrderReturnLine>"
+			
+			if (CustomerOrderReturnLine.IsMultipleUOMTracked)
+				constraint (!CustomerOrderReturnLine.Item.IsCatchWeightItem)
+					"ItemIsCatchWeightItem;DoesNotAllowForMultipleUOMProcessing"				
+				
+			if (CustomerOrderReturn.OrderNumber entered
+			and CustomerOrderReturn.WarehouseShipment entered)
+				constraint (WarehouseShipmentLineDetailRel exists)
+					"ShipmentDetailsDoesNotMatchForLine<CustomerOrderReturnLine>"			
+					
+		Quantity
+			if (CustomerOrderReturnLine.ItemLocation.IsSerialTracked)
+				default to 1
+			required
+		
+		CatchWeightQuantity
+			if (CustomerOrderReturnLine.Item.IsCatchWeightItem)
+				required
+			else
+				cannot be entered
+					"ItemIsNotCatchWeightItem"
+	
+	Rule Blocks
+		UpdateLineDetailQuantity
+			invoke UpdateReturnFromDetail CustomerOrderReturnLine
+				if (Quantity changed)
+					invoked.PrmDetailQuantity = Quantity - old Quantity
+				else
+					invoked.PrmDetailQuantity = Quantity
+						
+	Actions
+		Create is a Create Action
+			valid when (CustomerOrderReturnLine.IsValidForDetail)
+			Action Rules
+				constraint (CustomerOrderReturnLine.IsValidForDetail)
+					"CannotCreateLineDetails;OrderReturnIsIn<CustomerOrderReturn.Status>State"
+			Exit Rules
+				include UpdateLineDetailQuantity
+		
+		Update is an Update Action
+			valid when (CustomerOrderReturnLine.IsValidForDetail)
+			Action Rules
+				constraint (CustomerOrderReturnLine.IsValidForDetail)
+					"CannotUpdateLineDetails;OrderReturnIsIn<CustomerOrderReturn.Status>State"
+			Exit Rules
+				include UpdateLineDetailQuantity			
+							
+		Delete is a Delete Action
+			valid when (CustomerOrderReturnLine.IsValidForDetail)
+			Entrance Rules
+				constraint (CustomerOrderReturnLine.IsValidForDetail)
+					"CannotDeleteLineDetails;OrderReturnIsIn<CustomerOrderReturn.Status>State"
+				
+				invoke UpdateReturnFromDetail CustomerOrderReturnLine
+					invoked.PrmDetailQuantity = Quantity * -1 
+							
+		Release is an Instance Action
+			restricted
+			Parameters
+				PrmInventoryTransaction     is like InventoryTransaction
+				PrmInventoryTransactionLine is like InventoryTransactionLine
+				PrmBillingInvoice			is like BillingInvoice
+				PrmBillingInvoiceLine		is like BillingInvoiceLine
+				
+			Action Rules
+				LocalInventoryTransaction 			 = PrmInventoryTransaction
+				LocalInventoryTransactionLine 		 = PrmInventoryTransactionLine
+				
+				invoke Unreleased.Create InventoryTransactionLineDetail
+					fill in fields from this instance
+					invoked.InventoryLocation		 = CustomerOrderReturnLine.InventoryLocation
+					invoked.TransactionSystemCode	 = TransactionSystemCode.OrderEntry 
+					invoked.InventoryTransaction	 = LocalInventoryTransaction
+					invoked.InventoryTransactionLine = LocalInventoryTransactionLine
+					invoked.Item					 = CustomerOrderReturnLine.Item
+					invoked.Bin						 = CustomerOrderReturnLineDetail.Bin
+					invoked.Lot						 = CustomerOrderReturnLineDetail.Lot
+					invoked.Sublot					 = CustomerOrderReturnLineDetail.Sublot
+					invoked.Serial					 = CustomerOrderReturnLineDetail.Serial
+					if (CustomerOrderReturnLine.Item.IsCatchWeightItem)	
+						invoked.Quantity								= CatchWeightQuantity
+        				invoked.SecondaryQuantity						= Quantity
+		
+		Purge is a Purge Action
+			restricted

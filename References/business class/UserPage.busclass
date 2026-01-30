@@ -1,0 +1,708 @@
+UserPage is a BusinessClass
+    owned by repository
+    prefix is URPT
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+
+    Ontology
+        symbolic key is UserPage
+
+    Persistent Fields
+    	Owner is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+    	UserPageName 	is LPLName
+    	Actor
+    	UserFolder
+    		delete cascades
+    	Status 			is a UserObjectStatus
+    	LPL             is LPL
+    	Description		is a ConfigDescription
+    	UserEditorType
+    	ErrorText		is Text
+		Independent		is Boolean
+		HasReportInfo   is a UserObjectHasReportInfo
+			default label is "ReportInformationExists"
+		
+    Derived Fields
+    	ContextKey is a DerivedField
+    		type is LPLName
+    		if (Actor entered)
+	    		return  "Actor  '" + Actor + "', " + UserPageName
+
+    		if (UserFolder entered)
+    			return "Report '" + UserFolder.Name + "', " + UserPageName
+
+    		return  "Page  '" + UserPageName + "', blank"
+
+		ConfigActor is a ConditionalField
+			type is Actor
+			default label is "Actor"
+			if (HasFolder)
+				UserFolder.Actor
+			else
+				Actor
+
+		UniqueName is a DerivedField
+			type is Boolean
+			if ((not HasFolder)
+			and DuplicateRel exists)
+				return false
+
+			return true
+
+		ParseText is a NativeField
+			type is Text
+
+		OverrideNotificationDescription is a MessageField
+    		"YourPersonalizationHasBeenUpdated"
+
+		OverrideNotificationDetails is a MessageField
+    		"YourPreviousModificationsFor<UserPageName>HaveBeenOverriddenByTheConfigurationAdministratorAndAreNoLongerActive"
+
+		NewInitialLPL is a NativeField
+		    type is Text
+
+        OverriddenCount is a DerivedField
+            type is Numeric size 4
+            if (Global)
+                return (instance count of OverriddenConfigurationRel)
+            else
+                return blank
+
+	Local Fields
+		LocParseText 	    is Text
+		LocParsed 		    is Boolean  
+		LocBasedOnPage      is a BusinessPage
+		LocActor            is Actor
+		LocName             is LPLName
+
+    Field Rules
+		Owner
+			default to actor
+    	UserPageName
+    		required
+
+    	Actor
+    		if (old Independent 
+    		and IsPageIndependent
+			and Actor entered
+			and not old Actor entered)
+				cannot be changed
+					"CannotChangeAnIndependentPageToAPersonalization.PleaseCreateANewPersonalization"
+
+    		constraint (UserFolder not entered)
+    			"CannotEnterBothActorAndFolder"
+
+			constraint (BusinessPageRel exists)
+				"ActorNotValidForReport"
+
+		UserFolder
+			if (old Independent  
+			and IsPageIndependent
+			and UserFolder entered
+			and not old UserFolder entered)
+				cannot be changed
+					"CannotChangeAnIndependentPageToAFolder.PleaseCreateANewFolder"
+
+   			constraint (Actor not entered)
+   				"CannotEnterBothActorAndFolder"
+
+		LPL
+			required
+
+			if (Status.Active)
+				LocParseText = ParseText
+				
+				if (not LocParseText = blank)
+
+
+
+
+					confirmation required
+						"<LocParseText>:_User_PageIsInvalid.__DoYouWantToSaveAnyway?"
+
+					Status = Status.Invalid
+					ErrorText = LocParseText
+
+		UserEditorType
+			default to UserEditorType.LPL
+
+		Status
+			if (Status.Active)
+				initialize ErrorText
+
+    Conditions
+    	IsReport
+    		default label is "Report"
+   			when (UserFolder entered and UserFolder.Dynamic)
+
+   		IsActor
+   			default label is "Actor"
+   			when (Actor entered)
+
+		IsStandAlone
+			default label is "Standalone"
+			when (UserFolder entered and not UserFolder.Dynamic)
+
+    	Global
+    		when (!IsActor and !HasFolder)
+
+    	HasFolder
+    		default label is "Folder"
+			when (UserFolder entered)
+
+		IsPageDependent
+			restricted
+			when (BusinessPageRel exists
+			and   not BusinessPageRel.Independent)
+
+		IsPageIndependent
+			restricted
+			when (not BusinessPageRel exists
+			or    BusinessPageRel.Independent)
+
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when ((HasFolder and UserFolder.Actor not entered) or (!HasFolder and !IsActor))
+
+		CondIndependent
+			restricted
+			when (Global and IsPageIndependent)
+
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+        IsOverridden
+        	default label is "Overridden"
+            when (first OverriddenConfigurationRel exists
+            and Global)
+
+	Relations
+		BusinessPageRel
+			one-to-one relation to BusinessPage
+			Field Mapping uses symbolic key
+				related.BusinessPage		= UserPageName
+
+		DuplicateRel
+    		one-to-many relation to UserPage 
+			Field Mapping uses AllActorSet
+				related.Actor 		 = Actor
+				related.UserPageName = UserPageName
+			Instance Selection
+				where (related.UserFolder not entered
+				and    related.UserPage != UserPage)
+
+		OverriddenConfigurationRel
+    		one-to-many relation to UserPage
+			Field Mapping uses ByPageFolderActor
+				related.UserPageName = UserPageName
+	        Instance Selection
+		        where (not related.Global and not related.HasFolder)
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses ByEntityType
+                related.EntityType = 12
+                related.BusinessView = blank
+                related.Name = UserPageName
+                related.Actor = Actor
+
+		LocalDuplicateRel
+    		one-to-many relation to UserPage
+			Field Mapping uses AllActorSet
+			    related.Actor = LocActor
+				related.UserPageName = LocName
+
+	        Instance Selection
+		        where (not related.HasFolder)
+
+		LocalBusinessPageRel
+            one-to-one relation to BusinessPage
+            Field Mapping uses symbolic key
+				related.BusinessPage = LocName
+
+    Actions
+    	Create is a Create Action
+    		Local Fields
+    			ValidName is LPLName
+
+    		Action Rules
+    			ValidName = com.lawson.apps.repository.UserPage_ChangePageName.getValidPageName(UserPageName)
+
+    			if (UserPageName != ValidName)
+    				invoke ChangePageName
+    					invoked.NewName = UserPageName 
+
+				constraint (UniqueName)
+    				"NameAlreadyInUse"
+
+    			Independent = CondIndependent
+
+			Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+
+				invoke FireEvent
+
+				if (UserFolder entered and UserFolder exists)
+					invoke UpdateApplicationReport UserFolder
+
+		CreateFromSnapshot is a Create Action
+    		restricted
+    		bypass field rules
+
+
+			Local Fields
+    			ValidName is LPLName
+
+    		Action Rules
+    			ValidName = com.lawson.apps.repository.UserPage_ChangePageName.getValidPageName(UserPageName)
+
+    			if (UserPageName != ValidName)
+    				invoke ChangePageName
+    					invoked.NewName = UserPageName 
+
+				constraint (UniqueName)
+    				"NameAlreadyInUse"
+
+
+
+    	Update is an Update Action
+    		Local Fields
+    			LocalLPLChanged is Boolean
+    		Action Rules
+    			if (UserPageName changed)
+    				invoke ChangePageName
+    					invoked.NewName = UserPageName 
+
+					constraint (UniqueName)
+    					"NameAlreadyInUse"
+
+				Independent = CondIndependent
+
+				if (not UserFolder entered)
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					if (Actor entered) 
+    						confirmation required
+								"User_PagePersonalizationExists.__DoYouWantToOverwrite?"
+    					else
+    						confirmation required
+								"User_PageConfigurationExists.__DoYouWantToOverwrite?"
+    					invoke Delete DuplicateRel
+
+    		Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+
+				invoke FireEvent
+				
+				if (LocalLPLChanged and UserFolder entered and UserFolder exists)
+					invoke UpdateApplicationReport UserFolder
+
+		UpdateFromSnapshot is an Update Action
+			restricted
+			bypass field rules
+
+
+			Action Rules
+    			if (UserPageName changed)
+    				invoke ChangePageName
+    					invoked.NewName = UserPageName 
+
+					constraint (UniqueName)
+    					"NameAlreadyInUse"
+
+				if (not UserFolder entered)
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					invoke Delete DuplicateRel
+
+
+		
+    	Delete is a Delete Action
+    		Local Fields
+    			LocUserFolder is a UserFolder
+    		
+    		Entrance Rules
+    			LocUserFolder = UserFolder
+    		
+    		Exit Rules
+    			invoke FireEvent
+    			
+    			if (LocUserFolder entered and LocUserFolder exists)
+    				invoke UpdateApplicationReport LocUserFolder
+    			
+    	DeleteFromSnapshot is a Delete Action
+    		restricted
+    		bypass relational integrity rules
+
+
+		Purge is a Purge Action
+			restricted
+			Local Fields
+    			LocUserFolder is a UserFolder
+    			
+    		Entrance Rules
+    			LocUserFolder = UserFolder
+    			
+    		Exit Rules
+    			invoke FireEvent
+    			
+    			if (LocUserFolder entered and LocUserFolder exists)
+    				invoke UpdateApplicationReport LocUserFolder
+
+    	ChangePageName is an Instance Action
+    		Parameters
+    			NewName is Alpha size 255
+
+    		Exit Rules
+
+    			invoke FireEvent 
+    			UserPageName = com.lawson.apps.repository.UserPage_ChangePageName.getValidPageName(NewName)
+
+    			if (UserPageName changed)
+    				constraint (UniqueName)
+    					"NameAlreadyInUse"
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		Action Rules
+    			LocParseText = ParseText
+
+    			if (not LocParseText = blank)
+
+
+
+
+					constraint(LocParseText = blank)
+						"<LocParseText>:_User_PageIsInvalid._Cannot_Activate."
+
+    			Status = Status.Active
+    			initialize ErrorText
+
+			Exit Rules
+
+
+
+				if (Independent)
+					LocParseText = ParseText 
+
+    			invoke FireEvent
+    			
+    			if (UserFolder entered and UserFolder exists)
+    				invoke UpdateApplicationReport UserFolder
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		Action Rules
+    			Status = Status.Inactive
+
+			Exit Rules
+    			invoke FireEvent
+    			
+    			if (UserFolder entered and UserFolder exists)
+    				invoke UpdateApplicationReport UserFolder
+
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+
+			Exit Rules
+    			invoke FireEvent
+    			
+    			if (UserFolder entered and UserFolder exists)
+    				invoke UpdateApplicationReport UserFolder
+
+    	MakeGlobal is an Instance Action
+    		Action Rules
+    			initialize Actor
+
+			Exit Rules
+    			invoke FireEvent
+
+		FireEvent is an Instance Action
+			restricted
+
+		OverridePersonalizations is a Set Action
+			run in foreground
+			Parameters
+				Config is a UserPage
+					default label is "Configuration"
+
+			Parameter Rules
+				Config
+					required
+					constraint(Config.Global)
+						"OverridePersonalizationsActionIsOnlyValidForAConfiguration"
+
+			Instance Selection
+		   		where (UserPageName = Config.UserPageName
+		   		and    IsActor
+		   		and    not UserFolder entered)
+
+		   	Action Rules
+		   		Instance Rules
+		   			invoke Update
+		   				invoked.LPL = Config.LPL
+
+		   			invoke CreateMessage UserNotification
+		   				invoked.ParamActor 			= Actor
+		   				invoked.ParamPriority 		= 5
+		   				invoked.ParamDescription	= this instance(locale of Actor.IsoLocale).OverrideNotificationDescription
+		   				invoked.ParamDetails		= this instance(locale of Actor.IsoLocale).OverrideNotificationDetails
+
+		DeletePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			UserPageName
+
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+		PurgePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				include deleted records
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			UserPageName
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+		ReassignOwner is an Instance Action
+			Parameters
+				PrmNewOwner is an Actor
+					default label is "NewOwner"
+			Parameter Rules
+				PrmNewOwner
+					required
+						"MustEnterNewOwner"
+			Action Rules
+				Owner = PrmNewOwner
+
+
+        CreateConfiguration is a Create Action
+        	completion message is "ConfigurationCreated"
+            Parameters
+                Page          is a BusinessPage
+
+			Parameter Rules
+			    Page
+			        required
+
+            Entrance Rules
+                LocActor = blank
+                LocName = Page
+                constraint (!LocalDuplicateRel exists)
+                    "ConfigurationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                    invoked.UserPageName = Page
+                    invoked.LPL          = BusinessPageRel.BaseLPL
+
+        CreateNewPage is a Create Action
+            default label is "AddNewPage"
+        	completion message is "NewPageCreated"
+            Parameters
+                PageName        is LPLName
+                BasedOnPage     is a BusinessPage
+
+			Parameter Rules
+			    PageName
+			        required
+
+            Entrance Rules
+                LocActor = blank
+                LocName = PageName
+                constraint (!LocalDuplicateRel exists)
+                    "PageNameInUse_'<LocName>'"
+
+                constraint (!LocalBusinessPageRel exists)
+                    "PageNameInUse_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                    invoked.UserPageName = PageName
+                    invoked.Independent  = true
+
+                    if (BasedOnPage entered)
+                        invoked.LocBasedOnPage = BasedOnPage
+
+                    invoked.LPL = this instance.NewInitialLPL
+
+        CreatePersonalization is a Create Action
+        	completion message is "PersonalizationCreated"
+            Parameters
+                Page          is a BusinessPage
+
+			Parameter Rules
+			    Page
+			        required
+
+            Entrance Rules
+                LocActor = actor
+                LocName = Page
+                constraint (!LocalDuplicateRel exists)
+                    "PersonalizationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+					invoked.Actor        	= actor
+                    invoked.UserPageName 	= Page
+                    invoked.LPL 			= BusinessPageRel.LPL
+
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserPageIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserPageIsInvalid,TagAnyway?"
+					
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance		  
+
+
+
+
+		SetReportInfoTrue is an Instance Action
+    		valid when (Status.Active)
+    		default label is "Set_'ReportInformationExists'_Field_to_'True'"
+    		restricted
+    		
+    		Action Rules
+    			HasReportInfo = HasReportInfo.True
+    			
+		SetReportInfoFalse is an Instance Action
+    		valid when (Status.Active)
+    		default label is "Set_'ReportInformationExists'_Field_to_'False'"
+    		restricted
+    		
+    		Action Rules
+    			HasReportInfo = HasReportInfo.False
+
+		SetReportInfoNotComputed is an Instance Action
+    		valid when (Status.Active)
+    		default label is "Set_'ReportInformationExists'_Field_to_'NotComputed'"
+    		restricted
+    		
+    		Action Rules
+    			HasReportInfo = HasReportInfo.NotComputed
+    	
+    	SetAllReportInfoNotComputed is a Set Action
+			run in foreground
+			default label is "Set_'ReportInformationExists'_FieldOfAllActiveConfiguredPages_to_'NotComputed'"
+
+			Instance Selection
+		   		where (Status.Active)
+
+		   	Action Rules
+		   		Instance Rules
+		   			invoke SetReportInfoNotComputed
+ 			
+
+    Sets
+    	ActorSet
+    		Sort Order
+    			Actor
+    			UserPageName
+        	Instance Selection
+				where (IsActor)
+
+		AllActorSet
+			duplicates
+    		Sort Order
+    			Actor
+    			UserPageName
+
+		FolderSet
+			Sort Order
+    			UserFolder
+    		Instance Selection
+				where (HasFolder)
+
+    	ByActorFolderPage
+			Sort Order
+				Actor
+				UserFolder
+    			UserPageName
+
+		ByPageFolderActor
+			Sort Order
+				UserPageName
+				UserFolder
+				Actor
+
+		GlobalSet
+			Sort Order
+				UserPageName
+			Instance Selection
+				where (Global)
+
+		ByIndependent
+			Sort Order
+				Independent
+				UserPageName
+			Instance Selection
+				where (Independent)

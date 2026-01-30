@@ -1,0 +1,336 @@
+PhysicalInventoryImport is a BusinessClass
+    owned by ic
+    prefix is IPI
+    classic name is ICCPHYINV
+
+    Ontology
+        symbolic key is PhysicalInventoryImport
+            classic set name is IPISET0
+            classic name for PhysicalInventoryImport.InventoryLocation is LOCATION
+            classic name for PhysicalInventoryImport.TransactionSequenceNumber is SEQ-TRNS-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+    Persistent Fields
+		RunGroup
+		ResultProcessedBy      is a PhysicalInventoryInterfaceResult
+        CountQuantity          is an UnsignedQuantity
+            classic name is COUNT-QTY
+        CountUnitOfMeasure     is AlphaUpper size 4
+            classic name is COUNT-UOM
+        InventoryReasonCode
+            classic name is REASON-CODE
+        Lot                    is AlphaUpper size 10
+            classic name is LOT-NBR
+        Sublot                 is AlphaUpper size 6
+            classic name is SUBLOT-NBR
+        Serial                 is AlphaUpper size 16
+        UnitCost               is an InternationalCost
+        SecondaryCountQuantity is an UnsignedQuantity
+            classic name is SEC-COUNT-QTY
+        NewRecord              is Boolean
+        RecordInError          is Boolean
+            classic name is RECORD-ERROR
+        ErrorMessage           is Alpha 150
+
+    Local Fields
+		LocalInterfaceResult            		is like PhysicalInventoryInterfaceResult
+    
+    Derived Fields
+    
+    	CannotCreateNewMessage is a MessageField
+    		restricted
+    		"FreezeRecordDoesNotExist;CannotAddNewFreezeRecords"
+
+		CountAlreadyEnteredMessage is a MessageField
+			restricted
+			"CannotUpdateCount;CountHasAlreadyBeenEnteredManually"
+		
+
+		SelectIDText is a StringField
+			type is Text
+			default label is "SelectID"
+			PhysicalInventoryImport.SelectID " - " PhysicalInventoryImport.SelectID.Description
+
+    Conditions
+
+        FreezeExists
+        	restricted
+        	when (PhysicalInventoryFreezeRel exists)
+
+    Relations
+    
+    	LocalInterfaceResultsRel
+			one-to-one relation to PhysicalInventoryInterfaceResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup					= actor.context.FinanceEnterpriseGroup
+				related.PhysicalInventoryInterfaceResult		= LocalInterfaceResult 
+    	
+    	PhysicalInventoryFreezeRel
+    		one-to-many relation to PhysicalInventoryFreeze
+            Field Mapping uses Set2
+                related.Company           			= Company
+                related.PhysicalInventorySelect     = PhysicalInventoryImport.SelectID
+                related.InventoryLocation 			= PhysicalInventoryImport.InventoryLocation
+				related.Item                        = PhysicalInventoryImport.Item
+				related.Bin                         = PhysicalInventoryImport.Bin
+				related.Lot                         = Lot
+				related.Sublot                      = Sublot
+				related.Serial                      = Serial
+				related.UnitOfMeasure               = CountUnitOfMeasure
+    	
+    	ItemLocationRel
+    		one-to-one relation to ItemLocation
+    		Field Mapping uses symbolic key
+    			related.Company                     = Company
+    			related.InventoryLocation           = PhysicalInventoryImport.InventoryLocation
+    			related.Item                        = PhysicalInventoryImport.Item
+    
+    Sets
+
+        Set1
+            not indexed
+            Sort Order
+                Company
+                PhysicalInventoryImport.SelectID
+                PhysicalInventoryImport.InventoryLocation
+                PhysicalInventoryImport.Item
+                PhysicalInventoryImport.TransactionSequenceNumber
+            
+        ByRunGroup
+        	Sort Order
+        		RunGroup
+        		Company
+                PhysicalInventoryImport.SelectID
+                PhysicalInventoryImport.InventoryLocation
+                PhysicalInventoryImport.Item
+                PhysicalInventoryImport.TransactionSequenceNumber
+            
+    Field Rules
+    
+    	CountUnitOfMeasure
+    		if (not PhysicalInventoryImport.SelectID.RequireUnitOfMeasure
+			and not Company.RequireUnitOfMeasure)
+				default to PhysicalInventoryImport.Item.StockUOM
+
+			if (PhysicalInventoryImport.SelectID.RequireUnitOfMeasure
+			or  Company.RequireUnitOfMeasure)
+				constraint (CountUnitOfMeasure entered)
+					"MustEnterUnitOfMeasure;SelectIDRequiresUnitOfMeasure"
+    
+    Actions
+    
+    	Create is a Create Action
+    	
+    		Action Rules
+    		
+    			if (PhysicalInventoryImport.Bin !entered)
+	    			if (ItemLocationRel.PreferredBin entered)
+    					PhysicalInventoryImport.Bin = ItemLocationRel.PreferredBin
+    			
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			Action Rules
+			
+				if (PhysicalInventoryFreezeRel exists)
+					if (first PhysicalInventoryFreezeRel.CreateInProcess)
+						invoke Delete PhysicalInventoryFreezeRel
+					else
+					if (first PhysicalInventoryFreezeRel.UpdateInProcess)
+						invoke FastUpdate PhysicalInventoryFreezeRel
+							invoked.CountQuantity    		= 0
+	        				invoked.SecondaryCountQuantity 	= 0
+	        				invoked.UnitCost 				= 0
+	        				invoked.InventoryReasonCode     = blank           
+							invoked.OriginatingInterfaceRun = 0
+							invoked.UpdateInProcess         = false
+
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+		
+		MassDelete is a Set Action
+			Parameters
+				PrmRunGroup                 is a RunGroup
+					default label is "RunGroup"
+					
+			Instance Selection
+				where (PrmRunGroup !entered
+				or     RunGroup = PrmRunGroup)
+				
+			Sort Order
+				RunGroup
+				
+			Action Rules
+				
+				Instance Rules
+				
+					invoke Delete
+					
+		InterfacePhysicalInventoryCounts is a Set Action
+			Parameters
+				PrmRunGroup							is a RunGroup
+					default label is "RunGroup"
+				PrmCompany                          is an InventoryCompany
+					default label is "Company"
+				PrmSelectID							is a PhysicalInventorySelect
+					default label is "SelectID"
+				ReportOnly                          is Boolean
+				CreateNewFreezeRecords              is Boolean
+				
+			Parameter Rules
+				PrmRunGroup
+					required
+					
+				ReportOnly
+					initial value is true
+				
+				PrmCompany
+					if (PrmCompany entered)
+						constraint (PrmSelectID entered)
+							"MustEnterSelectIDIfCompanyIsEntered"
+				PrmSelectID
+					if (PrmSelectID entered)
+						constraint (PrmCompany entered)
+							"MustEnterCompanyIfSelectIDIsEntered"
+								
+			Local Fields
+				LocalInterfaceResultView		is a PhysicalInventoryInterfaceResult view				
+			
+			Instance Selection			
+				where (PrmRunGroup = RunGroup 
+				and   ((PrmCompany !entered
+				and    Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+				or    (PrmCompany  = Company
+				and    PrmSelectID = PhysicalInventoryImport.SelectID)))
+
+			Sort Order
+				RunGroup
+				Company
+				PhysicalInventoryImport.SelectID
+				PhysicalInventoryImport.InventoryLocation
+				PhysicalInventoryImport.Item
+				
+			Action Rules
+			
+				Empty Set Rules
+				
+					invoke Create PhysicalInventoryInterfaceResult
+						assign result to LocalInterfaceResultView
+						invoked.FinanceEnterpriseGroup			= actor.context.FinanceEnterpriseGroup
+						invoked.RunTime							= current timestamp
+						invoked.RunGroup						= PrmRunGroup
+						invoked.Company                         = PrmCompany
+						invoked.SelectID                        = PrmSelectID
+				        invoked.ReportOnly                      = ReportOnly
+						invoked.CreateNewFreezeRecords          = CreateNewFreezeRecords
+						
+				
+					LocalInterfaceResult = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+					invoke Finish LocalInterfaceResultsRel
+				
+				RunGroup Set Rules
+					Entrance Rules
+				
+						invoke Create PhysicalInventoryInterfaceResult
+							assign result to LocalInterfaceResultView
+							invoked.FinanceEnterpriseGroup			= actor.context.FinanceEnterpriseGroup
+							invoked.RunTime							= current timestamp
+							invoked.RunGroup						= PrmRunGroup
+							invoked.Company                         = PrmCompany
+							invoked.SelectID                        = PrmSelectID
+					        invoked.ReportOnly                      = ReportOnly
+							invoked.CreateNewFreezeRecords          = CreateNewFreezeRecords
+					
+					Exit Rules
+					
+						LocalInterfaceResult = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+						invoke Finish LocalInterfaceResultsRel
+				
+				Instance Rules
+				
+					RecordInError = false
+					initialize ErrorMessage
+					if (!FreezeExists)
+						if (CreateNewFreezeRecords)
+							invoke CreateFromInterface PhysicalInventoryFreeze
+								resume on error
+									RecordInError  		= true
+									ErrorMessage    	= error message
+								invoked.Company			        = Company
+								invoked.PhysicalInventorySelect = PhysicalInventoryImport.SelectID
+								invoked.InventoryLocation       = PhysicalInventoryImport.InventoryLocation
+								invoked.Bin                     = PhysicalInventoryImport.Bin
+								invoked.Item                    = PhysicalInventoryImport.Item
+								invoked.EnteredUOM              = CountUnitOfMeasure
+								invoked.InventoryReasonCode     = InventoryReasonCode
+								invoked.EnteredCount	        = CountQuantity
+								invoked.UnitCost                = UnitCost
+								invoked.SecondaryCountQuantity  = SecondaryCountQuantity
+	        					invoked.Lot                     = Lot
+	        					invoked.Sublot                  = Sublot
+	        					invoked.Serial                  = Serial
+	        					invoked.OriginatingInterfaceRun = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+	        					if (ReportOnly)
+	        						invoked.CreateInProcess     = true
+	        						NewRecord                   = true
+	        					if (RecordInError
+	        					and !ReportOnly)
+	        						NewRecord                   = true
+	        			else
+	        			if (!CreateNewFreezeRecords)
+	        				RecordInError 		= true
+							ErrorMessage 	    = CannotCreateNewMessage
+	        		else
+	        		if (FreezeExists)
+	        			if (first PhysicalInventoryFreezeRel.CountEntered
+	        			and first PhysicalInventoryFreezeRel.UpdateInProcess = false
+	        			and first PhysicalInventoryFreezeRel.CreateInProcess = false)
+	        				RecordInError     = true
+	        				ErrorMessage 	  = CountAlreadyEnteredMessage
+	        			else
+		        			invoke Update PhysicalInventoryFreezeRel
+		        				resume on error
+									RecordInError  		= true
+									ErrorMessage 		= error message
+		        				invoked.EnteredCount	   		= CountQuantity
+		        				invoked.SecondaryCountQuantity 	= SecondaryCountQuantity
+		        				invoked.UnitCost 				= UnitCost
+		        				invoked.InventoryReasonCode     = InventoryReasonCode           
+								invoked.OriginatingInterfaceRun = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+								if (ReportOnly
+								and invoked.CreateInProcess = false)
+		        					invoked.UpdateInProcess     = true
+		        				if (!ReportOnly)
+		        					invoked.UpdateInProcess     = false
+		        					invoked.CreateInProcess     = false
+								invoked.TransientFromInterface  = true
+							
+					if (RecordInError)
+						LocalInterfaceResult = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+						ResultProcessedBy    = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+						invoke Update LocalInterfaceResultsRel
+							invoked.Status = 2 
+					else
+						if (!ReportOnly)
+							if (first PhysicalInventoryFreezeRel.CreateInProcess = true)
+								invoke FastUpdate PhysicalInventoryFreezeRel
+									invoked.CreateInProcess = false	
+							invoke FastDelete
+						else
+						if (ReportOnly)
+							ResultProcessedBy    = LocalInterfaceResultView.PhysicalInventoryInterfaceResult
+							
+							
+				
+		
+					
+				
+    
+    	
+

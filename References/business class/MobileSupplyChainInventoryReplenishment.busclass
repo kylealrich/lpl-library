@@ -1,0 +1,97 @@
+MobileSupplyChainInventoryReplenishment is a BusinessClass
+    prefix is MSIRP 
+    sql name is "MSCMInventoryReplenishment"
+
+    Ontology
+        symbolic key is MobileSupplyChainInventoryReplenishment
+
+    Persistent Fields
+        Requisition
+        TimeSubmitted                   is TimeStamp
+        TimeStarted                     is TimeStamp
+        Notes                           is Text
+        Status                          is Numeric size 1
+            States
+                InProgress          value is 1
+                Completed           value is 2
+                Error               value is 3
+
+    Derived Fields
+        DerivedDuration is a DerivedField
+            type is Numeric size 6
+            return TimeSubmitted - TimeStarted
+
+        DerivedLinesProcessed is a DerivedField
+            type is Numeric 6
+            return instance count of Requisition.RequisitionLinesRel
+
+    Local Fields
+        RequisitionView                     is a Requisition view
+        ErrorOccured                        is Boolean
+        ErrorMessage                        is Text
+
+    Relations
+        MobileSupplyChainInventoryReplenishmentLineErrorRel
+            one-to-many relation to  MobileSupplyChainInventoryReplenishmentLine
+            Field Mapping uses symbolic key
+                related.Company                                                     = Company
+                related.InventoryLocation                                           = InventoryLocation
+                related.MobileSupplyChainInventoryReplenishment                     = MobileSupplyChainInventoryReplenishment
+            Instance Selection
+                where(related.Notes entered)
+
+    Actions
+        Create is a Create Action
+            Action Rules
+                invoke Unreleased.Create Requisition
+                    assign result to RequisitionView
+                    resume on error
+                        ErrorOccured    = true
+                        ErrorMessage    = error message
+
+                    invoked.Company  			        = Company    
+                    invoked.RequestingLocation		    = InventoryLocation    
+                    invoked.Requester			        = actor.agent(Employee).Employee.Requester.Requester
+
+                Requisition = RequisitionView.Requisition
+
+                if (ErrorOccured) 
+                    Notes = ErrorMessage
+                    Status = Status.Error
+                else
+                    Status = Status.InProgress 
+
+        ProcessInventoryReplenishment is an Instance Action
+            restricted
+            Local Fields
+                ErrorOccured             is Boolean
+                ErrorMessage             is Text
+
+            Action Rules
+                initialize ErrorOccured             
+                initialize ErrorMessage 
+
+                if (MobileSupplyChainInventoryReplenishmentLineErrorRel exists)
+                    Status                          = Status.Error
+                else
+                    invoke Release Requisition
+                        resume on error
+                            ErrorOccured       = true
+                            ErrorMessage       = error message   
+
+                    if (ErrorOccured)
+                        Notes                           = ErrorMessage
+                        Status                          = Status.Error
+                    else 
+                        Status                          = Status.Completed
+
+        Update is an Update Action
+            restricted
+
+    Sets
+        ByTimeSubmitted
+            Sort Order
+                TimeSubmitted descending
+                Company
+                InventoryLocation
+                MobileSupplyChainInventoryReplenishment

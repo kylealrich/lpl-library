@@ -1,0 +1,515 @@
+ReceivablePaymentCashDetail is a BusinessClass
+	owned by ar
+	prefix is RPCD
+
+	Ontology
+		symbolic key is ReceivablePaymentCashDetail
+		
+	Patterns
+		implements StaticJava
+		implements Archivable
+
+	Persistent Fields
+		CashFinanceCodeBlock				is a FinanceCodeBlockFull
+		AdditionalDimensionsCodeBlock		is a FinanceCodeBlock
+		AdditionalDimensionsCode			is a DimensionCode
+		RNAFinanceCodeBlock					is a FinanceCodeBlockFull
+		DistributionAmount					is a FinanceCurrencyAmountGroup
+		AppliedAmount						is a FinanceCurrencyAmountGroup
+		GlobalLedgerDate					is Date
+		Reversal							is Boolean
+		Status								is Numeric size 1
+			States
+				Unreleased					value is 0
+				Released					value is 1
+
+	Transient Fields
+		TransientCurrencyTable				is a CurrencyTable
+			derive value from ReceivablePaymentHeader.CurrencyTable
+		TransientAccountingEntity			is an AccountingEntity
+			derive value from Company.AccountingEntity
+		OriginalCurrency					is a FromCurrency
+			default label is "TransactionCurrency"
+			derive value from ReceivablePayment.OriginalCurrency
+		OpenAmount							is an InternationalAmount
+			derive value from DerivedOpenAmount
+
+	Local Fields
+		LocalSetFinanceCodeBlockComponents	is a SetFinanceCodeBlockComponents
+		LocalAnswer							is Boolean
+		LocalGLAccount						is a FinanceCodeBlock
+		LocalGLFinanceCodeBlock				is a FinanceCodeBlock
+		LocalCurrencyCalculationGroup		is a CurrencyCalculationGroup
+		LocalSaveTransactionAmount			is an InternationalAmount
+		NewReceivablePaymentCashDetail		is a ReceivablePaymentCashDetail view
+
+	Field Rules
+		CashFinanceCodeBlock
+			required
+			initial value is ReceivablePaymentHeader.CompanyCashCodeRel.CashAccount
+			if (action type.Create)
+				default to ReceivablePaymentHeader.CompanyCashCodeRel.CashAccount
+					default individual fields
+
+			initialize LocalGLAccount
+			if (Company.DetailFinanceStructureOptions.ToAccountingEntity)
+				LocalGLAccount.ToAccountingEntity = CashFinanceCodeBlock.ToAccountingEntity
+			if (Company.DetailFinanceStructureOptions.AccountingUnit)
+				LocalGLAccount.AccountingUnit = CashFinanceCodeBlock.AccountingUnit
+			if (Company.DetailFinanceStructureOptions.Project)
+				LocalGLAccount.Project = CashFinanceCodeBlock.Project
+			if (Company.DetailFinanceStructureOptions.FinanceDimension1)
+				LocalGLAccount.FinanceDimension1 = CashFinanceCodeBlock.FinanceDimension1
+			if (Company.DetailFinanceStructureOptions.FinanceDimension2)
+				LocalGLAccount.FinanceDimension2 = CashFinanceCodeBlock.FinanceDimension2
+			if (Company.DetailFinanceStructureOptions.FinanceDimension3)
+				LocalGLAccount.FinanceDimension3 = CashFinanceCodeBlock.FinanceDimension3
+			if (Company.DetailFinanceStructureOptions.FinanceDimension4)
+				LocalGLAccount.FinanceDimension4 = CashFinanceCodeBlock.FinanceDimension4
+			if (Company.DetailFinanceStructureOptions.FinanceDimension5)
+				LocalGLAccount.FinanceDimension5 = CashFinanceCodeBlock.FinanceDimension5
+			if (Company.DetailFinanceStructureOptions.FinanceDimension6)
+				LocalGLAccount.FinanceDimension6 = CashFinanceCodeBlock.FinanceDimension6
+			if (Company.DetailFinanceStructureOptions.FinanceDimension7)
+				LocalGLAccount.FinanceDimension7 = CashFinanceCodeBlock.FinanceDimension7
+			if (Company.DetailFinanceStructureOptions.FinanceDimension8)
+				LocalGLAccount.FinanceDimension8 = CashFinanceCodeBlock.FinanceDimension8
+			if (Company.DetailFinanceStructureOptions.FinanceDimension9)
+				LocalGLAccount.FinanceDimension9 = CashFinanceCodeBlock.FinanceDimension9
+			if (Company.DetailFinanceStructureOptions.FinanceDimension10)
+				LocalGLAccount.FinanceDimension10 = CashFinanceCodeBlock.FinanceDimension10
+
+			AdditionalDimensionsCodeBlock 	= LocalGLAccount
+			AdditionalDimensionsCode		= AdditionalDimensionsCodeBlock.DimensionCode
+
+			initialize LocalSetFinanceCodeBlockComponents
+			LocalSetFinanceCodeBlockComponents.InputFinanceCodeBlock				= ReceivablePayment.ReceivedNotAppliedReceivableGeneralLedgerCode.DistributionAccount
+			LocalSetFinanceCodeBlockComponents.DefaultFinanceCodeBlock				= AdditionalDimensionsCodeBlock
+			LocalAnswer = LocalSetFinanceCodeBlockComponents.SetIndividualFields
+			RNAFinanceCodeBlock = LocalSetFinanceCodeBlockComponents.OutputFinanceCodeBlock
+
+		DistributionAmount
+			required
+			if (DistributionAmount.ExchangeDate not entered)
+				DistributionAmount.ExchangeDate = ReceivablePayment.DepositDate
+			if (AppliedAmount.ExchangeDate not entered)
+				AppliedAmount.ExchangeDate = ReceivablePayment.DepositDate
+			if (!Reversal)
+				constraint (DistributionAmount.CurrencyAmount > 0)
+					"Transaction_\AmountMustBeGreaterThanZero"
+			if (!ReceivablePayment.DetailRNADistributions)
+				AppliedAmount = DistributionAmount
+			if (Status.Released)
+				DistributionAmount.KeepRateAndAmount 	= true
+				AppliedAmount.KeepRateAndAmount 		= true
+
+		GlobalLedgerDate
+			default to ReceivablePayment.GeneralLedgerDate
+
+	Derived Fields
+		DerivedOpenAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "OpenAmount"
+			return (DistributionAmount.CurrencyAmount - AppliedAmount.CurrencyAmount)
+
+		DerivedAppliedAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "AppliedAmount"
+			return AppliedAmount.CurrencyAmount
+
+		DerivedAvailableAmountToReverse is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (ReceivablePayment.DetailRNADistributions)
+				return DerivedOpenAmount
+			else
+				return DistributionAmount.CurrencyAmount
+
+		DerivedStatus is a DerivedField
+			type is Alpha 12
+			default label is "Status"
+			if (Status.Unreleased)
+				return "Unreleased"
+			else
+				return "Released"
+
+
+	Rule Blocks
+		CreateUpdateExitRules
+			if (AdditionalDimensionsCodeBlock.Project entered
+			and AdditionalDimensionsCodeBlock.Project.DefaultCodeBlock entered)
+				initialize AdditionalDimensionsCodeBlock.Ledger
+				initialize AdditionalDimensionsCodeBlock.GeneralLedgerChartAccount
+				if (!Company.DetailFinanceStructureOptions.ToAccountingEntity)
+					initialize AdditionalDimensionsCodeBlock.ToAccountingEntity
+				if (!Company.DetailFinanceStructureOptions.AccountingUnit)
+					initialize AdditionalDimensionsCodeBlock.AccountingUnit
+				if (!Company.DetailFinanceStructureOptions.Project)
+					initialize AdditionalDimensionsCodeBlock.Project
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension1)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension1
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension2)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension2
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension3)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension3
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension4)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension4
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension5)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension5
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension6)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension6
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension7)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension7
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension8)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension8
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension9)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension9
+				if (!Company.DetailFinanceStructureOptions.FinanceDimension10)
+					initialize AdditionalDimensionsCodeBlock.FinanceDimension10
+
+				AdditionalDimensionsCode = AdditionalDimensionsCodeBlock.DimensionCode
+
+
+	Conditions
+		AllowReverseForUpdate
+			restricted
+			when (Status.Released
+			and  (!ReceivablePayment.DetailRNADistributions 
+			or   (OpenAmount != 0
+			and  (ReceivablePayment.Status.Open
+			or    ReceivablePayment.Status.ReleasedUnassigned)))
+			and  !Reversal)
+
+		AllowCreate
+			restricted
+			when (ReceivablePayment.Status.Unreleased
+			or    ReceivablePayment.CashDetailState.Amended
+			or  (!ReceivablePayment.Status.Unreleased
+			and   ReceivablePayment.CashDetailState.Unreleased))
+
+		AllowUpdate
+			restricted
+			when (Status.Unreleased
+			and  !Reversal)
+
+		AllowDelete
+			restricted
+			when (Status.Unreleased
+			and  !Reversal)
+
+		ShowAppliedCashDetails
+			restricted
+			when (Status.Released
+			and   ReceivablePayment.DetailRNADistributions)
+
+		ShowReleaseInProcessMessage
+			restricted
+			when (Status.Unreleased
+			and   ReceivablePayment.CashDetailState.Released)
+
+	Relations
+
+
+	Sets
+
+		ByAdditionalDimensionsCodeBlock
+			indexed
+			Sort Order
+				Company
+				ReceivablePaymentHeader
+				ReceivablePayment
+				AdditionalDimensionsCodeBlock.ToAccountingEntity
+                AdditionalDimensionsCodeBlock.AccountingUnit
+                AdditionalDimensionsCodeBlock.GeneralLedgerChartAccount
+                AdditionalDimensionsCodeBlock.Project
+                AdditionalDimensionsCode
+				ReceivablePaymentCashDetail
+
+
+	Actions				
+		Create is a Create Action
+			valid when (AllowCreate)
+			Action Rules
+				if (ReceivablePayment.CashDetailState.None
+				and ReceivablePayment.Status.Unreleased)
+					invoke FastUpdate ReceivablePayment
+						invoked.CashDetailState	= "U"
+			Exit Rules
+				include CreateUpdateExitRules
+
+		CreateReleased is a Create Action
+			restricted
+			Exit Rules
+				include CreateUpdateExitRules
+				Status = Status.Released
+
+		Update is an Update Action
+			valid when (AllowUpdate)
+			Action Rules
+				LocalSaveTransactionAmount = DistributionAmount.CurrencyAmount
+				initialize DistributionAmount
+				DistributionAmount.CurrencyAmount = LocalSaveTransactionAmount
+			Exit Rules
+				include CreateUpdateExitRules
+				if (!ReceivablePayment.DetailRNADistributions)
+					AppliedAmount = DistributionAmount
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+			valid when (AllowDelete)
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge CashDetailApplication set
+
+		AddToAppliedAmount is an Instance Action
+			restricted
+			Parameters
+				PrmAmount is like FinanceCurrencyAmountGroup
+			Action Rules
+				AppliedAmount.CurrencyAmount 							+= PrmAmount.CurrencyAmount
+				AppliedAmount.FunctionalAmount.EnteredCurrencyAmount 	+= PrmAmount.FunctionalAmount.EnteredCurrencyAmount
+				AppliedAmount.AlternateAmount.EnteredCurrencyAmount 	+= PrmAmount.AlternateAmount.EnteredCurrencyAmount
+				AppliedAmount.AlternateAmount2.EnteredCurrencyAmount 	+= PrmAmount.AlternateAmount2.EnteredCurrencyAmount
+				AppliedAmount.AlternateAmount3.EnteredCurrencyAmount 	+= PrmAmount.AlternateAmount3.EnteredCurrencyAmount
+				AppliedAmount.ToFunctionalAmount.EnteredCurrencyAmount  += PrmAmount.ToFunctionalAmount.EnteredCurrencyAmount
+				AppliedAmount.ToAlternateAmount.EnteredCurrencyAmount 	+= PrmAmount.ToAlternateAmount.EnteredCurrencyAmount
+				AppliedAmount.ToAlternateAmount2.EnteredCurrencyAmount  += PrmAmount.ToAlternateAmount2.EnteredCurrencyAmount
+				AppliedAmount.ToAlternateAmount3.EnteredCurrencyAmount  += PrmAmount.ToAlternateAmount3.EnteredCurrencyAmount
+				AppliedAmount.ProjectAmount.EnteredCurrencyAmount 		+= PrmAmount.ProjectAmount.EnteredCurrencyAmount
+				AppliedAmount.ReportAmount1.EnteredCurrencyAmount 		+= PrmAmount.ReportAmount1.EnteredCurrencyAmount
+				AppliedAmount.ReportAmount2.EnteredCurrencyAmount 		+= PrmAmount.ReportAmount2.EnteredCurrencyAmount
+				AppliedAmount.ReportAmount3.EnteredCurrencyAmount 		+= PrmAmount.ReportAmount3.EnteredCurrencyAmount
+				AppliedAmount.ReportAmount4.EnteredCurrencyAmount 		+= PrmAmount.ReportAmount4.EnteredCurrencyAmount
+				AppliedAmount.ReportAmount5.EnteredCurrencyAmount 		+= PrmAmount.ReportAmount5.EnteredCurrencyAmount
+
+		Release is an Instance Action
+			restricted
+			Parameters
+				FromReleaseOfPaymentBatch	is Boolean
+			Action Rules
+
+				invoke CreatePaymentDistribution ReceivableGLDistribution
+					invoked.FinanceEnterpriseGroup											= Company.FinanceEnterpriseGroup
+					invoked.ReceivableCompanyDataGroup.TransactionCompany					= Company
+					invoked.ReceivableCompanyGroup.OriginCompany							= Company
+					invoked.BatchNumber														= ReceivablePaymentHeader
+					invoked.SequenceNumber													= ReceivablePayment
+					invoked.AccumulationType												= "D"
+					invoked.DocumentNumber													= "6-" + ReceivablePaymentHeader.PaymentHeaderString + "-" + ReceivablePayment.PaymentString
+					invoked.GeneralLedgerAccount											= CashFinanceCodeBlock
+					invoked.Description														= "Batch " + ReceivablePaymentHeader + " cash entry"
+					invoked.BypassStructureRelationEdit										= true
+					invoked.ReceivableCompanyGroup.GlCompany								= Company
+					invoked.OriginalCurrency												= ReceivablePayment.OriginalCurrency
+					invoked.Status															= 2
+					invoked.GeneralLedgerDate												= ReceivablePayment.GeneralLedgerDate
+					if (ReceivablePayment.TypeOfPayment.NonArPayment)
+						invoked.TransientNonARCashOffset									= true
+					else
+						invoked.TransType													= "P"
+					invoked.Invoice															= ReceivablePayment.PaymentNumber
+					invoked.ReceivableCompanyDataGroup.Customer								= ReceivablePayment.Customer
+
+					invoked.DistributionAmount.ExchangeDate									= ReceivablePayment.DepositDate
+					invoked.DistributionAmount.CurrencyAmount								= DistributionAmount.CurrencyAmount
+					invoked.DistributionAmount.KeepRateAndAmount							= true
+
+					invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyAmount		= DistributionAmount.FunctionalAmount.EnteredCurrencyAmount
+					invoked.DistributionAmount.AlternateAmount.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount.EnteredCurrencyAmount
+					invoked.DistributionAmount.AlternateAmount2.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount2.EnteredCurrencyAmount
+					invoked.DistributionAmount.AlternateAmount3.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount3.EnteredCurrencyAmount
+					invoked.DistributionAmount.ToFunctionalAmount.EnteredCurrencyAmount		= DistributionAmount.ToFunctionalAmount.EnteredCurrencyAmount
+					invoked.DistributionAmount.ToAlternateAmount.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount.EnteredCurrencyAmount
+					invoked.DistributionAmount.ToAlternateAmount2.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount2.EnteredCurrencyAmount
+					invoked.DistributionAmount.ToAlternateAmount3.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount3.EnteredCurrencyAmount
+					invoked.DistributionAmount.ProjectAmount.EnteredCurrencyAmount			= DistributionAmount.ProjectAmount.EnteredCurrencyAmount
+					invoked.DistributionAmount.ReportAmount1.EnteredCurrencyAmount			= DistributionAmount.ReportAmount1.EnteredCurrencyAmount
+					invoked.DistributionAmount.ReportAmount2.EnteredCurrencyAmount			= DistributionAmount.ReportAmount2.EnteredCurrencyAmount
+					invoked.DistributionAmount.ReportAmount3.EnteredCurrencyAmount			= DistributionAmount.ReportAmount3.EnteredCurrencyAmount
+					invoked.DistributionAmount.ReportAmount4.EnteredCurrencyAmount			= DistributionAmount.ReportAmount4.EnteredCurrencyAmount
+					invoked.DistributionAmount.ReportAmount5.EnteredCurrencyAmount			= DistributionAmount.ReportAmount5.EnteredCurrencyAmount
+
+					invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyRate			= ReceivablePayment.CurrencyRate
+					invoked.DistributionAmount.AlternateAmount.EnteredCurrencyRate			= DistributionAmount.AlternateAmount.EnteredCurrencyRate
+					invoked.DistributionAmount.AlternateAmount2.EnteredCurrencyRate			= DistributionAmount.AlternateAmount2.EnteredCurrencyRate
+					invoked.DistributionAmount.AlternateAmount3.EnteredCurrencyRate			= DistributionAmount.AlternateAmount3.EnteredCurrencyRate
+					invoked.DistributionAmount.ToFunctionalAmount.EnteredCurrencyRate		= DistributionAmount.ToFunctionalAmount.EnteredCurrencyRate
+					invoked.DistributionAmount.ToAlternateAmount.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount.EnteredCurrencyRate
+					invoked.DistributionAmount.ToAlternateAmount2.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount2.EnteredCurrencyRate
+					invoked.DistributionAmount.ToAlternateAmount3.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount3.EnteredCurrencyRate
+					invoked.DistributionAmount.ProjectAmount.EnteredCurrencyRate			= DistributionAmount.ProjectAmount.EnteredCurrencyRate
+					invoked.DistributionAmount.ReportAmount1.EnteredCurrencyRate			= DistributionAmount.ReportAmount1.EnteredCurrencyRate
+					invoked.DistributionAmount.ReportAmount2.EnteredCurrencyRate			= DistributionAmount.ReportAmount2.EnteredCurrencyRate
+					invoked.DistributionAmount.ReportAmount3.EnteredCurrencyRate			= DistributionAmount.ReportAmount3.EnteredCurrencyRate
+					invoked.DistributionAmount.ReportAmount4.EnteredCurrencyRate			= DistributionAmount.ReportAmount4.EnteredCurrencyRate
+					invoked.DistributionAmount.ReportAmount5.EnteredCurrencyRate			= DistributionAmount.ReportAmount5.EnteredCurrencyRate
+
+
+				if (ReceivablePayment.DetailRNADistributions
+				or (FromReleaseOfPaymentBatch
+				and ReceivablePayment.TypeOfPayment.CustomerPayment))
+
+					invoke CreatePaymentDistribution ReceivableGLDistribution
+						invoked.FinanceEnterpriseGroup											= Company.FinanceEnterpriseGroup
+						invoked.ReceivableCompanyDataGroup.TransactionCompany					= Company
+						invoked.ReceivableCompanyGroup.OriginCompany							= Company
+						invoked.BatchNumber														= ReceivablePaymentHeader
+						invoked.SequenceNumber													= ReceivablePayment
+						invoked.AccumulationType												= "D"
+						invoked.DocumentNumber													= "6-" + ReceivablePaymentHeader.PaymentHeaderString + "-" + ReceivablePayment.PaymentString
+						if (ReceivablePayment.DetailRNADistributions)
+							invoked.GeneralLedgerAccount										= RNAFinanceCodeBlock
+						else
+							invoked.GeneralLedgerAccount										= ReceivablePayment.ReceivedNotAppliedReceivableGeneralLedgerCode.DistributionAccount
+						invoked.Description														= "Batch " + ReceivablePaymentHeader + " cash entry"
+						invoked.BypassStructureRelationEdit										= true
+						invoked.ReceivableCompanyGroup.GlCompany								= Company
+						invoked.OriginalCurrency												= ReceivablePayment.OriginalCurrency
+						invoked.Status															= 2
+						invoked.GeneralLedgerDate												= ReceivablePayment.GeneralLedgerDate
+						invoked.TransType														= "P"
+						invoked.Invoice															= ReceivablePayment.PaymentNumber
+						invoked.ReceivableCompanyDataGroup.Customer								= ReceivablePayment.Customer
+
+						invoked.DistributionAmount.ExchangeDate									= ReceivablePayment.DepositDate
+						invoked.DistributionAmount.CurrencyAmount								= DistributionAmount.CurrencyAmount * -1
+						invoked.DistributionAmount.KeepRateAndAmount							= true
+
+						invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyAmount		= DistributionAmount.FunctionalAmount.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.AlternateAmount.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.AlternateAmount2.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount2.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.AlternateAmount3.EnteredCurrencyAmount		= DistributionAmount.AlternateAmount3.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ToFunctionalAmount.EnteredCurrencyAmount		= DistributionAmount.ToFunctionalAmount.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ToAlternateAmount.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ToAlternateAmount2.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount2.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ToAlternateAmount3.EnteredCurrencyAmount		= DistributionAmount.ToAlternateAmount3.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ProjectAmount.EnteredCurrencyAmount			= DistributionAmount.ProjectAmount.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ReportAmount1.EnteredCurrencyAmount			= DistributionAmount.ReportAmount1.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ReportAmount2.EnteredCurrencyAmount			= DistributionAmount.ReportAmount2.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ReportAmount3.EnteredCurrencyAmount			= DistributionAmount.ReportAmount3.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ReportAmount4.EnteredCurrencyAmount			= DistributionAmount.ReportAmount4.EnteredCurrencyAmount * -1
+						invoked.DistributionAmount.ReportAmount5.EnteredCurrencyAmount			= DistributionAmount.ReportAmount5.EnteredCurrencyAmount * -1
+
+						invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyRate			= ReceivablePayment.CurrencyRate
+						invoked.DistributionAmount.AlternateAmount.EnteredCurrencyRate			= DistributionAmount.AlternateAmount.EnteredCurrencyRate
+						invoked.DistributionAmount.AlternateAmount2.EnteredCurrencyRate			= DistributionAmount.AlternateAmount2.EnteredCurrencyRate
+						invoked.DistributionAmount.AlternateAmount3.EnteredCurrencyRate			= DistributionAmount.AlternateAmount3.EnteredCurrencyRate
+						invoked.DistributionAmount.ToFunctionalAmount.EnteredCurrencyRate		= DistributionAmount.ToFunctionalAmount.EnteredCurrencyRate
+						invoked.DistributionAmount.ToAlternateAmount.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount.EnteredCurrencyRate
+						invoked.DistributionAmount.ToAlternateAmount2.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount2.EnteredCurrencyRate
+						invoked.DistributionAmount.ToAlternateAmount3.EnteredCurrencyRate		= DistributionAmount.ToAlternateAmount3.EnteredCurrencyRate
+						invoked.DistributionAmount.ProjectAmount.EnteredCurrencyRate			= DistributionAmount.ProjectAmount.EnteredCurrencyRate
+						invoked.DistributionAmount.ReportAmount1.EnteredCurrencyRate			= DistributionAmount.ReportAmount1.EnteredCurrencyRate
+						invoked.DistributionAmount.ReportAmount2.EnteredCurrencyRate			= DistributionAmount.ReportAmount2.EnteredCurrencyRate
+						invoked.DistributionAmount.ReportAmount3.EnteredCurrencyRate			= DistributionAmount.ReportAmount3.EnteredCurrencyRate
+						invoked.DistributionAmount.ReportAmount4.EnteredCurrencyRate			= DistributionAmount.ReportAmount4.EnteredCurrencyRate
+						invoked.DistributionAmount.ReportAmount5.EnteredCurrencyRate			= DistributionAmount.ReportAmount5.EnteredCurrencyRate
+
+
+
+
+
+
+
+
+
+
+
+
+				
+				Status = Status.Released
+
+		ReverseForUpdate is an Instance Action
+			valid when (AllowReverseForUpdate)
+			Parameters
+				PrmAmountToReverse				is an InternationalAmount
+					default label is "Amount"
+				PrmGlobalLedgerDate				is Date
+					default label is "GlobalLedgerDate"
+			Parameter Rules
+				PrmAmountToReverse
+					required
+					initial value is DerivedAvailableAmountToReverse
+					constraint (PrmAmountToReverse > 0)
+						"AmountMustBeGreaterThanZero"
+					if (ReceivablePayment.DetailRNADistributions)
+						constraint (PrmAmountToReverse <= OpenAmount)
+							"Amount<PrmAmountToReverse>CannotExceedThisDetail's_\Open_\Amount<OpenAmount>"
+					else
+						constraint (PrmAmountToReverse <= DistributionAmount.CurrencyAmount)
+							"Amount<PrmAmountToReverse>CannotExceedThisDetail's_\Transaction_\Amount<DistributionAmount.CurrencyAmount>"
+
+				PrmGlobalLedgerDate
+					required
+					initial value is ReceivablePayment.GeneralLedgerDate
+					if (ReceivablePayment.CompanySystemClosingControlRel.Control 
+					and Company.VerifyGLDateWithinGLDateRange)
+						constraint (PrmGlobalLedgerDate within ReceivablePayment.CompanySystemClosingControlRel.ValidEntryDate)
+							"GlobalLedgerDate<PrmGlobalLedgerDate>IsNotWithinValidEntryDatesForCompany<Company>;ValidDateRangeIs<ReceivablePayment.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<ReceivablePayment.CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+			Action Rules
+				if (!ReceivablePayment.CashDetailState.Amended)
+					invoke FastUpdate ReceivablePayment
+						invoked.CashDetailState			= "A"
+				if (PrmGlobalLedgerDate != ReceivablePayment.GeneralLedgerDate)
+					invoke FastUpdate ReceivablePayment
+						invoked.GeneralLedgerDate		= PrmGlobalLedgerDate
+				
+				invoke Create
+					assign result to NewReceivablePaymentCashDetail
+					invoked.Company													= Company
+					invoked.ReceivablePaymentHeader									= ReceivablePaymentHeader
+					invoked.ReceivablePayment										= ReceivablePayment
+					invoked.DistributionAmount.CurrencyAmount 						= PrmAmountToReverse * -1
+					invoked.DistributionAmount.ExchangeDate							= ReceivablePayment.DepositDate
+					invoked.GlobalLedgerDate 										= PrmGlobalLedgerDate
+					invoked.CashFinanceCodeBlock									= CashFinanceCodeBlock
+					invoked.Reversal												= true
+
+				if (ReceivablePayment.DetailRNADistributions)
+					invoke Create CashDetailApplication
+						invoked.Company												= Company
+						invoked.ReceivablePaymentHeader								= ReceivablePaymentHeader
+						invoked.ReceivablePayment									= ReceivablePayment
+						invoked.ReceivablePaymentCashDetail							= NewReceivablePaymentCashDetail.ReceivablePaymentCashDetail
+						invoked.DistributionAmount.CurrencyAmount					= PrmAmountToReverse * -1
+						invoked.DistributionAmount.ExchangeDate						= ReceivablePayment.DepositDate
+						invoked.ApplicationPostDate									= PrmGlobalLedgerDate
+						invoked.ApplicationSource									= "L"
+
+					invoke Create CashDetailApplication
+						invoked.Company												= Company
+						invoked.ReceivablePaymentHeader								= ReceivablePaymentHeader
+						invoked.ReceivablePayment									= ReceivablePayment
+						invoked.ReceivablePaymentCashDetail							= ReceivablePaymentCashDetail
+						invoked.DistributionAmount.CurrencyAmount					= PrmAmountToReverse
+						invoked.DistributionAmount.ExchangeDate						= ReceivablePayment.DepositDate
+						invoked.ApplicationPostDate									= PrmGlobalLedgerDate
+						invoked.ApplicationSource									= "D"
+
+
+		RoundingUpdate is an Instance Action
+			restricted
+			Parameters
+				PrmRoundAmount is like FinanceCurrencyAmountGroup
+			Action Rules
+
+				DistributionAmount.FunctionalAmount.EnteredCurrencyAmount 	+= PrmRoundAmount.FunctionalAmount.EnteredCurrencyAmount
+				DistributionAmount.AlternateAmount.EnteredCurrencyAmount 	+= PrmRoundAmount.AlternateAmount.EnteredCurrencyAmount
+				DistributionAmount.AlternateAmount2.EnteredCurrencyAmount 	+= PrmRoundAmount.AlternateAmount2.EnteredCurrencyAmount
+				DistributionAmount.AlternateAmount3.EnteredCurrencyAmount 	+= PrmRoundAmount.AlternateAmount3.EnteredCurrencyAmount
+
+
+
+
+
+				DistributionAmount.ReportAmount1.EnteredCurrencyAmount 		+= PrmRoundAmount.ReportAmount1.EnteredCurrencyAmount
+				DistributionAmount.ReportAmount2.EnteredCurrencyAmount 		+= PrmRoundAmount.ReportAmount2.EnteredCurrencyAmount
+				DistributionAmount.ReportAmount3.EnteredCurrencyAmount 		+= PrmRoundAmount.ReportAmount3.EnteredCurrencyAmount
+				DistributionAmount.ReportAmount4.EnteredCurrencyAmount 		+= PrmRoundAmount.ReportAmount4.EnteredCurrencyAmount
+				DistributionAmount.ReportAmount5.EnteredCurrencyAmount 		+= PrmRoundAmount.ReportAmount5.EnteredCurrencyAmount

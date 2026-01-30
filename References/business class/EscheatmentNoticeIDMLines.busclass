@@ -1,0 +1,691 @@
+EscheatmentNoticeIDMLines is a BusinessClass
+    owned by cb
+    prefix is ENIL
+
+    Ontology
+        symbolic key is EscheatmentNoticeIDMLines
+
+    Patterns
+        disable AuditIndex
+
+    Persistent Fields
+        IDMUniqueID                 is an IDMPID
+            protected
+        BatchID                     is an IDMPID
+            protected
+        PayablesVendor              is a Vendor
+        TotalAmount                 is like CurrencyAmount
+        TotalRecordsGenerated       is Numeric 10
+        Status                      is Alpha size 1
+            States
+                Processing          value is "P"
+                Completed           value is "C"
+                Failed              value is "F"
+        IDMJob
+			protected
+			delete ignored
+        CashLedgerTransaction
+            delete ignored
+        BankTransactionCode
+            delete ignored
+        CashLedgerSourceRecord
+
+    Rule Blocks
+        ComputeTotals
+            if (PayablesVendor entered)
+                if (EscheatmentNoticeIDMHeader.ParameterStatus.Open)
+                    TotalAmount = sum CashLedgerTransactionsWithVendorOpenRel.IssuedBankAmount
+                    TotalRecordsGenerated = instance count of CashLedgerTransactionsWithVendorOpenRel
+                else
+                    TotalAmount = sum CashLedgerTransactionsWithVendorStaleRel.IssuedBankAmount
+                    TotalRecordsGenerated = instance count of CashLedgerTransactionsWithVendorStaleRel
+            else
+                TotalAmount = CashLedgerTransaction.IssuedBankAmount
+
+        IDMXMLDefinition
+            initialize IDMGenerateDocument
+
+            IDMGenerateDocument.IDMXMLDefinition.Busclass					= reference to this instance
+            IDMGenerateDocument.IDMXMLDefinition.ListName					= "EscheatmentNoticeIDMList"
+            IDMGenerateDocument.IDMXMLDefinition.DocumentName				= "EscheatmentNoticeIDM"
+
+            if (EscheatmentNoticeIDMHeader.ParameterStatus.Open and PayablesVendor entered)
+                IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName		= "CashLedgerTransactionsWithVendorOpenRel"
+            else
+            if (EscheatmentNoticeIDMHeader.ParameterStatus.StaleDated and PayablesVendor entered)
+                IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName		= "CashLedgerTransactionsWithVendorStaleRel"
+            else
+            if (EscheatmentNoticeIDMHeader.ParameterStatus.Open and PayablesVendor not entered)
+                IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName		= "CashLedgerTransactionsNoVendorOpenRel"
+            else
+            if (EscheatmentNoticeIDMHeader.ParameterStatus.StaleDated and PayablesVendor not entered)
+                IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName		= "CashLedgerTransactionsNoVendorStaleRel"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName 			= "CashLedgerTransactionEscheatmentNoticeIDMList"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1		= 1
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag				= "Transactions"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag				= "Transaction"
+
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].RelationName			= "ValidPayablesInvoicePaymentRel"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListName 			= "PayablesInvoicePaymentIDMList"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection1		= 1
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection2		= 1
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListTag				= "RelatedInvoices"
+            IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ItemTag				= "Invoice"
+
+    Field Rules
+        TotalAmount
+            if (action type.Create)
+                include ComputeTotals
+
+    Local Fields
+        LocalEscheatmentHeader      is an EscheatmentNoticeIDMHeader
+        IDMGenerateDocument
+        IDMAttributes
+        IDMItem
+        IDMBatchOperation
+        LocalAttributeCtr	        is Numeric size 3
+        LocalGotIDMDocumentURL      is Boolean
+        LocalIDMPrinter             is an IDMPrinter
+        LocalEmailSubject           is Alpha 255
+            Text Variables
+                CashCode            value is CashCode
+				CashCodeGroup       value is CashCode.CashCodeGroup
+				Company             value is Company
+                CompanyName         value is Company.Name
+				Vendor              value is PayablesVendor
+				PayeeName           value is DerivedRecipientName
+				FromIssueDate       value is DerivedMonth + DerivedDay + EscheatmentNoticeIDMHeader.ParameterDateRange.Begin year
+				ToIssueDate         value is DerivedMonth + DerivedDay + EscheatmentNoticeIDMHeader.ParameterDateRange.End year
+ 		IDMXMLDefinition
+		AttributeCtr				is Numeric 2
+		LocalExecute				is Boolean	               
+    
+    Conditions 
+        HasNotEqualRecords
+            when (PayablesVendor entered
+            and ((TotalRecordsGenerated not = instance count of CashLedgerTransactionsWithVendorOpenRel
+            and EscheatmentNoticeIDMHeader.ParameterStatus.Open)
+            or (TotalRecordsGenerated not = instance count of CashLedgerTransactionsWithVendorStaleRel
+            and EscheatmentNoticeIDMHeader.ParameterStatus.StaleDated)))
+        
+        IsFailed
+            when (Status.Failed)
+
+        IsCompleted
+            when (Status.Completed)
+
+        IsVendorEmailSent
+            when (Status.Completed and IDMJob.EmailStatus.Finished)
+    
+    Derived Fields
+        DerivedRecipientName is a DerivedField
+            type is like Name
+            if (PayablesVendor entered)
+                if (PayablesVendor.PrimeVendorContactRel.ContactName entered)
+                    return PayablesVendor.PrimeVendorContactRel.ContactName
+                else
+                    return PayablesVendor.VendorName
+            else
+                return CashLedgerTransaction.DerivedPayeeName
+        
+        DerivedRecipientAddressLine1 is a DerivedField
+            type is like AddressLine
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.DeliveryAddress.AddressLine1
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressLine1
+        
+        DerivedRecipientAddressLine2 is a DerivedField
+            type is like AddressLine
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.DeliveryAddress.AddressLine2
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressLine2
+
+        DerivedRecipientAddressLine3 is a DerivedField
+            type is like AddressLine
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.DeliveryAddress.AddressLine3
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressLine3
+
+        DerivedRecipientAddressLine4 is a DerivedField
+            type is like AddressLine
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.DeliveryAddress.AddressLine4
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressLine4
+
+        DerivedRecipientMunicipality is a DerivedField
+            type is like MunicipalityLarge
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.Municipality
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressMunicipality
+
+        DerivedRecipientState is a DerivedField
+            type is like StateProvince
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.StateProvince
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressState
+
+        DerivedRecipientPostalCode is a DerivedField
+            type is like PostalCode
+            if (PayablesVendor entered)
+                return PayablesVendor.VendorAddress.PostalCode
+            else
+                return CashLedgerTransaction.DerivedPayeeAddressPostal
+
+        DerivedFileName is a StringField
+    		type is like IDMFileName
+            restricted
+            "Escheatment Notice "
+            CashCode
+            " "
+            DerivedRecipientName
+            " as of "
+            DerivedMonth
+            DerivedDay
+            EscheatmentNoticeIDMHeader.ParameterDateRange.End year
+
+        DerivedMonth is a DerivedField
+            type is Alpha 2
+            restricted
+            if (EscheatmentNoticeIDMHeader.ParameterDateRange.End month < 10)
+                return "0" + EscheatmentNoticeIDMHeader.ParameterDateRange.End month
+            else
+                return EscheatmentNoticeIDMHeader.ParameterDateRange.End month
+
+        DerivedDay is a DerivedField
+            type is Alpha 2
+            restricted
+            if (EscheatmentNoticeIDMHeader.ParameterDateRange.End day < 10)
+                return "0" + EscheatmentNoticeIDMHeader.ParameterDateRange.End day
+            else
+                return EscheatmentNoticeIDMHeader.ParameterDateRange.End day
+
+        DerivedIDMDocumentLink is a DerivedField
+			type is Alpha 2083
+    		if (IDMUniqueID entered)
+                IDMItem.DocumentType	= "FSM_EscheatmentNotice"
+                IDMItem.IDMUniqueId		= IDMUniqueID
+                return IDMItem.GetLink
+			return blank
+
+        DerivedNotificationDetail is a StringField
+            type is Text
+            restricted
+            "Parameters:"
+            "CashManagementGroup:"
+            LocalEscheatmentHeader.ParameterCashManagementGroup
+            "; CashCode:"
+            LocalEscheatmentHeader.ParameterCashCode
+            "; BankTransactionCode:"
+            LocalEscheatmentHeader.ParameterBankTransactionCode
+            "; Status:"
+            LocalEscheatmentHeader.ParameterStatus
+            "; ProcessLevel:"
+            LocalEscheatmentHeader.ParameterProcessLevel
+            "; DateRange:"
+            LocalEscheatmentHeader.ParameterDateRange
+
+        EmailNotificationMsg is a MessageField
+			restricted
+			"EscheatmentNoticeWasSentToPayee"
+
+        PrinterNotificationMsg is a MessageField
+			restricted
+			"EscheatmentNoticeWasSentTo<LocalIDMPrinter>"
+
+        DerivedEmailSubject is a DerivedField
+            type is Alpha size 255
+			restricted
+            LocalEmailSubject = CashCode.EscheatmentNoticeIDMEmailSubject
+			return LocalEmailSubject text
+
+        DerivedToEmailAddress is a DerivedField
+            type is like MultipleEmailAddress
+            restricted
+            if (PayablesVendor.EmailAddress entered)
+                return PayablesVendor.EmailAddress
+            else
+            if (CashLedgerTransaction.CashLedgerPaymentOTORel.EmailAddress entered)
+                return CashLedgerTransaction.CashLedgerPaymentOTORel.EmailAddress
+            else
+                return blank
+
+        NoTransactionNotificationMessage is a MessageField
+            restricted
+            "NoTransactionsToProcessFor_Escheatment_Notice"
+    
+    Relations
+
+		IDMAdditionalAttributesLinesRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader = "FSM_EscheatmentNotice"
+			Instance Selection
+				where(related.IDMAdditionalAttributesHeader.ActivateAdditionalAttributes
+				and	  related.ActivateAdditionalAttributes.Active)    
+                
+        CompanyAccountingEntityRel
+		    one-to-one relation to AccountingEntity
+		    Field Mapping uses symbolic key
+			    related.FinanceEnterpriseGroup = CashCode.CashManagementGroup.FinanceEnterpriseGroup
+			    related.AccountingEntity	   = Company.AccountingEntity
+
+        CashLedgerTransactionsWithVendorOpenRel
+            one-to-many relation to CashLedgerTransaction
+            Field Mapping uses Set6
+                related.CashManagementGroup     = CashCode.CashManagementGroup
+                related.CashCode                = CashCode
+            Instance Selection
+                where (((EscheatmentNoticeIDMHeader.ParameterBankTransactionCode entered
+				and related.BankTransactionCode = EscheatmentNoticeIDMHeader.ParameterBankTransactionCode)
+				or (EscheatmentNoticeIDMHeader.ParameterBankTransactionCode not entered))
+                and (related.IssueDate within EscheatmentNoticeIDMHeader.ParameterDateRange)
+				and ((EscheatmentNoticeIDMHeader.ParameterProcessLevel entered
+				and related.PayablesCompanyVendorProcLevel.PayablesProcessLevel = EscheatmentNoticeIDMHeader.ParameterProcessLevel)
+				or EscheatmentNoticeIDMHeader.ParameterProcessLevel not entered)
+                and related.PayablesCompanyVendorProcLevel.Vendor = PayablesVendor
+                and related.Company.OrigCompany = Company
+				and related.Status.Open
+				and related.BankTransactionCode.BankTransactionType.CashPayment
+                and related.BankTransactionCode.TransactionType.DebitTransaction
+				and related.SummaryOption.NoSummary
+                and (related.Type not entered or not related.Type.CashLedgerPayment))
+
+        CashLedgerTransactionsNoVendorOpenRel
+            one-to-many relation to CashLedgerTransaction
+            Field Mapping uses Set5
+                related.CashManagementGroup     = CashCode.CashManagementGroup
+                related.Status.Open             = CashLedgerTransaction.Status.Open
+                related.Company.OrigCompany     = Company
+                related.CashCode                = CashCode
+                related.BankTransactionCode     = BankTransactionCode
+                related.TransactionNumber       = CashLedgerTransaction.TransactionNumber
+                related.TransactionNumberSuffix = CashLedgerTransaction.TransactionNumberSuffix
+                related.CashLedgerTransaction   = CashLedgerTransaction
+                related.CashLedgerSourceRecord  = CashLedgerSourceRecord
+            Instance Selection
+                where (related.PayablesCompanyVendorProcLevel.Vendor not entered
+                or related.Type.CashLedgerPayment)
+        
+        CashLedgerTransactionsWithVendorStaleRel
+            one-to-many relation to CashLedgerTransaction
+            Field Mapping uses Set6
+                related.CashManagementGroup     = CashCode.CashManagementGroup
+                related.CashCode                = CashCode
+            Instance Selection
+                where (((EscheatmentNoticeIDMHeader.ParameterBankTransactionCode entered
+				and related.BankTransactionCode = EscheatmentNoticeIDMHeader.ParameterBankTransactionCode)
+				or (EscheatmentNoticeIDMHeader.ParameterBankTransactionCode not entered))
+                and (related.IssueDate within EscheatmentNoticeIDMHeader.ParameterDateRange)
+				and ((EscheatmentNoticeIDMHeader.ParameterProcessLevel entered
+				and related.PayablesCompanyVendorProcLevel.PayablesProcessLevel = EscheatmentNoticeIDMHeader.ParameterProcessLevel)
+				or EscheatmentNoticeIDMHeader.ParameterProcessLevel not entered)
+                and related.PayablesCompanyVendorProcLevel.Vendor = PayablesVendor
+                and related.Company.OrigCompany = Company
+				and related.Status.StaleDated
+                and (related.Type not entered or not related.Type.CashLedgerPayment))
+            
+        CashLedgerTransactionsNoVendorStaleRel
+            one-to-many relation to CashLedgerTransaction
+            Field Mapping uses Set5
+                related.CashManagementGroup     = CashCode.CashManagementGroup
+                related.Status.Open             = CashLedgerTransaction.Status.StaleDated
+                related.Company.OrigCompany     = Company
+                related.CashCode                = CashCode
+                related.BankTransactionCode     = BankTransactionCode
+                related.TransactionNumber       = CashLedgerTransaction.TransactionNumber
+                related.TransactionNumberSuffix = CashLedgerTransaction.TransactionNumberSuffix
+                related.CashLedgerTransaction   = CashLedgerTransaction
+                related.CashLedgerSourceRecord  = CashLedgerSourceRecord
+            Instance Selection
+                where (related.PayablesCompanyVendorProcLevel.Vendor not entered
+                or related.Type.CashLedgerPayment)
+        
+        UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor	= actor
+
+    Actions
+
+        Create is a Create Action
+        	restricted
+            Exit Rules
+                include ComputeTotals
+        	
+        Update is an Update Action
+        	restricted
+        	
+		Delete is a Delete Action
+            restricted
+
+        Purge is a Purge Action
+			restricted
+
+        FastPurge is a Purge Action
+            restricted
+            bypass relational integrity rules
+
+        CreateAndSendEscheatmentNoticeToIDM is a Set Action
+            restricted
+            Parameters
+                PrmBatchID              is an IDMPID
+                PrmEscheatmentHeader    is an EscheatmentNoticeIDMHeader
+
+            Instance Selection
+                where (BatchID = PrmBatchID
+                and EscheatmentNoticeIDMHeader = PrmEscheatmentHeader)
+            
+            Local Fields
+				LocalAsyncID	    is an AsyncActionRequest
+                LocalActor          is an Actor
+            
+            Action Rules
+                Empty Set Rules
+                    LocalEscheatmentHeader = PrmEscheatmentHeader
+                    invoke Update PrmEscheatmentHeader
+                        invoked.Status = EscheatmentNoticeIDMHeader.Status.NoDataToProcess
+
+                    LocalActor   = actor
+                    send notification
+                        to LocalActor
+                        description is "<NoTransactionNotificationMessage>"
+                        priority is high
+                        detail is "<DerivedNotificationDetail>"		  
+                Set Rules
+                    Entrance Rules
+                        LocalAsyncID = current async action request id
+                        LocalActor   = actor
+                    Exit Rules
+                        invoke GetStatusEscheatmentNotice in background
+                            run after LocalAsyncID
+                            invoked.PrmBatchID              = PrmBatchID
+                            invoked.PrmEscheatmentHeader    = PrmEscheatmentHeader
+
+                Instance Rules
+                    invoke GenerateInstance
+                        invoked.PrmIsMass = true
+				    
+        GenerateInstance is an Instance Action
+            restricted
+            Parameters
+                PrmIsMass is Boolean
+            Local Fields
+				IDMJobView	        is an IDMJob view
+            Action Rules
+                initialize IDMAttributes
+
+                include IDMXMLDefinition
+
+                IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName		= "EscheatmentNoticeHeader"
+                IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue		= EscheatmentNoticeIDMHeader
+                IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName		= "CashManagementGroup"
+                IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue		= CashCode.CashManagementGroup
+                IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeName		= "CashManagementAccount"
+                IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeValue		= CashCode.BankAccountNumber
+                IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeName		= "CashCode"
+                IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeValue		= CashCode
+                IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeName      = "Company"
+                IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeValue     = Company
+                IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeName      = "CompanyName"
+                IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeValue     = Company.Name
+                IDMAttributes.SingleValue.IDMAttribute[7].IDMAttributeName		= "Vendor"
+                IDMAttributes.SingleValue.IDMAttribute[7].IDMAttributeValue		= PayablesVendor
+                IDMAttributes.SingleValue.IDMAttribute[8].IDMAttributeName		= "PayeeName"
+                IDMAttributes.SingleValue.IDMAttribute[8].IDMAttributeValue		= DerivedRecipientName
+
+                if (IDMAdditionalAttributesLinesRel exists)
+                    AttributeCtr = 9
+                    include IDM.IDMAdditionalAttributes                
+
+                initialize LocalAttributeCtr
+                LocalAttributeCtr = 1
+                IDMAttributes.MultiValue1.IDMAttributeName                  	= "BankTransactionCode"   
+                IDMAttributes.MultiValue2.IDMAttributeName                  	= "TransactionNumber"
+                if (EscheatmentNoticeIDMHeader.ParameterStatus.Open)
+                    if (PayablesVendor entered)
+                        for each distinct BankTransactionCode in CashLedgerTransactionsWithVendorOpenRel
+                            if (LocalAttributeCtr < 100)
+                                IDMAttributes.MultiValue1.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = each.BankTransactionCode
+                                LocalAttributeCtr += 1
+                            else
+                                end for each
+
+                        initialize LocalAttributeCtr
+                        LocalAttributeCtr = 1
+                        for each distinct TransactionNumber in CashLedgerTransactionsWithVendorOpenRel
+                            if (LocalAttributeCtr < 100)
+                                IDMAttributes.MultiValue2.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = each.TransactionNumber
+                                LocalAttributeCtr += 1
+                            else
+                                end for each
+                    else
+                        IDMAttributes.MultiValue1.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = CashLedgerTransaction.BankTransactionCode
+                        IDMAttributes.MultiValue2.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = CashLedgerTransaction.TransactionNumber
+
+                else
+                if (EscheatmentNoticeIDMHeader.ParameterStatus.StaleDated)
+                    if (PayablesVendor entered)
+                        for each distinct BankTransactionCode in CashLedgerTransactionsWithVendorStaleRel
+                            if (LocalAttributeCtr < 100)
+                                IDMAttributes.MultiValue1.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = each.BankTransactionCode
+                                LocalAttributeCtr += 1
+                            else
+                                end for each
+
+                        initialize LocalAttributeCtr
+                        LocalAttributeCtr = 1
+                        for each distinct TransactionNumber in CashLedgerTransactionsWithVendorStaleRel
+                            if (LocalAttributeCtr < 100)
+                                IDMAttributes.MultiValue2.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = each.TransactionNumber
+                                LocalAttributeCtr += 1
+                            else
+                                end for each
+                    else
+                        IDMAttributes.MultiValue1.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = CashLedgerTransaction.BankTransactionCode
+                        IDMAttributes.MultiValue2.IDMAttributeValueOccurs.IDMAttributeValue[LocalAttributeCtr] = CashLedgerTransaction.TransactionNumber
+
+
+                if (CashCode.IDMEmailEscheatmentNotice
+                and ((PayablesVendor.EmailAddress entered)
+                or CashLedgerTransaction.CashLedgerPaymentOTORel.EmailAddress entered))
+                    IDMGenerateDocument.IDMEmail.Subject          = DerivedEmailSubject
+                    if (CashCode.EscheatmentNoticeIDMEmailTemplate entered)
+                        IDMGenerateDocument.EmailTemplateUniqueID = CashCode.EscheatmentNoticeIDMEmailTemplate.IDMUniqueId
+                    else
+                        IDMGenerateDocument.IDMEmail.Body	= blank
+                    IDMGenerateDocument.IDMEmail.From       = CashCode.EscheatmentNoticeIDMEmailAddress
+                    if (CashLedgerTransaction.CashLedgerPaymentOTORel.EmailAddress entered)
+                        IDMGenerateDocument.IDMEmail.To         = CashLedgerTransaction.CashLedgerPaymentOTORel.EmailAddress
+                    else
+                        IDMGenerateDocument.IDMEmail.To         = PayablesVendor.EmailAddress
+
+                IDMGenerateDocument.IDMAttributes		= IDMAttributes
+                IDMGenerateDocument.TemplateUniqueId	= CashCode.EscheatmentNoticeIDMTemplate.IDMUniqueId
+                IDMGenerateDocument.DocumentType		= "FSM_EscheatmentNotice"
+                IDMGenerateDocument.FileName			= DerivedFileName + CashCode.EscheatmentNoticeIDMTemplate.DerivedOutputFormat
+                
+                IDMGenerateDocument.IDMPrinter	 	    = EscheatmentNoticeIDMHeader.ParameterIDMPrinter
+
+                IDMGenerateDocument.IDMAccessControlList = "CSFDefined"
+
+                if (PrmIsMass)
+                    IDMGenerateDocument.BatchID             = BatchID
+
+                include ComputeTotals
+
+                invoke CreateFromGenerateDocument IDMJob
+                    assign result to IDMJobView
+                    invoked.Actor				= actor
+                    invoked.Description			= "Escheatment Notice"
+                    invoked.IDMGenerateDocument = IDMGenerateDocument
+                    invoked.BypassGetStatus     = true
+                    if (PrmIsMass)
+                        invoked.BatchID				= BatchID
+
+                IDMJob = IDMJobView.IDMJob
+
+        GetStatusEscheatmentNotice is a Set Action
+            restricted
+            Parameters
+                PrmBatchID              is an IDMPID
+                PrmEscheatmentHeader    is an EscheatmentNoticeIDMHeader 
+
+            Instance Selection
+                where (BatchID = PrmBatchID
+                and IDMJob entered)
+
+            Local Fields
+                LocalHasFailed      is Boolean
+                LocalHasCompleted   is Boolean         
+
+            Action Rules
+                Set Rules
+                    Entrance Rules
+                        LocalHasFailed      = false
+                        LocalHasCompleted   = false
+
+                    Exit Rules
+                        if (LocalHasCompleted and not LocalHasFailed)
+                            invoke Update PrmEscheatmentHeader
+                                invoked.Status = EscheatmentNoticeIDMHeader.Status.Completed
+                        else
+                        if (LocalHasCompleted and LocalHasFailed)
+                            invoke Update PrmEscheatmentHeader
+                                invoked.Status = EscheatmentNoticeIDMHeader.Status.Incomplete
+                        else
+                            invoke Update PrmEscheatmentHeader
+                                invoked.Status = EscheatmentNoticeIDMHeader.Status.Failed
+
+                Instance Rules
+                    invoke GetStatus IDMJob
+                        invoked.PrmFromGenerateDocument = true
+                            
+                    if (IDMJob.Status.Finished and IDMJob.MDSID entered)						
+                        IDMUniqueID = IDMJob.MDSID
+                        Status = Status.Completed
+                        LocalHasCompleted = true
+                    else
+                        Status = Status.Failed
+                        LocalHasFailed = true
+
+        GetStatusInstance is an Instance Action
+            restricted
+            Action Rules
+                invoke GetStatus IDMJob
+                    invoked.PrmFromGenerateDocument = true
+                            
+                if (IDMJob.Status.Finished and IDMJob.MDSID entered)						
+                    IDMUniqueID = IDMJob.MDSID
+                    Status = Status.Completed
+                else
+                    Status = Status.Failed
+
+                invoke UpdateStatus EscheatmentNoticeIDMHeader
+
+        EmailEscheatmentNotice is an Instance Action
+            valid when (Status.Completed)
+            Parameters
+				PrmFrom is an EmailAddress
+                    holds pii
+					default label is "From"
+				PrmTo	is a MultipleEmailAddress
+                    holds pii
+					default label is "To"
+				PrmCc	is a MultipleEmailAddress
+                    holds pii
+					default label is "Cc"
+            Parameter Rules
+                PrmFrom
+                    default to CashCode.EscheatmentNoticeIDMEmailAddress
+                    initial value is CashCode.EscheatmentNoticeIDMEmailAddress
+                PrmTo
+                    required
+                    default to DerivedToEmailAddress
+                    initial value is DerivedToEmailAddress
+            Action Rules
+                initialize IDMItem
+
+                include IDMXMLDefinition
+
+                IDMItem.DocumentType		 = "FSM_EscheatmentNotice"
+				IDMItem.IDMXMLDefinition	 = IDMGenerateDocument.IDMXMLDefinition
+				IDMItem.IDMUniqueId			 = IDMUniqueID
+				IDMItem.IDMEmail.From		 = CashCode.EscheatmentNoticeIDMEmailAddress
+				IDMItem.IDMEmail.To			 = PrmTo
+				IDMItem.IDMEmail.Cc			 = PrmCc
+                IDMItem.IDMEmail.Subject     = DerivedEmailSubject
+
+                if (CashCode.EscheatmentNoticeIDMEmailTemplate entered)
+                    IDMItem.EmailTemplateUniqueID = CashCode.EscheatmentNoticeIDMEmailTemplate.IDMUniqueId
+                else
+                    IDMItem.IDMEmail.Body	= blank
+
+                constraint (IDMItem.GetItemDetails)
+					"DocumentDoesNotExistInIDM"
+
+				IDMItem.IDMPID    = IDMItem.IDMItemDetails.PID
+									
+				invoke SendToEmail IDMJob
+				    invoked.Description	 = EmailNotificationMsg
+					invoked.FileName	 = DerivedFileName + CashCode.EscheatmentNoticeIDMTemplate.DerivedOutputFormat
+					invoked.IDMItem		 = IDMItem
+
+        PrintEscheatmentNotice is an Instance Action
+            valid when (Status.Completed)
+            Parameters
+                PrmIDMPrinter is an IDMPrinter
+                    default label is "IDMPrinter"
+            Parameter Rules
+                PrmIDMPrinter
+                    required
+                    initial value is UserDefaultPrinterRel.IDMPrinter
+            Action Rules
+                initialize IDMItem
+				IDMItem.DocumentType = "FSM_EscheatmentNotice"
+				IDMItem.IDMUniqueId	 = IDMUniqueID
+				IDMItem.IDMPrinter	 = PrmIDMPrinter
+
+                LocalIDMPrinter      = PrmIDMPrinter
+
+				constraint (IDMItem.GetItemDetails)
+					"DocumentDoesNotExistInIDM"
+				
+				IDMItem.IDMPID    = IDMItem.IDMItemDetails.PID
+				
+				invoke SendToPrinter IDMJob
+					invoked.Description = PrinterNotificationMsg
+					invoked.FileName	= DerivedFileName + CashCode.EscheatmentNoticeIDMTemplate.DerivedOutputFormat
+					invoked.IDMItem		= IDMItem
+
+        RegenerateDocument is an Instance Action
+            Local Fields
+				IDMJobView	        is an IDMJob view
+                LocalAsyncID	    is an AsyncActionRequest
+            Action Rules
+                Status = Status.Processing
+
+                invoke GenerateInstance in background
+                    assign async action request id to LocalAsyncID
+                    invoked.PrmIsMass = false
+
+                invoke GetStatusInstance in background
+                    run after LocalAsyncID
+
+        PurgeLines is a Set Action
+            restricted
+            Parameters
+                PrmCashManagementGroup  is a CashManagementGroup
+                PrmEscheatmentHeader    is an EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (CashCode.CashManagementGroup = PrmCashManagementGroup
+                and EscheatmentNoticeIDMHeader = PrmEscheatmentHeader)
+            Action Rules
+                Instance Rules
+                    invoke FastPurge
+					

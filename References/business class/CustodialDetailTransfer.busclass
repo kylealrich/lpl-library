@@ -1,0 +1,561 @@
+CustodialDetailTransfer is a BusinessClass
+	owned by cam
+	
+	prefix is CamDt
+	
+	Ontology
+		symbolic key is CustodialDetailTransfer
+	
+	Patterns
+	
+	Persistent Fields
+		CustodialPosting				is a FinanceDimension10
+			default label is "<FinanceEnterpriseGroup.FinanceDimension10Label>_Detail"
+		Title				        	is Alpha 100
+			default label is "<FinanceEnterpriseGroup.FinanceDimension10Label>_Title"
+		CamSite
+			default label is "Site"
+		CamCategory
+			default label is "Category"
+		SocialSecurityNumber 	    	is Alpha 11
+			protected
+			restricted
+        CamCustodian
+			default label is "Custodian"
+		GeneralLedgerDate				is a PostingDate
+			default label is "GlobalLedgerDate"
+		TransactionDate					is an ExchangeDate
+		Currency						is a FromCurrency
+		FromFinanceCodeBlock			is a TransactionCodeBlock
+			default label is "FromFinanceStructure"
+		ToFinanceCodeBlock 				is a TransactionCodeBlock
+			default label is "ToFinanceStructure"
+		TransferAmount					is a CurrencyAmount
+		TransactionAmount				is a FinanceCurrencyAmountGroup 
+		Status              			is Numeric size 1
+            States
+                Unreleased  value is 1
+                Released    value is 2
+                PendingApproval value is 3
+		JournalizeGroup
+		ApprovalCode
+		Approver						is a FinanceResource
+		ApprovalLevel					is Numeric 8
+		ReleaseDate       				is Date
+		ApproverTeam					is a FinanceTeamField
+		ReassignToApprovalLevel			is an ApprovalCodeResource
+		TaxID
+			holds pii
+
+	Transient Fields
+		TransAccountingEntity is an  AccountingEntity
+			derive value from CustodialAccountManagement.AccountingEntity
+
+	Derived Fields
+		ThisProgramNameText is a MessageField
+			restricted
+			"CustodialDetailTransfer"
+
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+
+	Local Fields
+		LocalJournalizeGroup is a JournalizeGroup
+		LocalApproverList	 			is Alpha 250
+		LocalFirstApproverAssigned	  	is Boolean
+		LocalApprover				   	is a FinanceResource
+		LocalApprovalLevel			   	is Numeric 8
+		LocalApproverTeam			   	is a FinanceTeamField
+		LocalAccountingEntity			is like AccountingEntity
+
+	Field Rules
+		CustodialPosting
+			if(TransferAmount entered
+			or ToFinanceCodeBlock entered)
+				required
+				constraint(CustodialDetailAmount.CustodialPosting != CustodialPosting)
+					"FromAndTo<FinanceEnterpriseGroup.FinanceDimension10Label>ShouldNotBeEqual"
+				constraint (FinanceDimension10ShadowRel exists)
+	                "CannotTransfer;<FinanceEnterpriseGroup.FinanceDimension10Label>BelongsToADifferentSummary"
+		CamCategory
+			if (CamCategory.SSNRequired.Yes)
+				constraint (TaxID entered)
+					"TaxIDMustBeEntered"
+		TaxID
+			if (CamCategory.SSNRequired.No)
+				constraint (TaxID not entered)
+					"TaxIDShouldNotEntered"
+			if (TaxID entered
+			and CamCategory.TaxIDType entered
+			and TaxIdentificationTypeRel.HasExpression)
+				constraint (TaxID matches TaxIdentificationTypeRel.RegularExpression)
+					"TaxIdFormatDoesNotMatch;FormatIs<TaxIdentificationTypeRel.FormatExample>"
+		GeneralLedgerDate
+			initial value is current corporate date
+			default to current corporate date
+		TransactionDate
+			initial value is current corporate date
+			default to current corporate date
+		Currency
+			initial value is CustodialAccountManagement.AccountingEntity.FunctionalCurrency
+			default to CustodialAccountManagement.AccountingEntity.FunctionalCurrency
+		FromFinanceCodeBlock
+			if(TransferAmount entered
+			or ToFinanceCodeBlock entered)
+				default to CustodialAccountManagement.DefaultFinanceCodeBlock
+					default individual fields
+				if(FinanceEnterpriseGroup.FundDimension.AccountingUnit
+				and CustodialAccountManagement.AccUnitSummaryFund entered)
+					constraint(FromFinanceCodeBlock.AccountingUnit entered)
+						"<FinanceEnterpriseGroup.AccountingUnitLabel>Required"
+					constraint(FromFinanceCodeBlock.AccountingUnit= any CustodialAccountManagement.AccUnitSummaryFund.DescendantsRel.AccountingUnit)
+						"<FinanceEnterpriseGroup.AccountingUnitLabel>ShouldBeUnderSummary<FinanceEnterpriseGroup.AccountingUnitLabel><CustodialAccountManagement.AccUnitSummaryFund>"
+				if(FinanceEnterpriseGroup.FundDimension.Dimension1
+				and CustodialAccountManagement.DimOneSummaryFund entered)
+					constraint(FromFinanceCodeBlock.FinanceDimension1 entered)
+						"<FinanceEnterpriseGroup.FinanceDimension1Label>Required"
+					constraint(FromFinanceCodeBlock.FinanceDimension1= any CustodialAccountManagement.DimOneSummaryFund.DescendantsRel.FinanceDimension1)
+						"<FinanceEnterpriseGroup.FinanceDimension1Label>ShouldBeUnderSummary<FinanceEnterpriseGroup.FinanceDimension1Label><CustodialAccountManagement.DimOneSummaryFund>"
+				FromFinanceCodeBlock.FinanceDimension10 = CustodialDetailAmount.CustodialPosting
+				constraint (FromFinanceCodeBlock.ToAccountingEntity = CustodialAccountManagement.AccountingEntity)
+					"AccountingEntityMustBeTheSameOnCustodialRecordAndFromFinanceStructure"
+		ToFinanceCodeBlock
+			if(TransferAmount entered)
+				required
+			if(FinanceEnterpriseGroup.FundDimension.AccountingUnit)
+				if(CustodialAccountManagement.AccUnitSummaryFund entered)
+					constraint(ToFinanceCodeBlock.AccountingUnit entered)
+						"<FinanceEnterpriseGroup.AccountingUnitLabel>Required"
+					constraint(ToFinanceCodeBlock.AccountingUnit= any CustodialAccountManagement.AccUnitSummaryFund.DescendantsRel.AccountingUnit)
+						"<FinanceEnterpriseGroup.AccountingUnitLabel>ShouldBeUnderSummary<FinanceEnterpriseGroup.AccountingUnitLabel><CustodialAccountManagement.AccUnitSummaryFund>"
+				constraint(FromFinanceCodeBlock.AccountingUnit = ToFinanceCodeBlock.AccountingUnit)
+					"To<FinanceEnterpriseGroup.AccountingUnitLabel>:<ToFinanceCodeBlock.AccountingUnit>ShouldBeTheSameAsFrom<FinanceEnterpriseGroup.AccountingUnitLabel>:<FromFinanceCodeBlock.AccountingUnit>"
+			if(FinanceEnterpriseGroup.FundDimension.Dimension1)
+				if(CustodialAccountManagement.DimOneSummaryFund entered)
+					constraint(ToFinanceCodeBlock.FinanceDimension1 entered)
+						"<FinanceEnterpriseGroup.FinanceDimension1Label>Required"
+					constraint(ToFinanceCodeBlock.FinanceDimension1= any CustodialAccountManagement.DimOneSummaryFund.DescendantsRel.FinanceDimension1)
+						"<FinanceEnterpriseGroup.FinanceDimension1Label>ShouldBeUnderSummary<FinanceEnterpriseGroup.FinanceDimension1Label><CustodialAccountManagement.DimOneSummaryFund>"
+				constraint(FromFinanceCodeBlock.FinanceDimension1 = ToFinanceCodeBlock.FinanceDimension1)
+					"To<FinanceEnterpriseGroup.FinanceDimension1Label>:<ToFinanceCodeBlock.FinanceDimension1>ShouldBeTheSameAsFrom<FinanceEnterpriseGroup.FinanceDimension1Label>:<FromFinanceCodeBlock.FinanceDimension1>"
+			ToFinanceCodeBlock.FinanceDimension10 = CustodialPosting
+			constraint (ToFinanceCodeBlock.ToAccountingEntity = CustodialAccountManagement.AccountingEntity)
+				"AccountingEntityMustBeTheSameOnCustodialRecordAndToFinanceStructure"
+		TransferAmount
+			if(ToFinanceCodeBlock entered)
+				required
+				constraint(TransferAmount <= CustodialDetailAmount.EditAvailableAmount)
+					"NotEnoughAvailableEndingBalanceForTransfer"
+		Status
+			initial value is Status.Unreleased
+			default to Status.Unreleased
+
+		ApprovalCode
+			if (!CustodialAccountManagement.AccountingEntity.JournalApproval.None)
+				required
+
+	Conditions
+		HasTaxID
+			restricted
+			when (CustodialAccountManagement.TaxID entered)
+			
+	Relations
+		GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup                  = FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode                 = "CM"
+
+		GeneralLedgerEventRel
+			one-to-one relation to GeneralLedgerEvent
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup                  = FinanceEnterpriseGroup
+				related.GeneralLedgerEvent                 		= "TRF"
+
+		GLTransactionDetailUnreleasedRel
+			one-to-many relation to GLTransactionDetail
+				Field Mapping uses ByJournalizeGroup		 
+					related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+					related.JournalizeGroup		   = LocalJournalizeGroup	
+					related.Status				   =  0
+
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+			Instance Selection
+				where (!related.FinanceTeamMember.TeamMember.FinanceResourceActor = update stamp.actor  
+				and    !related.FinanceTeamMember.TeamMember.FinanceResourceActor = create stamp.actor) 
+
+		ApprovalCodeResourceByResourceRel
+			one-to-one relation to ApprovalCodeResource
+			Field Mapping uses ByApprover
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.Approver				= LocalApprover
+
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+
+		FinanceDimension10ShadowRel
+            one-to-one relation to FinanceDimension10Shadow
+            Field Mapping uses BySummaryDimension
+                related.FinanceEnterpriseGroup           = FinanceEnterpriseGroup
+                related.SummaryFinanceDimension10        = CustodialAccountManagement.CustodialSummary
+                related.FinanceDimension10               = CustodialPosting
+
+		TaxIdentificationTypeRel
+			one-to-one relation to TaxIdentificationType
+			Field Mapping uses symbolic key
+				related.TaxIdentificationType   = CamCategory.TaxIDType
+	
+	Rule Blocks
+		CreateAndUpdateEdits
+			if(TransferAmount not entered
+			and ToFinanceCodeBlock not entered)
+				constraint ((CamCategory entered and CamCategory != CustodialAccountManagement.CamCategory)
+				or (TaxID entered and TaxID != CustodialAccountManagement.TaxID)
+				or (CamCustodian entered and CamCustodian != CustodialAccountManagement.CamCustodian))
+					"TransferRequiresAnUpdatedTransferToValue"
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+		ProcessCustodialTransfer
+			if(CamCategory != CustodialAccountManagement.CamCategory
+			or TaxID != CustodialAccountManagement.TaxID
+			or CamCustodian != CustodialAccountManagement.CamCustodian)
+				invoke Update CustodialAccountManagement
+					if(CamCategory entered
+					and CamCategory != CustodialDetailTransfer.CustodialAccountManagement.CamCategory)
+						invoked.CamCategory				= CamCategory
+					if(TaxID entered
+					and TaxID != CustodialDetailTransfer.CustodialAccountManagement.TaxID)
+						invoked.TaxID	= TaxID
+					if(CamCustodian entered
+					and CamCustodian != CustodialDetailTransfer.CustodialAccountManagement.CamCustodian)
+						invoked.CamCustodian			= CamCustodian
+			if(TransferAmount entered
+			and	ToFinanceCodeBlock entered)
+				constraint (GeneralLedgerSystemCodeRel exists)
+					"SystemCode_\CMDoesNotExist"
+				constraint (GeneralLedgerEventRel exists)
+					"Event_\TRFDoesNotExist"
+				increment GeneralLedgerSystemCodeRel.LastJournalizeGroup
+				LocalJournalizeGroup = GeneralLedgerSystemCodeRel.DerivedJournalizeGroup
+				invoke Unreleased.Create GLTransactionDetail
+					fill in fields from this instance
+					invoked.OriginatingTransaction 	= reference to this instance
+					invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.System					= GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode
+					invoked.Reference				= ThisProgramNameText
+					invoked.AccountingEntity		= CustodialAccountManagement.AccountingEntity
+					invoked.Description			  	= "CustodialTransfer"
+					invoked.CurrencyCode			= CustodialAccountManagement.AccountingEntity.FunctionalCurrency
+					invoked.TransactionAmount		= TransferAmount *-1
+					invoked.TransactionDate			= TransactionDate
+					invoked.PostingDate				= GeneralLedgerDate
+					invoked.FinanceCodeBlock		= FromFinanceCodeBlock 
+					invoked.ControlDocumentNumber 	= CustodialDetailTransfer
+					invoked.DocumentNumber		  	= CustodialDetailTransfer
+					invoked.AutoReverse 			= false
+					invoked.GeneralLedgerEvent 		= GeneralLedgerEventRel.GeneralLedgerEvent
+					invoked.JournalizeGroup			= LocalJournalizeGroup
+
+				invoke Unreleased.Create GLTransactionDetail
+					fill in fields from this instance
+					invoked.OriginatingTransaction 	= reference to this instance
+					invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.System					= GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode
+					invoked.Reference				= ThisProgramNameText
+					invoked.AccountingEntity		= CustodialAccountManagement.AccountingEntity
+					invoked.Description			  	= "CustodialTransfer"
+					invoked.CurrencyCode			= CustodialAccountManagement.AccountingEntity.FunctionalCurrency
+					invoked.TransactionAmount		= TransferAmount
+					invoked.TransactionDate			= TransactionDate
+					invoked.PostingDate				= GeneralLedgerDate
+					invoked.FinanceCodeBlock		= ToFinanceCodeBlock 
+					invoked.ControlDocumentNumber 	= CustodialDetailTransfer
+					invoked.DocumentNumber		  	= CustodialDetailTransfer
+					invoked.AutoReverse 			= false
+					invoked.GeneralLedgerEvent 		= GeneralLedgerEventRel.GeneralLedgerEvent
+					invoked.JournalizeGroup			= LocalJournalizeGroup
+				invoke Release GLTransactionDetailUnreleasedRel
+				invoke InitiateJournalizeForRunGroup FinanceEnterpriseGroup in background
+					invoked.PrmJournalizeGroup		= LocalJournalizeGroup
+			make transition to Released
+			JournalizeGroup = LocalJournalizeGroup
+
+	Actions
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+	
+	StateCycles
+		CustodialManagementLifeCycle is a StateCycle
+			state field is Status								
+			Unreleased is a State
+				Create is a Create Action
+					Action Rules
+						include CreateAndUpdateEdits
+						constraint(!CustodialDetailAmount.DoesUnreleasedTransferExists)
+							"UnreleasedTransfersExistFor<CustodialDetailAmount.CustodialPosting>"
+				Update is an Update Action
+					Action Rules
+						include CreateAndUpdateEdits
+				Delete is a Delete Action
+				Release is an Instance Action
+					Entrance Rules
+						if(TransferAmount entered
+						and	ToFinanceCodeBlock entered)
+							constraint(TransferAmount <= CustodialDetailAmount.EditAvailableAmount)
+								"NotEnoughAvailableEndingBalanceForTransfer"	
+							constraint (GeneralLedgerSystemCodeRel exists)
+								"SystemCode_\CMDoesNotExist"
+							constraint (GeneralLedgerEventRel exists)
+								"Event_\TRFDoesNotExist"
+						if (!CustodialAccountManagement.AccountingEntity.JournalApproval.None
+						and  TransferAmount	> CustodialAccountManagement.AccountingEntity.JournalApprovalAmount
+						and  CustodialAccountManagement.AccountingEntity.BypassApprovalCode	!= ApprovalCode)
+							LocalApprover = create stamp.actor.agent(Employee).Employee
+							constraint (ApprovalCode entered)
+								"ApprovalCodeIsRequired"
+							constraint (!ApprovalCodeResourceByResourceRel exists)
+								"PersonRequestingTheTransferCannotBeTheApprover"
+							constraint (ApprovalCode.HasApprovalLevels)
+								"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+							constraint (!ApprovalCode.HasTeamWithNoMembers)
+								"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+							constraint (!ApprovalCode.HasInvalidEscalations)
+								"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+							constraint (!ApprovalCode.HasInactiveResources)
+								"CannotComplete;TheApprovalCodeHasInactiveResources"
+					
+					Action Rules
+						ReleaseDate			= current corporate date
+					
+					Exit Rules
+						if (!CustodialAccountManagement.AccountingEntity.JournalApproval.None
+						and  TransferAmount	> CustodialAccountManagement.AccountingEntity.JournalApprovalAmount
+						and  CustodialAccountManagement.AccountingEntity.BypassApprovalCode	!= ApprovalCode)
+							include GetNextApprovalLevel
+							ApprovalLevel	= LocalApprovalLevel
+							Approver 		= LocalApprover
+							ApproverTeam 	= LocalApproverTeam
+							if (!LocalApprover entered)
+								constraint (LocalApproverTeam entered)
+									"EitherApproverOrTeamMustBeEnteredForApprovalLevel:<ApprovalLevel>"
+								constraint (DerivedCurrentTeamActorList entered)
+									"TeamActorListNotEnteredForApprovalLevel:<ApprovalLevel>"
+							LocalAccountingEntity = CustodialAccountManagement.AccountingEntity
+							trigger "CustodialTransferApproval" PA service
+								resume on error
+								title is "CustodialDetailTransfer:<CustodialDetailTransfer>IsPendingForApproval"
+								Variables
+									include persistent fields from CustodialDetailTransfer
+									LocalAccountingEntity
+								URLs
+									"<linkback(webapp is Approver navigation is CustodialTransferLinkbackNav text is \"ViewCustodialTransfer\")>"
+							make transition to PendingApproval
+						else
+							include ProcessCustodialTransfer
+
+			PendingApproval is a State			
+				Reject is an Instance Action
+					restricted
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize ReleaseDate
+						
+						send notification
+							to	create stamp.actor
+							description is	"CustodialDetailTransfer:<CustodialDetailTransfer>_Rejected"
+							priority is very high
+						
+						make transition to Unreleased
+
+				ManualReject is an Instance Action
+		    		valid when (Status.PendingApproval)
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						initialize ReleaseDate
+						
+						send notification
+							to	create stamp.actor
+							description is	"CustodialDetailTransfer:<CustodialDetailTransfer>_Rejected"
+							priority is very high
+		
+						make transition to Unreleased
+						cancel "CustodialTransferApproval" PA service
+			
+		   		ManualApprove is an Instance Action
+		    		valid when (Status.PendingApproval)
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Entrance Rules
+						constraint (!create stamp.actor	= actor)
+							"PersonRequestingTheTransferCannotBeTheApprover"
+						constraint (!update stamp.actor	= actor)
+							"PersonUpdatingTheTransferRequestCannotBeTheApprover"
+						
+					Action Rules			
+						make transition to Unreleased
+						
+						send notification
+							to	create stamp.actor
+							description is	"CustodialDetailTransfer:<CustodialDetailTransfer>_ManuallyApproved"
+							priority is very high
+							
+						cancel "CustodialTransferApproval" PA service
+					
+					Exit Rules
+						include ProcessCustodialTransfer
+
+				Approve is an Instance Action
+					restricted
+					Action Rules
+						make transition to Unreleased
+						
+						send notification
+							to	create stamp.actor
+							description is	"CustodialDetailTransfer:<CustodialDetailTransfer>_Approved"
+							priority is very high
+
+					Exit Rules
+						include ProcessCustodialTransfer
+
+				RejectWithReasonCode is an Instance Action
+					restricted
+					reason code required
+					action comment required
+		
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						initialize ReleaseDate
+						
+						send notification
+							to	create stamp.actor
+							description is	"CustodialDetailTransfer:<CustodialDetailTransfer>_RejectedWithReasonCode:<reason code>"
+							priority is very high
+						make transition to Unreleased
+			
+			Released is a State
+				Create is a Create Action
+					restricted
+				Update is an Update Action
+					restricted
+				Delete is a Delete Action
+					restricted

@@ -1,0 +1,105 @@
+ApplicationDataControl is a BusinessClass
+	owned by framework
+
+	prefix is DEFE
+
+	Ontology
+		symbolic key is ApplicationDataControl
+
+	Patterns
+		disable Auditing
+		disable EffectiveDated
+		disable AsOfDateProcessing
+
+	Persistent Fields
+		Stamp							is Numeric size 12  
+		Phase							is Alpha size up to 20
+		Hash							is Alpha size up to 64
+
+	Relations
+
+		ApplicationImportDataNameRel
+			one-to-one relation to ApplicationImportData
+			Field Mapping uses Set1
+				related.Stamp				= Stamp
+				related.Group				= Phase
+				related.Name				= ApplicationDataControl
+
+	Actions
+		Create is a Create Action
+		Delete is a Delete Action
+		Update is an Update Action
+
+		UpdateFiles is a Set Action
+			restricted
+
+			Local Fields
+				BackgroundGroup		is Alpha 200
+				BackgroundGroup2	is Alpha 200
+				BackgroundGroupASConfigurations	is Alpha 200
+
+			Instance Selection
+				where (false)
+
+			Action Rules
+				Empty Set Rules
+					BackgroundGroup							= "Phase1" + system current timestamp 
+					BackgroundGroup2						= "Phase2" + system current timestamp 
+					BackgroundGroupASConfigurations		= "ASStoredConfigurations" + system current timestamp
+					invoke LoadByPhase in background group (BackgroundGroup)
+						invoked.PrmPhase					= "phase1" 
+						invoked.PrmBackgroundGroup			= BackgroundGroup
+					invoke LoadByPhase in background group (BackgroundGroup2)
+						run after background group (BackgroundGroup)
+						invoked.PrmPhase					= "phase2" 
+						invoked.PrmBackgroundGroup			= BackgroundGroup2
+					invoke UpgradeDeliveredConfigurations ASStoredConfigurationDC in background group (BackgroundGroupASConfigurations)
+						run after background group (BackgroundGroup) 
+					invoke LoadByPhase in background
+						run after background group (BackgroundGroup2)
+						invoked.PrmPhase					= "phase3" 
+					invoke UpgradeCustomizedConfigurations ASStoredConfigurationDC in background
+						run after background group (BackgroundGroupASConfigurations)
+					invoke LoadNewConfigurations ASStoredConfigurationDC in background
+						run after background group (BackgroundGroupASConfigurations) 
+
+		LoadByPhase is a Set Action
+			disable checkpoint
+
+			Parameters
+				PrmPhase				is Alpha size up to 20
+					default label is "Phase"
+				PrmBackgroundGroup		is Alpha 200
+
+			Local Fields
+				PurgeBackgroundGroup	is Alpha 200
+
+			Action Rules
+				Instance Rules
+					if (Phase = PrmPhase
+					and ApplicationImportDataNameRel.Hash != Hash)
+						PurgeBackgroundGroup = "Purge" + ApplicationDataControl + system current timestamp
+
+						if (ApplicationDataControl contains "ASStoredConfigurationDC.csv")
+							invoke PurgeAll ASStoredConfigurationDC in background group (PurgeBackgroundGroup)
+
+						invoke Load in background group (PrmBackgroundGroup)
+							run after background group (PurgeBackgroundGroup)
+							resume on error
+								display "ApplicationDataControlImportFailed:<error message>"
+
+		LoadBackground is an Instance Action 
+			restricted
+			Action Rules
+				invoke Load in background
+
+		Load is an Instance Action
+			restricted
+
+			Action Rules
+				invoke LoadData ApplicationImportDataNameRel
+					resume on error
+						display "ApplicationDataControlImportFailed:<error message>"
+
+			Exit Rules
+				Hash = ApplicationImportDataNameRel.Hash

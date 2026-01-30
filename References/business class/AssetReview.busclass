@@ -1,0 +1,233 @@
+AssetReview is a BusinessClass
+    owned by am
+    prefix is AR
+
+    Ontology
+        symbolic key is AssetReview
+
+    Persistent Fields
+		Type				is Numeric size 1
+            States
+                Future  value is 1
+                Active  value is 2
+                Closed 	value is 3
+		LastSubmittedSequence   is a Sequence
+		
+	Local Fields
+		LocalCompanyGroup		is a GeneralLedgerCompanyGroup   
+		LocalCompany			is a AssetCompany   
+		LocalThread  	 		is Numeric size 2
+		LocalApprovalCode  		is an ApprovalCode
+
+	Derived Fields
+		DerivedCompany			is a DerivedField
+			type is like AssetCompany
+			return Company
+
+		DerivedType			is a DerivedField
+			type is Alpha 10
+			if(Type = "1")
+				return "Future"
+			if(Type = "2")
+				return "Active"
+			if(Type = "3")
+				return "Closed"
+
+	Conditions
+		MoveToActiveValid
+            restricted
+            when(Type.Future
+			and !ActiveAssetReviewRel exists)
+
+		AssetReviewDetailRelExists
+			restricted
+			when(AssetReviewDetailRel exists
+			and Type.Active)
+
+		IsRebuildValid
+			restricted
+			when(AssetReviewDetailRel exists
+			and Type.Active)
+
+		IsClosedValid
+			restricted
+			when(Type.Active
+			and !NotApprovedAssetReviewDetailRel exists
+			and AssetReviewDetailRel exists)
+
+		IsDeleteValid
+			restricted
+			when(Type.Future
+			or (Type.Active
+			and !AssetReviewDetailRel exists)
+			or Type.Closed)
+
+    Relations
+        AssetReviewDetailRel
+            one-to-many relation to AssetReviewDetail
+			delete cascades
+            Field Mapping uses symbolic key
+            	related.Company			= Company
+            	related.AssetReview		= AssetReview
+
+        NotApprovedAssetReviewDetailRel
+            one-to-many relation to AssetReviewDetail
+            Field Mapping uses symbolic key
+            	related.Company			= Company
+            	related.AssetReview		= AssetReview
+			Instance Selection
+				where(related.ReviewStatus	!=  4)
+
+        AssetReviewRel
+            one-to-one relation to AssetReview
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+            	related.Company					= LocalCompany
+            	related.AssetReview				= AssetReview
+        
+		ActiveAssetReviewRel
+            one-to-many relation to AssetReview
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+            	related.Company					= Company
+			Instance Selection
+            	where(related.Type		= Type.Active)
+
+		GeneralLedgerCompanyGroupRel
+			one-to-many relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup 	= LocalCompanyGroup
+
+    Actions
+        Create is a Create Action
+            Entrance Rules
+                constraint(AssetReview >= current corporate date)
+                    "ReviewDateCanNotBeInPast"
+				Type  = Type.Future
+            
+        Delete is a Delete Action
+			valid when (IsDeleteValid)
+
+		MoveToActive is an Instance Action
+			valid when (MoveToActiveValid)
+			disable multiple instance selection
+			default label is "ActivateReview"
+			Action Rules
+                Type = Type.Active
+
+		MoveToClosed is an Instance Action
+			valid when (IsClosedValid)
+			default label is "CloseReview"
+			Action Rules
+                Type = Type.Closed
+
+        BuildAssetReviewDetail is an Instance Action
+			valid when (Type.Active)
+			Parameters
+				FinanceEnterpriseGroup
+                Company
+                PrmAssetOwner 			is an Employee
+				PrmAssetType			is an AssetType
+				PrmAssetDimensionGroup  is an AssetAccountingUnitGroup
+				PrmThreshold			is an InternationalAmount
+				PrmQueue    			is Numeric size 2
+            Parameter Rules
+				Company
+					LocalCompany  = Company
+				PrmQueue
+					initial value is 4
+					default to 4
+				PrmThreshold
+					constraint(PrmThreshold >= 0)
+						"ThresholdCannotBeNegative"
+				PrmAssetType
+					if(LocalCompany.SelectAssetTypeForReview
+					and !PrmAssetType.FlagForReview)
+						constraint(false)
+							"Type<PrmAssetType>IsNotValidForReview"
+						
+			Action Rules
+				initialize LocalThread
+                while (LocalThread < PrmQueue)
+                    invoke CreateAssetReviewDetail Asset
+                        invoked.PrmFinanceEnterpriseGroup   = FinanceEnterpriseGroup
+                        invoked.PrmCompany   				= Company
+                        invoked.PrmAssetOwner  				= PrmAssetOwner
+                        invoked.PrmAssetType  				= PrmAssetType
+                        invoked.PrmAssetDimensionGroup  	= PrmAssetDimensionGroup
+                        invoked.PrmThreshold  				= PrmThreshold
+                        invoked.PrmAssetReview  			= AssetReview
+                        invoked.PrmThread   				= LocalThread
+						invoked.PrmQueue    				= PrmQueue
+                    LocalThread +=1
+
+        ReBuild is an Instance Action
+			valid when (IsRebuildValid)
+			Parameters
+				PrmQueue    			is Numeric size 2
+					default label is "NumberOfThreads"
+            Parameter Rules
+				PrmQueue
+					initial value is 4
+					default to 4
+			Action Rules
+				initialize LocalThread
+				for each AssetReviewDetailRel
+					if (Company.ApprovalLevel.Company)
+						LocalApprovalCode   = Company.ReviewApprovalCode
+					else
+					if (Company.ApprovalLevel.AssetDimensionGroup)
+						LocalApprovalCode   = each.AssetDimensionGroup.ReviewApprovalCode
+					else
+						initialize LocalApprovalCode
+					if(LocalApprovalCode ! = each.ApprovalCode
+					or each.AssetCost < Company.AssetCostThreshold
+					or (Company.SelectAssetTypeForReview
+					and !each.AssetType.FlagForReview))
+						invoke Delete each
+                while (LocalThread < PrmQueue)
+                    invoke ReBuildAssetReviewDetail Asset
+                        invoked.PrmFinanceEnterpriseGroup   = FinanceEnterpriseGroup
+                        invoked.PrmCompany   				= Company
+                        invoked.PrmAssetReview  			= AssetReview
+                        invoked.PrmThread   				= LocalThread
+						invoked.PrmQueue    				= PrmQueue
+                    LocalThread +=1
+
+        CopyAssetReview is an Instance Action
+			completion message is "CopyCompleted"
+			Parameters
+                PrmCompany						is an AssetCompany
+					default label is "ToCompany"
+                PrmCompanyGroup					is a GeneralLedgerCompanyGroup
+					default label is "-or-_ToCompanyGroup"
+			Parameter Rules
+				PrmCompany
+					if (PrmCompanyGroup not entered)
+						required
+							"MustEnterEitherCompanyOrCompanyGroup"
+					if (PrmCompany entered)
+						constraint (PrmCompanyGroup not entered)
+							"CannotEnterBothCompanyGroupAndCompany"
+				PrmCompanyGroup
+					LocalCompanyGroup = PrmCompanyGroup
+			Action Rules
+				if(PrmCompany entered)
+					LocalCompany  = PrmCompany
+					constraint(LocalCompany.AssetReview)
+						"CopyToCompany<LocalCompany>_isNotEnabledForAssetReview"
+					if(!AssetReviewRel exists)
+						invoke Create AssetReview
+							invoked.Company         = LocalCompany
+							invoked.AssetReview     = AssetReview
+				else
+					for each GeneralLedgerCompanyGroupRel
+						LocalCompany  = each.Company
+						if(!LocalCompany.AssetReview)
+							confirmation required
+								"Company<LocalCompany>_isNotEnabledForAssetReview"
+						if(LocalCompany.AssetReview
+						and !AssetReviewRel exists)
+							invoke Create AssetReview
+								invoked.Company         = LocalCompany
+								invoked.AssetReview     = AssetReview

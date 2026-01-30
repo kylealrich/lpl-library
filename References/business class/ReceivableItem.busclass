@@ -1,0 +1,151 @@
+ReceivableItem is a BusinessClass
+    owned by ar
+	prefix is ARIT
+
+    Ontology
+        symbolic key is ReceivableItem
+
+    Patterns
+        disable AuditIndex
+
+    Persistent Fields
+        Description
+        GeneralLedgerAccount                    is a FinanceCodeBlock
+            default label is "GlobalLedgerAccount"
+        ProcessLevelFinanceCodeBlockOverride    is Boolean
+            default label is "AllowProcessLevelFinanceCodeBlockOverride"
+        UnitPrice						        is Decimal size 21.5
+            precision is OutputNumberOfDecimals
+        Currency
+        UnitOfMeasure					        is a ReceivableUnitOfMeasure
+        Taxable									is Boolean
+		TaxCode
+        HSNSACCode
+        UNSPSCCodeGroup
+        ProductTaxCategory
+		TaxUsageCode
+        Active                                  is Boolean
+
+    Transient Fields
+        TransientFinanceCodeBlockFull           is a FinanceCodeBlockFull
+
+    Rule Blocks
+        CreateUpdateRules
+            if (UnitPrice entered)
+                constraint (Currency entered)
+                    "CurrencyIsRequiredIf_\Unit_\PriceIsEntered"
+            else
+                constraint (Currency not entered)
+                    "CurrencyCannotBeEnteredIf_\Unit_\PriceIsNotEntered"
+
+            if (ProcessLevelFinanceCodeBlockOverride)
+                constraint (GeneralLedgerAccount.GeneralLedgerChartAccount entered)
+                    "AtAMinimum,MustEnterA_\Global_\Ledger_\Chart_\Account"
+            else
+                constraint (GeneralLedgerAccount entered)
+                    "Global_\Ledger_\AccountIsRequired"
+                TransientFinanceCodeBlockFull = GeneralLedgerAccount
+
+            if (not Taxable)
+                if (TaxCode entered
+                or  HSNSACCode entered
+                or  UNSPSCCodeGroup entered
+                or  ProductTaxCategory entered
+                or  TaxUsageCode entered)
+                    constraint (false)
+                        "TaxFieldsCannotBeEnteredIfItemIsNot_\Taxable"
+
+            if (UNSPSCCodeGroup.UNSPSCCode entered)
+                constraint (UNSPSCCodeGroup.ItemGroup entered)
+                    "Item_\GroupIsRequiredIfUNSPSC_\CodeIsEntered"
+            else
+                constraint (UNSPSCCodeGroup.ItemGroup not entered)
+                    "Item_\GroupCannotBeEnteredIfUNSPSC_\CodeIsNotEntered"
+
+            if (Active
+            and UnitOfMeasure exists)
+                constraint (UnitOfMeasure.Active)
+                    "Unit_\Of_\MeasureIsInactive"
+
+            if (Description not entered)
+                Description = ReceivableItem
+
+    Field Rules
+        Description
+            required
+        
+        GeneralLedgerAccount
+            required
+
+        UnitPrice
+            UnitPrice = RoundedUnitPrice
+
+    Derived Fields
+        OutputNumberOfDecimals is a DerivedField
+			type is Numeric 1
+            restricted
+			if (Currency entered)
+				return Currency.NumberOfDecimals
+			else
+			if (actor.context.FinanceEnterpriseGroup.DefaultDecimalsOption entered)
+				return actor.context.FinanceEnterpriseGroup.DefaultNumberOfDecimals
+			else
+				return 2
+
+		DerivedRoundTo					is a DerivedField
+    		type is Decimal 5.4
+    		restricted
+    		if (OutputNumberOfDecimals = 2)
+    			return .01
+    		else
+    		if (OutputNumberOfDecimals = 0)
+    			return 1
+    		else
+    		if (OutputNumberOfDecimals = 3)
+    			return .001
+    		else
+    		if (OutputNumberOfDecimals = 4)
+    			return .0001
+
+        RoundedUnitPrice			        is a DerivedField
+    		type is Decimal 21.5
+    		restricted
+    		if (UnitPrice entered)
+	    		RoundedUnitPrice	= UnitPrice
+	    		round RoundedUnitPrice to nearest DerivedRoundTo
+	    		return RoundedUnitPrice
+	    	else
+	    		return 0
+
+    Relations
+	   	GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		CompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+    Conditions
+        IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+
+		SecurityGroupAllowsAccess
+			when (actor.context.CompanySecurityGroup = blank
+			or	  CompanySecurityGroupMemberRel exists)
+
+    Actions
+        Create is a Create Action
+        	Action Rules
+                include CreateUpdateRules
+                Active = true
+
+		Update is an Update Action
+            Action Rules
+                include CreateUpdateRules
+
+        Delete is a Delete Action

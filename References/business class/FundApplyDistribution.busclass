@@ -1,0 +1,175 @@
+FundApplyDistribution is a BusinessClass
+	owned by ar
+	prefix is FAD
+
+	Ontology
+		symbolic key is FundApplyDistribution
+	
+	Patterns
+		implements Archivable
+
+	Persistent Fields
+		ApplyFundDistributionAccount		is a FinanceCodeBlock
+		OriginalCurrency					is a FromCurrency
+			default label is "TransactionCurrency"	
+		DistributionAmount					is a FinanceCurrencyAmountGroup
+		OriginalLastDistributionSequence	is a DistSeq
+		OriginalReceivableGLDistribution	is like ReceivableGLDistribution
+		Type								is Alpha size 1
+			States
+				Credit						value is "C"  // credit memo is "from" agent
+				Transaction					value is "T"  // encompasses type I,C, or D as "to" agent 
+		ReceivableInvoiceType
+		Customer
+
+	Transient Fields
+		TransientSupplyOldFundAppliedAmount	is Boolean
+		TransientOldFundAppliedAmount		is an InternationalAmount
+		FromIntercompanyBilling				is Boolean
+		BypassNegativeRateEdit
+            derive value from true
+
+	Conditions
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		SecurityGroupAllowsAccess	
+			when (actor.context.CompanySecurityGroup = blank
+			or	   CompanySecurityGroupMemberRel exists)
+
+		IsCredit
+			restricted
+			when (Type.Credit)
+
+		IsTransaction
+			restricted
+			when (Type.Transaction)
+
+
+
+	Relations
+
+		CreditReceivableGLDistributionRel
+			one-to-one relation to ReceivableGLDistribution
+			valid when (IsCredit)
+			Field Mapping uses Set2
+				related.ReceivableCompanyDataGroup.TransactionCompany				 = ReceivableApplication.CreditTransaction.CreditCompany
+				related.BatchNumber													 = ReceivableApplication.CreditTransaction.CreditBatch
+				related.TransType													 = ReceivableInvoiceType
+				related.Invoice														 = ReceivableApplication.CreditTransaction.CreditNumber
+				related.ReceivableCompanyDataGroup.Customer							 = ReceivableApplication.CreditTransaction.CreditCustomer	
+				related.LastDistributionSequence									 = OriginalLastDistributionSequence
+				related.ReceivableGLDistribution									 = OriginalReceivableGLDistribution
+
+		TransactionReceivableGLDistributionRel
+			one-to-one relation to ReceivableGLDistribution
+			valid when (IsTransaction)
+			Field Mapping uses Set2
+				related.ReceivableCompanyDataGroup.TransactionCompany				 = Company
+				related.BatchNumber													 = ReceivableApplication.BatchNumber
+				related.TransType													 = ReceivableInvoiceType
+				related.Invoice														 = ReceivableApplication.Invoice	
+				related.ReceivableCompanyDataGroup.Customer							 = Customer	
+				related.LastDistributionSequence									 = OriginalLastDistributionSequence
+				related.ReceivableGLDistribution									 = OriginalReceivableGLDistribution
+
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		CompanySecurityGroupMemberRel	
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+
+
+	Sets
+
+		ByReceivableGLDistribution
+			indexed
+			Sort Order
+				Company
+
+				ReceivableApplication.TransType
+				ReceivableApplication.Invoice
+				ReceivableApplication.PaymentSeq
+				ReceivableApplication.BatchNumber
+				ReceivableApplication.ApplicationSequence
+				OriginalLastDistributionSequence
+				OriginalReceivableGLDistribution
+
+		SequenceDescending
+			indexed
+			Sort Order
+				Company
+				ReceivableApplication
+				FundApplyDistribution descending
+
+		ByOriginalDistribution
+			indexed
+			Sort Order
+				OriginalReceivableGLDistribution
+				OriginalLastDistributionSequence
+				Company
+				ReceivableApplication.TransType
+				ReceivableApplication.Invoice
+				ReceivableApplication.PaymentSeq
+				ReceivableApplication.BatchNumber
+				ReceivableApplication.ApplicationSequence
+
+	Delete Rules
+
+		if (IsTransaction)
+			invoke AddToFundAppliedAmount TransactionReceivableGLDistributionRel
+				invoked.PrmAmount = -1 * DistributionAmount.CurrencyAmount
+		else
+			invoke AddToFundAppliedAmount CreditReceivableGLDistributionRel
+				invoked.PrmAmount = -1 * DistributionAmount.CurrencyAmount
+
+
+	Actions				
+		Create is a Create Action
+			restricted
+			Action Rules
+				if (!FromIntercompanyBilling)
+					if (IsTransaction)
+						invoke AddToFundAppliedAmount TransactionReceivableGLDistributionRel
+							invoked.PrmAmount = DistributionAmount.CurrencyAmount
+					else
+						invoke AddToFundAppliedAmount CreditReceivableGLDistributionRel
+							invoked.PrmAmount = DistributionAmount.CurrencyAmount
+
+		Update is an Update Action
+			restricted
+			Action Rules
+				if (!FromIntercompanyBilling)
+					if (IsTransaction)
+						if (TransientSupplyOldFundAppliedAmount)
+							invoke AddToFundAppliedAmount TransactionReceivableGLDistributionRel
+								invoked.PrmAmount = DistributionAmount.CurrencyAmount - TransientOldFundAppliedAmount
+
+							TransientSupplyOldFundAppliedAmount = false
+						else
+							invoke AddToFundAppliedAmount TransactionReceivableGLDistributionRel
+								invoked.PrmAmount = DistributionAmount.CurrencyAmount - old DistributionAmount.CurrencyAmount
+					else
+						if (TransientSupplyOldFundAppliedAmount)
+							invoke AddToFundAppliedAmount CreditReceivableGLDistributionRel
+								invoked.PrmAmount = DistributionAmount.CurrencyAmount - TransientOldFundAppliedAmount
+
+							TransientSupplyOldFundAppliedAmount = false
+						else
+							invoke AddToFundAppliedAmount CreditReceivableGLDistributionRel
+								invoked.PrmAmount = DistributionAmount.CurrencyAmount - old DistributionAmount.CurrencyAmount
+
+		Delete is a Delete Action
+			restricted
+
+
+		Purge is a Purge Action 
+            restricted

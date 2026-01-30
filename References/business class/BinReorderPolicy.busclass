@@ -1,0 +1,215 @@
+BinReorderPolicy is a BusinessClass
+    owned by ic
+    prefix is ILB
+    classic name is ITEMLOCBIN
+
+    Ontology
+        symbolic key is BinReorderPolicy
+            classic set name is ILBSET1
+            classic name for InventoryLocation is LOCATION
+            classic name for UnitOfMeasure is UOM
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        ReplenishFromBin     is a Bin
+            classic name is REPL-FROM-BIN
+        ReorderPolicy        is AlphaUpper size 3
+            classic name is ORDER-POLICY
+            States
+                FixedOrderPoint      value is "FOP"
+        ReorderPointCode     is AlphaUpper size 1
+            classic name is REORD-PT-CD
+            States
+            	FixedReorderPoint       value is "F"
+        ReorderQuantityCode		is AlphaUpper size 1
+            classic name is REORD-QTY-CD
+	        States
+	            FixedReorderQuantity       value is "F"
+	            DifferenceQuantity         value is "D"
+	            OrderUpToMaximumLevel      value is "M"
+        ReorderPoint         is a Quantity
+        ReorderQuantity      is a Quantity
+            classic name is REORDER-QTY
+        OrderMultiple
+            classic name is ORDER-MULT
+        MaximumOrderQuantity is a Quantity
+            classic name is MAX-ORDER
+
+	Derived Fields
+		DerivedLocationStockUOM											is a DerivedField 
+			type is like UnitOfMeasure
+			return ItemLocation.ItemLocationStockUOM.UnitOfMeasure
+						
+		DerivedFrZoneDetails											is a DerivedField
+			type is Alpha 50
+			if (InventoryLocation.UseAsWarehouseLocation)
+				return ReplenishFromBin.WarehouseStorageLocation.DerivedZoneAisleRow
+			return ""
+			
+		DerivedToZoneDetails											is a DerivedField
+			type is Alpha 50
+			if (InventoryLocation.UseAsWarehouseLocation)
+				return Bin.WarehouseStorageLocation.DerivedZoneAisleRow
+			return ""
+			
+	Conditions
+		RecordExists
+			restricted
+			when(BinReorderPolicy exists)
+
+		HasItemLocationStockUOM
+			when (ItemLocation.HasItemLocationStockUOM)
+
+		BinIsValidForItem
+			restricted
+			when (BinForItemStorageLocationRel exists)
+
+		ReplenishFromBinIsValidForItem
+			restricted
+			when (ReplenishFromBinForItemStorageLocationRel exists)
+
+    Relations
+
+        StockOnHandDetailsRel
+            classic name is SOHDETAIL
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses Set3
+                related.Company               = Company
+                related.InventoryLocation     = InventoryLocation
+                related.Item                  = Item
+                related.StockOnHandDetail.Bin = Bin
+                
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.InventoryLocation	= InventoryLocation
+				related.Item				= Item
+
+		ItemUnitOfMeasureRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup		= Company.ItemGroup
+				related.Item			= Item
+				related.UnitOfMeasure	= UnitOfMeasure
+
+		BinForItemStorageLocationRel
+			one-to-one relation to ItemStorageLocation
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.InventoryLocation				= InventoryLocation
+				related.Item							= Item
+				related.WarehouseStorageLocation		= Bin.WarehouseStorageLocation
+
+		ReplenishFromBinForItemStorageLocationRel
+			one-to-one relation to ItemStorageLocation
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.InventoryLocation				= InventoryLocation
+				related.Item							= Item
+				related.WarehouseStorageLocation		= ReplenishFromBin.WarehouseStorageLocation
+
+    Field Rules
+
+        ReorderPolicy
+            required
+            initial value is ReorderPolicy.FixedOrderPoint
+            default to ReorderPolicy.FixedOrderPoint
+
+        ReplenishFromBin
+            required
+			if (InventoryLocation.UseAsWarehouseLocation)
+				constraint (ReplenishFromBin.WarehouseStorageLocation exists)
+					"ReplenishFromBinDoesNotBelongToA_WarehouseStorageLocation"
+
+				constraint (ReplenishFromBinIsValidForItem)
+					"Replenish_From_Bin<ReplenishFromBin>IsNotValidFor_Item<Item>"
+
+				constraint (ReplenishFromBin.WarehouseStorageLocation.StorageLocationType.BulkStorage)
+					"ReplenishFromBinMustBeFromAStorageLocationTypeOf:_Bulk"
+
+        ReorderPointCode
+			initial value is ReorderPointCode.FixedReorderPoint
+            default to ReorderPointCode.FixedReorderPoint
+
+        ReorderQuantityCode
+			initial value is ReorderQuantityCode.FixedReorderQuantity
+            default to ReorderQuantityCode.FixedReorderQuantity
+            
+		Company
+			required
+
+		InventoryLocation
+			required
+			constraint (ItemLocationRel exists)
+				"ItemLocationNotFound"                                     
+
+		Item
+			required
+			constraint (ItemLocationRel.BinTracked)
+				"ItemNotBinTracked"                                        
+
+		UnitOfMeasure
+			if (!Item.CatchWeightCode.NotCatchWeight)
+				default to Item.SecondaryUOM
+				constraint (UnitOfMeasure = Item.SecondaryUOM)
+					"CatchWeightItem;OnlySecondary_\U\O\MIsValid"             
+			else
+			if (HasItemLocationStockUOM)
+				default to DerivedLocationStockUOM
+				constraint (UnitOfMeasure = DerivedLocationStockUOM)
+					"UOMMustEqual_Item_Location_StockUOM"
+			else
+				default to Item.StockUOM
+
+			required
+			if (UnitOfMeasure != Item.StockUOM)	
+				constraint (ItemUnitOfMeasureRel.TrackedIn)
+					"<UnitOfMeasure>IsNotAValidAlternateStockUnitOfMeasureForThisItem"
+
+		Bin
+			constraint (Bin != ReplenishFromBin)
+				"CannotTransferToSameBin"                                  
+
+			if (InventoryLocation.UseAsWarehouseLocation)
+				constraint (Bin.WarehouseStorageLocation entered)
+					"BinDoesNotBelongToA_WarehouseStorageLocation"
+				
+				constraint (BinIsValidForItem)
+					"Bin<Bin>IsNotValidFor_Item<Item>"
+
+				constraint (not Bin.WarehouseStorageLocation.StorageLocationType.BulkStorage)
+					"The_BinMustBeFromA_Basic_Item_StorageOr_Forward_Picking_Storage_Location."
+
+		MaximumOrderQuantity
+			if (ReorderQuantityCode.OrderUpToMaximumLevel)
+				required
+					"MaximumOrderMustBeEntered"
+
+				constraint (MaximumOrderQuantity >= ReorderPoint)
+					"MaximumOrderQuantityCannotBeLessThanReorderPoint"
+
+
+		ReorderPoint
+			if (ReorderQuantityCode.FixedReorderQuantity)
+				required
+					"ReorderPointMustBeEntered"
+
+
+		ReorderQuantity
+			if (ReorderQuantityCode.FixedReorderQuantity)
+				required
+					"ReorderQuantityMustBeEntered"
+
+
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+

@@ -1,0 +1,217 @@
+EscheatmentNoticeIDMHeader is a BusinessClass
+    owned by cb
+    prefix is ENIH
+
+    Ontology
+        symbolic key is EscheatmentNoticeIDMHeader
+
+    Patterns
+        disable AuditIndex
+
+    Persistent Fields
+        RunDate                     is TimeStamp
+            protected
+        BatchID                     is an IDMPID
+            protected
+        Status                      is Alpha size 1
+            States
+                Completed           value is "C"
+                Processing          value is "P"
+                Incomplete          value is "I"
+                Failed              value is "F"
+                NoDataToProcess     value is "N"
+        ParameterCashManagementGroup    is like CashManagementGroup
+            protected
+        ParameterCashCode               is like CashCode
+            protected
+        ParameterCashCodeGroup          is like CashCodeGroup
+            protected
+        ParameterBankTransactionCode    is like BankTransactionCode
+            protected
+        ParameterProcessLevel           is like ProcessLevel
+            protected
+        ParameterStatus                 is Alpha size 1
+            protected
+            States
+                Open                value is blank
+                StaleDated          value is "S"
+        ParameterDateRange              is like DateRange
+            protected
+        ParameterIDMPrinter             is a IDMPrinter
+            protected
+
+    Local Fields
+        IDMGenerateDocument
+        IDMAttributes
+        IDMItem
+        IDMBatchOperation
+        LocalAttributeCtr	        is Numeric size 3   
+        LocalCashManagementGroup    is a CashManagementGroup     
+    
+    Conditions
+
+        SecurityGroupAllowsAccess
+    		when((ParameterCashCode not entered and ParameterCashCodeGroup not entered)
+    		or	(ParameterCashCode entered and CashCodeRel.SecurityGroupAllowsAccess)
+    		or	(ParameterCashCodeGroup entered 
+    		and (actor.context.CashCodeSecurityGroup.FinanceDimensionStructure = ParameterCashCodeGroup
+    		or   actor.context.CashCodeSecurityGroup = "")))
+        
+        DisplayErrorWarning
+            when (EscheatmentNoticeIDMLinesWithWarningRel exists)
+    
+    Derived Fields
+        WarningMsg is a MessageField
+			"Warning:_\SomeDocumentsAreOutdated.Perform_\Mass_\Regenerate_\Document"
+        
+    Relations
+
+        CashCodeRel
+            one-to-one relation to CashCode
+            Field Mapping uses symbolic key
+                related.CashManagementGroup     = ParameterCashManagementGroup
+                related.CashCode                = ParameterCashCode
+
+        EscheatmentNoticeIDMLinesRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader      = EscheatmentNoticeIDMHeader
+            
+        EscheatmentNoticeIDMLinesWithVendorRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader  = EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (related.PayablesVendor entered)
+
+        EscheatmentNoticeIDMLinesNoVendorRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader  = EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (related.PayablesVendor not entered)
+
+        EscheatmentNoticeIDMLinesWithWarningRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader  = EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (related.HasNotEqualRecords)
+
+        EscheatmentNoticeIDMLinesHasFailedRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader  = EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (related.IsFailed)
+
+        EscheatmentNoticeIDMLinesHasCompletedRel
+            one-to-many relation to EscheatmentNoticeIDMLines
+            Field Mapping uses symbolic key
+                related.EscheatmentNoticeIDMHeader  = EscheatmentNoticeIDMHeader
+            Instance Selection
+                where (related.IsCompleted)
+
+    Actions
+
+        Create is a Create Action
+        	restricted
+        	
+        Update is an Update Action
+        	restricted
+        	
+		Delete is a Delete Action
+            restricted
+
+        Purge is a Purge Action
+			restricted
+
+        MassRegenerateDocument is an Instance Action
+            Action Rules
+                Status = Status.Processing
+                invoke CreateAndSendEscheatmentNoticeToIDM EscheatmentNoticeIDMLines
+                    invoked.PrmBatchID 				= RunDate
+                    invoked.PrmEscheatmentHeader	= EscheatmentNoticeIDMHeader 
+
+        UpdateStatus is an Instance Action
+            restricted
+            Action Rules
+                if (EscheatmentNoticeIDMLinesHasFailedRel not exists)
+                    Status = Status.Completed
+                else
+                    if (EscheatmentNoticeIDMLinesHasCompletedRel exists)
+                        Status = Status.Incomplete
+                    else
+                        Status = Status.Failed
+
+        PurgeInstance is an Instance Action
+            restricted
+            Action Rules
+                if (EscheatmentNoticeIDMLinesRel not exists)
+                    invoke Purge
+
+        PurgeSet is a Set Action
+            restricted
+            Parameters
+                PrmDateRange is a DateRange
+                PrmCashManagementGroup is a CashManagementGroup
+            Instance Selection
+                where (ParameterCashManagementGroup = PrmCashManagementGroup
+                and RunDate date within PrmDateRange
+                and Status.Completed)
+            Action Rules
+                Instance Rules
+                    if (EscheatmentNoticeIDMLinesRel not exists)
+                        invoke Purge
+
+        PurgeEscheatmentNoticeResult is a Set Action
+            confirmation required
+				"AllSelectedRecordsWillBePurged.Continue?"
+            completion message is "PurgeEscheatmentNoticeResultCompleted"
+            Parameters
+                PrmCashManagementGroup is a CashManagementGroup
+                    default label is "CashManagementGroup"
+                PrmDateRange is a DateRange
+            Parameter Rules
+                PrmCashManagementGroup
+                    required
+                PrmDateRange.Begin
+                    required
+                PrmDateRange.End
+                    required
+            Instance Selection
+                where (ParameterCashManagementGroup = PrmCashManagementGroup
+                and RunDate date within PrmDateRange
+                and Status.Completed)
+
+            Local Fields
+				AsyncId			is an AsyncActionRequest
+				LocalExecute	is Boolean
+				AttrSearch		is an IDMAttributeOccurs
+
+            Action Rules
+                Set Rules
+                    Exit Rules
+                        invoke PurgeSet
+                            run after AsyncId
+                            invoked.PrmDateRange            = PrmDateRange
+                            invoked.PrmCashManagementGroup  = PrmCashManagementGroup
+
+                Instance Rules
+                    initialize AttrSearch
+
+                    AttrSearch.IDMAttribute[1].IDMAttributeName		= "EscheatmentNoticeHeader"
+                    AttrSearch.IDMAttribute[1].IDMAttributeValue	= EscheatmentNoticeIDMHeader
+					AttrSearch.IDMAttribute[2].IDMAttributeName		= "CashManagementGroup"
+					AttrSearch.IDMAttribute[2].IDMAttributeValue	= ParameterCashManagementGroup
+
+                    IDMBatchOperation.AttributeSearch				= AttrSearch
+					IDMBatchOperation.IDMDocumentType				= "FSM_EscheatmentNotice"
+					LocalExecute									= IDMBatchOperation.ArchiveByAttributes	
+                    
+                    if (EscheatmentNoticeIDMLinesRel exists)
+                        invoke PurgeLines EscheatmentNoticeIDMLines
+                            assign async action request id to AsyncId
+                            invoked.PrmCashManagementGroup  = PrmCashManagementGroup
+                            invoked.PrmEscheatmentHeader    = EscheatmentNoticeIDMHeader
+                    

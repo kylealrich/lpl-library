@@ -1,0 +1,436 @@
+CustomerDraftBank is a BusinessClass
+	owned by dt
+	prefix is DTB
+	classic name is DTCUSTBANK
+
+	Ontology
+		symbolic key is CustomerDraftBank
+			classic set name is DTBSET1
+			classic name for CustomerDraftBank is BANK-ACCT-NBR
+			classic name for CustomerGroup is CUST-GROUP
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		DefaultBank                is Boolean
+			classic name is DEFAULT-BNK
+		BankType                   is AlphaUpper size 1
+			States
+				BillsOfExchange         value is "B"
+					default label is "Bills of Exchange"
+				ElectronicFundsTransfer value is "E"
+		BankDateRange
+		PrenotificationDate        is Date
+			classic name is PRENOTE
+		EFTBankAccountType
+			classic name is FT-TYPE
+		PrenotificationRequired    is Boolean
+			classic name is PRE-NOTE
+		PrenoteStatus
+		BankAccountType
+			classic name is CUST-ACCT-TYPE
+		BankAccountTransactionCode
+			classic name is BANK-TRAN-CD
+		BankAccountValidationType
+			classic name is VBANK-IDENT
+		RIBKey                is Numeric size 2
+		IBAN 				  is Boolean
+		BicID 				  is AlphaUpper size 12
+		MandateID			  is AlphaUpper size 35
+		MandateType			  is AlphaUpper size 2
+			States
+				CORE 			value is 01
+				B2B				value is 02
+				COR1			value is 03
+
+
+	Local Fields
+		ValidateBankAccountNumber
+
+	Field Rules
+
+
+
+
+
+
+
+
+
+
+		DefaultBank
+			if (IsDefaultBank)
+				constraint (!DefaultBankRelExists)
+					"BanksCannotHaveMoreThan_1Default_=_\Yes"                 
+
+		BankDateRange
+			if (IsElectronicFundsTransfer)
+				required
+				constraint (BankDateRange.StartDate entered)
+					"StartDateIsRequired"													
+				constraint (BankDateRange.EndDate entered)
+					"EndDateIsRequired"														
+				constraint (!OverlappingCustomerDraftBankRel exists)
+					"DateRangesForElectronicFundsTransferBanktTypeCannotOverlap"			
+				if (BankDateRange.StartDate entered)
+					constraint (BankDateRange.StartDate <= BankDateRange.EndDate)
+						"EndDateCannotPrecedeStartDate"										
+			if (IsBillOfExchange)
+				constraint (BankDateRange.StartDate not entered)
+					"StartDateCannotBeEnteredForBillOfExchangeBankType"						
+				constraint (BankDateRange.EndDate not entered)
+					"EndDateCannotBeEnteredForBillOfExchangeBankType"						
+
+		PrenotificationDate
+			if (PrenotificationDate entered)
+				constraint (PrenotificationRequired)
+					"CannotEnterPrenotificationDate;PrenotificationRequiredNotSet"				
+
+			constraint (PrenoteStatus = 9)
+				"PrenotificationStatusMustBeEFTRecordSentWhenPrenotificationDateEntered" 		
+
+			if (PrenotificationDate not entered)
+				constraint (PrenoteStatus not entered)
+					"CannotEnterPrenotificationStatus;PrenotificationRequiredNotSet"			
+
+			if (IsBillOfExchange)
+				constraint (PrenotificationDate not entered)
+					"PrenotificationDateCannotBeEnteredForBillOfExchangeBankType"				
+
+		PrenoteStatus
+			if (IsBillOfExchange)
+				constraint (PrenoteStatus not entered)
+					"PrenotificationStatusCannotBeEnteredForBillOfExchangeBankType"							
+
+			if (PrenotificationDate entered)
+				constraint (PrenoteStatus = 9)
+					"PrenotificationStatusMustBeEFTRecordSentWhenPrenotificationDateEntered"	
+
+				constraint (PrenotificationRequired)
+					"PrenotificationRequiredNotSet;CannotEnterPrenotificationDate"				
+
+
+
+
+
+
+
+		BankType
+			if (BankType entered)
+				if (!CustomerGroup.BillOfExchangeProcessing)
+					constraint (CustomerGroup.ElectronicFundsTransferProcess)
+						"CustomerGroupIsNotSetForElectronicFundsTransferProcessingOrBillOfExchangeProcessing"	
+
+			if (BankType.BillsOfExchange)
+				constraint (CustomerGroup.BillOfExchangeProcessing)
+					"CustomerGroupIsNotSetForBillOfExchangeProcessing"										
+
+
+
+
+			if (BankType.ElectronicFundsTransfer)
+				constraint (CustomerGroup.ElectronicFundsTransferProcess)
+					"CustomerGroupIsNotSetForElectronicFundsTransferProcessing"								
+
+
+
+
+			if (Company entered)
+				constraint (!BankType.BillsOfExchange)
+					"CannotCreateBillsOfExchangeTypeBankAccountAtCompanyCustomerLevel;CreateAtCustomerLevel"
+
+		EFTBankAccountType
+			initial value is EFTBankAccountType.DebitAccount
+
+		PrenotificationRequired
+			if (IsBillOfExchange)
+				constraint (!PrenotificationRequired)
+					"PrenotificationRequiredCannotBeEnteredForBillOfExchangeBankType"						
+
+		BankAccountType
+			if (IsBillOfExchange)
+				constraint (BankAccountType not entered)
+					"AccountTypeCannotBeEnteredForBillOfExchangeBankType"
+			if (IsElectronicFundsTransfer)							
+				if ((ReceivableElectronicFundsTransferNotifyRel exists
+				and  ReceivableElectronicFundsTransferNotifyRel.PaymentFormat.ACH)
+				or  (ReceivableElectronicFundsTransferNotifyGroupRel exists
+				and  ReceivableElectronicFundsTransferNotifyGroupRel.PaymentFormat.ACH))
+					required
+					constraint (BankAccountType.Checking
+					or			BankAccountType.Savings
+					or			BankAccountType.IBAN)									
+						"AccountTypeMustBeCheckingOrSavingsOrIbanForACHPaymentFormat"	
+
+
+		BankAccountTransactionCode
+			if (IsBillOfExchange)
+				constraint (BankAccountTransactionCode not entered)
+					"BankTransactionCodeCannotBeEnteredForBillOfExchangeBankType"							
+			if (IsElectronicFundsTransfer)
+				constraint (IsBankAccountTransactionCodeValid)
+					"BankTransactionCodeBankAccountEditValueMustEqual_01_First,17_Regular,Or_19_Last"
+
+		IBAN
+			if ((ReceivableElectronicFundsTransferNotifyRel exists
+			and  ReceivableElectronicFundsTransferNotifyRel.PaymentFormat.SEPA)
+			or  (ReceivableElectronicFundsTransferNotifyGroupRel exists
+			and  ReceivableElectronicFundsTransferNotifyGroupRel.PaymentFormat.SEPA))
+				force default to true
+
+		BicID
+			if ((ReceivableElectronicFundsTransferNotifyRel exists
+			and  ReceivableElectronicFundsTransferNotifyRel.PaymentFormat.SEPA)
+			or  (ReceivableElectronicFundsTransferNotifyGroupRel exists
+			and  ReceivableElectronicFundsTransferNotifyGroupRel.PaymentFormat.SEPA))
+				required
+
+		MandateID
+			if (PrenotificationRequired)
+				required
+
+
+
+
+
+
+
+	Create Rules
+		if (DefaultBank)
+			constraint (!DefaultBankRel exists)
+				"BanksCannotHaveMoreThan_1Default_=_\Yes"             
+		if (BankType not entered)
+			BankType = BankType.BillsOfExchange
+
+		if (IsBillOfExchange)
+			constraint (BillsOfExchangeBankRel exists)
+				"BankDoesNotExist"
+
+		if (IsElectronicFundsTransfer)
+
+			if (CustomerGroup.GroupEFTProcessing)
+				constraint (Company not entered)
+					"CannotCreateBankIfGroupLevelEFTProcessing"
+				constraint (ReceivableElectronicFundsTransferNotifyGroupRel exists)
+					"FundsTransferNotificationMustBeAddedPriorToCreatingBankRecord"
+
+			if (CustomerGroup.CompanyEFTProcessing)
+				constraint (Company entered)
+					"CannotCreateBankIfCompanyLevelEFTProcessing"
+				constraint (ReceivableElectronicFundsTransferNotifyRel exists)
+					"FundsTransferNotificationMustBeAddedPriorToCreatingBankRecord"
+
+			constraint (!EFTCustomerGroupsRel exists)			
+				"CannotEnterEFTBanks;CustomerPartOfEFTGroup"
+
+
+
+
+		initialize ValidateBankAccountNumber
+		ValidateBankAccountNumber.BankAccountValidationType = BankAccountValidationType
+		ValidateBankAccountNumber.BankAccountNumber 		= CustomerDraftBank.BOEEFTBankAccount
+		constraint (ValidateBankAccountNumber.IsValidBankAccount)
+			"<ValidateBankAccountNumber.ErrorMessage>"
+
+	Conditions
+
+		IsDefaultBank
+			restricted
+			when (DefaultBank)
+
+		IsBillOfExchange
+			restricted
+			classic name is DTBSET3
+			when (BankType.BillsOfExchange)
+
+		IsElectronicFundsTransfer
+			restricted
+			classic name is DTBSET4
+			when (BankType.ElectronicFundsTransfer)
+
+		DefaultBankRelExists
+			restricted
+			when (DefaultBankRel exists)
+
+
+
+
+		IsBankAccountTransactionCodeValid
+			restricted
+			when (BankAccountTransactionCode = "01"
+			or    BankAccountTransactionCode = "17"
+			or    BankAccountTransactionCode = "19")
+
+
+		CustomerOpenEFTTransactionsExist
+			restricted
+			when (CustomerRel.OpenElectronicFundsTransferTransactionsRel exists)
+
+		CompanyCustomerOpenEFTTransactionsExist
+			restricted
+			when (CompanyCustomerRel.OpenElectronicFundsTransferTransactionsRel exists)
+			
+		ValidatePrenotification	
+			restricted
+			when (!PrenotificationRequired
+			or    (PrenotificationRequired 
+			and    PrenoteStatus = 9))
+			
+		IsGroupLevel
+			restricted
+			when (CustomerGroup.GroupEFTProcessing)
+		
+		IsCompanyLevel
+			restricted
+			when (CustomerGroup.CompanyEFTProcessing)
+
+		IsCustomer
+			restricted
+			when (CustomerDraftBank.Company	= blank)
+
+
+	Relations
+
+
+
+
+
+
+
+
+		DefaultBankRel
+			one-to-many relation to CustomerDraftBank
+			Field Mapping uses Set5
+				related.CustomerGroup 				= CustomerGroup
+				related.Company						= Company
+				related.Customer					= Customer
+			Instance Selection
+				where (related.DefaultBank = true
+				and    related.UniqueID != UniqueID)
+
+		BillsOfExchangeBankRel
+			one-to-one relation to BankEntity
+			Field Mapping uses symbolic key
+				related.CashManagementGroup 		= CustomerGroup.CustomerBusinessGroup.FinanceEnterpriseGroup
+				related.BankEntity					= CustomerDraftBank.BOEEFTBank
+
+
+		OverlappingCustomerDraftBankRel
+			one-to-many relation to CustomerDraftBank
+			Field Mapping uses Set5
+				related.CustomerGroup				= CustomerGroup
+				related.Company 					= Company
+				related.Customer 					= Customer
+			Instance Selection
+				where (related.BankDateRange overlaps BankDateRange
+				and    related.BankType = BankType
+				and	   related.UniqueID != UniqueID)
+
+		ReceivableElectronicFundsTransferNotifyRel
+			one-to-one relation to ReceivableElectronicFundsTransferNotify
+			Field Mapping uses symbolic key
+				related.CustomerGroup				= CustomerGroup
+				related.Company 					= Company
+				related.Customer 					= Customer
+
+		ReceivableElectronicFundsTransferNotifyGroupRel
+			one-to-one relation to ReceivableElectronicFundsTransferNotify
+			Field Mapping uses symbolic key
+				related.CustomerGroup				= CustomerGroup
+				related.Company						= blank
+				related.Customer 					= Customer
+
+		CompanyCustomerRel
+			one-to-one relation to CompanyCustomer
+			Field Mapping uses symbolic key
+				related.Company  	= Company
+				related.Customer	= Customer
+
+		CustomerRel
+			one-to-one relation to Customer
+			Field Mapping uses symbolic key
+				related.CustomerGroup  = CustomerGroup
+				related.Customer = Customer
+
+		EFTCustomerGroupsRel
+			one-to-many relation to ElectronicFundsTransferCustomerGroup
+			Field Mapping uses Set2
+				related.ElectronicFundsTransferCustomerGroup.Customer	= Customer
+				related.ElectronicFundsTransferCustomerGroup.Company	= Company
+				related.CustomerGroup = CustomerGroup
+
+	Sets
+
+		Set2
+			indexed
+			Instance Selection
+				where (DefaultBank)
+			Sort Order
+				CustomerGroup
+				Company
+				Customer
+
+		Set4
+			indexed
+			Instance Selection
+				where (IsElectronicFundsTransfer)
+			Sort Order
+				CustomerGroup
+				Company
+				Customer
+				CustomerDraftBank
+
+
+		Set5
+			not indexed
+			Sort Order
+				CustomerGroup
+				Company
+				Customer
+				BankDateRange
+
+				CustomerDraftBank.BOEEFTBank
+
+				CustomerDraftBank.BOEEFTBankAccount
+
+
+		ByCustomerGroupCustomer
+			indexed
+			Sort Order
+				CustomerGroup
+				Customer
+				Company
+
+				CustomerDraftBank.BOEEFTBank
+
+				CustomerDraftBank.BOEEFTBankAccount
+
+
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		FastUpdate is an Update Action
+    		restricted
+    		bypass field rules
+		Delete is a Delete Action
+			Action Rules
+				if (CustomerOpenEFTTransactionsExist)
+   					confirmation required
+						"TransactionsForElectronicFundsProcessingExist-Continue?"
+
+				if (!CustomerOpenEFTTransactionsExist)
+   					confirmation required
+
+
+				if (CompanyCustomerOpenEFTTransactionsExist)
+   					confirmation required
+						"TransactionsForElectronicFundsProcessingExist-Continue?"
+
+				if (!CompanyCustomerOpenEFTTransactionsExist)
+					confirmation required
+
+		Purge is a Purge Action
+			restricted

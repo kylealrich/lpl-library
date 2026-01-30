@@ -1,0 +1,458 @@
+VendorDiversity is a BusinessClass
+    owned by ap
+    prefix is VDC
+    classic name is APVENDIV
+
+    Ontology
+        symbolic key is VendorDiversity
+            classic set name is VDCSET1
+ 			classic name for VendorLocation is LOCATION-CODE
+ 			name for PayablesDiversityCode is DiversityCode
+ 			classic name for DiversityCode is DIVERSE-CODE
+ 			classic name for DiversityExpirationDate is DCERT-DATE
+ 			
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+
+        DiversityEffectiveDate 		is Date
+            classic name is CERT-DATE
+            default label is "EffectiveDate"
+
+
+        ReviewDate             		is Date
+        CertificationComplete		is Boolean 
+		Alerts 
+		Attachment					is an AlternateAttachment
+		Active                 		is Boolean
+    
+	Local Fields
+		LocalSupplier               is like Supplier
+		LocalAttributeCtr   		is Numeric 2
+
+
+    Derived Fields
+		DaysToExpire is a ComputeField
+			type is Numeric size 5
+			(DiversityExpirationDate - current corporate date)
+		
+		DaysUntilExpiration is a ConditionalField
+			type is Alpha size 25
+			if (DiversityExpirationDate < current corporate date)
+				ExpiredDateMessage
+			else
+				DaysToExpire
+		
+		ExpiredDateMessage is a MessageField
+			"Expired"
+		
+		DiverseTotal is a DerivedField
+        	type is like InternationalAmount
+			return sum PurchaseOrdersWithDiversityCodesRel.TotalOrderAmount
+		
+		TotalPercent is a DerivedField
+			type is Percent size 6.2
+			return DiverseTotal/DiverseTotal
+			
+		GrandTotalInvoiceBasePayment is a DerivedField
+        	type is like InternationalAmount
+			return sum PayablesInvoiceByDiversityCodeAndVendorRel.TotalPaymentAmount.FunctionalTotal
+		
+		YellowAlertDate is a ComputeField
+			type is TimeStamp
+			restricted
+			(DiversityExpirationDate - Alerts.YellowAlert as days)
+
+		RedAlertDate is a ComputeField
+			type is TimeStamp
+			restricted
+			(DiversityExpirationDate - Alerts.RedAlert as days)
+			
+		
+    
+	Context Fields
+		ContextSupplyManagementReport is a SupplyManagementReport
+    
+
+
+
+    
+    Field Rules
+		Vendor
+			required
+			
+		DiversityCode
+			required
+		
+		DiversityExpirationDate
+			if (VendorGroup.DiversityValidWhenWithinDates)
+				required
+
+		DiversityEffectiveDate
+			if (VendorGroup.DiversityValidWhenWithinDates)
+				required
+			
+			constraint (DiversityEffectiveDate <= DiversityExpirationDate)
+				"ExpirationDateMustBeGreaterThan_\EffectiveDate"  
+	
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+	Conditions
+    	IsVendorDefault
+    		when (Vendor.DiversityCode	= DiversityCode)
+    		
+    	IsLocationDefault
+
+    		when (VendorLocation.DiversityCode	= DiversityCode)
+    
+    	VendorDefaultActionIsValid
+    		restricted
+    		when (!IsVendorDefault
+    		and    VendorLocation not entered)
+    		
+    	VendorDefaultRemoveActionIsValid
+    		restricted
+    		when (IsVendorDefault)
+    		
+    	LocationDefaultActionIsValid
+    		restricted
+    		when (!IsLocationDefault
+    		and    VendorLocation entered)
+    		
+    	LocationDefaultRemoveActionIsValid
+    		restricted
+    		when (IsLocationDefault)
+    		
+    	PurchaseOrdersWithDiversityCodesRelExists
+    		restricted
+    		when (PurchaseOrdersWithDiversityCodesRel exists)
+    		
+		PayablesInvoiceByDiversityCodeAndVendorRelExists
+			restricted
+			when (PayablesInvoiceByDiversityCodeAndVendorRel exists)
+		
+		VendorDiversityEditDiversityCertDates
+			restricted
+			when (any PayablesInvoiceByDiversityCodeAndVendorRel.InvoiceDate < DiversityEffectiveDate
+			or any PayablesInvoiceByDiversityCodeAndVendorRel.InvoiceDate > DiversityExpirationDate)
+			
+		IsActive
+			restricted
+			when (DiversityCode.Active = true)
+			
+		HasAttachment
+			restricted
+			when (Attachment entered)
+			
+		ExpirationDateYellowAlert
+			restricted
+			when (DiversityExpirationDate entered
+			and   Alerts.YellowAlert != 0
+			and   current corporate date >= YellowAlertDate
+			and   current corporate date <= DiversityExpirationDate)
+
+		ExpirationDateRedAlert
+			restricted
+			when (DiversityExpirationDate entered
+			and   Alerts.RedAlert != 0
+			and   current corporate date >= RedAlertDate
+			and   current corporate date <= DiversityExpirationDate)
+		
+		CanUseForDocument
+			restricted
+			when (Active
+			and  ((VendorGroup.DiversityValidWhenCertificationComplete
+			and   CertificationComplete)
+			or    !VendorGroup.DiversityValidWhenCertificationComplete)
+			and  ((VendorGroup.DiversityValidWhenHasAttachment
+			and    Attachment entered)
+			or     !VendorGroup.DiversityValidWhenHasAttachment))
+			
+		ActiveRecordSameCode
+			restricted
+			when (SameActiveDiversityCodeRel exists)
+			
+		EffectiveDateEntered
+			when (DiversityEffectiveDate entered)
+
+    	RecordExists
+    		restricted
+    		when (VendorDiversity.DiversityCode entered)
+
+		DateIsExpired
+			restricted
+			when (DiversityExpirationDate < current corporate date)
+		
+    Relations
+
+        SameActiveDiversityCodeRel
+        	one-to-many relation to VendorDiversity
+        	Field Mapping uses Set2
+        		related.DiversityCode 			= DiversityCode
+        		related.VendorGroup    			= VendorGroup
+        		related.Vendor                  = Vendor
+        	Instance Selection
+        		where (related.Active
+        		and    related.UniqueID        != UniqueID)
+        
+        VendorBalanceRel
+            classic name is APVENBAL
+            one-to-many relation to VendorBalance
+            Field Mapping uses symbolic key
+                related.VendorGroup    = VendorGroup
+                related.Vendor         = Vendor
+                related.VendorLocation = VendorLocation
+                
+
+		PurchaseOrdersWithDiversityCodesRel
+			one-to-many relation to PurchaseOrder
+			Field Mapping uses Set2
+				related.Company					= ContextSupplyManagementReport.PurchasingCompany
+				related.Vendor					= Vendor
+			Instance Selection
+				where ((related.PurchaseOrderDate >= ContextSupplyManagementReport.FromDate
+				and related.PurchaseOrderDate <= ContextSupplyManagementReport.ThruDate)
+				and related.Vendor.DiversityCode = DiversityCode
+				and (related.POCode not entered
+				or not related.ExcludeFromReportBasedOnPOCode))
+
+		SupplierDiversityResponseRel
+			one-to-many relation to SupplierDiversityResponse
+			Field Mapping uses ByDiversityCode
+				related.SupplierGroup			= VendorGroup
+				related.PayablesDiversityCode   = DiversityCode
+			Instance Selection
+				where (related.Supplier.Vendor  = Vendor) 
+		
+        SupplierVendorMismatchRel
+        	one-to-one relation to SupplierVendorMismatch
+        	Field Mapping uses symbolic key
+        		related.SupplierGroup 	= VendorGroup
+            	related.Supplier		= LocalSupplier
+
+		SupplierExpirationDateMismatchDetail
+			one-to-many relation to SupplierVendorMismatchDetail
+			Field Mapping uses ByType
+        		related.SupplierGroup 	= VendorGroup
+            	related.Supplier		= LocalSupplier
+            Instance Selection
+            	where (related.Type = 25
+            	or     related.Type = 26)
+            	
+		SupplierEffectiveDateMismatchDetail
+			one-to-many relation to SupplierVendorMismatchDetail
+			Field Mapping uses ByType
+        		related.SupplierGroup 	= VendorGroup
+            	related.Supplier		= LocalSupplier        
+            	related.Type            = 30
+            	
+		SupplierReviewDateMismatchDetail
+			one-to-many relation to SupplierVendorMismatchDetail
+			Field Mapping uses ByType
+        		related.SupplierGroup 	= VendorGroup
+            	related.Supplier		= LocalSupplier        
+            	related.Type            = 29            				
+
+
+		PayablesInvoiceByDiversityCodeAndVendorRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByVendor
+				related.Vendor	= Vendor
+			Instance Selection
+				where (related.DiversityCode = DiversityCode
+				and (related.InvoiceDate >= ContextSupplyManagementReport.FromDate
+				and related.InvoiceDate <= ContextSupplyManagementReport.ThruDate))
+					
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                DiversityCode
+                VendorGroup
+                Vendor
+                VendorLocation
+                DiversityExpirationDate
+                VendorDiversity
+                
+        ByDateDescending
+        	Sort Order
+        		VendorGroup
+        		Vendor
+        		VendorLocation
+        		DiversityCode
+        		DiversityExpirationDate descending
+        		VendorDiversity
+    
+    Actions
+		Create is a Create Action
+			Action Rules
+				Active = true
+
+
+
+
+
+				
+		Update is an Update Action
+
+		Delete is a Delete Action
+			Entrance Rules
+				if (VendorLocation entered)
+					constraint (!IsLocationDefault)
+						"CannotDeleteDiversityCode;ExistsAsDefaultOnVendorLocation"
+				else
+					constraint (!IsVendorDefault)
+						"CannotDeleteDiversityCode;ExistsAsDefaultOnVendor"
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop
+
+		SetAsVendorDefault is an Instance Action
+			valid when (VendorDefaultActionIsValid)
+			Action Rules
+				invoke SetDefaultDiversityCode Vendor
+					invoked.PrmDiversityCode	= this instance.DiversityCode
+		
+		RemoveVendorDefault is an Instance Action
+			valid when (VendorDefaultRemoveActionIsValid)
+			Action Rules
+				invoke SetDefaultDiversityCode Vendor
+					invoked.PrmDiversityCode	= blank
+					
+		SetAsLocationDefault is an Instance Action
+			valid when (LocationDefaultActionIsValid)
+			Action Rules
+				invoke SetDefaultDiversityCode VendorLocation
+					invoked.PrmDiversityCode	= this instance.DiversityCode
+		
+		RemoveLocationDefault is an Instance Action
+			valid when (LocationDefaultRemoveActionIsValid)
+			Action Rules
+				invoke SetDefaultDiversityCode VendorLocation
+					invoked.PrmDiversityCode	= blank
+					
+		AttachDiversityToPurchaseOrder is an Instance Action
+			Parameters
+				PurchasingCompany
+				PurchaseOrder 
+			Action Rules
+				invoke Create PurchaseOrderDiversity
+					invoked.Company                = PurchasingCompany
+					invoked.PurchaseOrder          = PurchaseOrder
+					invoked.PayablesDiversityCode  = DiversityCode
+    
+		VendorDiversityCompare is an Instance Action
+			restricted
+			Parameters
+				ParmSupplier        is a Supplier
+			Action Rules
+			
+				LocalSupplier = ParmSupplier
+				if  (Active)
+					if  (SupplierDiversityResponseRel exists
+					and  first SupplierDiversityResponseRel.ExpirationDate !=DiversityExpirationDate)
+					 	if (SupplierVendorMismatchRel !exists)
+					 			invoke Create SupplierVendorMismatch
+									invoked.SupplierGroup                        = VendorGroup
+									invoked.Supplier                             = first SupplierDiversityResponseRel.Supplier
+									invoked.Vendor						         = Vendor
+				 		if (SupplierExpirationDateMismatchDetail !exists) 
+					 		invoke Create SupplierVendorMismatchDetail
+								invoked.SupplierGroup		  	= VendorGroup
+								invoked.Supplier				= first SupplierDiversityResponseRel.Supplier
+								if (first DiversityExpirationDate < first SupplierDiversityResponseRel.ExpirationDate)
+									invoked.Type					= 25
+								if (first DiversityExpirationDate > first SupplierDiversityResponseRel.ExpirationDate)
+									invoked.Type 					= 26
+								invoked.PayablesDiversityCode	= DiversityCode
+								invoked.SupplierValue 			= first SupplierDiversityResponseRel.ExpirationDate
+								invoked.VendorValue				= DiversityExpirationDate
+								
+					if  (SupplierDiversityResponseRel exists
+					and  first SupplierDiversityResponseRel.EffectiveDate !=DiversityEffectiveDate)
+					 	if (SupplierVendorMismatchRel !exists)
+					 		invoke Create SupplierVendorMismatch
+								invoked.SupplierGroup                        = VendorGroup
+								invoked.Supplier                             = first SupplierDiversityResponseRel.Supplier
+								invoked.Vendor						         = Vendor
+	 					if (SupplierEffectiveDateMismatchDetail !exists) 
+					 		invoke Create SupplierVendorMismatchDetail
+								invoked.SupplierGroup		  	= VendorGroup
+								invoked.Supplier				= first SupplierDiversityResponseRel.Supplier
+								invoked.Type					= 30
+								invoked.PayablesDiversityCode	= DiversityCode
+								invoked.SupplierValue 			= first SupplierDiversityResponseRel.EffectiveDate
+								invoked.VendorValue				= DiversityEffectiveDate
+								invoked.DiversityCodeDcertDate  = DiversityExpirationDate
+								
+					if  (SupplierDiversityResponseRel exists
+					and  first SupplierDiversityResponseRel.ReviewDate !=ReviewDate)
+					 	if (SupplierVendorMismatchRel !exists)
+					 		invoke Create SupplierVendorMismatch
+								invoked.SupplierGroup                        = VendorGroup
+								invoked.Supplier                             = first SupplierDiversityResponseRel.Supplier
+								invoked.Vendor						         = Vendor
+						if (SupplierReviewDateMismatchDetail !exists) 
+						 	invoke Create SupplierVendorMismatchDetail
+								invoked.SupplierGroup		  	= VendorGroup
+								invoked.Supplier				= first SupplierDiversityResponseRel.Supplier
+								invoked.Type					= 29
+								invoked.PayablesDiversityCode	= DiversityCode
+								invoked.SupplierValue 			= first SupplierDiversityResponseRel.ReviewDate
+								invoked.VendorValue				= ReviewDate
+					
+					if  (!SupplierDiversityResponseRel exists)
+					 	if (!SupplierVendorMismatchRel exists)
+					 			invoke Create SupplierVendorMismatch
+									invoked.SupplierGroup                        = VendorGroup
+									invoked.Supplier                             = ParmSupplier
+									invoked.Vendor						         = Vendor
+					 	invoke Create SupplierVendorMismatchDetail
+								invoked.SupplierGroup		  	= VendorGroup
+								invoked.Supplier				= ParmSupplier
+								invoked.Type 					= 24
+								invoked.PayablesDiversityCode	= DiversityCode
+								invoked.SupplierValue 			= "None"
+								invoked.DiversityCodeDcertDate  = DiversityExpirationDate
+								invoked.VendorValue				= DiversityCode			
+							    
+		Purge is a Purge Action
+    		restricted

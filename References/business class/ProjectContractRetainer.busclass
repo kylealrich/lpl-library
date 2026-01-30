@@ -1,0 +1,490 @@
+ProjectContractRetainer is a BusinessClass
+	owned by Projects
+	prefix is PRCRT
+	
+	Ontology
+		symbolic key is ProjectContractRetainer
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+    	Amount						is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+			default label is "RetainerAmount"
+		RetainerDate				is Date
+			default label is "Date"
+		Status						is Numeric size 1
+			States
+				ToProcess			value is 1
+				Processed			value is 2
+				Hold				value is 3
+				Draft				value is 4
+    	AppliedAmount				is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		RetainerProject				is a Project
+		RetainerRule				is Numeric size 1
+			States
+				ApplyToAllProjects	value is 0
+				RetainerProjectOnly	value is 1
+		RetainerFullAccount			is a FinanceCodeBlockFullNoProjectFD2Liability
+			default label is "RetainerFinanceStructure"
+		RetainerType				is Numeric size 1
+			States
+				Retainer			value is 0
+				Adjustment			value is 1
+		AdjustedRetainer			is a ProjectContractRetainer
+		BaseRetainer				is like ProjectContractRetainer
+		ApplicationAmount			is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+			default label is "NextAppliedAmount"
+		ApplicationPercent			is Percent size 5.2
+			default label is "NextAppliedPercent"
+		ApplicationHold				is Boolean
+			default label is "Hold"
+		Taxable						is Boolean
+#ifdef module ar   	    
+		TermsCode
+#endif		      	    		
+#ifndef module ar
+		TermsCode					is AlphaUpper 10	
+#endif
+		ProjectInvoiceFormat
+			default label is "InvoiceTemplate"
+#ifdef module idm
+		ProjectContractInvoiceTemplate 	is an IDMTemplate
+#endif
+#ifndef module idm
+		ProjectContractInvoiceTemplate 	is Numeric size 10
+			default label is "InvoiceFormat"
+#endif
+
+	Field Groups
+		ImmutableFields
+			Description
+			Amount
+			RetainerDate
+			Status
+			AppliedAmount
+			RetainerProject
+			RetainerRule
+			RetainerFullAccount
+			RetainerType
+			AdjustedRetainer
+			BaseRetainer
+					
+    Derived Fields
+    	AvailableRetainerAmount is a DerivedField
+    		type is like InternationalAmount
+    			precision is ProjectContract.Currency.NumberOfDecimals
+    		return (ProjectFundingSource.UnretainedBilledRemaining + Amount)
+    		
+    	RemainingAmount			is a DerivedField
+    		type is like InternationalAmount
+    			precision is ProjectContract.Currency.NumberOfDecimals
+    		return (Amount + TotalAdjustmentAmount - AppliedAmount)
+    		
+    	TotalAdjustmentAmount	is a DerivedField
+    		type is like InternationalAmount
+    			precision is ProjectContract.Currency.NumberOfDecimals
+    		return sum RetainerAdjustmentsRel.Amount
+
+		AvailableAmount			is a DerivedField
+    		type is like InternationalAmount
+    			precision is ProjectContract.Currency.NumberOfDecimals
+			return (Amount + TotalAdjustmentAmount - AppliedAmount)
+			
+		OriginalAmount is a DerivedField
+    		type is like InternationalAmount
+    			precision is ProjectContract.Currency.NumberOfDecimals
+			return (Amount + TotalAdjustmentAmount)
+			
+		TaxCode is a DerivedField
+			type is AlphaUpper size 15
+			return first ProjectContractInvoiceLine set.BuyerTaxCode
+
+		TaxRate is a DerivedField
+			type is Percent size 7.5
+			return first ProjectContractInvoiceLine set.DerivedTaxRate
+			
+		AddressCode is a DerivedField
+			type is like AddressCode
+			return first ProjectContractInvoiceLine set.AddressCode
+
+		AdjustmentMF is a MessageField
+			"Retainer_Adjustment"
+
+	Conditions
+		AmountAvailable
+			restricted
+			when (Amount + TotalAdjustmentAmount > AppliedAmount)
+			
+		OkToAdjust
+			restricted
+			when (AmountAvailable
+			and   Status.Processed
+			and   RetainerType.Retainer)
+			
+		OkToChangeToAllProjects
+			restricted
+			when (OkToAdjust
+			and   RetainerRule.RetainerProjectOnly)
+
+		OkToChangeToRetainerProjectOnly
+			restricted
+			when (OkToAdjust
+			and   RetainerRule.ApplyToAllProjects)
+			
+		OkToReapply
+			restricted
+			when (AmountAvailable
+			and   ApplicationAmount not entered
+			and  (ApplicationPercent not entered
+			or    ApplicationPercent = 1)
+			and  !ApplicationHold)
+
+		RetainersToBeProcessed
+			restricted
+			when (Status.ToProcess
+			or    Status.Hold)
+
+		IsProcessedRetainer
+			restricted
+			when (Status.Processed
+			and   RetainerType.Retainer)
+	Relations
+		ShadowPostingDescendantRel
+			one-to-one relation to ProjectShadow
+			Field Mapping uses BySummaryProject
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.SummaryProject   	   = ProjectContract
+				related.Project				   = RetainerProject
+				
+		RetainerAdjustmentsRel
+			one-to-many relation to ProjectContractRetainer
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= ProjectContract
+				related.FinanceDimension2		= FinanceDimension2
+			Instance Selection
+				where (related.RetainerType.Adjustment
+				and    related.AdjustedRetainer = ProjectContractRetainer)
+
+
+		ProjectContractInvoiceLineRel is a ProjectContractInvoiceLine set
+		
+		ProjectContractInvoiceRel
+			one-to-one relation to ProjectContractInvoice
+			Field Mapping uses symbolic key	
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.ProjectContract				= ProjectContract
+				related.FinanceDimension2			= FinanceDimension2
+				related.ProjectContractInvoice		= first ProjectContractInvoiceLineRel.ProjectContractInvoice
+
+	Sets
+		ByRetainerDate
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract
+				FinanceDimension2
+				RetainerDate
+				BaseRetainer
+				ProjectContractRetainer
+				
+		ByBaseRetainer
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract
+				FinanceDimension2
+				BaseRetainer
+				ProjectContractRetainer
+				
+	Field Rules
+		Description
+			required
+			
+		RetainerDate
+			required
+			constraint (RetainerDate within ProjectContract.Project.ProjectDateRange)		
+				"RetainerDateMustBeWithinContractDateRange"
+			constraint (RetainerDate within FinanceDimension2.DateRange)
+				"RetainerDateMustBeWithin<FinanceEnterpriseGroup.FinanceDimension2Label>DateRange"
+			if (ProjectContractInvoiceLine set exists)
+				cannot be changed
+					"DateCannotBeChanged;_InvoiceExists"
+
+    	Amount
+   			required
+   			if (RetainerType.Retainer)
+	   			constraint (Amount > 0)
+   					"RetainerAmountCannotBeNegative"
+   			else
+   				constraint (Amount < 0)
+   					"AdjustmentAmountCannotBePositive"
+			if (Status.Processed)
+				cannot be changed
+					"AmountCannotBeChanged;RetainerHasBeenProcessed"
+			if (ProjectContractInvoiceLine set exists)
+				cannot be changed
+					"AmountCannotBeChanged;_InvoiceExists"
+
+		Status
+			default to Status.ToProcess
+			if (Status changed)
+				if (old Status.Processed)								
+					constraint (Status.Processed)
+						"CannotChangeFromProcessedStatus"
+				if (old Status.ToProcess
+				or  old Status.Hold)								
+					constraint (!Status.Processed)
+						"CannotChangeStatusToProcessed"
+					constraint (!Status.Draft)
+						"CannotChangeStatusToDraft"
+				if (old Status.Draft)								
+					constraint (Status.Draft)
+						"CannotChangeFromDraftStatus"
+				if (old Status.Draft
+				or  old Status.Hold)								
+					constraint (!Status.Draft)
+						"CannotChangeStatusToDraft"
+
+		AppliedAmount
+			constraint (AppliedAmount <= Amount)
+				"AppliedAmountCannotExceedRetainerAmount"
+			
+		RetainerProject
+			required
+			constraint (ShadowPostingDescendantRel.Project.ProjectType.Posting)
+				"Retainer<FinanceEnterpriseGroup.ProjectLabel>MustBeAPostingChildOf<ProjectContract.DisplayContract>"
+			constraint (RetainerProject.IsBillable)
+				"Retainer<FinanceEnterpriseGroup.ProjectLabel>MustBeBillableAndProjectStatusMustBeBillable"
+			constraint (RetainerDate within RetainerProject.ProjectDateRange)
+				"Retainer<FinanceEnterpriseGroup.ProjectLabel>DateRangeMustEncompassRetainerDate"
+			if (RetainerType.Adjustment)
+				cannot be changed
+					"<FinanceEnterpriseGroup.ProjectLabel>CannotBeChangedOnAdjustmentRecord"
+				
+		RetainerFullAccount
+			required
+			if (RetainerType.Adjustment)
+				cannot be changed
+					"RetainerFinanceStructureCannotBeChangedOnAdjustmentRecord"
+			
+		RetainerType
+			cannot be changed
+			if (RetainerType.Adjustment)
+				constraint (AdjustedRetainer entered)
+					"AdjustedRetainerRequiredForAdjustment"
+			
+		AdjustedRetainer
+			cannot be changed
+			constraint (RetainerType.Adjustment)
+				"ValidForAdjustmentsOnly"
+			constraint (AdjustedRetainer.RetainerType.Retainer)
+				"AdjustedRetainerMustBeTypeOfRetainer"
+			constraint (AdjustedRetainer.Status.Processed)
+				"AdjustedRetainerMustBeProcessedStatus"
+
+		RetainerRule									
+			if (RetainerType.Adjustment)
+				cannot be changed
+					"RetainerRuleCannotBeChangedOnAdjustmentRecord"
+
+		BaseRetainer
+			if (RetainerType.Retainer)
+				BaseRetainer = ProjectContractRetainer
+			else
+				BaseRetainer = AdjustedRetainer
+			
+		ApplicationAmount
+			constraint (ApplicationAmount <= AvailableAmount)
+				"NextApplicationAmountCannotExceedAvailableAmountOf<AvailableAmount>"
+
+
+			constraint (RetainerType.Retainer)
+				"NextApplicationAmountValidForBaseRetainerOnly"
+
+		ApplicationPercent
+			constraint (ApplicationAmount not entered)
+				"CannotEnterBothNextApplicationAmountAndPercent"
+			constraint (ApplicationPercent <= 1)
+				"NextApplicationPercentCannotExceed100"
+
+
+			constraint (RetainerType.Retainer)
+				"NextApplicationPercentValidForBaseRetainerOnly"
+
+		ApplicationHold
+
+
+			constraint (RetainerType.Retainer)
+				"ApplicationHoldValidForBaseRetainerOnly"
+
+		Taxable
+			if (FinanceDimension2.FundingType.IntercompanyBilling)
+				Taxable = false
+
+	Actions
+		Create is a Create Action
+			Action Rules
+
+
+				constraint (!FinanceDimension2.FundingType.InternalFund)
+					"RetainersInvalidForInternalFundingSource"
+				constraint (ProjectFundingSource.TotalRemainingRetainerAmount + Amount <= ProjectFundingSource.BilledRemaining)
+					"RetainerAmountCannotExceed<FinanceDimension2>RemainingUnretainedFundedBalanceOf<ProjectFundingSource.UnretainedBilledRemaining>"
+				constraint (!Status.Processed)
+					"CannotAddARetainerWithAProcessedStatus"
+				constraint (!Status.Draft)
+					"CannotAddARetainerWithADraftStatus"
+#ifndef property federal
+				constraint (ProjectFundingSource.RetainagePercent not entered
+				and         ProjectFundingSource.RetainageInvoicesRel not exists)
+					"CannotCreateRetainersWhenUsingRetainageFeature"
+#endif							
+		Update is an Update Action
+
+			Action Rules
+				if (ImmutableFields changed)
+					constraint (!Status.Processed)
+						"CannotChange;_RetainerHasBeenProcessed"
+
+
+				if (Amount changed)
+					if (RetainerType.Retainer)
+						constraint (ProjectFundingSource.TotalRetainerAmount <= ProjectFundingSource.BilledRemaining)
+							"RetainerAmountCannotExceed<FinanceDimension2>RemainingUnretainedFundedBalanceOf<AvailableRetainerAmount>"
+					else
+						constraint (AdjustedRetainer.RemainingAmount >= 0)
+							"AdjustmentCannotExceedRemainingRetainerAmount"
+							
+		UpdateStatus is an Instance Action
+			restricted
+			Parameters
+				PrmStatus				is Numeric 1
+					States
+						ToProcess			value is 1
+						Processed			value is 2
+						Hold				value is 3
+						Draft				value is 4
+				PrmAmount				is like InternationalAmount	
+			Action Rules
+				Status = PrmStatus
+				if (PrmAmount entered)
+					Amount = PrmAmount
+																
+		Delete is a Delete Action
+			valid when (!Status.Processed)		
+			Action Rules
+				constraint (!Status.Processed)
+					"CannotDeleteAProcessedRetainer"
+				if (Amount < 0)
+					constraint (ProjectFundingSource.TotalRetainerAmount <= ProjectFundingSource.BilledRemaining)
+						"CannotDeleteNegativeRetainerAsTotalRetainerAmountWouldThenExceed<FinanceDimension2>RemainingUnretainedFundedBalanceOf<ProjectFundingSource.BilledRemaining>"
+				if (RetainerType.Adjustment)
+					constraint (!AdjustedRetainer.Status.Processed or AdjustedRetainer.AppliedAmount = 0)
+						"CannotDeleteAdjustment;_AdjustedRetainerHasBeenProcessed"
+
+		UpdateAppliedAmount is an Instance Action
+			restricted
+			Parameters
+				PrmAppliedAmount	is like InternationalAmount
+					precision is ProjectContract.Currency.NumberOfDecimals
+			Action Rules
+				if (RetainerType.Retainer)
+					AppliedAmount	+= PrmAppliedAmount
+					if (AppliedAmount < 0)
+						AppliedAmount = 0
+				
+		CreateAdjustment is an Instance Action
+			valid when (OkToAdjust)
+			Parameters
+				AdjustmentAmount	is like InternationalAmount
+					precision is ProjectContract.Currency.NumberOfDecimals
+				PrmDescription		is like Description
+					default label is "Description"
+				PrmRetainerDate		is Date
+					default label is "Date"
+#ifdef module ar
+				PrmTermsCode		is a TermsCode
+					default label is "TermsCode"
+#endif
+#ifndef module ar
+				PrmTermsCode		is AlphaUpper size 10
+					default label is "TermsCode"
+#endif
+				PrmProjectInvoiceFormat	is a ProjectInvoiceFormat
+					default label is "InvoiceTemplate"
+#ifdef module idm
+				PrmProjectContractInvoiceTemplate 	is an IDMTemplate
+					default label is "InvoiceFormat"
+#endif
+			Parameter Rules
+				AdjustmentAmount
+					required
+					constraint (AdjustmentAmount <= RemainingAmount)
+						"AdjustmentAmountCannotExceedRemainingAmountOf<RemainingAmount>"
+		   			constraint (AdjustmentAmount > 0)
+   						"AdjustmentAmountCannotBeNegative"
+   				PrmDescription
+   					required
+   					initial value is Description
+   				PrmRetainerDate
+   					required
+   					initial value is RetainerDate
+   				PrmTermsCode
+   					initial value is TermsCode
+   				PrmProjectInvoiceFormat
+   					initial value is ProjectInvoiceFormat
+#ifdef module idm
+   				PrmProjectContractInvoiceTemplate
+   					initial value is ProjectContractInvoiceTemplate
+#endif   					
+			Action Rules
+				invoke Create ProjectContractRetainer
+					fill in fields from this instance
+						except invoked.ProjectContractRetainer
+						except invoked.Status
+						except invoked.AppliedAmount
+						except invoked.ApplicationAmount
+						except invoked.ApplicationPercent
+						except invoked.ApplicationHold
+					invoked.RetainerType		= 1
+					invoked.AdjustedRetainer	= ProjectContractRetainer
+					invoked.Amount				= AdjustmentAmount * -1
+					invoked.Description			= PrmDescription
+					invoked.RetainerDate		= PrmRetainerDate
+					invoked.TermsCode			= PrmTermsCode
+					invoked.ProjectInvoiceFormat = PrmProjectInvoiceFormat
+#ifdef module idm
+					invoked.ProjectContractInvoiceTemplate = PrmProjectContractInvoiceTemplate
+#endif
+
+		ApplyRetainerToAllProjects is an Instance Action
+			valid when (OkToChangeToAllProjects)
+			Action Rules
+				RetainerRule = 0
+
+		ApplyRetainerToRetainerProjectOnly is an Instance Action
+			valid when (OkToChangeToRetainerProjectOnly)
+			Action Rules
+				RetainerRule = 1
+				
+		UpdateRetainerKey is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    BaseRetainer not entered)
+			Action Rules
+				Instance Rules
+					if (RetainerType.Retainer)
+						BaseRetainer = ProjectContractRetainer
+					else
+						BaseRetainer = AdjustedRetainer
+				

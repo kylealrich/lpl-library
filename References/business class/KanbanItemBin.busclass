@@ -1,0 +1,187 @@
+KanbanItemBin is a BusinessClass
+	default label is "KanbanItemBin"
+	owned by mscm
+	prefix is MSKIB
+
+	Ontology
+		symbolic key is KanbanItemBin
+
+	Patterns		
+        
+	Persistent Fields
+        BinID                   is like MobileSupplyChainBinID
+        Quantity                is Unsigned Decimal 3.0
+        LastScannedTime         is TimeStamp
+        Frequency               is Numeric 12
+        
+    Derived Fields
+        DerivedTotalNumberOfBins is a DerivedField
+            type is Numeric 3
+            default label is "TotalNumberOfBins"
+            return instance count of KanbanItemBinRel
+
+		DerivedCompanyName is a DerivedField
+			type is like Name
+			restricted
+			return Company.Name
+
+        DerivedItemDescription  is a DerivedField
+            type is like Description
+            restricted
+            return Item.Description
+
+        DerivedShelf is a DerivedField
+            type is like Bin
+            restricted
+            return ItemLocation.PreferredBin
+
+        DerivedParLocationName is a DerivedField
+            type is like Name
+            restricted
+            return InventoryLocation.Name
+
+        DerivedUnitOfMeasure is a DerivedField
+            type is like UnitOfMeasure
+            restricted
+            return ItemLocation.DefaultTransactionUOM
+			
+		DerivedDefaultLabelTemplate is a DerivedField
+			type is like LabelTemplate
+			return first DefaultKanbanItemBinLabelTemplateRel.LabelTemplate
+
+
+    Field Rules
+        BinID
+            autosequence using MobileSupplyChainConfigurationRel.LastKanbanBinID
+
+    Conditions
+        IsParLevelDivisibleByNumberOfBins
+            when (ItemLocation.ReorderPoint % DerivedTotalNumberOfBins = 0)
+
+        PrintLabelEnabled
+            when (MobileSupplyChainConfigurationRel.MobileSupplyChainEnabled
+            and   ItemLocation.Active)
+
+    Relations
+        KanbanItemBinRel
+            one-to-many relation to KanbanItemBin
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.Item              = Item
+
+        MobileSupplyChainConfigurationRel
+            one-to-one relation to MobileSupplyChainConfiguration
+            Field Mapping uses symbolic key
+                related.MobileSupplyChainConfiguration = Company.FinanceEnterpriseGroup
+
+        KanbanItemRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.Item              = Item
+
+		DefaultKanbanItemBinLabelTemplateRel
+			one-to-many relation to LabelTemplate
+			Field Mapping uses symbolic key
+				related.MobileSupplyChainConfiguration = Company.FinanceEnterpriseGroup
+			Instance Selection	
+				where (related.Default
+				and    related.LabelType.KanbanItemBin)
+
+        MobileSupplyChainLocationRel
+			one-to-one relation to MobileSupplyChainLocation
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.MobileSupplyChainLocation		= InventoryLocation	        
+    
+    Sets
+        ByCompanyBinId
+            indexed
+            Sort Order
+                Company
+                BinID
+
+    Actions
+        Create is a Create Action
+            restricted
+
+        Update is an Update Action
+            restricted
+
+        DeleteNoRules is a Delete Action
+            restricted
+
+        Delete is a Delete Action    
+            Local Fields
+                LocalQuantity          is Numeric 3
+                LocalTotalNumberOfBins is Numeric 3
+            Action Rules
+                LocalTotalNumberOfBins = DerivedTotalNumberOfBins
+
+                invoke Update KanbanItemRel
+                    invoked.TransientKanbanNumberOfBins = DerivedTotalNumberOfBins
+
+                LocalQuantity = ItemLocation.ReorderPoint / DerivedTotalNumberOfBins
+
+                invoke Update KanbanItemBinRel
+                    invoked.Quantity = LocalQuantity
+            Exit Rules
+                if(ItemLocation.UseKanban)
+                    constraint (DerivedTotalNumberOfBins > 1)
+                        "NumberOfBinsShouldBeMinimumOf2."
+                
+                constraint (IsParLevelDivisibleByNumberOfBins)
+                    "ParLevelShouldBeEquallyDivisibleInWholeNumbersByTheNumberOfBinsForAKanbanItem."
+
+        UpdateScanActivity is an Instance Action
+            restricted
+            Parameters
+				PrmItemTimeStamp				is TimeStamp
+                    default label is "ItemTimeStamp"
+            Action Rules
+                if (LastScannedTime not entered or PrmItemTimeStamp > LastScannedTime)
+                    LastScannedTime     = PrmItemTimeStamp
+
+                Frequency           += 1
+
+        PrintLabel is an Instance Action
+			valid when (PrintLabelEnabled)			
+			Parameters
+				PrmMobileSupplyChainPrinter							is a MobileSupplyChainPrinter
+					default label is "MobileSupplyChainPrinter"
+				PrmNumberOfCopies						is Unsigned Decimal 2.0
+					default label is "NumberOfCopies"
+				PrmMobileSupplyChainConfiguration		is a MobileSupplyChainConfiguration
+					default label is "MobileSupplyChainConfiguration"
+				PrmLabelTemplate  					is a LabelTemplate
+					default label is "LabelTemplate"
+				PrmTransactionType						is a MobileSupplyChainPrintingTransactionType
+					default label is "LabelTransactionType"
+			Parameter Rules
+				PrmMobileSupplyChainPrinter	
+					initial value is  MobileSupplyChainLocationRel.DerivedDefaultMobileSupplyChainLabelPrinter
+					default to  MobileSupplyChainLocationRel.DerivedDefaultMobileSupplyChainLabelPrinter		
+					required
+					constraint (PrmMobileSupplyChainPrinter.PrinterType.Label)
+						"PrinterShouldOnlyBeLabelPrinter"
+				PrmNumberOfCopies
+					initial value is 1
+					default to 1
+					required
+				PrmLabelTemplate
+					initial value is DerivedDefaultLabelTemplate
+					default to DerivedDefaultLabelTemplate
+					required
+				PrmTransactionType
+					initial value is PrmTransactionType.LabelManagement
+					default to PrmTransactionType.LabelManagement					
+			Action Rules					
+				invoke Create MobileSupplyChainPrinterJob
+		        	invoked.FinanceEnterpriseGroup          = PrmMobileSupplyChainConfiguration
+		            invoked.Company 						= Company
+		            invoked.MobileSupplyChainPrinter 	    = PrmMobileSupplyChainPrinter
+                    invoked.NumberOfCopies 					= PrmNumberOfCopies
+					invoked.TransactionType					= PrmTransactionType
+					invoked.PrintDataFile 					= PrmLabelTemplate.TransientKanbanItemBinBinaryDocument document for this instance               

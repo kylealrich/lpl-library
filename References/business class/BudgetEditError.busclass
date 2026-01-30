@@ -1,0 +1,192 @@
+BudgetEditError is a BusinessClass
+	owned by GeneralLedger
+	prefix is BUDER
+
+	Ontology
+		symbolic key is BudgetEditError
+
+    Patterns
+    	implements DynamicCreation
+		disable Auditing 
+		disable EffectiveDated 
+
+	Persistent Fields
+		FinanceCodeBlock
+		System						is a GeneralLedgerSystemCode
+	    Currency
+	    PostingDate					is Date
+		TransactionAmount			is a InternationalAmount
+		
+		BudgetTemplatePeriod		is a GeneralLedgerCalendarPeriod
+			delete ignored
+		CurrentCommitmentAmount		is a TotalAmount
+		CurrentBudgetAmount			is a TotalAmount
+		FutureCommitmentAmount		is a TotalAmount
+		FutureCommitmentPeriod		is like GeneralLedgerCalendarPeriod
+		
+		ChangeAmount				is a InternationalAmount
+		
+		GroupNeedsRecalculation		is Boolean
+		IsBudgetChangeError			is Boolean
+
+		HeaderUniqueID				is like UniqueID
+
+		Tolerance							is Percent size 5.2
+			default label is "PercentageTolerance"
+		ToleranceAmount						is an InternationalAmount
+			default label is "AmountTolerance"
+			precision is 2    
+		ToleranceOption						is Numeric size 1
+			default label is "ToleranceOption"
+			States
+				Percentage		value is 0
+				Amount			value is 1
+
+	Sets            	
+		ByBudgetGroup
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				BudgetEditError.BudgetEditGroup
+		ByHeaderUniqueID
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				HeaderUniqueID
+
+	Derived Fields
+		DerivedCurrentCommitmentAmount		is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return CurrentCommitmentAmount
+		DerivedFutureCommitmentAmount		is a DerivedField
+			type is like InternationalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return FutureCommitmentAmount
+		DerivedCurrentBudgetAmount	is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return CurrentBudgetAmount
+		ExistingCommitmentAmount	is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return DerivedCurrentCommitmentAmount + DerivedFutureCommitmentAmount		
+		DerivedChangeAmount			is a DerivedField
+			type is like InternationalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return ChangeAmount
+		PendingCommitmentAmount		is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			restricted
+			return DerivedChangeAmount
+		AvailableBudget				is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return DerivedCurrentBudgetAmount - DerivedCurrentCommitmentAmount - DerivedFutureCommitmentAmount
+		AvailableBudgetWithTolerance is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			if (ToleranceOption.Percentage)
+				return DerivedCurrentBudgetAmount*(1.0 + Tolerance) - DerivedCurrentCommitmentAmount - DerivedFutureCommitmentAmount
+			return DerivedCurrentBudgetAmount + ToleranceAmount - DerivedCurrentCommitmentAmount - DerivedFutureCommitmentAmount
+		OverBudgetAmount			is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return PendingCommitmentAmount - AvailableBudget
+		OverBudgetAmountWithTolerance	is a DerivedField
+			type is like TotalAmount
+				precision is BudgetGroup.CurrencyDecimals
+			return PendingCommitmentAmount - AvailableBudgetWithTolerance
+		BudgetAfterChange			is a DerivedField
+			type is like TotalAmount
+			return AvailableBudget + DerivedChangeAmount
+		IsToDateBudget				is a DerivedField
+			type is Boolean
+			return BudgetGroup.BudgetTemplate.PeriodToDate.YearToDate or BudgetGroup.BudgetTemplate.PeriodToDate.LifeToDate
+
+		DerivedUniqueIDForBTGT is a DerivedField
+			type is UniqueID
+			restricted
+			if (HeaderUniqueID not entered)
+				return BudgetEditError.BudgetEditGroup
+			return HeaderUniqueID
+
+		DerivedCalendarYear is a DerivedField
+            type is Year
+			restricted
+            if (BudgetGroup.BudgetTemplate.PeriodToDate.YearToDate)
+                return BudgetTemplatePeriod.Year
+		
+	Field Rules
+	
+	Conditions
+		SecurityGroupAllowsAccess
+            when (BudgetGroup.AccountingEntity not entered
+            or   (BudgetGroup.AccountingEntity entered 
+            and   BudgetGroup.AccountingEntity.AccountingEntitySecurityGroupAllowsAccess))
+
+	Relations
+		BudgetTemplateGroupTotalRel
+			one-to-one relation to BudgetTemplateGroupTotal
+			Field Mapping uses ByYearAndPeriod
+				related.FinanceEnterpriseGroup                               = FinanceEnterpriseGroup
+				related.Scenario                                             = BudgetEditError.Scenario
+				related.BudgetTemplate                                       = BudgetEditError.BudgetTemplate
+				related.BudgetTemplateGroupTotal.BudgetEditGroup             = DerivedUniqueIDForBTGT
+				related.BudgetTemplateGroupTotal.BudgetGroup                 = BudgetEditError.BudgetGroup
+				related.BudgetTemplateGroupTotal.GeneralLedgerCalendarYear   = DerivedCalendarYear
+		 		related.BudgetTemplateGroupTotal.GeneralLedgerCalendarPeriod = BudgetTemplatePeriod
+
+	Actions
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			restricted
+			
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		PurgeErrorsForTemplate is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmScenario					is a Scenario
+					default label is "Scenario"
+				PrmTemplate					is a BudgetTemplate
+					default label is "BudgetTemplate"
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and Scenario = PrmScenario
+				and BudgetTemplate = PrmTemplate)
+			Action Rules
+				Instance Rules
+					invoke Purge BudgetEditError
+
+		PurgeBudgetEditError is a Set Action
+			restricted
+			
+			Parameters
+				PrmFinanceEnterpriseGroup	is like FinanceEnterpriseGroup
+				PrmBudgetEditGroup			is UniqueID
+				
+			Instance Selection
+				include deleted records
+				where (FinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+				and   BudgetEditError.BudgetEditGroup	= PrmBudgetEditGroup)
+				
+			Action Rules
+				Instance Rules
+					invoke Purge
+			
+		SetUnreleasedObligationError is a Set Action
+			restricted
+			Action Rules
+				Instance Rules
+					invoke SetError BudgetTemplateGroupTotalRel.BudgetTemplateGroupTotal

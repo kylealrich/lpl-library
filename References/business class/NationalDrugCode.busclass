@@ -1,0 +1,179 @@
+NationalDrugCode is a BusinessClass
+    owned by ic
+    prefix is IDC
+    classic name is ITEMNDC
+
+    Ontology
+        symbolic key is NationalDrugCode
+            classic set name is IDCSET1
+            classic name is NDC-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        UnitOfMeasure      is a UnitOfMeasureEdit
+            classic name for UnitOfMeasure.UnitOfMeasure is UOM
+        GenericName        is AlphaUpper size 30
+            classic name is MDPRODDESC
+        Strength           is AlphaUpper size 10
+            classic name is MDSTRENGTH
+        DoseForm           is AlphaUpper size 10
+            classic name is MDDOSEFORM
+        PackageDescription is AlphaUpper size 5
+            classic name is MDPACKDESC
+        PackageSize        is Decimal size 13.4
+            classic name is MDPACKSIZE
+        ManufacturedBy     is AlphaUpper size 10
+            classic name is MFGBY
+        UnitDose           is Boolean
+            classic name is UNITDOSE-FL
+        BrandName
+        DrugName           is AlphaUpper size 32
+        FromWorksheetResult is an ItemInformationWorksheetResult
+
+    Derived Fields
+
+        ItemTypeNDC is a ConditionalField
+            type is Numeric size 1
+            restricted
+            if (HasNDC)
+                5
+            else
+                blank
+
+	Relations
+		DuplicateNDCRel
+			one-to-many relation to NationalDrugCode
+			Field Mapping uses Set6
+				related.ItemGroup			= ItemGroup
+				related.NationalDrugCode	= NationalDrugCode
+			Instance Selection
+				where (related.Item	!= Item)
+
+		DuplicateUOMRel
+			one-to-many relation to NationalDrugCode
+			Field Mapping uses Set5
+				related.ItemGroup		= ItemGroup
+				related.Item			= Item
+				related.UnitOfMeasure	= UnitOfMeasure
+			Instance Selection
+				where (related.NationalDrugCode != NationalDrugCode)
+
+        OnContractLineRel 
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item 
+            Instance Selection 
+                where (related.NdcNbr = NationalDrugCode)
+
+        ContractLineForItemUOMRel
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item  
+            Instance Selection 
+                where (related.UOM.UnitOfMeasure = UnitOfMeasure)            
+
+		ConsolidatedItemMasterRel
+			one-to-many relation to ConsolidatedItemMaster
+			Field Mapping uses ByInternalItem     
+				related.ContractGroup	    = ItemGroup
+				related.InternalItem		= Item                                   
+
+    Conditions
+
+        HasNDC
+            classic name is NDC-ENTERED
+            restricted
+            when (NationalDrugCode entered)
+
+		NDCDuplicated
+			restricted
+			when (DuplicateNDCRel exists)
+			
+		UOMDuplicated
+			restricted
+			when (DuplicateUOMRel exists)
+
+		ConsolidatedItemMasterExists
+			restricted 
+			when (ConsolidatedItemMasterRel exists)                     
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                NationalDrugCode
+                ItemGroup
+
+        Set5
+            indexed
+            Sort Order
+                ItemGroup
+                Item
+                UnitOfMeasure
+                NationalDrugCode
+
+        Set6
+            indexed
+            Sort Order
+                ItemGroup
+                NationalDrugCode
+                
+        FromWorksheet
+        	Sort Order
+        		FromWorksheetResult
+        		ItemGroup
+        		Item
+        		NationalDrugCode
+
+	Field Rules
+		UnitOfMeasure
+			required
+				"UnitOfMeasureIsRequired"
+
+	Actions
+		Create is a Create Action
+
+			Entrance Rules
+				constraint (DuplicateNDCRel not exists)
+					"NationalDrugCodeAlreadyExistsForAnotherItem:<first DuplicateNDCRel.Item>"
+
+            Action Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterNDC    = true
+                        invoked.NDCToEnter  = NationalDrugCode
+
+		Update is an Update Action
+
+            Action Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveNDC = true            
+            Exit Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterNDC    = true
+                        invoked.NDCToEnter  = NationalDrugCode 
+
+		Delete is a Delete Action
+
+            Entrance Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveNDC = true
+
+				if (ConsolidatedItemMasterExists)
+					invoke UpdateUOMDetails ConsolidatedItemMasterRel 
+						invoked.ParmHIBCCDI		= NationalDrugCode 
+						invoked.ParmUOM         = UnitOfMeasure.UnitOfMeasure
+						invoked.ParmDeleted     = true  
+	Action Exit Rules
+
+		if  (ConsolidatedItemMasterExists)
+			invoke Update ConsolidatedItemMasterRel                              

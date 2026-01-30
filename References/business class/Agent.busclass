@@ -1,0 +1,260 @@
+Agent is a BusinessClass
+	owned by person
+	prefix is AGNT
+
+	Ontology
+		symbolic key is Agent
+
+	Patterns
+		implements CRUD
+		implements HistoryCorrection
+		implements FutureCorrection
+		implements SecurityCache
+
+    Persistent Fields
+        BusinessObjectRef is BusinessObjectReference
+        ParentAgent
+        KeyText is a snapshot of BusinessObjectRef.SymbolicKeyText 
+
+	Field Rules
+		BusinessObjectRef
+			required
+			
+    Transient Fields
+        TransActor is an Actor
+            default label is "TransactionActor"
+		
+    Conditions
+        HasParent
+			default label is "ParentEntered"
+            when (ParentAgent entered)
+            
+        HasParentAgentActor
+            default label is "ParentAgentActor"
+        	when (HasParent
+        	and   ParentAgent.ActorEntered)    
+
+    Sets
+        BusClassSet
+            indexed
+            no duplicates
+            Sort Order
+                BusinessObjectRef
+
+        ByKeyText
+            indexed
+            duplicates
+            Sort Order
+                KeyText
+                
+        TypeLinkSet
+            indexed
+            Instance Selection
+                where (HasParent)
+            Sort Order
+                BusinessObjectRef.BusinessClassName
+                ParentAgent
+
+        ParentSet
+            indexed
+            duplicates
+            Instance Selection
+                where (HasParent)
+            Sort Order
+                ParentAgent
+
+    Relations
+        TypeParents
+            one-to-many relation to Agent
+            Field Mapping uses TypeLinkSet
+                related.BusinessObjectRef.BusinessClassName = BusinessObjectRef.BusinessClassName
+                related.ParentAgent = ParentAgent
+
+        TypeParentsForTransActor
+            one-to-many relation to Agent
+            Field Mapping uses TypeLinkSet
+                related.BusinessObjectRef.BusinessClassName = BusinessObjectRef.BusinessClassName
+                related.ParentAgent = TransActorRel.ParentAgent
+
+        TransActorRel
+            one-to-one relation to ParentAgent
+            Field Mapping uses ActorSet
+                related.Actor = TransActor
+
+        LinkedPeerRel
+            one-to-many relation to Agent
+            Field Mapping uses ParentSet
+                related.ParentAgent = ParentAgent
+
+
+
+
+
+
+
+    Actions
+        Create is a Create Action
+            allow anonymous access
+            Action Rules
+				constraint (BusinessObjectRef.BusinessObjectKey entered)
+                    "BusinessObjectKeyIsRequired."
+
+		CreateByKeyText is a Create Action
+		    allow anonymous access
+			Action Rules
+				constraint (KeyText entered) 
+                    "KeyTextIsRequired."
+		
+        Update is an Update Action
+            allow anonymous access
+
+        Delete is a Delete Action
+            restricted
+            Action Rules
+                if (HasParent and (instance count of ParentAgent.ChildRel < 2))
+                    invoke Delete ParentAgent
+
+        SimpleDelete is a Delete Action
+			Action Rules
+				constraint (not HasParent) 
+                    "UnlinkActorBeforeDelete."
+
+        LinkToActor is an Instance Action
+            Parameters
+                Actor
+
+            Action Rules
+                if (not HasParent)
+                	display "AgentIsNotLinkedToAnyActor"
+                    TransActor = Actor
+                    if (TransActorRel exists)
+
+                        if (TypeParentsForTransActor exists)
+                        	display "Actor<Actor>IsAlreadyLinkedToAgent<BusinessObjectRef.BusinessClassName>OfKey_:_"
+                        	for each TypeParentsForTransActor
+                        		display "AgentId:<each.Agent>"
+                        		display "KeyText:<each.KeyText>"
+                        		
+                        	invoke Update TypeParentsForTransActor
+                        		initialize invoked.ParentAgent
+                        invoke Update
+                            ParentAgent = TransActorRel.ParentAgent
+                    else
+
+                        invoke Create ParentAgent
+                            invoked.Actor = Actor
+                        invoke Update
+                            ParentAgent = TransActorRel.ParentAgent
+                else
+                	display "AgentIsAlreadyLinkedToActor<ParentAgent.Actor>"
+                    TransActor = Actor
+                    if (TransActorRel exists)
+
+                        if (TypeParentsForTransActor exists)
+                            display "Actor<Actor>IsAlreadyLinkedToAgent<BusinessObjectRef.BusinessClassName>OfKey_:_"
+                          	for each TypeParentsForTransActor
+                        		display "AgentId:<each.Agent>"
+                        		display "KeyText:<each.KeyText>"
+                        	if (ParentAgent = TransActorRel.ParentAgent)
+                        		display "Actor<Actor>IsAlreadyLinkedToGivenAgent_._Skip_link"
+                        	else 	
+
+                        		invoke UnlinkFromParentAgent
+                        		invoke Update TypeParentsForTransActor
+                        			initialize invoked.ParentAgent
+                        		invoke Update
+	                        		ParentAgent = TransActorRel.ParentAgent
+	                    		invoke Update ParentAgent
+	                        		invoked.Actor = Actor
+						else
+
+                         	invoke UnlinkFromParentAgent
+                        	invoke Update
+	                        	ParentAgent = TransActorRel.ParentAgent
+	                    	invoke Update ParentAgent
+	                        	invoked.Actor = Actor
+                    else
+
+                    	
+						invoke UnlinkFromParentAgent
+                        invoke Create ParentAgent
+                            invoked.Actor = Actor
+                        invoke Update
+                            ParentAgent = TransActorRel.ParentAgent
+
+        UnlinkFromParentAgent is an Instance Action
+        	Local Fields
+        		TransParent is a ParentAgent
+
+            Action Rules
+                TransParent = ParentAgent
+                invoke Update
+                    ParentAgent = blank
+                if ( instance count of TransParent.ChildRel = 0 )
+	                invoke Delete TransParent
+
+        UnlinkActor is an Instance Action
+        	Local Fields
+        		TransParent is a ParentAgent
+
+            Action Rules
+                constraint ( HasParent )
+                    "AgentIsNotLinkedToAnActor"
+                invoke Update ParentAgent
+                    invoked.Actor = blank
+                TransParent = ParentAgent
+                if ( instance count of TransParent.ChildRel = 1 )
+	                invoke Update
+	                    ParentAgent = blank
+	                invoke Delete TransParent
+
+		LinkToAgent is an Instance Action
+            Parameters
+                Linkto is an Agent
+					default label is "LinkTo"
+
+            Action Rules
+                if ( not HasParent and not Linkto.HasParent )
+                    constraint ( Agent != Linkto.Agent )
+                        "CannotLinkAgentToSelf"
+                    constraint ( BusinessObjectRef.BusinessClassName != Linkto.BusinessObjectRef.BusinessClassName )
+                        "CannotLinkToAgent.TypeAlreadyExists"
+
+                    invoke Create ParentAgent
+                        invoked.ParentAgent = ParentAgent
+                    invoke Update Linkto
+                        invoked.ParentAgent = ParentAgent
+
+                else
+                if ( not HasParent and Linkto.HasParent )
+
+
+
+                    ParentAgent = Linkto.ParentAgent
+
+                else
+                if ( HasParent and not Linkto.HasParent )
+
+
+
+                    invoke Update Linkto
+                        invoked.ParentAgent = ParentAgent
+
+
+
+
+
+
+
+
+
+		UnlinkAgent is an Instance Action
+			Action Rules 
+				invoke Update 
+					ParentAgent = blank
+
+		FillOutKeyText is a Set Action
+			run in foreground
+			Action Rules
+				Instance Rules
+					KeyText = BusinessObjectRef.SymbolicKeyText

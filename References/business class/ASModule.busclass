@@ -1,0 +1,487 @@
+ASModule is a BusinessClass
+	default label is "Module"
+    owned by appsetup
+    prefix is ASMOD
+        
+    Ontology
+     	symbolic key is ASModule
+    	
+    Patterns
+    	implements LightweightAuditing
+    	disable EffectiveDated
+    	disable AuditIndex
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder		
+    	
+    Persistent Fields
+    	ModuleName   is Alpha size 20
+        Description  is Alpha size 100
+		Inactive     is Boolean
+        DisplayOrder is Numeric 3
+        	disable Auditing
+		BaseModule	is like ASModule
+
+    Transient Fields
+		NewDisplayOrder is Numeric 3
+
+	
+	Derived Fields
+		HasInactiveItems is a DerivedField
+			type is Boolean
+			default label is untranslatable
+			if (Inactive)
+				return true
+			else
+				for each BusinessClassesByDisplayOrderRel
+					if (each.Inactive)
+						return true
+			return false
+
+		BlueAlertMessage is a MessageField
+			"ModuleHasDeactivatedItems"
+
+	Local Fields
+		CopiedDependentModule 			is like ASModule
+		PrerequisiteModuleToCopy		is like ASModule
+		ExistingASConfiguration			is like ASConfiguration
+
+	Conditions
+		HasDependentModules
+			default label is untranslatable
+			when (ASDependentModule set exists)
+		
+		HasBaseModule
+			default label is untranslatable
+			when (BaseModuleRel exists)
+
+		BlueAlert
+			when (HasInactiveItems)
+		
+		IsChangeable
+			default label is untranslatable
+			when (ASConfiguration.CanEditBaseFields and (!HasBaseModule or !ASConfiguration.IsBasedFromDelivered))
+
+	Field Rules
+		Description 
+			required
+			if (!ASConfiguration.CanEditBaseFields)
+				cannot be changed
+					"DeliveredConfigurationsCannotBeChanged."
+		
+		DisplayOrder
+			default to ASModule
+			if (!ASConfiguration.CanEditBaseFields)
+				cannot be changed
+					"DeliveredConfigurationsCannotBeChanged."
+
+		ModuleName
+			if (!ASConfiguration.CanEditBaseFields)
+					cannot be changed
+						"DeliveredConfigurationsCannotBeChanged."
+
+		BaseModule
+			if (!ASConfiguration.CanEditBaseFields)
+				cannot be changed
+					"DeliveredConfigurationsCannotBeChanged."
+
+		Inactive
+			if (Inactive changed)
+				if (ASConfiguration.WarnOnDeliveredInactiveSetting)
+					confirmation required
+						"ThisChangeWillBeOverwrittenTheNextTimeThisDeliveredConfigurationIsUpdated.Proceed?"
+
+	Sets
+		ByDisplayOrder
+			Sort Order
+				ASConfiguration
+				DisplayOrder
+				ASModule
+
+		ByBaseModule
+			duplicates
+			Sort Order 
+				ASConfiguration
+				BaseModule
+
+	Relations
+		BusinessClassesByDisplayOrderRel
+			one-to-many relation to ASBusinessClass
+			Field Mapping uses ByDisplayOrder
+                related.ASConfiguration			= ASConfiguration
+                related.ASModule				= ASModule		
+		BaseModuleRel
+			one-to-one relation to ASModule
+			Field Mapping uses symbolic key
+				related.ASConfiguration 	= ASConfiguration.BaseConfiguration
+				related.ASModule			= BaseModule
+		BaseModuleDependenciesRel
+			one-to-many relation to ASDependentModule
+			Field Mapping uses part of key
+				related.ASConfiguration 	= ASConfiguration.BaseConfiguration
+				related.ASModule			= BaseModule		
+		DependencyNewModuleRel
+			one-to-many relation to ASModule
+			Field Mapping uses ByBaseModule
+				related.ASConfiguration 	= ASConfiguration
+				related.BaseModule			= CopiedDependentModule
+		
+		CheckModulesDependingOnThisModuleRel
+            one-to-many relation to ASModule
+            Field Mapping uses symbolic key
+                related.ASConfiguration     = ASConfiguration
+            Instance Selection
+				where (related.HasDependentModules) 
+			
+		PrerequisiteModuleToCopyRel
+			one-to-one relation to ASModule
+			Field Mapping uses symbolic key
+				related.ASConfiguration 	= ASConfiguration
+				related.ASModule			= PrerequisiteModuleToCopy
+		
+		ExistingASConfigurationToCopyModuleIntoRel
+			one-to-one relation to ASConfiguration
+			Field Mapping uses symbolic key
+				related.ASConfiguration 	= ExistingASConfiguration
+
+
+	Actions
+	
+		Create is an Action
+			Exit Rules
+				if (NewDisplayOrder entered)
+					invoke Update ASModule
+
+		CreateCopy is a Create Action
+			restricted
+		
+		Copy is an Instance Action
+			Parameters
+				NewModuleName   is Alpha size 20
+			Parameter Rules			
+				NewModuleName
+					required
+			Action Rules	
+				invoke InternalCopy
+					invoked.NewConfiguration 	= ASConfiguration
+					invoked.NewModuleName 		= NewModuleName
+					invoked.IsModuleLevel		= true
+		
+
+		CopyIntoNewASConfiguration is an Instance Action
+			default label is "CopyIntoNewConfiguration"
+
+			Parameters
+				NewConfiguration is like ASConfiguration
+					default label is "NewConfigurationName"
+				IncludePrerequisiteModules is Boolean
+			
+			Parameter Rules
+				NewConfiguration
+					required
+				
+				IncludePrerequisiteModules
+					default to false
+	
+			Local Fields
+				NewASConfigurationView         	is an ASConfiguration view
+				NewASModuleView					is an ASModule view
+				PrerequsiteModuleView			is an ASModule view
+			
+			Action Rules
+				invoke Create ASConfiguration
+					assign result to NewASConfigurationView
+					invoked.ASConfiguration 		= NewConfiguration
+					invoked.Description  			= ModuleName + " Configuration"
+					invoked.ProductLine  			= ASConfiguration.ProductLine
+					invoked.DefaultEffectiveDate 	= ASConfiguration.DefaultEffectiveDate
+					invoked.BaseConfiguration 		= ASConfiguration
+
+				invoke CreateCopy ASModule
+					assign result to NewASModuleView 
+					invoked.ASConfiguration 	= NewConfiguration
+					invoked.ModuleName 			= ModuleName
+					invoked.Description 		= Description
+					invoked.DisplayOrder		= DisplayOrder
+					invoked.BaseModule			= ASModule
+					if (Inactive)
+                    	invoked.Inactive 		= Inactive
+				
+				for each BusinessClassesByDisplayOrderRel
+					invoke InternalCopy each
+						invoked.NewConfiguration 	= NewASModuleView.ASConfiguration
+						invoked.NewModule			= NewASModuleView.ASModule
+				
+				invoke CopyBCDependenciesFromBaseConfiguration NewASModuleView.ASModule
+
+				if (IncludePrerequisiteModules)
+					for each ASDependentModule set
+						PrerequisiteModuleToCopy = each.ASDependentModule
+						if (PrerequisiteModuleToCopyRel exists)
+							invoke CreateCopy PrerequisiteModuleToCopyRel
+								assign result to PrerequsiteModuleView 
+								invoked.ASConfiguration 	= NewASModuleView.ASConfiguration
+								invoked.ModuleName 			= PrerequisiteModuleToCopyRel.ModuleName
+								invoked.Description 		= PrerequisiteModuleToCopyRel.Description
+								invoked.DisplayOrder		= PrerequisiteModuleToCopyRel.DisplayOrder
+								invoked.BaseModule			= PrerequisiteModuleToCopyRel.ASModule
+								if (Inactive)
+									invoked.Inactive 		= PrerequisiteModuleToCopyRel.Inactive
+							
+							for each PrerequisiteModuleToCopyRel.BusinessClassesByDisplayOrderRel
+								invoke InternalCopy each
+									invoked.NewConfiguration 	= PrerequsiteModuleView.ASConfiguration
+									invoked.NewModule			= PrerequsiteModuleView.ASModule
+							
+							invoke CopyBCDependenciesFromBaseConfiguration PrerequsiteModuleView.ASModule
+
+							invoke Create ASDependentModule
+								invoked.ASConfiguration 	= NewASModuleView.ASConfiguration
+								invoked.ASModule 			= NewASModuleView.ASModule
+								invoked.ASDependentModule	= PrerequsiteModuleView.ASModule
+					
+				invoke CopyRelatedBCsFromBaseConfiguration NewASConfigurationView.ASConfiguration
+				invoke BreakFromBaseAfterCopy NewASConfigurationView.ASConfiguration
+
+
+		CopyIntoExistingASConfiguration is an Instance Action
+			default label is "CopyIntoExistingConfiguration"
+
+			Parameters
+				PrmExistingASConfiguration is an ASConfiguration
+					default label is "ApplicationSetupConfiguration"
+			
+			Parameter Rules
+				PrmExistingASConfiguration
+					required
+			
+			Action Rules
+				ExistingASConfiguration = PrmExistingASConfiguration
+				if (ExistingASConfigurationToCopyModuleIntoRel exists)
+					invoke InternalCopy
+						invoked.NewConfiguration 					= ExistingASConfiguration
+						invoked.OldConfiguration					= ASConfiguration
+						invoked.NewModuleName 						= ModuleName
+						invoked.IsModuleLevel						= true
+						invoked.SkipDependentModules				= true
+						invoked.OnlyIncludeRelatedBCsFromThisModule = true
+
+		InternalCopy is an Instance Action
+			restricted
+		
+			Parameters
+				NewConfiguration 		is an ASConfiguration
+				NewModuleName   		is Alpha size 20
+				IsModuleLevel			is Boolean
+					default label is untranslatable
+				SkipDependentModules 	is Boolean
+				OnlyIncludeRelatedBCsFromThisModule	is Boolean
+				OldConfiguration		is like ASConfiguration
+				
+			Parameter Rules
+				NewConfiguration
+					required
+					
+				NewModuleName
+					required
+				
+				IsModuleLevel
+					default to false
+				
+				SkipDependentModules
+					default to false
+				
+				OnlyIncludeRelatedBCsFromThisModule
+					default to false
+
+			Local Fields
+				NewASModuleView         is an ASModule view			
+			Action Rules
+
+				invoke CreateCopy ASModule
+					assign result to NewASModuleView 
+					invoked.ASConfiguration 	= NewConfiguration
+					invoked.ModuleName 			= NewModuleName
+					invoked.Description 		= Description
+					invoked.BaseModule 			= ASModule
+					invoked.DisplayOrder		= DisplayOrder
+					if (Inactive)
+                    	invoked.Inactive 		= Inactive
+				
+				for each BusinessClassesByDisplayOrderRel
+					invoke InternalCopy each
+						invoked.NewConfiguration 	= NewASModuleView.ASConfiguration
+						invoked.NewModule			= NewASModuleView.ASModule
+				
+				if (IsModuleLevel)
+					if (HasDependentModules 
+					and !SkipDependentModules)
+						for each ASDependentModule set
+							invoke Create ASDependentModule
+								invoked.ASConfiguration 	= NewASModuleView.ASConfiguration
+								invoked.ASModule 			= NewASModuleView.ASModule
+								invoked.ASDependentModule	= each.ASDependentModule
+					
+					invoke CopyBCDependenciesAfterModLevelCopy NewASModuleView.ASModule
+
+					if (OnlyIncludeRelatedBCsFromThisModule)
+						invoke CopyRelatedBCsAfterMovingModToAnotherConfiguration NewASModuleView.ASModule
+							invoked.OldConfiguration = OldConfiguration
+					else
+						invoke CopyRelatedBCsAfterModLevelCopy NewASModuleView.ASModule
+
+					invoke CleanTempImportArtifacts NewASModuleView.ASModule
+
+		Update is an Action
+				
+		Delete is an Action
+			valid when  (IsChangeable)
+			Entrance Rules
+				invoke CleanDependencies
+
+				for each CheckModulesDependingOnThisModuleRel
+					invoke RemovePrerequisiteModule each
+						invoked.ModuleBeingDeleted = ASModule
+
+		CopyDependenciesFromBaseConfiguration is an Instance Action
+			restricted
+			valid when (HasBaseModule)
+			Action Rules
+				if (BaseModuleRel.HasDependentModules)
+					for each BaseModuleDependenciesRel
+						CopiedDependentModule = each.ASDependentModule
+						invoke Create ASDependentModule
+							fill in fields from this instance
+							invoked.ASDependentModule = first DependencyNewModuleRel.ASModule
+				
+				for each BusinessClassesByDisplayOrderRel
+					invoke CopyDependentBCs each
+		
+		CopyBCDependenciesFromBaseConfiguration is an Instance Action
+			restricted		
+
+			Action Rules
+				if (HasBaseModule)
+					for each BusinessClassesByDisplayOrderRel
+						invoke CopyDependentBCs each
+ 
+		CopyRelatedBCsFromBaseConfiguration is an Instance Action
+			restricted
+
+			Action Rules
+				if (HasBaseModule)
+					for each BusinessClassesByDisplayOrderRel
+						invoke CopyRelatedBCs each
+
+		CopyBCDependenciesAfterModLevelCopy is an Instance Action
+			restricted
+			Action Rules
+				for each BusinessClassesByDisplayOrderRel
+					invoke CopyDependentBCs each
+						invoked.IsModuleLevelCopy = true
+					
+		CopyRelatedBCsAfterModLevelCopy is an Instance Action
+			restricted
+
+			Action Rules
+				for each BusinessClassesByDisplayOrderRel
+					invoke CopyRelatedBCs each
+						invoked.IsModuleLevelCopy = true
+		
+		CopyRelatedBCsAfterMovingModToAnotherConfiguration is an Instance Action
+			restricted
+
+			Parameters
+				OldConfiguration is like ASConfiguration
+			
+			Parameter Rules
+				OldConfiguration
+					required
+
+			Action Rules
+				for each BusinessClassesByDisplayOrderRel
+					invoke CopyRelatedBCWithModuleOnlyMove each
+						invoked.OldConfiguration = OldConfiguration
+									
+		RemovePrerequisiteModule is an Instance Action
+			restricted
+			Parameters
+				ModuleBeingDeleted is like ASModule
+			
+			Parameter Rules
+				ModuleBeingDeleted
+					required
+			Action Rules
+            	for each ASDependentModule set
+					if (each.ASDependentModule = ModuleBeingDeleted)
+						invoke Delete each
+		
+		CleanDependencies is an Instance Action	
+			restricted
+			Action Rules
+				if (HasDependentModules)
+					for each ASDependentModule set
+						invoke Delete each
+
+				for each BusinessClassesByDisplayOrderRel
+					invoke CleanDependencies each
+		
+		CleanTempImportArtifacts is an Instance Action
+			restricted
+			Action Rules
+				initialize BaseModule
+
+				for each BusinessClassesByDisplayOrderRel
+					invoke  CleanTempImportArtifacts each
+		
+		BreakFromBase is an Instance Action
+			restricted
+
+			Action Rules
+				if (BaseModule entered)
+					initialize BaseModule
+				
+				for each BusinessClassesByDisplayOrderRel
+						invoke BreakFromBase each
+		
+
+		Purge is a Purge Action
+			restricted
+
+		PurgeModule is an Instance Action
+			valid when  (IsChangeable)
+
+
+			Entrance Rules
+				if (HasDependentModules)
+					for each ASDependentModule set
+						invoke Purge each
+
+				for each CheckModulesDependingOnThisModuleRel
+					invoke PurgePrerequisiteModule each
+						invoked.ModuleBeingPurged = ASModule
+			
+			Action Rules
+				for each BusinessClassesByDisplayOrderRel
+					invoke PurgeBusinessClass each
+				
+				invoke Purge
+
+
+		PurgePrerequisiteModule is an Instance Action
+			restricted
+			Parameters
+				ModuleBeingPurged is like ASModule
+			
+			Parameter Rules
+				ModuleBeingPurged
+					required
+			Action Rules
+            	for each ASDependentModule set
+					if (each.ASDependentModule = ModuleBeingPurged)
+						invoke Purge each
+
+
+		
+
+

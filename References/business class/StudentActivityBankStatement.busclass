@@ -1,0 +1,445 @@
+StudentActivityBankStatement is a BusinessClass
+    owned by studentactivities
+    prefix is SABS
+
+    Ontology
+    	symbolic key is StudentActivityBankStatement
+
+    Persistent Fields
+
+		SchoolCalendarPeriodGroup	is a GeneralLedgerCloseConfiguration	
+    	StatementDate				is Date
+		StatementEndingBalance		is an InternationalAmount
+		Status						is Numeric 2
+			States
+				Entered		value is 0
+				Closed		value is 1
+		PostingPeriod				is a GeneralLedgerCalendarPeriod			
+		BankAccountActivity			is a SchoolActivityAccount
+		LessLabel					is Alpha 5
+		PlusLabel					is Alpha 5
+		BlankLabel					is Alpha 5
+	
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+	Local Fields
+
+
+	Derived Fields
+	
+		ContextMessageEntityType is a StringField
+			type is Alpha 40
+			restricted
+			"InforStudentActivityBankStatement"
+
+		ContextMessageText is a MessageField
+			restricted
+			"BankStatement<StudentActivityBankStatement>"
+	
+		BeginningBalance is a DerivedField
+			type is like InternationalAmount
+			if (PreviousBankStatementByDateRel exists)
+				return first PreviousBankStatementByDateRel.StatementEndingBalance
+			else
+				return StudentActivityBankAccount.AccountBeginningBalance
+		
+		ReconciledAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentActivityBankTransaction set.DerivedReconciledAmount)
+			
+		ClearedDeposits is a DerivedField
+			type is like InternationalAmount
+			return (sum ClearedDepositsRel.ReconciledAmount)
+
+		ClearedChecks is a DerivedField
+			type is like InternationalAmount
+			return (sum ClearedChecksRel.ReconciledAmount)
+
+		ClearedAdjustments is a DerivedField
+			type is like InternationalAmount
+			return (sum ClearedAdjustmentCreditsRel.DerivedReconciledAmount + sum ClearedAdjustmentDebitsRel.DerivedReconciledAmount)
+
+		UnreconciledAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum ProcessedBankTransactionsRel.DerivedTransactionAmount)
+
+		OutstandingDeposits is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingDepositsRel.TransactionAmount)
+
+		OutstandingChecks is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingChecksRel.TransactionAmount)
+
+		OutstandingAdjustments is a DerivedField
+			type is like InternationalAmount
+			return (sum OutstandingAdjustmentsRel.CreditAmount - sum OutstandingAdjustmentsRel.DebitAmount)
+
+		CalculatedBankBalance is a DerivedField
+			type is like InternationalAmount
+			return (BeginningBalance + ReconciledAmount)
+			
+		OutOfBalanceAmount is a DerivedField
+			type is like InternationalAmount
+			return (StatementEndingBalance - CalculatedBankBalance)
+			
+		CalculatedBookBalance is a DerivedField
+			type is like InternationalAmount
+			return (CalculatedBankBalance + UnreconciledAmount)
+
+		BookBalance is a DerivedField
+			type is like InternationalAmount
+			if (SchoolActivityAccountBalanceRel exists)
+				return SchoolActivityAccountBalanceRel.PeriodEndingBalance
+			else
+				return (BankAccountActivity.LatestClosePeriodEndingBalance + sum UnpostedBankTransactionsRel.DerivedTransactionAmount - sum UnpostedVoidTransactionsRel.DerivedTransactionAmount)
+
+		BookBalanceVariance is a DerivedField
+			type is like InternationalAmount
+			return (CalculatedBookBalance - BookBalance)
+
+		BankFeeDescription is a MessageField
+			"Statement<StudentActivityBankStatement>BankFee"			
+	
+	
+	Sets
+		ByDescendingDate
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				StudentActivityBankAccount
+				StatementDate				 descending	
+
+
+	Relations
+		UnreconciledBankTransactionsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.TransactionDate <= StatementDate
+				and    related.Status.Released)
+
+		ProcessedBankTransactionsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.TransactionDate <= StatementDate
+				and    (related.Status.Released
+				or     (related.Status.Reconciled
+				and     related.ReconciledDate	> StatementDate)
+				or     (related.Status.Voided
+				and     related.VoidDate		> StatementDate)))
+				
+		OutstandingDepositsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.BankTransactionType.Deposit
+				and    related.TransactionDate <= StatementDate
+				and   (related.Status.Released
+				or    (related.Status.Reconciled
+				and    related.ReconciledDate	> StatementDate)
+				or    (related.Status.Voided
+				and    related.VoidDate		> StatementDate)))
+				
+		OutstandingChecksRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.BankTransactionType.Disbursement
+				and    related.TransactionDate <= StatementDate
+				and   (related.Status.Released
+				or    (related.Status.Reconciled
+				and    related.ReconciledDate	> StatementDate)
+				or    (related.Status.Voided
+				and    related.VoidDate		> StatementDate)))
+				
+		OutstandingAdjustmentsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where ((related.BankTransactionType.Adjustment
+				or      related.BankTransactionType.NSFRecord
+				or      related.BankTransactionType.Transfer)
+				and     related.TransactionDate <= StatementDate
+				and    (related.Status.Released
+				or     (related.Status.Reconciled
+				and     related.ReconciledDate	> StatementDate)
+				or     (related.Status.Voided
+				and     related.VoidDate		> StatementDate)))
+				
+		UnpostedBankTransactionsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where ((!related.DetailsClosed
+				and      related.TransactionDate	<= StatementDate)
+				and     (related.Status.Released
+				or		 related.Status.Reconciled
+				or      (related.Status.Voided
+				and      related.VoidDate			> StatementDate)))			
+		UnpostedVoidTransactionsRel
+			one-to-many relation to StudentActivityBankTransaction
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.DetailsClosed
+				and    related.TransactionDate	<= StatementDate
+				and    related.Status.Voided
+				and    related.VoidDate			<= StatementDate
+				and    related.VoidDate			>= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod.Date)		
+
+		ReleasedBankTransDetailRel
+			one-to-many relation to StudentActivityBankTransDetail
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.SchoolActivityAccount = BankAccountActivity
+				and    related.Status.Released
+				and    related.TransactionDate	<= StatementDate)
+
+		ClearedDepositsRel is a StudentActivityBankTransaction set
+			Instance Selection
+				where (related.BankTransactionType.Deposit)
+				
+		ClearedChecksRel is a StudentActivityBankTransaction set
+			Instance Selection
+				where (related.BankTransactionType.Disbursement)
+				
+		ClearedAdjustmentDebitsRel is a StudentActivityBankTransaction set
+			Instance Selection
+				where ((related.BankTransactionType.Adjustment
+				or      related.BankTransactionType.NSFRecord
+				or      related.BankTransactionType.Transfer)
+				and     related.AmountType.BankDebit)
+				
+		ClearedAdjustmentCreditsRel is a StudentActivityBankTransaction set
+			Instance Selection
+				where ((related.BankTransactionType.Adjustment
+				or      related.BankTransactionType.NSFRecord
+				or      related.BankTransactionType.Transfer)
+				and     related.AmountType.BankCredit)
+				
+		PreviousBankStatementByDateRel
+			one-to-many relation to StudentActivityBankStatement
+			Field Mapping uses ByDescendingDate
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivityBankAccount	= StudentActivityBankAccount
+			Instance Selection
+				where (related.StatementDate < StatementDate)
+
+		SchoolActivityAccountBalanceRel
+			one-to-one relation to SchoolActivityAccountBalance
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+
+
+				related.StudentActivityClosedPeriod	= PostingPeriod
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.SchoolActivityAccount		= BankAccountActivity
+
+
+
+
+
+
+
+
+		GeneralLedgerClosePeriodRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDate
+				related.FinanceEnterpriseGroup		  	= StudentActivityDistrict
+				related.GeneralLedgerCloseConfiguration = StudentActivityDistrict.SchoolCalendarPeriodGroup
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date >= StatementDate)
+
+	Conditions
+		StatementExists
+			when (StudentActivityBankStatement exists)
+
+		CanAddBankTransactions
+			when (StudentActivityBankStatement exists
+			and   Status.Entered)
+			
+		PreviousStatementClosed
+			when ((PreviousBankStatementByDateRel exists
+			and    first PreviousBankStatementByDateRel.Status.Closed)
+			or     !PreviousBankStatementByDateRel exists)
+
+		CanUpdateBeginningBalance
+			when (!PreviousBankStatementByDateRel exists)
+
+
+
+			
+	Field Rules
+
+
+			
+		SchoolCalendarPeriodGroup
+			default to StudentActivityDistrict.SchoolCalendarPeriodGroup
+			
+		StatementDate
+
+
+			
+			invoke UpdateReconciledDate Reconciled StudentActivityBankTransaction set
+
+		BankAccountActivity
+			default to StudentActivityBankAccount.BankAccountActivity
+
+		LessLabel
+			default to "Less:"
+
+		PlusLabel
+			default to "Plus:"
+
+		PostingPeriod
+			PostingPeriod = first GeneralLedgerClosePeriodRel.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod
+
+
+	Actions
+					
+	StateCycles
+		StudentActivityBankStatementLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+
+				Create is a Create Action				
+
+				Update is an Update Action
+
+												
+				Delete is a Delete Action
+				
+				
+				CloseBankStatement is an Instance Action
+					Local Fields
+					
+					Action Rules
+						constraint (OutOfBalanceAmount = 0)
+							"ReconciledDifferenceIs<OutOfBalanceAmount>CannotRelease"
+
+						constraint (PreviousStatementClosed)
+							"PreviousBankStatement<first PreviousBankStatementByDateRel.StudentActivityBankStatement>StillOpen"
+
+					Exit Rules
+						make transition to Closed
+				
+				AddBankTransaction is an Instance Action
+					restricted
+					Parameters
+						BankTransactionType
+						TransactionNumber	is Numeric 10 
+						TransactionDate		is Date
+						Amount				is an InternationalAmount
+						AmountType			is Numeric 1
+							States
+								BankDebit	value is 1
+								BankCredit	value is 2
+						Description			is Alpha 60
+					
+					Parameter Rules
+						BankTransactionType
+							initial value is "10"
+							default to "10"
+						TransactionNumber
+							required
+						TransactionDate
+							initial value is StatementDate
+							default to StatementDate
+						Amount
+							required
+						AmountType
+							required
+						Description
+							initial value is BankFeeDescription
+							default to BankFeeDescription					
+							
+					Action Rules
+						invoke CreateReconciledTransaction Reconciled StudentActivityBankTransaction
+							invoked.StudentActivityDistrict			= StudentActivityDistrict
+							invoked.StudentActivitySchool			= StudentActivitySchool
+							invoked.StudentActivityBankAccount		= StudentActivityBankAccount
+							invoked.BankTransactionType				= 10
+							invoked.StudentActivityBankTransaction	= TransactionNumber
+							invoked.TransactionAmount				= Amount
+							invoked.AmountType						= AmountType
+							invoked.TransactionDate					= TransactionDate
+							invoked.Description						= Description
+							invoked.ReconciledAmount				= Amount
+							invoked.ReconciledDate					= StatementDate
+							invoked.ReconcilingBankStatement		= StudentActivityBankStatement
+							invoked.CreatedFromBankStatement		= true
+							
+						invoke CreateReleasedTransaction Released StudentActivityBankTransDetail
+							invoked.StudentActivityDistrict			= StudentActivityDistrict
+							invoked.StudentActivitySchool			= StudentActivitySchool
+							invoked.StudentActivityBankAccount		= StudentActivityBankAccount
+							invoked.BankTransactionType				= 10
+							invoked.StudentActivityBankTransaction	= TransactionNumber
+							invoked.SchoolActivityAccount			= StudentActivityBankAccount.BankTransactionActivity
+							invoked.BankTransDetailAmount			= Amount
+							
+						invoke CreateReleasedTransaction Released StudentActivityBankTransDetail
+							invoked.StudentActivityDistrict			= StudentActivityDistrict
+							invoked.StudentActivitySchool			= StudentActivitySchool
+							invoked.StudentActivityBankAccount		= StudentActivityBankAccount
+							invoked.BankTransactionType				= 10
+							invoked.StudentActivityBankTransaction	= TransactionNumber
+							invoked.SchoolActivityAccount			= StudentActivityBankAccount.BankAccountActivity
+							invoked.BankTransDetailAmount			= Amount
+							invoked.BankAccountOffset				= true
+							if (StudentActivityBankAccount.BankTransactionActivity.GLAccount entered)
+								invoked.GLAccount			= StudentActivityBankAccount.BankAccountActivity.GLAccount
+									
+				
+				UpdateBeginningBalance is an Instance Action
+					valid when (CanUpdateBeginningBalance)
+					Parameters
+						BeginningBalanceAmount	is an InternationalAmount
+					
+					Parameter Rules
+						BeginningBalanceAmount
+							initial value is StudentActivityBankAccount.AccountBeginningBalance
+
+					Action Rules
+						invoke Update StudentActivityBankAccount
+							invoked.AccountBeginningBalance	= BeginningBalanceAmount
+							
+		
+			Closed is a State
+
+				ReopenBankStatement is an Instance Action
+					Local Fields
+					
+					Exit Rules
+						make transition to Entered
+				
+				

@@ -1,0 +1,204 @@
+SourcingEventWeightingBuyer is a BusinessClass
+	owned by ss
+
+	prefix is Sour
+
+	Ontology
+		symbolic key is SourcingEventWeightingBuyer
+
+	Patterns
+
+	Persistent Fields
+		Employee
+
+	Local Fields
+		LocalCompany 			is like Company
+		LocalSourcingEvent  	is like SourcingEvent
+		LocalSupplierGroup  	is like SupplierGroup
+		LocalSupplier       	is like Supplier
+		LocalSupplierSourceID 	is like SupplierSourceId
+		LocalEmployee           is like Employee
+		LocalBuyerWeighting     is like SourcingEventBuyerWeighting
+
+	Field Rules
+		Employee
+			required
+
+	Conditions
+		OtherWeightingBuyerExists
+			restricted
+			when (OtherWeightingBuyerRel exists)
+
+		BuyerWeightingExists
+			restricted
+			when (SourcingEventBuyerWeightingRel exists)
+
+		EmployeeAlreadyAdded
+			restricted
+			when (EmployeeAlreadyAddedRel exists)
+
+		MissingScores
+			restricted
+			when (ResponseBuyerWeightingMissingScoresRel exists)
+
+		EnteredScores
+			restricted
+			when (ResponseBuyerWeightingHasScoresRel exists)
+
+	Relations
+		EmployeeAlreadyAddedRel
+			one-to-many relation to SourcingEventWeightingBuyer
+			Field Mapping uses ByEmployee
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+				related.Employee       = Employee
+				
+		OtherWeightingBuyerRel
+			one-to-many relation to SourcingEventWeightingBuyer
+			Field Mapping uses ByEmployee
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+			Instance Selection
+				where (related.UniqueID  != UniqueID)
+
+		SourcingEventBuyerWeightingRel
+			one-to-many relation to SourcingEventBuyerWeighting
+			Field Mapping uses symbolic key
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+
+		SourcingEventResponseBuyerWeightingRel
+			one-to-many relation to SourcingEventResponseBuyerWeighting
+			Field Mapping uses ByEmployeeFirst
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+				related.Employee       = Employee
+				
+		ResponseBuyerWeightingMissingScoresRel
+			one-to-many relation to SourcingEventResponseBuyerWeighting
+			Field Mapping uses ByEmployeeFirst
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+				related.Employee       = Employee
+			Instance Selection
+				where (related.BuyerScore 	= 0
+				and    related.ScoreOfZero 	= false
+				and    !related.SourcingEventResponseRel.Status.Withdrawn)	
+				
+		ResponseBuyerWeightingHasScoresRel
+			one-to-many relation to SourcingEventResponseBuyerWeighting
+			Field Mapping uses ByEmployeeFirst
+				related.Company        = Company
+				related.SourcingEvent  = SourcingEvent
+				related.Employee       = Employee
+			Instance Selection
+				where (related.BuyerScore 	> 0
+				or     related.ScoreOfZero 	= true)
+
+		SingleSourcingEventResponseBuyerWeightingRel
+			one-to-one relation to SourcingEventResponseBuyerWeighting
+			Field Mapping uses symbolic key
+				related.NotifiedSupplier.SupplierGroup				= LocalSupplierGroup  	
+				related.NotifiedSupplier.Supplier					= LocalSupplier       	
+				related.NotifiedSupplier.SupplierSourceId			= LocalSupplierSourceID 	
+				related.Company										= LocalCompany 			
+				related.SourcingEvent								= LocalSourcingEvent  	
+				related.SourcingEventBuyerWeighting					= LocalBuyerWeighting  
+				related.Employee									= LocalEmployee           
+
+		SubmittedEventResponsesRel
+			one-to-many relation to SourcingEventResponse
+			Field Mapping uses ByEvent
+				related.Company			= Company
+				related.SourcingEvent	= SourcingEvent
+			Instance Selection
+				where (related.Status.Submitted)
+
+	Sets
+		ByEmployee
+			Sort Order
+				Company
+				SourcingEvent
+				Employee
+				SourcingEventWeightingBuyer
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint (!EmployeeAlreadyAdded)
+					"BuyerWeightingRecordAlreadyExistsForThisEmployee"
+
+				constraint (Employee.EmployeeWorkEmailAddressExists)
+					"EmployeeMustHaveAWorkEmailAddress"
+
+			Exit Rules
+				if (SubmittedEventResponsesRel exists)
+					for each SubmittedEventResponsesRel
+						invoke CreateEventResponseBuyerWeighting
+							invoked.ParmCompany			= Company
+							invoked.ParmSourcingEvent	= SourcingEvent
+							invoked.SupplierGroup		= each.NotifiedSupplier.SupplierGroup
+							invoked.Supplier			= each.NotifiedSupplier.Supplier
+							invoked.SupplierSourceId	= each.NotifiedSupplier.SupplierSourceId
+							invoked.ParmEmployee		= Employee
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			Action Rules
+				for each SourcingEventResponseBuyerWeightingRel
+					invoke Delete each
+
+				if (BuyerWeightingExists
+				and SourcingEvent.Status = 2)
+					constraint (OtherWeightingBuyerExists)
+						"BuyerWeightingExistsForThisEvent;MustHaveAtLeastOneWeightingBuyer"
+
+		CreateEventResponseBuyerWeighting is a Set Action
+			restricted
+			Parameters
+				ParmCompany					is like SourcingCompany
+				ParmSourcingEvent			is like SourcingEvent
+				SupplierGroup
+				Supplier
+				SupplierSourceId
+				ParmEmployee				is like Employee
+				SourcingEventBuyerWeighting	is like SourcingEventBuyerWeighting
+
+			Instance Selection
+				where (ParmCompany			= Company
+				and    ParmSourcingEvent	= SourcingEvent
+				and   ((ParmEmployee		= Employee
+				and    ParmEmployee entered)
+				or     ParmEmployee !entered))
+
+			Action Rules
+				Instance Rules
+					if (SourcingEventBuyerWeighting entered)
+						invoke Create SourcingEventResponseBuyerWeighting
+							invoked.Company								= ParmCompany
+							invoked.SourcingEvent						= ParmSourcingEvent
+							invoked.NotifiedSupplier.SupplierGroup		= SupplierGroup
+							invoked.NotifiedSupplier.Supplier			= Supplier
+							invoked.NotifiedSupplier.SupplierSourceId	= SupplierSourceId
+							invoked.SourcingEventBuyerWeighting			= SourcingEventBuyerWeighting
+							invoked.Employee							= Employee
+					else
+						for each SourcingEventBuyerWeightingRel
+							LocalCompany 			= ParmCompany
+							LocalSourcingEvent  	= ParmSourcingEvent
+							LocalSupplierGroup  	= SupplierGroup
+							LocalSupplier       	= Supplier
+							LocalSupplierSourceID 	= SupplierSourceId
+							LocalEmployee           = Employee
+							LocalBuyerWeighting     = each.SourcingEventBuyerWeighting
+							if (SingleSourcingEventResponseBuyerWeightingRel !exists)
+								invoke Create SourcingEventResponseBuyerWeighting
+									invoked.Company								= ParmCompany
+									invoked.SourcingEvent						= ParmSourcingEvent
+									invoked.NotifiedSupplier.SupplierGroup		= SupplierGroup
+									invoked.NotifiedSupplier.Supplier			= Supplier
+									invoked.NotifiedSupplier.SupplierSourceId	= SupplierSourceId
+									invoked.SourcingEventBuyerWeighting			= each.SourcingEventBuyerWeighting
+									invoked.Employee							= Employee

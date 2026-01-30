@@ -1,0 +1,173 @@
+RequisitionImportLineDistribution is a BusinessClass
+	owned by rq
+	
+	prefix is RILD
+	sql name is RequisitionImportLineDist
+	
+	Ontology
+        symbolic key is RequisitionImportLineDistribution
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+	
+	Persistent Fields
+		DistributionAccount		is a TransactionCodeBlock
+		AssetInformation        is like AssetInformation
+        DistributionPercent		is Percent size 6.3
+        DistributionQuantity	is a Quantity
+        DistributionAmount		is an InternationalAmount
+
+	Local Fields
+		LocalErrorMessage			is Alpha 150
+		LocalErrorOccurred			is Boolean
+		LocalCompany				is like InventoryCompany
+		LocalRequisitionImport		is like RequisitionImport
+		LocalRequisitionImportLine	is like RequisitionImportLine
+		BypassProjectDateEdit
+	
+	Field Rules
+		DistributionAccount
+			constraint (not DistributionAccount.GeneralLedgerChartAccount.AccountType.StatCumulative
+			and			not DistributionAccount.GeneralLedgerChartAccount.AccountType.StatNonCumulative)
+				"StatisticalAccount<DistributionAccount.GeneralLedgerChartAccount>DoesNotAllowAmounts"
+
+	Transient Fields  
+		UnitsAmount
+			derive value from DerivedUnitsAmount
+
+	Derived Fields
+		DerivedUnitsAmount is a DerivedField
+			type is like UnitsAmount
+			restricted
+			if (not DistributionAccount.GeneralLedgerChartAccount.AllowUnits.No)
+				return 1
+			else
+				return 0
+
+	Conditions
+        DetailsExist
+            restricted
+            when (RequisitionImportLineDistributionsRel exists
+            or    RequisitionImportCommentsRel exists
+            or    RequisitionImportAddOnChargesRel exists)
+
+	Relations
+		
+		RequisitionImportLineDistributionsRel
+            one-to-many relation to RequisitionImportLineDistribution
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportCommentsRel
+            one-to-many relation to RequisitionImportComment
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportAddOnChargesRel
+            one-to-many relation to RequisitionImportAddOnCharge
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+
+        RequisitionImportLinesRel
+            one-to-many relation to RequisitionImportLine
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+	
+	Actions
+	
+		Create is a Create Action
+			Entrance Rules
+				BypassProjectDateEdit = true
+    	
+    	CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+    	
+    	Update is an Update Action
+    		Entrance Rules
+				BypassProjectDateEdit = true
+    	
+    	Delete is a Delete Action
+    	
+    	FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+	
+		
+		InterfaceRequisitionLineDistributions is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRunGroup							is a RunGroup
+				PrmInterfaceResult					is a RequisitionInterfaceResult
+			Local Fields
+		    	LocalSetCompany                    	is like InventoryCompany
+				LocalSetRequisitionImport			is like RequisitionImport
+				LocalSetRequisitionImportLine		is like RequisitionImportLine
+			Instance Selection			
+				where (PrmRunGroup					= RequisitionImport.RunGroup
+				and    PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup)
+			Sort Order
+				Company
+				RequisitionImport
+				RequisitionImportLine
+				RequisitionImportLineDistribution
+			Action Rules
+				Empty Set Rules
+					invoke InterfaceRequisitionLineAddOnCharges RequisitionImportAddOnCharge
+						invoked.PrmFinanceEnterpriseGroup				= PrmFinanceEnterpriseGroup
+						invoked.PrmRunGroup								= PrmRunGroup
+						invoked.PrmInterfaceResult						= PrmInterfaceResult
+
+				Set Rules
+					Exit Rules
+						invoke InterfaceRequisitionLineAddOnCharges RequisitionImportAddOnCharge
+							invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup							= PrmRunGroup
+							invoked.PrmInterfaceResult					= PrmInterfaceResult
+
+				RequisitionImportLine Set Rules
+					Entrance Rules
+						LocalSetCompany								= Company
+						LocalSetRequisitionImport					= RequisitionImport	
+						LocalSetRequisitionImportLine				= RequisitionImportLine						
+					Exit Rules
+						LocalCompany								= LocalSetCompany
+						LocalRequisitionImport						= LocalSetRequisitionImport	
+						LocalRequisitionImportLine					= LocalSetRequisitionImportLine
+						if (not RequisitionImport.RecordInError
+		                and not DetailsExist) 
+		                    invoke FastDelete RequisitionImportLinesRel
+							
+				Instance Rules
+					if (not RequisitionImport.RecordInError)
+						invoke Create RequisitionLineDistribution
+							resume on error
+								LocalErrorOccurred						= true
+								LocalErrorMessage						= error message
+							fill in fields from this instance
+							invoked.Requisition							= RequisitionImport.DerivedRequisition
+							invoked.RequisitionLine						= RequisitionImportLine
+							invoked.TransientFromMassRQCreateAndRelease = true
+
+						if (LocalErrorOccurred)
+							invoke SetError RequisitionImport
+								invoked.PrmErrorMessage				= LocalErrorMessage
+								invoked.PrmErrorLevel				= RequisitionImport.ErrorLevel.Distribution
+						else
+							invoke FastDelete	
+

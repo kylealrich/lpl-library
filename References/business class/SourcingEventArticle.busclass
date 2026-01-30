@@ -1,0 +1,275 @@
+SourcingEventArticle is a BusinessClass
+    owned by ss
+    prefix is SEAR
+
+	Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+
+    Ontology
+    	symbolic key is SourcingEventArticle
+    	
+    Persistent Fields
+    	Title      	            		 is a Description
+		HeaderText 	            		 is Alpha 100
+    	DisplayOrder
+    	Article
+		Active 		            		 is Boolean
+		TermDisplayChange				 is Boolean
+		CMArticle						 is Boolean
+	    RepositoryModified				 is Boolean
+	    LastTermAndCondition			 is Numeric size 8
+	    	disable Auditing
+	    LastTermAndConditionDisplayOrder is Numeric size 8
+	    	disable Auditing
+    
+	Transient Fields
+		NewDisplayOrder					 is a DisplayOrder
+		
+	Local Fields
+		LocalEvent						 is Numeric size 8
+		LocalArticle   					 is Numeric size 8
+		LocalDisplayOrder				 is a DisplayOrder
+		LocalUserTemplate				 is like UserTemplate
+
+    Sets
+    	ByArticle
+    		Sort Order
+				Company
+    			SourcingEvent
+    			Article
+    			SourcingEventArticle
+
+    	ByDisplayOrder
+			duplicates
+			Sort Order
+				Company
+				SourcingEvent
+				DisplayOrder
+				
+	Derived Fields
+		MissingTemplateMsg is a MessageField
+			"TheTemplateCouldNotBeFound"
+			
+		SourcingEventTermsAndConditionsTerms is a DerivedField
+			type is XMLDocument
+			default label is untranslatable
+			restricted
+			for each SourcingEventTermsByDisplay12Rel
+				SourcingEventTermsAndConditionsTerms += each.TermsTemplate
+			
+		ArticleTemplate is a DerivedField
+			type is XMLDocument
+			default label is untranslatable
+			restricted
+			LocalUserTemplate = "SourcingEventTermsAndConditionsArticles_ST"
+			if (UserTemplateRel exists)
+				ArticleTemplate = template.SourcingEventTermsAndConditionsArticles_ST document for this instance
+			else
+				ArticleTemplate = MissingTemplateMsg 
+			return ArticleTemplate
+			
+		DerivedHeaderText is a DerivedField
+			type is Alpha size up to 100
+			if (HeaderText entered)
+				return HeaderText
+			else
+				return Title
+    
+    Conditions
+    	EligibleForCM
+    		restricted
+			when (SourcingEvent.ContractOutputExists
+			or    SourcingEvent.ContractOutput)
+		ArticleIsActive
+    		restricted
+			when (!Article entered
+			or	  Article.Active)
+		IsActive
+    		restricted
+			when (Active
+			and	  ArticleIsActive)
+		ArticleExists
+    		restricted
+			when (Article exists)
+		HasTerms
+			restricted
+			when (SourcingEventTermsByDisplayRel exists)
+
+	Relations
+		SourcingEventArticleRel
+			one-to-one relation to SourcingEventArticle
+			Field Mapping uses symbolic key
+				related.Company		    	 = Company
+				related.SourcingEvent		 = LocalEvent
+				related.SourcingEventArticle = LocalArticle
+
+		SourcingEventArticlesByDisplayRel
+			one-to-many relation to SourcingEventArticle
+			Field Mapping uses ByDisplayOrder 
+				related.Company       = Company
+				related.SourcingEvent = SourcingEvent
+
+		TermsBySourcingEventArticleRel is a SourcingEventTermAndCondition set
+			Instance Selection
+				where (related.CMTerm)
+
+		ActiveContractTermsBySourcingEventArticleRel 
+			one-to-many relation to SourcingEventTermAndCondition
+			Field Mapping uses ByDisplayString
+				related.Company		         = Company
+ 				related.SourcingEvent        = SourcingEvent
+				related.SourcingEventArticle = SourcingEventArticle
+			Instance Selection
+				where (related.CMTerm
+				and	   related.TermAndConditionIsActive)
+
+ 		ArticleEventRel 
+			one-to-many relation to SourcingEventArticle
+			Field Mapping uses symbolic key
+				related.Company		  = Company
+				related.SourcingEvent = SourcingEvent
+ 
+		SourcingEventTermsByDisplayRel 
+			one-to-many relation to SourcingEventTermAndCondition
+			delete cascades
+			Field Mapping uses ByDisplayOrder
+ 				related.Company		         = Company
+ 				related.SourcingEvent        = SourcingEvent
+				related.SourcingEventArticle = SourcingEventArticle
+
+		SourcingEventTermsByDisplay12Rel
+			one-to-many relation to SourcingEventTermAndCondition
+			delete cascades
+			Field Mapping uses ByDisplayString
+ 				related.Company		         = Company
+ 				related.SourcingEvent        = SourcingEvent
+				related.SourcingEventArticle = SourcingEventArticle
+
+		ActiveSourcingEventTermAndConditionRel is a SourcingEventTermAndCondition set
+			Instance Selection
+				where (related.TermAndConditionIsActive)
+
+		HelperListRel
+			one-to-many relation to TermAndCondition
+        	Field Mapping uses symbolic key
+        		related.ProcurementGroup	= Company.SourcingGroup
+        	Instance Selection
+				where (related.Article = Article)
+
+		UserTemplateRel
+			one-to-one relation to UserTemplate
+			Field Mapping uses symbolic key
+		 		related.UserTemplate = LocalUserTemplate
+
+    Field Rules
+	    DisplayOrder
+			if (!SourcingEvent.CreateByCopy)
+				autosequence using SourcingEvent.LastArticleDisplayOrder 
+		Active
+			default to true
+		Title
+			required
+	
+	Actions
+		Create is a Create Action
+			valid when (SourcingEvent.InEditableState)
+			Field Rules
+				CMArticle
+					if (!SourcingEvent.CreateByCopy)
+						default to true
+
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddArticleWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotAddArticleWhileEventIsPendingEventApproval"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddTermAndCondition)
+					invoke Amend Open.Notified SourcingEvent
+
+				LocalDisplayOrder = NewDisplayOrder				
+					
+			Exit Rules
+				if (LocalDisplayOrder entered)
+					invoke UpdateDisplayOrder
+						invoked.SourcingEventArticle = SourcingEventArticle
+						invoked.NewDisplayOrder 	 = LocalDisplayOrder
+				Active	= true
+
+		Update is an Update Action
+			valid when (SourcingEvent.InEditableState)
+			Field Rules
+				RepositoryModified
+					if (HeaderText changed)
+						default to true
+
+			Action Rules
+				if (CMArticle changed)
+					if (CMArticle)
+						for each SourcingEventTermAndCondition set
+							invoke Update each
+								invoked.CMTerm = true
+					else
+						for each SourcingEventTermAndCondition set
+							invoke Update each
+								invoked.CMTerm = false
+						
+				if (HeaderText changed)
+					if (Article exists)
+						constraint (Article.AllowModification)
+							"CannotChangeHeaderText;TheArticleDoesNotAllowModifications"
+				constraint (SourcingEvent.InActionableState)
+					"CannotUpdateArticleWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotUpdateArticleWhileEventIsPendingEventApproval"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.UpdateTermAndCondition)
+					invoke Amend Open.Notified SourcingEvent
+
+				if (NewDisplayOrder entered)
+					if (!SourcingEvent.ArticleDisplayChange)
+						confirmation required
+							"Warning;AllAdditionalArticlesWillBeAppendedToEndOfList;DoYouWantToContinue?"
+					if (SourcingEvent.Status.Draft)
+						invoke Update Draft SourcingEvent
+							invoked.ArticleDisplayChange = true
+					else
+					if (SourcingEvent.Status.Open
+					and SourcingEvent.NotificationStatus.Notified)
+						invoke Update Open.Notified SourcingEvent
+							invoked.ArticleDisplayChange = true
+					else
+						invoke Update Open.Amended SourcingEvent
+							invoked.ArticleDisplayChange = true
+
+		UpdateDisplayOrder is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			valid when (SourcingEvent.InEditableState)
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotDeleteArticleWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotDeleteArticleWhileEventIsPendingEventApproval"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.DeleteTermAndCondition)
+					invoke Amend Open.Notified SourcingEvent      
+
+				if (!ArticleEventRel exists)
+					if (SourcingEvent.Status.Draft)
+						invoke Update Draft SourcingEvent
+							invoked.ArticleDisplayChange = false
+					else
+					if (SourcingEvent.Status.Open
+					and SourcingEvent.NotificationStatus.Notified)
+						invoke Update Open.Notified SourcingEvent
+							invoked.ArticleDisplayChange = false
+					else
+						invoke Update Open.Amended SourcingEvent
+							invoked.ArticleDisplayChange = false
+		
+		EventTermChangedUpdate is an Update Action
+			restricted

@@ -1,0 +1,214 @@
+IDMPrinter is a BusinessClass
+	owned by idm
+	
+	prefix is IDMP
+	
+	Ontology
+		symbolic key is IDMPrinter
+		
+	
+	Patterns
+		implements StaticJava
+	
+	Persistent Fields
+		PrinterID			is an IDMPrinterID
+		Description
+		PrintService		is Alpha size 3
+		Active				is Boolean
+		ExistsInIDM			is Boolean
+		Email				is an EmailAddress			
+		Type				is Numeric 1 				
+			States
+				GCP			value is 0
+					default label is "Google_Cloud_Print"
+				Email		value is 1
+					default label is "Email_Enabled"
+				IEP			value is 2
+					default label is "IDM_Enterprise_Print"
+		PrinterName			is Text 					
+		LocationName 		is Text
+		PrinterMinMediaSize	is like IDMPrinterMediaSize
+			sql prefix is PMIMS
+			protected
+		PrinterMaxMediaSize	is like IDMPrinterMediaSize
+			sql prefix is PMAMS
+			protected
+
+	Transient Fields
+		TransientPrinterSettings is an IDMPrinterSettings
+		TransientFile			 is an IDMAttachment
+		
+	Derived Fields
+		ValidatePrinterID is a NativeField
+    		type is Boolean
+		
+	Rule Blocks
+		ValidateInIDM
+			constraint (ValidatePrinterID)
+					"PrinterID:_<PrinterID>doesn'tExistInIDM"
+	
+	Attach Rules
+		constraint (Active)
+			"IDMPrinterMustBeActive"
+			
+		constraint ((ExistsInIDM and (Type.GCP or Type.IEP)) or Type.Email) 
+			"PrinterID_doesn'tExistsInIDM"
+			
+	Conditions
+		ActorDefaultPrinter
+			restricted
+			when (UserDefaultPrinterRel.IDMPrinter = IDMPrinter)
+			
+		ValidSetToDefault
+			restricted
+			when (IDMPrinter not = UserDefaultPrinterRel.IDMPrinter)
+			
+		IDMConfigurationExist
+			restricted
+			when (IDMConfigurationRel exists)
+			
+		IDMPrinterKeyExist
+			restricted
+			when (DuplicateIDMPrinterKeyRel exists)
+
+		EmailRequired                
+			restricted
+			when (Type.Email
+			and Email not entered)
+
+
+
+
+			
+
+
+
+
+	Field Rules
+		Active
+			initial value is true
+			
+		PrinterID
+			cannot be changed
+			if (Type.GCP or Type.IEP)
+				required
+
+		Email
+			if (Type.Email)
+				required	
+		
+		Type
+			initial value is Type.Email
+			
+	Relations
+		UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor = actor
+				
+		DuplicatePrinterRel
+			one-to-many relation to IDMPrinter
+			Field Mapping uses ByPrinterID
+				related.PrinterID	= PrinterID
+				
+		DuplicateIDMPrinterKeyRel
+			one-to-many relation to IDMPrinter
+			Field Mapping uses symbolic key
+				related.IDMPrinter	= IDMPrinter		
+			
+		IDMConfigurationRel is an IDMConfiguration set
+				
+		IDMPrinterPropertyTrayRel is an IDMPrinterPropertyTray set
+
+		IDMPrinterPropertySideRel is an IDMPrinterPropertySide set
+
+		IDMPrinterPropertyPaperSizeRel is an IDMPrinterPropertyPaperSize set
+				
+	Sets
+		ByPrinterID
+			indexed
+			Sort Order
+				PrinterID
+				IDMPrinter
+				
+		ByType	
+			Sort Order
+				Type
+				IDMPrinter	
+	
+	Actions
+		SyncPrinterProperties is an Instance Action
+			restricted
+
+			Action Rules
+
+		Create is a Create Action
+			Entrance Rules
+				ExistsInIDM = false
+				
+		CreateAndSync is a Create Action
+			restricted
+					
+			Local Fields
+				LocalCount		is Numeric size 2 
+				LocalIDMPrinter	is an IDMPrinter
+				
+			Action Rules
+				LocalCount = 1
+				LocalIDMPrinter = IDMPrinter
+				while (IDMPrinterKeyExist 
+				and   (LocalCount < 100))
+					if(LocalCount < 10)
+						IDMPrinter	= LocalIDMPrinter[0:97] + "_" + "0" + LocalCount
+						LocalCount += 1
+					else
+						IDMPrinter	= LocalIDMPrinter[0:97] + "_" + LocalCount
+						LocalCount += 1
+				constraint (LocalCount < 100)
+					"TooManyDuplicateIDMPrinters.IDMPrintersWereNotSynced."
+                
+		Update is an Update Action
+			Action Rules
+				if (Active changed and Active and (Type.GCP or Type.IEP)) 
+					include ValidateInIDM
+					ExistsInIDM = true
+		
+		Delete is a Delete Action
+		
+		SetAsDefaultPrinter is an Instance Action
+			valid when (ValidSetToDefault)
+			Action Rules
+				invoke OverrideDefaultIDMPrinter UserDefaultPrinterRel
+					invoked.PrmIDMPrinter = IDMPrinter
+						
+		PrintTestPage is an Instance Action
+			Entrance Rules
+				if (Type.GCP or Type.IEP)								
+					include ValidateInIDM
+
+		PrintTestPageWithFile is an Instance Action
+			restricted
+			Parameters
+				PrmPrinterSettings 	is an IDMPrinterSettings
+				PrmFile				is an IDMAttachment
+			Parameter Rules
+				PrmFile
+					required "FileIsRequired"
+
+			Action Rules
+				TransientPrinterSettings 	= PrmPrinterSettings
+				TransientFile				= PrmFile
+				invoke PrintTestPage
+				
+		SyncIDMPrinters is a Set Action
+			valid when (IDMConfigurationExist)
+			Local Fields
+				LocalIDMConfiguration is an IDMConfiguration
+				
+			Action Rules
+				Empty Set Rules
+					invoke SyncIDMPrinters first IDMConfigurationRel.IDMConfiguration
+				Set Rules
+					Entrance Rules
+						invoke SyncIDMPrinters first IDMConfigurationRel.IDMConfiguration
+		

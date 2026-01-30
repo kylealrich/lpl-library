@@ -1,0 +1,172 @@
+RouteStop is a BusinessClass
+    owned by wh
+    prefix is RTS
+    classic name is ROUTESTOP
+
+    Ontology
+        symbolic key is RouteStop
+            classic set name is RTSSET1
+            classic name is STOP
+            classic name for InventoryLocation is LOCATION
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Customer
+        CustomerShipTo
+            classic name is SHIP-TO
+        StockVolume
+            classic name is CUBIC-FEET
+        StockWeight
+            classic name is WEIGHT
+        NumberOfPieces
+            classic name is PIECES
+        NumberOfDocuments
+            classic name is DOCUMENTS
+        CompanyCustomer
+
+    Conditions
+
+        IsRouteInUse
+        	restricted
+            classic name is ROUTEHDR-INUSE
+            when (not RouteHeader.InUse)
+
+		IsUnreleased
+			restricted
+			when (RouteHeader.RouteStatus.Unreleased)
+		
+		IsReleased
+			restricted
+			when (RouteHeader.RouteStatus.Released)
+			
+    Relations
+
+        RouteDocumentRel
+            one-to-many relation to RouteDocument
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.RouteHeader.Date  = RouteHeader.Date
+                related.RouteHeader.Route = RouteHeader.Route
+                related.RouteStop 		  = RouteStop
+                
+
+        ShiptoRel
+            one-to-one relation to CustomerShipTo
+            required
+            Field Mapping uses symbolic key
+                related.Company        = Company
+	            related.Customer       = Customer
+	            related.CustomerShipTo = CustomerShipTo
+
+
+		CustomerOrderLinesRel
+			one-to-many relation to CustomerOrderLine
+			Field Mapping uses symbolic key								
+				related.Company		    = Company
+				related.CustomerOrder	= RouteDocumentRel.DocumentNumber
+				
+
+
+
+
+     				
+	Field Rules
+	
+		RouteStop
+			required
+				"StopIsRequired"
+		
+	Actions
+	
+		Create is a Create Action
+			restricted
+			Exit Rules
+				increment RouteHeader.NumberOfStops
+				
+				
+				
+		Update is an Update Action	
+			valid when (IsUnreleased)	
+			
+			Action Rules
+				constraint (IsUnreleased)
+					"CannotChangeReleasedRoute"
+		
+		Delete is a Delete Action
+			valid when (IsUnreleased)
+			
+			Entrance Rules														
+				decrement RouteHeader.NumberOfStops
+				invoke Unreleased.Update RouteHeader
+					invoked.StockVolume		  -= StockVolume
+					invoked.StockWeight		  -= StockWeight
+					invoked.NumberOfPieces    -= NumberOfPieces
+					
+
+
+
+
+
+
+
+
+
+
+									
+			Exit Rules
+				if (RouteHeader.NumberOfStops = 0)
+					invoke Delete RouteHeader
+				
+		TransferStop is an Instance Action
+			valid when (IsUnreleased)				
+			Parameters 
+				ToRoute is a RouteHeader
+				ToStop 	is Numeric size 4   
+				
+			Parameter Rules
+				ToRoute
+					required
+				
+				ToStop
+					required
+					constraint (RouteStop != ToStop)
+						"FromAndToStopsCannotBeTheSame"
+					
+			Action Rules
+					if (IsUnreleased)
+						invoke Create RouteStop
+							fill in fields from this instance
+							invoked.RouteHeader				= ToRoute
+							invoked.RouteStop				= ToStop
+						for each RouteDocumentRel
+							invoke TransferDocument each
+								invoked.ToRoute		= ToRoute
+								invoked.ToStop		= ToStop
+						invoke Delete 
+							
+														
+		CheckCustomerOrderStatusAction is an Instance Action
+			restricted
+			Action Rules
+				for each RouteDocumentRel
+					if (each.CustomerOrderRel.Status.Canceled 
+					or  each.CustomerOrderRel.Status.ReadyForPurge)
+						StockVolume			-= StockVolume
+						StockWeight    		-= StockWeight
+						NumberOfPieces		-= each.NumberOfPieces
+						NumberOfDocuments	-= 1
+
+						invoke Update RouteHeader
+							invoked.StockVolume			-= StockVolume
+							invoked.StockWeight    		-= StockWeight
+							invoked.NumberOfPieces  	-= NumberOfPieces
+							invoked.NumberOfDocuments	-= 1
+
+				if (NumberOfPieces = 0)
+					invoke Delete
+			

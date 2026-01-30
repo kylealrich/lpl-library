@@ -1,0 +1,139 @@
+CashLedgerPaymentRoutingRule is a BusinessClass
+    owned by cb
+    prefix is CBIRR
+
+    Ontology
+    	symbolic key is CashLedgerPaymentRoutingRule
+
+	Patterns
+		implements Resequence on Priority
+			new sequence field is NewPriority
+			set is ByPriority
+			
+    Persistent Fields
+		Priority						 	is a DisplayOrder
+		Name								is AlphaUpper 50
+		Description						 	is Alpha 250
+		ApproverAssignmentRule				is a CashLedgerPayment group
+			default label is "PaymentRoutingRule"
+		ApprovalCode
+		AutoApprove							is Boolean
+		Active
+	
+	Transient Fields
+		NewPriority					is a DisplayOrder
+
+	Local Fields
+		SaveRule					is a CashLedgerPaymentRoutingRule view
+
+	Derived Fields
+		DerivedDepthLevel is a DerivedField
+			type is Numeric 2
+			restricted
+        	return (instance count of CashLedgerPaymentRoutingRule ancestors)
+
+		DerivedParent is a DerivedField
+			type is Numeric 12
+			restricted
+			return CashLedgerPaymentRoutingRule parent.CashLedgerPaymentRoutingRule
+
+		CountOfRuleDescendants is a ComputeField
+			type is Numeric 1
+			restricted
+			(instance count of CashLedgerPaymentRoutingRule descendants)
+
+		CountOfRuleDescendantsPlusOne is a DerivedField
+			type is Numeric 1
+			restricted
+			return (CountOfRuleDescendants + 1)
+	
+	Field Rules
+		Priority
+			default to CashLedgerPaymentRoutingRule
+
+		Name
+			required
+
+		Description
+		
+		ApproverAssignmentRule
+			required
+		
+		ApprovalCode
+			constraint (!AutoApprove)
+				"ApprovalCodeCannotBeEnteredIfAutoApproveIsSetToTrue"
+			constraint (ApprovalCode.ApprovalCodeUsesMaximumAmounts)
+				"ApprovalCodeMustBeForCashledgerPayments"
+
+		Active
+			initial value is true
+
+		ParentCashLedgerPaymentRoutingRule
+			constraint (ParentCashLedgerPaymentRoutingRule != CashLedgerPaymentRoutingRule)
+				"APaymentRoutingRuleCannotBeItsOwnParentPaymentRoutingRule"
+
+			constraint (all CashLedgerPaymentRoutingRule descendants.CashLedgerPaymentRoutingRule != ParentCashLedgerPaymentRoutingRule)
+				"PaymentRoutingRule<CashLedgerPaymentRoutingRule parent.CashLedgerPaymentRoutingRule.Name>CannotBeAParentForPaymentRoutingRule<Name>.ItIsAlreadyADescendantOfPaymentRoutingRule<CashLedgerPaymentRoutingRule.Name>"
+							
+	Attach Rules
+		constraint (Active)
+			"PaymentRoutingRuleIsInactive"
+	
+	Sets
+		ByPriority
+			duplicates
+			Sort Order
+ 				CashManagementGroup
+ 				Priority
+ 				CashLedgerPaymentRoutingRule
+ 
+ 	Conditions
+		HasChild
+    		when (CashLedgerPaymentRoutingRule children exist)
+    	ResourcesExist
+    		when (ApprovalCodeResourceRel exists)
+
+	Relations
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+
+		MoveRule is an Instance Action
+			default label is "Move"
+			completion message is "MoveComplete;RefreshView"
+			Parameters
+				MoveDirection	is Numeric 1 
+					States
+						Above	value is 1
+						Below 	value is 2
+				PrmRule			is a CashLedgerPaymentRoutingRule
+			Parameter Rules
+				MoveDirection
+					required
+					initial value is MoveDirection.Below
+				PrmRule
+					required
+						"PaymentRoutingRuleIsRequired"
+					constraint (PrmRule != CashLedgerPaymentRoutingRule)
+						"YouCanNotSelectTheSameRuleAsYouAreMoving"
+			Action Rules
+				SaveRule = PrmRule
+
+				if (SaveRule.ParentCashLedgerPaymentRoutingRule not = CashLedgerPaymentRoutingRule) 
+					invoke Update 
+						invoked.NewPriority = ParentCashLedgerPaymentRoutingRule.CountOfRuleDescendantsPlusOne
+				invoke Update 
+					invoked.ParentCashLedgerPaymentRoutingRule = SaveRule.ParentCashLedgerPaymentRoutingRule
+					if (MoveDirection.Above)
+						invoked.NewPriority = SaveRule.Priority 
+					else
+						invoked.NewPriority = SaveRule.Priority + 1

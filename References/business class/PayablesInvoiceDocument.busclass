@@ -1,0 +1,181 @@
+PayablesInvoiceDocument is a BusinessClass
+	owned by ap
+	prefix is PIDOC
+
+	Ontology
+		symbolic key is PayablesInvoiceDocument
+	
+	Patterns
+		implements Archivable
+	
+	Persistent Fields
+		DocumentID				is AlphaUpper 100
+		Description 			is Alpha size up to 500
+		DocumentType			is Numeric 2
+			States
+				Invoice			value is 1
+				PurchaseOrder	value is 2
+				PackingSlip		value is 3
+				ProofOfDelivery value is 4
+				Other			value is 99
+		Attachment				is an AlternateAttachment
+		CreatedFromWebService	is Boolean
+		CreationUser			is a FinanceResource
+
+	Field Rules
+		DocumentType
+			if (DocumentType.Invoice)
+				constraint (!InvoiceDocumentExists)
+					"RelatedDocumentOfTypeInvoiceAlreadyExists"
+			if (DocumentType not entered
+			and !InvoiceDocumentExists)
+				default to 1
+
+		Attachment
+			if (PayablesInvoice.Company.VendorGroup.StoreDocumentLocally)
+				constraint (Attachment.File entered)
+					"AttachmentFileIsRequired"		
+					
+	Local Fields
+		LocalAttributeCtr   is Numeric 2		
+
+	Derived Fields
+		DerivedInvoice is a DerivedField
+			type is like Invoice
+			restricted
+			return PayablesInvoice.Invoice 
+
+		DerivedVendor is a DerivedField
+			type is like Vendor
+			restricted
+			return PayablesInvoice.Vendor
+
+  	Conditions
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		InvoiceDocumentExists
+			restricted
+			when (PayablesInvoiceDocumentInvoiceTypeRel exists)
+		CurrentActorCreatedRecord
+			restricted
+			when (CreationUser entered
+			and	  Company.FinanceEnterpriseGroup.HROrganization = actor.agent(Employee).HROrganization
+			and	  CreationUser = actor.agent(Employee).Employee)
+		ApproverActionUpdateDeleteValid
+			restricted
+			when (PayablesInvoice.Status.PendingApproval
+            and  ((PayablesInvoice.CurrentActorIsApprover
+            and    CurrentActorCreatedRecord)
+            or     PayablesInvoice.CurrentActorIsResponsiblePerson))	
+		ApproverCreateActionValid
+			restricted
+			when (PayablesInvoice.Status.PendingApproval
+			and	 (PayablesInvoice.CurrentActorIsApprover
+			or    PayablesInvoice.CurrentActorIsResponsiblePerson))	
+		UpdateAndDeleteActionsValid
+			restricted
+
+
+			when (PayablesInvoice.Status.Unreleased
+			or	  PayablesInvoice.Status.Approved
+			or	  PayablesInvoice.Status.Released
+			or	  PayablesInvoice.Status.Historical
+			or	  PayablesInvoice.Status.Rejected         
+			or	  ApproverActionUpdateDeleteValid)
+
+		CreateActionValid
+			restricted
+
+
+			when (PayablesInvoice.Status.Unreleased
+			or	  PayablesInvoice.Status.Approved
+			or	  PayablesInvoice.Status.Released
+			or	  PayablesInvoice.Status.Historical
+			or	  PayablesInvoice.Status.Rejected         
+			or	  ApproverCreateActionValid)
+
+		IsUpdateable
+			restricted
+			when (UpdateAndDeleteActionsValid
+			or	  !RecordExists)
+		RecordExists
+			restricted
+			when (PayablesInvoiceDocument > 0)
+
+  	Relations
+	 	PayablesInvoiceDocumentInvoiceTypeRel
+			one-to-many relation to PayablesInvoiceDocument
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= PayablesInvoice
+			Instance Selection
+				where (related.DocumentType.Invoice
+				and	   related.UniqueID 	!= UniqueID)
+
+	
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment			
+   			
+  	Sets
+  		ByDocumentID
+			Sort Order
+	  			DocumentID
+	  			Company
+	  			PayablesInvoice
+	  			PayablesInvoiceDocument
+
+	Actions
+		Create is a Create Action
+			valid when (CreateActionValid)
+			Action Rules
+				CreationUser = actor.agent(Employee).Employee
+
+		Update is an Update Action
+			valid when (UpdateAndDeleteActionsValid)
+			
+		Delete is a Delete Action
+			valid when (UpdateAndDeleteActionsValid)
+
+		DeleteOnSendForPayment is a Purge Action	
+			restricted
+			Action Rules
+				Attachment.LocalPurgeTriggered = true
+
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+			
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+

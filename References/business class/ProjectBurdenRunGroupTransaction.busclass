@@ -1,0 +1,222 @@
+ProjectBurdenRunGroupTransaction is a BusinessClass
+    owned by Projects
+    prefix is PBRGT
+	sql name is ProjectBurdenRunGroupTrans
+
+    Ontology
+    	symbolic key is ProjectBurdenRunGroupTransaction
+    		
+	Patterns
+		disable Auditing
+		disable AuditIndex
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		
+    Persistent Fields
+		GLTransactionDetail
+		Amount				is like InternationalAmount
+		IndirectBurdenCode	is like ProjectIndirectBurdenCode
+		BurdenEffectiveDate	is Date
+		TransactionDate		is Date
+		FinanceDimension2	is like FinanceDimension2
+		AccountingEntity	is like AccountingEntity
+		Positive			is Boolean
+		FESEnabled			is Boolean
+		SelectedSourcesOnly is Boolean
+
+	Local Fields
+		LocalFinanceDimension2		is like FinanceDimension2
+		LocalPriority				is Numeric size 2
+#ifdef module ap
+		LocalDerivedFESKey 			is a FrontEndSplitKey
+#endif
+
+	Rule Blocks
+		
+	Derived Fields
+			
+    Conditions
+
+    Relations
+		ProjectFundingSourceRel
+			one-to-one relation to ProjectFundingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= Project.ParentDisplayContractRel.Project
+				related.FinanceDimension2		= FinanceDimension2
+				
+		NextProjectFundingSourceRel
+			one-to-many relation to ProjectFundingSource
+			Field Mapping uses ByPriority
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= Project.ParentDisplayContractRel.Project
+				related.Priority				> LocalPriority
+			Instance Selection
+				where (related.Active
+				and    related.FinanceDimension2.Active
+				and    related.RemainingFESAmount > 0)
+
+		FundingSourceSelectedProjectRel
+			one-to-one relation to FundingSourceSelectedProject
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= Project.ParentDisplayContractRel.Project
+				related.FinanceDimension2		= LocalFinanceDimension2
+				related.Project					= Project
+
+		ProjectIndirectBurdenSelectedSourceRel
+			one-to-one relation to ProjectIndirectBurdenSelectedSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.Project						= Project
+				related.ProjectIndirectBurdenSelectedSource.FinanceDimension2		  = LocalFinanceDimension2
+				related.ProjectIndirectBurdenSelectedSource.ProjectIndirectBurdenCode = IndirectBurdenCode
+#ifdef module ap
+		FESDistributionsByKeyLocalRel
+			one-to-many relation to FrontEndSplitDistributions
+			Field Mapping uses ByFundingGroup
+				related.FinanceEnterpriseGroup					= FinanceEnterpriseGroup
+			    related.FrontEndSplitDistributions.FundingKey 	= LocalDerivedFESKey
+#endif
+
+    Sets
+    	ByTransactionDate
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectIndirectBurdenRunGroup
+				Project
+				Positive
+				TransactionDate
+				ProjectBurdenRunGroupTransaction
+				
+    Field Rules
+			
+	Actions
+		Create is a Create Action
+			restricted
+			bypass field rules
+		Update is an Update Action
+			restricted
+
+
+		Purge is a Purge Action
+			restricted
+
+		GenerateIndirectBurdenTransactions is a Set Action
+			restricted
+			Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+				PrmRunGroup					is a ProjectIndirectBurdenRunGroup
+				PrmProject					is a Project
+			Local Fields
+				LocalAmount							is like InternationalAmount
+				LocalNextAmount						is like InternationalAmount
+				LocalNextFD2						is like FinanceDimension2
+				LocalTransactionDate				is Date
+				OkToCreate							is Boolean
+				LocalEditDateRange					is a DateRange
+				ValidRecord							is Boolean
+#ifdef module ap			
+				FrontEndSplitDistributionsView		is a FrontEndSplitDistributions view
+#endif
+			Instance Selection
+				where (FinanceEnterpriseGroup		 = PrmFinanceEnterpriseGroup
+				and    ProjectIndirectBurdenRunGroup = PrmRunGroup
+				and    Project						 = PrmProject)
+			Sort Order is ByTransactionDate
+			Action Rules
+				Empty Set Rules
+					invoke SetBurdensComplete PrmProject
+				Set Rules
+					Exit Rules
+						invoke SetBurdensComplete PrmProject
+				Instance Rules
+					if (Amount < 0)
+						invoke Create ProjectIndirectBurdenTransaction
+							resume on error
+							fill in fields from this instance
+							invoked.ProjectIndirectBurdenCode	= IndirectBurdenCode
+							invoked.BurdenEffectiveDate			= BurdenEffectiveDate
+							invoked.OriginalGLTransactionDetail = GLTransactionDetail
+							invoked.Amount 						= Amount
+							invoked.RunGroup					= ProjectIndirectBurdenRunGroup
+							invoked.AccountingEntity			= AccountingEntity
+					else
+						initialize LocalNextAmount
+						initialize LocalNextFD2
+						LocalAmount				 = Amount
+						LocalTransactionDate	 = TransactionDate
+						if (FESEnabled
+						and FinanceEnterpriseGroup.UseFundedAmounts
+						and FinanceDimension2 entered
+						and !Project.ExcludeFromFES)
+							if (ProjectFundingSourceRel.RemainingFESAmount < LocalAmount)
+								if (ProjectFundingSourceRel.RemainingFESAmount > 0)
+									LocalNextAmount = LocalAmount - ProjectFundingSourceRel.RemainingFESAmount
+									LocalAmount = ProjectFundingSourceRel.RemainingFESAmount
+								else
+									LocalNextAmount = LocalAmount
+									LocalAmount = 0
+								LocalPriority = ProjectFundingSourceRel.Priority
+								ValidRecord = false
+								for each NextProjectFundingSourceRel
+									LocalFinanceDimension2 = each.FinanceDimension2
+									if   (TransactionDate within each.FinanceDimension2.DateRange
+									and (!SelectedSourcesOnly
+									or   (SelectedSourcesOnly
+									and   ProjectIndirectBurdenSelectedSourceRel exists))
+									and (!each.SelectedProjectsOnly
+									or   (each.SelectedProjectsOnly
+									and   FundingSourceSelectedProjectRel exists))
+									and   each.RemainingFESAmount >= LocalNextAmount)
+										ValidRecord = true
+#ifdef module ap						
+										if (each.FESEligibilityGroup entered)
+											LocalDerivedFESKey	= "PS-"+FinanceEnterpriseGroup+"-"+Project+"-"+LocalFinanceDimension2
+											invoke CreateNoRules FrontEndSplitDistributions
+												assign result to FrontEndSplitDistributionsView
+												invoked.FinanceEnterpriseGroup						= FinanceEnterpriseGroup
+												invoked.FrontEndSplitDistributions.FundingKey		= LocalDerivedFESKey
+												invoked.CodeBlock									= GLTransactionDetail.FinanceCodeBlock
+												invoked.DistributionAmount							= LocalNextAmount
+												invoked.TransactionDate								= TransactionDate
+											if ((each.FESEligibilityGroupOption.Include
+											and  FrontEndSplitDistributionsView.FrontEndSplitDistributions not within each.FESEligibilityGroup)
+											or  (each.FESEligibilityGroupOption.Exclude
+											and  FrontEndSplitDistributionsView.FrontEndSplitDistributions within each.FESEligibilityGroup))
+												ValidRecord = false
+											invoke Purge FESDistributionsByKeyLocalRel
+#endif
+										if (ValidRecord)
+											LocalNextFD2  = LocalFinanceDimension2
+											end for each
+						if (LocalAmount entered)
+							invoke Create ProjectIndirectBurdenTransaction
+								resume on error
+								fill in fields from this instance
+								invoked.ProjectIndirectBurdenCode	= IndirectBurdenCode
+								invoked.BurdenEffectiveDate			= BurdenEffectiveDate
+								invoked.OriginalGLTransactionDetail = GLTransactionDetail
+								invoked.Amount 						= LocalAmount
+								invoked.RunGroup					= ProjectIndirectBurdenRunGroup
+								invoked.AccountingEntity			= AccountingEntity
+								if (LocalNextAmount entered)
+									if (LocalNextFD2 entered)
+										invoked.PartialStatus		= 2
+									else
+										invoked.PartialStatus		= 1									
+						if (LocalNextAmount entered
+						and LocalNextFD2 entered)
+							invoke Create ProjectIndirectBurdenTransaction
+								resume on error
+								fill in fields from this instance
+								invoked.ProjectIndirectBurdenCode	= IndirectBurdenCode
+								invoked.BurdenEffectiveDate			= BurdenEffectiveDate
+								invoked.OriginalGLTransactionDetail = GLTransactionDetail
+								invoked.Amount 						= LocalNextAmount
+								invoked.RunGroup					= ProjectIndirectBurdenRunGroup
+								invoked.AccountingEntity			= AccountingEntity
+								invoked.OverrideFD2					= LocalNextFD2
+
+					invoke Purge
+

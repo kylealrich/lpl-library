@@ -1,0 +1,196 @@
+PfiFileStorage is a BusinessClass
+    owned by pfi
+    prefix is PfiFS
+    default label is "File"
+
+    Ontology
+        symbolic key is PfiFileStorage
+
+    Patterns
+        implements CRUD
+        disable AsOfDateProcessing
+        disable Auditing
+        disable EffectiveDated
+
+    Persistent Fields
+
+        Type is Numeric size 1
+            States
+                Binary value is 1
+                Text value is 2
+        BinaryData is BinaryObject
+        	enable alternate document location
+        TextData is Text
+        	enable alternate document location
+        LastUpdatedTimestamp is TimeStamp
+        LastAccessedTimestamp is TimeStamp
+		TextDataStoredInS3 is  Boolean
+		BinaryDataStoredInS3 is  Boolean
+        UserFile is Boolean
+
+    Derived Fields
+    
+        FileSize is a NativeField
+            type is Numeric 11
+            default label is "FileSize_(Bytes)"
+            
+        FileSizeDisplay is a NativeField
+            type is Alpha size 10 
+            default label is "FileSize"
+               
+		TextDataIsLocallyStored is a NativeField
+			type is Boolean
+			
+		TextDataS3ObjectKey is a NativeField
+			type is Text
+			default label is "TextDataS\3ObjectKey"
+		
+		BinaryDataIsLocallyStored is a NativeField
+			type is Boolean
+			
+		BinaryDataS3ObjectKey is a NativeField
+			type is Text
+			default label is "BinaryDataS\3ObjectKey"
+			
+    Local Fields
+    
+        FileStorageKeyCleanup is a StringReplace                
+    
+    Sets
+
+        ByDate
+            sql name is PfiFS02
+            indexed
+            Sort Order
+                LastUpdatedTimestamp descending
+                PfiFileStorage
+        ByDate2
+            sql name is PfiFS04
+            indexed
+            Sort Order
+                LastAccessedTimestamp descending
+                PfiFileStorage
+                
+		ByDateForS3TextData
+            sql name is PfiFS03
+            indexed
+            Sort Order
+            	UserFile
+            	Type
+            	TextDataStoredInS3
+            	LastUpdatedTimestamp
+            	LastAccessedTimestamp
+                PfiFileStorage
+ 
+ 		ByDateForS3BinaryData
+            sql name is PfiFS01
+            indexed
+            Sort Order
+            	Type
+            	UserFile
+            	BinaryDataStoredInS3
+            	LastUpdatedTimestamp
+            	LastAccessedTimestamp
+                PfiFileStorage
+                
+	Conditions
+		HasLocalTextData
+			default label is untranslatable
+			when (TextDataIsLocallyStored and TextData entered)
+				
+		HasLocalBinaryData
+			default label is untranslatable
+			when (BinaryDataIsLocallyStored and BinaryData entered)
+			
+		CanUploadToS3
+			default label is untranslatable
+			when (not TextDataStoredInS3 or not BinaryDataStoredInS3)
+			
+    Actions
+
+        Create is a Create Action
+            Action Rules
+                FileStorageKeyCleanup.OriginalString = PfiFileStorage
+                FileStorageKeyCleanup.TargetString = "\\"
+                FileStorageKeyCleanup.ReplaceString = "/"
+                PfiFileStorage = FileStorageKeyCleanup.ResultString
+                LastUpdatedTimestamp = system current timestamp
+        
+        Update is an Update Action
+            Action Rules
+        	   	LastUpdatedTimestamp = system current timestamp
+            	if (Type.Text)
+            		TextDataStoredInS3 = !TextDataIsLocallyStored
+            	else
+            		BinaryDataStoredInS3 = !BinaryDataIsLocallyStored
+            		
+        UpdateLastAccessedTimestamp is an Instance Action
+        	Action Rules
+        		LastAccessedTimestamp = system current timestamp
+        
+        DownloadToDB is an Update Action
+        	restricted
+        	Action Rules
+        		if (Type.Text)
+                	TextDataStoredInS3 = false
+                else
+               		BinaryDataStoredInS3 = false	
+        	
+        Delete is a Delete Action
+        	Entrance Rules
+	        	invoke Create AmazonS3ObjectReference
+						invoked.BusinessObjectReference = reference to this instance
+						invoked.S3ObjectKey             = TextDataS3ObjectKey
+				invoke Create AmazonS3ObjectReference
+						invoked.BusinessObjectReference = reference to this instance
+						invoked.S3ObjectKey             = BinaryDataS3ObjectKey
+        
+        UploadToS3Immediate is an Instance Action
+        	restricted
+        	default label is "UploadToS\3Immediate"
+        	valid when CanUploadToS3
+        	
+        UploadTextDataToS3 is an Instance Action
+        	restricted
+        	default label is "UploadTextDataToS\3"
+        	Action Rules
+        		TextDataStoredInS3 = true
+
+        UploadTextDataToS3Retry is an Instance Action
+        	restricted
+        	default label is "UploadTextDataToS\3Retry"
+        	Action Rules
+        		TextDataStoredInS3 = true
+        		        		
+        UploadBinaryDataToS3 is an Instance Action
+        	restricted
+        	default label is "UploadBinaryDataToS\3"
+        	Action Rules
+        		BinaryDataStoredInS3 = true
+        			
+        ScheduleFileDeletion is a Set Action
+            run in background
+            completion message is "TheSelectedFilesHaveBeenDeleted"
+            
+            Parameters
+                FileName is like PfiFileStorage
+                NumberOfDaysOld is Numeric size 3
+                	default label is "FileAge_(Days)"
+            
+            Local Fields
+                CalculatedDate is TimeStamp
+            
+            Parameter Rules
+                NumberOfDaysOld
+                    if (NumberOfDaysOld entered)
+                        CalculatedDate = (system current timestamp - NumberOfDaysOld as days)
+
+            Instance Selection
+                where ((FileName entered and PfiFileStorage like FileName and NumberOfDaysOld entered and LastUpdatedTimestamp < CalculatedDate)
+                or (FileName not entered and NumberOfDaysOld entered and LastUpdatedTimestamp < CalculatedDate)
+                or (FileName entered and NumberOfDaysOld not entered and PfiFileStorage like FileName))
+                
+
+            Action Rules
+                Instance Rules
+                    invoke Delete

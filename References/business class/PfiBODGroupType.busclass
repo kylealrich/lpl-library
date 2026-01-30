@@ -1,0 +1,225 @@
+PfiBODGroupType is a BusinessClass
+    owned by pfi
+    prefix is PfiGT
+    default label is "BODGroupType"
+
+    Ontology
+        symbolic key is PfiBODGroupType
+
+    Patterns
+        implements CRUD
+        implements LightweightAuditing
+        disable AuditIndex
+        disable AsOfDateProcessing
+        disable EffectiveDated
+
+    Persistent Fields
+
+        SeqNum         is Numeric size 4
+            default label is "SequenceNbr"
+        BODType        is a PfiBODType
+        PfiFlowDefinition
+
+
+
+
+        SeqMethod      is a PfiBODSeqMethod
+            default label is "SequencingMethod"
+        EnforceBatchId is Boolean
+            default label is "EnforceSequentialBatchId"
+        NumWuRestarts  is Numeric size 2
+            default label is "NumberOfWorkUnitRestarts"
+        WuRestartWait  is Numeric size 4
+            default label is "WorkUnitRestartWaitTime_(Minutes)"
+        NumRescans     is Numeric size 2
+            default label is "NumberOfRescans"
+        SkipOld        is Boolean
+            default label is "SkipOldBODVersions"
+
+    Derived Fields
+
+        LastSeqNum is a DerivedField
+            type is Numeric size 4
+            if (true)
+                return PfiBODGroup.LastBODGroupSeqNum
+
+        DuplicateIONReceiver is a NativeField
+            type is Boolean
+
+    Field Rules
+
+        SeqNum
+            required
+            autosequence using PfiBODGroup.LastBODGroupSeqNum
+
+        BODType
+            required
+
+        PfiFlowDefinition
+            required
+
+
+
+
+        SeqMethod
+            required
+
+        EnforceBatchId
+            default to false
+
+        NumWuRestarts
+            constraint (NumWuRestarts >= 0)
+                "NumberOfWorkUnitRestartsMustBeGreaterThanOrEqualToZero"
+
+        WuRestartWait
+            if (NumWuRestarts > 0)
+                constraint (WuRestartWait > 0)
+                    "WorkUnitRestartWaitMustBeGreaterThanZero"
+
+        NumRescans
+            constraint (NumRescans >= 1)
+                "NumberOfRescansMustBeGreaterThanOrEqualToOne"
+
+        SkipOld
+            default to false
+
+    Sets
+
+        ByBODGroupSeqNum
+            sql name is PfiGT01
+            Sort Order
+                PfiBODGroup
+                SeqNum
+
+        ByBODGroupSeqNumBODType
+            sql name is PfiGT03
+            not indexed
+            Sort Order
+                PfiBODGroup
+                SeqNum
+                BODType
+
+    Local Fields
+
+        LocalPfiBODGroup is Alpha size 30
+        LocalSeqNum      is Numeric size 4
+        StartSeqNum      is Numeric size 4
+        IsCreateAction   is Boolean
+    Relations
+
+        BODGroupSeqNumRel
+            one-to-one relation to PfiBODGroupType
+            Field Mapping uses ByBODGroupSeqNum
+                related.PfiBODGroup = LocalPfiBODGroup
+                related.SeqNum      = LocalSeqNum
+
+        BODGroupMembersRel
+            one-to-many relation to PfiBODGroupType
+            Field Mapping uses ByBODGroupSeqNum
+                related.PfiBODGroup = LocalPfiBODGroup
+
+    Actions
+
+        Create is a Create Action
+
+            Exit Rules
+                IsCreateAction = true
+                constraint (DuplicateIONReceiver)
+                    "DuplicatesFound"
+
+        Update is an Update Action
+
+            Exit Rules
+                IsCreateAction = false
+                constraint (DuplicateIONReceiver)
+                    "DuplicatesFound"
+
+        Delete is a Delete Action
+
+            Local Fields
+                SavedPfiBODGroup is Alpha size 30
+                SavedSeqNum      is Numeric size 4
+
+            Entrance Rules
+                SavedPfiBODGroup = PfiBODGroup
+                SavedSeqNum      = SeqNum
+
+            Exit Rules
+                IsCreateAction = false
+                if (SavedSeqNum < LastSeqNum)
+                    StartSeqNum      = SavedSeqNum+1
+                    LocalPfiBODGroup = SavedPfiBODGroup
+                    invoke ShiftUp
+                    decrement PfiBODGroup.LastBODGroupSeqNum
+                else
+                    decrement PfiBODGroup.LastBODGroupSeqNum
+
+        ShiftUp is an Instance Action
+            restricted
+
+            Action Rules
+                for each BODGroupMembersRel
+                    if (each.SeqNum >= StartSeqNum)
+                        LocalSeqNum      = each.SeqNum
+                        invoke Update BODGroupSeqNumRel
+                            invoked.SeqNum = each.SeqNum-1
+
+        MoveUp is an Instance Action
+
+            Local Fields
+                LocalSeqNum1 is Numeric size 4
+                LocalSeqNum2 is Numeric size 4
+
+            Action Rules
+                constraint (SeqNum > 1)
+                    "RecordIsAlreadyAtTheTop"
+
+                LocalSeqNum1 = SeqNum - 1 
+                LocalSeqNum2 = SeqNum     
+
+                LocalPfiBODGroup = PfiBODGroup
+
+
+                LocalSeqNum      = LocalSeqNum1
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = 9999
+
+
+                LocalSeqNum      = SeqNum
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = LocalSeqNum1
+
+
+                LocalSeqNum = 9999
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = LocalSeqNum2
+
+        MoveDown is an Instance Action
+
+            Local Fields
+                LocalSeqNum1 is Numeric size 4
+                LocalSeqNum2 is Numeric size 4
+
+            Action Rules
+                constraint (SeqNum < LastSeqNum)
+                    "RecordIsAlreadyAtTheBottom"
+
+                LocalSeqNum1 = SeqNum + 1 
+                LocalSeqNum2 = SeqNum     
+
+                LocalPfiBODGroup = PfiBODGroup
+
+
+                LocalSeqNum      = LocalSeqNum1
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = 9999
+
+
+                LocalSeqNum      = SeqNum
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = LocalSeqNum1
+
+
+                LocalSeqNum = 9999
+                invoke Update BODGroupSeqNumRel
+                    invoked.SeqNum = LocalSeqNum2

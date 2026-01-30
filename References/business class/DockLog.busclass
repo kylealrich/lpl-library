@@ -1,0 +1,135 @@
+DockLog is a BusinessClass
+    owned by mscm
+    prefix is MSDOC
+
+    Ontology
+        symbolic key is DockLog
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        Carrier                             is a Vendor
+        DockLoggedBy                        is an Actor
+        TotalCount                          is Numeric size 6
+        DockLogTrackingNumberTextSearch     is Text
+			text searchable
+            default label is "SearchTrackingNumber"
+        TimeSubmitted                       is TimeStamp
+        TimeStarted                         is TimeStamp
+
+    Derived Fields
+        DerivedCompanyName is a DerivedField
+            type is Text
+            restricted
+            return Company.DerivedCompanyDisplay
+        
+        ProcessDeliveryDocumentLineXML is a DerivedField
+			type is XMLDocument
+			restricted
+			if (DockLogLinesRel exists)
+				for each DockLogLinesRel
+					ProcessDeliveryDocumentLineXML += template.DockLogDeliveryDocumentLine_ST document for each
+			else
+				return ""
+
+    Conditions
+        LineExists
+            when (DockLogLinesRel exists)
+    Field Rules
+
+    Actions
+        Create is a Create Action
+            restricted
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+		BuildDockLogTextSearch is an Instance Action 
+            restricted
+			run in background				
+			Action Rules
+                build text search field DockLogTrackingNumberTextSearch
+                    Fields
+                        DockLogLine set.TrackingNumber
+        
+        PrintDeliveryDocument is an Instance Action 
+            restricted
+            
+        PrintDocument is an Instance Action
+            valid when (LineExists)
+            Parameters
+				PrmMobileSupplyChainPrinter      is a MobileSupplyChainPrinter
+					default label is "MobileSupplyChainPrinter"
+            Parameter Rules
+				PrmMobileSupplyChainPrinter
+					initial value is MobileSupplyChainLocation.DerivedDefaultMobileSupplyChainReportPrinter
+					default to MobileSupplyChainLocation.DerivedDefaultMobileSupplyChainReportPrinter	
+					required
+					constraint (PrmMobileSupplyChainPrinter.PrinterType.Report)
+						"PrinterShouldOnlyBeReportPrinter"
+            Local Fields
+                LocalErrorOccured   is Boolean
+                LocalErrorMessage   is Text
+			Action Rules
+                invoke Create MobileSupplyChainPrinterJob
+		        	invoked.FinanceEnterpriseGroup          = Company.FinanceEnterpriseGroup
+		            invoked.Company 						= Company
+		            invoked.MobileSupplyChainPrinter 		= PrmMobileSupplyChainPrinter
+                    invoked.TransactionType                 = MobileSupplyChainPrintingTransactionType.DockLogging
+                    invoked.NumberOfCopies 					= 1
+					invoked.PrintDataFile 					= template.DockLogDeliveryDocument_ST document for this instance
+
+        Release is an Instance Action
+            Parameters
+                PrmMobileSupplyChainPrinter is a MobileSupplyChainPrinter
+					default label is "MobileSupplyChainPrinter"
+
+            Local Fields
+                LocalMobileSupplyChainDeliveryTicketView is a MobileSupplyChainDeliveryTicket view
+                LocalTrackingNumber                      is like TrackingNumber
+
+            Action Rules
+                invoke BuildDockLogTextSearch
+
+                if (PrmMobileSupplyChainPrinter entered)
+                    invoke PrintDocument
+                        invoked.PrmMobileSupplyChainPrinter = PrmMobileSupplyChainPrinter
+
+                invoke GenerateTrackingNumber MobileSupplyChainConfigurationRel
+                LocalTrackingNumber = MobileSupplyChainConfigurationRel.DerivedTrackingNumber
+
+                invoke Create MobileSupplyChainDeliveryTicket
+                    assign result to LocalMobileSupplyChainDeliveryTicketView
+                    invoked.Company                         = Company
+                    invoked.MobileSupplyChainLocation       = MobileSupplyChainLocation
+                    invoked.DeliveryType                    = DeliveryType.DockLog
+                    invoked.InforTrackingNumber             = LocalTrackingNumber
+                    invoked.DocumentNumber                  = DockLog
+                    invoked.OriginatingTransaction          = reference to this instance
+
+                invoke CreateDeliveryLinesAndEvent DockLogLine
+                    invoked.PrmMobileSupplyChainCompany         = Company
+                    invoked.PrmMobileSupplyChainLocation        = MobileSupplyChainLocation
+                    invoked.PrmDockLog                          = DockLog
+                    invoked.PrmMobileSupplyChainDeliveryTicket  = LocalMobileSupplyChainDeliveryTicketView.MobileSupplyChainDeliveryTicket
+
+    Relations
+        DockLogLinesRel is a DockLogLine set
+
+        MobileSupplyChainConfigurationRel
+            one-to-one relation to MobileSupplyChainConfiguration
+            Field Mapping uses symbolic key
+                related.MobileSupplyChainConfiguration  = Company.FinanceEnterpriseGroup
+
+    Sets
+        ByTimeSubmitted
+            Sort Order
+                TimeSubmitted descending
+                Company
+                MobileSupplyChainLocation
+                DockLog

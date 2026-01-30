@@ -1,0 +1,189 @@
+ProjectContractInvoiceComment is a BusinessClass
+	owned by Projects
+	prefix is PINC
+	
+	Ontology
+		symbolic key is ProjectContractInvoiceComment
+		
+	Patterns
+	
+	Persistent Fields
+		Subject	 			is a CommentName
+        	translatable		
+    	Comment				is Text
+		From				is Alpha size 230
+        	translatable		
+			default label is "CommentMadeBy"
+		CommentDate			is TimeStamp
+    		default label is "Date"
+#ifdef module idm
+    	Attachment				is an AlternateAttachment
+#endif
+#ifndef module idm
+		Attachment
+#endif
+		PrintOnInvoice      is Boolean   
+   		DocumentURL			is URL		 	
+   		SendToCustomer		is Boolean
+   		AttachmentForResend	is Boolean
+
+    Rule Blocks
+    	AttachmentsSizeTotal
+    		if (Attachment entered)
+    			LocalAttachmentSizeForProjectContractInvoice = DerivedCurrentAttachmentSizeForProjectContract + DerivedCurrentAttachmentSizeForProjectContractInvoice + Attachment.FileSizeBytes
+	Derived Fields
+    	DerivedCurrentAttachmentSizeForProjectContract	is a DerivedField
+    		type is Numeric size 11
+    		restricted
+    		return (sum ProjectContractCommentAttachmentsRel.Attachment.FileSizeBytes)
+    	
+    	DerivedCurrentAttachmentSizeForProjectContractInvoice is a DerivedField
+    		type is Numeric size 11
+    		restricted
+    		return (sum ProjectContractInvoiceCommentAttachmentsRel.Attachment.FileSizeBytes)
+    		
+    	DerivedCommentDate is a DerivedField
+            type is Date
+            return (CommentDate date)
+
+		DerivedFinanceDimension2 is a DerivedField
+			type is like FinanceDimension2
+			return ProjectContractInvoice.ProjectFundingSource.FinanceDimension2
+
+		DerivedProject is a DerivedField
+			type is like Project
+			return ProjectContractInvoice.ProjectFundingSource.ProjectContract.Project
+
+		DerivedRunGroup is a DerivedField
+			type is like RunGroup
+			return ProjectContractInvoice.RunGroup
+    Local Fields
+    	LocalAttachmentSizeForProjectContractInvoice	is Numeric size 11
+    	LocalAttributeCtr   							is Numeric 2
+
+	Field Rules
+		Subject
+    		required
+    			"SubjectIsRequired"
+    				
+    	Comment 
+    		required
+    			"CommentIsRequired"
+    	
+    	From
+			initial value is actor
+			required
+    	
+    	CommentDate
+    		default to current timestamp
+    		
+		SendToCustomer
+    		constraint (LocalAttachmentSizeForProjectContractInvoice <= 10485760) 
+    			"10MBMaxAttachmentLimitExceeded.CannotSendToCustomer."
+		
+	Conditions
+    	HasAttachment
+			restricted    	
+    		when (Attachment entered)
+    	
+    	HasComment
+			restricted    	
+    		when (CommentDate entered)
+    		
+		HasURL
+			restricted
+			when (DocumentURL entered)
+    		
+    Relations
+    	ProjectContractCommentAttachmentsRel
+			one-to-many relation to ProjectContractComment
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= ProjectContract
+			Instance Selection
+				where (related.Attachment entered
+				and	   related.SendToCustomer)
+
+		ProjectContractInvoiceCommentAttachmentsRel
+			one-to-many relation to ProjectContractInvoiceComment
+            Field Mapping uses ByCommentDate
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContractInvoice	= ProjectContractInvoice
+			Instance Selection
+				where (related.Attachment entered
+				and	   related.SendToCustomer)	
+    
+	Sets
+		ByCommentDate
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContractInvoice
+				CommentDate
+				ProjectContractInvoiceComment
+
+		ByProjectContractCommentDate
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract				
+				ProjectContractInvoice
+				CommentDate
+				ProjectContractInvoiceComment
+
+#ifdef module idm		
+	Create Rules   
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment	
+							
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment			
+
+#endif				
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				include AttachmentsSizeTotal
+		
+		Update is an Update Action
+			Action Rules
+				include AttachmentsSizeTotal
+		
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+		
+		Delete is a Delete Action	
+
+#ifdef module idm		
+		UploadToIDM is an Instance Action
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+	
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+						
+#endif

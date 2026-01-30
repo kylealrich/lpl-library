@@ -1,0 +1,163 @@
+ProjectContractMilestoneDistribution is a BusinessClass
+	sql name is "ProjectMilestoneDistrib"
+	owned by Projects
+	prefix is PRCMD
+	
+	Ontology
+		part of ProjectContractMilestone
+			relative key is SequenceNumber
+		
+	Patterns
+	
+	Persistent Fields
+		Percent						is Percent size 5.2
+		RevenueAccountOnly			is a GeneralLedgerChartAccount		
+		RevenueDimension			is a ProjectCodeBlock				
+		RevenueCodeBlockOption
+		RevenueFullAccount			is a FinanceCodeBlockFullNoProjectFD2
+			default label is "FullRevenueFinanceStructure"
+		RevenuePartialAccount		is a FinanceCodeBlockNoProjectFD2
+			default label is "PartialRevenueFinanceStructure"
+
+	Derived Fields
+		TotalPercent is a DerivedField
+			type is Percent size 7.3
+			restricted
+			return (sum OtherMilestoneDistributionsRel.Percent + Percent)
+
+	Conditions
+
+    Relations
+    	OtherMilestoneDistributionsRel
+    		one-to-many relation to ProjectContractMilestoneDistribution
+    		Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+    			related.ProjectContract				= ProjectContract
+    			related.FinanceDimension2			= FinanceDimension2
+    			related.ProjectContractMilestone	= ProjectContractMilestone
+    		Instance Selection
+    			where (related.UniqueID != UniqueID)
+
+	Sets
+
+	Field Rules
+		SequenceNumber
+			autosequence
+			
+		Percent
+			required
+			constraint (Percent <= 1)
+				"PercentCannotExceed100"
+			constraint (TotalPercent <= 1)
+				"TotalPercentForAllDistributionsCannotExceed100"
+
+		RevenueCodeBlockOption
+			required
+			if (ProjectContractMilestone.MilestoneType.Billing)
+				if (!ProjectContract.BillingMethod.Milestone
+				and !ProjectContract.BillingMethod.Installment)
+					constraint (RevenueCodeBlockOption.FullStructure)
+						"FullRevenueStructureRequiredForNonMilestoneContract"
+			if (ProjectContractMilestone.MilestoneType.Revenue)
+				if (!ProjectContract.RevenueMethod.Milestone
+				and !ProjectContract.RevenueMethod.PercentageOfCompletion
+				and !ProjectContract.RevenueMethod.Installment)
+					constraint (RevenueCodeBlockOption.FullStructure)
+						"FullRevenueStructureRequiredForNonMilestoneContract"
+
+		RevenuePartialAccount
+			if (RevenueCodeBlockOption.PartialStructure)
+				required
+					"PartialRevenueFinanceStructureRequired"
+				constraint (RevenuePartialAccount.GeneralLedgerChartAccount entered)
+					"Revenue<FinanceEnterpriseGroup.AccountLabel>Required"
+			else
+				cannot be entered
+					"CannotEnterPartialRevenueFinanceStructureUnlessRevenueStructureOptionIs_Partial"
+
+		RevenueFullAccount
+			if (RevenueCodeBlockOption.FullStructure)
+				required
+					"FullRevenueFinanceStructureRequired"
+			else
+				cannot be entered
+					"CannotEnterFullRevenueFinanceStructureUnlessRevenueStructureOptionIs_Full"
+										
+	Actions
+		Create is a Create Action
+			valid when (!ProjectContractMilestone.Status.Processed)
+			Action Rules
+				if ((ProjectContractMilestone.MilestoneType.Billing
+				and !ProjectContract.BillingMethod.Milestone
+				and !ProjectContract.BillingMethod.Installment)
+				or  (ProjectContractMilestone.MilestoneType.Revenue
+				and !ProjectContract.RevenueMethod.Milestone
+				and !ProjectContract.RevenueMethod.PercentageOfCompletion
+				and !ProjectContract.RevenueMethod.Installment))
+					RevenueCodeBlockOption = 1
+				if (ProjectContractMilestone.MilestoneType.Billing)
+					constraint (ProjectContract.BillingOverridesValid
+					or          ProjectFundingSource.MilestoneAccountRequired)
+						"MilestoneRevenueOverrideInvalidForContractRevenueRecognitionMethodAndMilestoneType"
+				else
+				if (ProjectContractMilestone.MilestoneType.Revenue)
+					constraint (ProjectContract.RevenueOverridesValid
+					or          ProjectFundingSource.MilestoneAccountRequired)					
+						"MilestoneRevenueOverrideInvalidForContractRevenueRecognitionMethodAndMilestoneType"
+				constraint (!ProjectContractMilestone.Status.Processed)
+					"CannotCreateOverrideDistributionsForProcessedMilestone"
+				constraint (!ProjectFundingSource.RevenueCodeBlockOption.None)
+					"CannotCreateMilestoneRevenueOverrideWhenFundingSourceRevenueStructureOptionIs_None"
+				if  (ProjectFundingSource.MilestoneAccountRequired
+				and !ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+				and  TotalPercent != 1)
+					confirmation required
+						"TotalDistributionPercentMustBe100OrMilestoneWillNotBeProcessed"
+									
+		Update is an Update Action
+			valid when (!ProjectContractMilestone.Status.Processed)		
+			Action Rules
+				constraint (!ProjectContractMilestone.Status.Processed)
+					"CannotUpdateOverrideDistributionsForProcessedMilestone"
+				if  (ProjectFundingSource.MilestoneAccountRequired
+				and !ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+				and  TotalPercent != 1)
+					confirmation required
+						"TotalDistributionPercentMustBe100OrMilestoneWillNotBeProcessed"
+				
+		Delete is a Delete Action
+			valid when (!ProjectContractMilestone.Status.Processed)		
+			Action Rules
+				constraint (!ProjectContractMilestone.Status.Processed)
+					"CannotDeleteOverrideDistributionsForProcessedMilestone"
+				if  (ProjectFundingSource.MilestoneAccountRequired
+				and !ProjectFundingSource.RevenueCodeBlockOption.FullStructure)
+					confirmation required
+						"TotalDistributionPercentMustBe100OrMilestoneWillNotBeProcessed"
+			
+		SetRevenueFields is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup     is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Instance Selection
+				where ((FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				or      PrmFinanceEnterpriseGroup not entered)
+				and     RevenueCodeBlockOption not entered)				
+			Action Rules
+				Instance Rules
+					if (RevenueAccountOnly entered)
+						RevenueCodeBlockOption = 2
+						RevenuePartialAccount.GeneralLedgerChartAccount = RevenueAccountOnly
+						RevenuePartialAccount.FinanceDimension1 = RevenueDimension.FinanceDimension1
+						RevenuePartialAccount.FinanceDimension3 = RevenueDimension.FinanceDimension3
+						RevenuePartialAccount.FinanceDimension4 = RevenueDimension.FinanceDimension4
+						RevenuePartialAccount.FinanceDimension5 = RevenueDimension.FinanceDimension5
+						RevenuePartialAccount.FinanceDimension6 = RevenueDimension.FinanceDimension6
+						RevenuePartialAccount.FinanceDimension7 = RevenueDimension.FinanceDimension7
+						RevenuePartialAccount.FinanceDimension8 = RevenueDimension.FinanceDimension8
+						RevenuePartialAccount.FinanceDimension9 = RevenueDimension.FinanceDimension9
+						RevenuePartialAccount.FinanceDimension10 = RevenueDimension.FinanceDimension10
+					else
+					if (RevenueFullAccount entered)
+						RevenueCodeBlockOption = 1

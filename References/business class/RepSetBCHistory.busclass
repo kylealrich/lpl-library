@@ -1,0 +1,331 @@
+RepSetBCHistory is a BusinessClass
+	prefix is RSBH
+	owned by la
+	default label is "ReplicationSetBusinessClassHistory"
+
+	
+	Patterns
+        disable Auditing
+        disable EffectiveDated
+        disable AsOfDateProcessing
+        implements UniqueID
+        implements UpdateStamp
+	
+	Persistent Fields
+		RecordCount 			is Numeric size 12
+		Started 				is TimeStamp	
+		Finished 				is TimeStamp
+		Segments				is Numeric size 12
+		ReplicationWarnings		is Text
+		BackfillFrom			is TimeStamp
+		NumberCreated	   		is Numeric size 12
+		NumberUpdated			is Numeric size 12
+		NumberDeleted			is Numeric size 12
+		BackfillUpdateCreates	is Numeric size 12
+			default label is untranslatable:"BackFillUpdateCreates" 
+		ExpectedNumberOfRecords is Numeric size 12
+		
+	Conditions
+		Orphaned
+			default label is untranslatable
+   			when (RepSetBCHistory.Backfill.False and ReplicationSetHistoryRel not exists)
+   			
+		WarningsExist
+			when (ReplicationWarnings entered)   			
+   			
+	Derived Fields
+
+
+
+
+        ElapsedTime is a DerivedField   
+            type is Decimal 10.0
+            default label is "LastElapsedTime"
+            if (Started = blank)
+                return 0
+
+            if (Finished != blank)
+                return Finished - Started
+            else
+                return system current timestamp - Started
+
+        DaysInElapsedTime is a DerivedField    
+            type is Numeric 6
+            default label is "LastDaysInElapsedTime"
+            DaysInElapsedTime = ((ElapsedTime / 86400) - .5)
+            if (DaysInElapsedTime < 0)
+                DaysInElapsedTime = 0
+
+        HoursInElapsedTime is a DerivedField    
+            type is Numeric 2
+            default label is "LastHoursInElapsedTime"
+            HoursInElapsedTime = (((ElapsedTime - (DaysInElapsedTime * 86400)) / 3600) - .5)
+            if (HoursInElapsedTime < 0)
+                HoursInElapsedTime = 0
+
+        MinutesInElapsedTime is a DerivedField  
+            type is Numeric 2
+            default label is "LastMinutesInElapsedTime"
+            MinutesInElapsedTime = ((((ElapsedTime - (DaysInElapsedTime * 86400)) - (HoursInElapsedTime * 3600)) / 60) - .5)
+            if (MinutesInElapsedTime < 0)
+                MinutesInElapsedTime = 0
+
+        SecondsInElapsedTime is a DerivedField  
+            type is Numeric 2
+            default label is "LastSecondsInElapsedTime"
+            SecondsInElapsedTime = ((((ElapsedTime - (DaysInElapsedTime * 86400)) - (HoursInElapsedTime * 3600)) - (MinutesInElapsedTime * 60)) - .5)
+            if (SecondsInElapsedTime < 0)
+                SecondsInElapsedTime = 0
+
+
+
+        DaysHoursMinutesSecondsInElapsedTime is a MessageField
+            "<DaysInElapsedTime>Days<HoursInElapsedTime>Hours<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+
+        HoursMinutesSecondsInElapsedTime is a MessageField
+            "<HoursInElapsedTime>Hours<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+
+        MinutesSecondsInElapsedTime is a MessageField
+            "<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+            
+		SecondsInElapsedTimeMessage is a MessageField
+        	"<SecondsInElapsedTime>Seconds"
+        	
+		SecondInElapsedTimeMessage is a MessageField
+        	"<SecondsInElapsedTime>Second"        	
+            
+        OneSecondInElapsedTimeMessage is a MessageField
+            "1Second"            
+
+        ElapsedTimeComponentsText is a DerivedField
+        	type is Alpha size 40
+        	default label is "LastElapsedTime"
+            if (DaysInElapsedTime > 0)
+                return DaysHoursMinutesSecondsInElapsedTime
+            else
+            if (HoursInElapsedTime > 0)
+                return HoursMinutesSecondsInElapsedTime
+            else
+            if (MinutesInElapsedTime > 0)
+                return MinutesSecondsInElapsedTime
+            else
+            if (SecondsInElapsedTime > 0)
+            	if (SecondsInElapsedTime = 1)
+            		return SecondInElapsedTimeMessage
+            		
+                return SecondsInElapsedTimeMessage
+            else
+                if (Started != blank)
+                    return "< " + OneSecondInElapsedTimeMessage 
+                else
+                    return ""   	
+                    
+		DerivedVariationID is a DerivedField
+        	type is Numeric size 12
+        	default label is "VariationID"         
+        	
+        	if (not RepSetBCHistory.Backfill.False)
+        		return 1
+        
+        	return ReplicationSetHistoryRel.VariationID           		
+   			
+	Ontology
+		symbolic key is RepSetBCHistory
+		
+	Relations
+		ReplicationSetHistoryRel
+    		one-to-one relation to ReplicationSetHistory
+			Field Mapping uses symbolic key
+				related.ReplicationSet  		= ReplicationSet 	
+				related.ReplicationSetHistory 	= RepSetBCHistory.HistoryStamp
+		
+
+
+
+
+
+
+
+
+		RepSetBCIncludeDeleteKeyRel
+ 			one-to-many relation to RepSetBC
+ 			Field Mapping uses symbolic key
+ 				related.ReplicationSet = ReplicationSet
+ 			 	related.RepSetBC = RepSetBC		
+ 			Instance Selection
+				include deleted records
+				where (related.ReplicationSet = ReplicationSet)
+				
+	Rule Blocks
+		CreateNotification
+			if (ReplicationWarnings entered)
+				LocalActor = actor
+				send notification
+					to LocalActor 
+					description is "ReplicationCompletedWithWarningsFor<ReplicationSet>,ReplicationName<RepSetBC.ReplicateClassName>"
+					priority is high
+					detail is "<ReplicationWarnings>"
+					linkback (webapp is AsyncWebApp navigation is ViewHistoryRecord text is "ViewHistoryRecord")
+		
+	Actions
+		Create is a Create Action
+			restricted
+			
+			Local Fields
+				LocalActor is an Actor
+				
+			Action Rules
+				include CreateNotification
+				
+		CreateT2V is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+			
+			Local Fields
+				LocalActor is an Actor
+				
+			Action Rules
+				include CreateNotification
+				
+		UpdateT2V is an Update Action
+			restricted
+			 
+		Delete is a Delete Action
+		
+		DeleteOrphanedHistory is a Set Action
+			restricted
+			Parameters
+				ParamReplicationSet 	is a ReplicationSet
+					default label is "ReplicationSet"
+
+			Parameter Rules
+				ParamReplicationSet
+					required
+					
+			Queue Mapping Fields
+				ReplicationSet
+				RepSetBC
+				
+			Instance Selection
+				where (ReplicationSet = ParamReplicationSet
+				and    Orphaned)
+			
+			Sort Order is ByRepSetStamp
+				
+			Action Rules
+				Instance Rules
+					invoke Delete		
+					
+		DeleteFullyOrphanedHistory is a Set Action
+					
+			Queue Mapping Fields
+				ReplicationSet
+				RepSetBC
+				
+			Instance Selection
+				where (ReplicationSet not exists or RepSetBC not exists or Orphaned)
+			
+			Sort Order is ByRepSetStamp
+				
+			Action Rules
+				Instance Rules
+					invoke Delete		
+					
+		DeleteAllBackfillHistory is a Set Action
+			Parameters
+				ParamReplicationSet 	is a ReplicationSet
+					default label is "ReplicationSet"
+				ParamRepSetBC 			is a RepSetBC
+					default label is "ReplicationSetBusinessClass"					
+
+			Parameter Rules
+				ParamReplicationSet
+					required
+					
+				ParamRepSetBC
+					required					
+					
+			Queue Mapping Fields
+				ParamReplicationSet
+				ParamRepSetBC
+				
+			Instance Selection
+				where (ReplicationSet = ParamReplicationSet and RepSetBC = ParamRepSetBC and not RepSetBCHistory.Backfill.False)
+			
+			Sort Order is primary
+				
+			Action Rules
+				Instance Rules
+					invoke Delete	
+					
+		UpdateForLoop is an Instance Action
+			restricted
+			refresh and lock this instance
+			
+			Parameters	
+				PrmRecordCount				is Numeric size 12
+					default label is "RecordCount"
+				PrmSegments					is Numeric size 12
+					default label is "Segments"
+				PrmStarted					is TimeStamp
+					default label is "Started"
+				PrmReplicationWarnings  	is Text
+					default label is "ReplicationWarnings"
+				PrmNumberCreated	   		is Numeric size 12
+					default label is "NumberCreated"
+				PrmNumberUpdated			is Numeric size 12
+					default label is "NumberUpdated"
+				PrmNumberDeleted			is Numeric size 12
+					default label is "NumberDeleted"
+				PrmBackfillUpdateCreates	is Numeric size 12
+					default label is untranslatable:"PrmBackfillUpdateCreates" 
+				PrmExpectedNumberOfRecords 	is Numeric size 12
+					default label is "ExpectedNumberOfRecords"
+			
+			Action Rules		
+				RecordCount					 	= PrmRecordCount + RecordCount
+				Segments		 	 		 	= PrmSegments + Segments
+				NumberCreated					= PrmNumberCreated + NumberCreated	
+				NumberUpdated					= PrmNumberUpdated + NumberUpdated
+				NumberDeleted					= PrmNumberDeleted + NumberDeleted
+				BackfillUpdateCreates			= PrmBackfillUpdateCreates + BackfillUpdateCreates
+				ExpectedNumberOfRecords			= PrmExpectedNumberOfRecords + ExpectedNumberOfRecords
+				
+				if (PrmStarted < Started
+				or  Started = blank)
+					Started						= PrmStarted
+					
+				if (PrmReplicationWarnings entered)
+					if (ReplicationWarnings entered)
+						ReplicationWarnings		= ReplicationWarnings + " " + PrmReplicationWarnings	
+					else
+						ReplicationWarnings		= PrmReplicationWarnings	
+
+	Sets
+		ByRepSetStamp
+			indexed
+			Sort Order
+				ReplicationSet
+				RepSetBCHistory.HistoryStamp
+				RepSetBCHistory.Backfill
+				RepSetBC
+
+		BySetTimeBackFill
+			indexed
+			Sort Order
+				ReplicationSet
+				RepSetBC
+				RepSetBCHistory.HistoryStamp
+				RepSetBCHistory.Backfill
+				
+		ByHistoryStamp
+			indexed
+			Sort Order
+				RepSetBCHistory.HistoryStamp
+				ReplicationSet
+				RepSetBC
+				RepSetBCHistory.Backfill
+				
+				

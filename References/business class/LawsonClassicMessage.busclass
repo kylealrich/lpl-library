@@ -1,0 +1,391 @@
+LawsonClassicMessage is a BusinessClass
+    owned by la
+    prefix is LCM
+
+    Ontology
+
+		part of LawsonClassicMessageGroup
+    		relative key is Sequence is Numeric size 6
+
+	Patterns
+    	implements CRUD
+		implements CreateStamp
+		disable Auditing
+		disable EffectiveDated
+
+    Persistent Fields
+        BusinessClass 		is BusinessObjectReference 
+		LctName		  		is Alpha size 7
+        Status		  		is Numeric size 1
+        	States
+        		New				value is 0
+        		Reset			value is 1
+        		Pending			value is 2
+        		Hold			value is 3
+        		Complete		value is 8
+        		Failed			value is 9
+        Token     	  		is AlphaUpper size 7
+        Fc     		  		is AlphaUpper size 1
+        EventType 	  		is AlphaUpper size 3	
+			States
+	            Add   			value is "ADD" 
+	            Change 			value is "CHG"
+        Data 		  		is Text
+        ResponseMessage 	is Text
+        	disable Auditing
+        FailureCount		is Numeric size 6
+
+	Derived Fields
+		MaxRetriesConfig is a DerivedField
+            type is Numeric size 3
+            return config.ags_max_retry
+
+		MaxRetries is a DerivedField
+            type is Numeric size 3
+            if (MaxRetriesConfig > 0)
+            	return MaxRetriesConfig
+           	else
+            	return 10
+            	
+	Conditions
+    	IsNew
+    		default label is "New"
+    		when (Status.New) 
+    	IsReset
+    		default label is "Reset"
+    		when (Status.Reset) 
+    	IsPending
+    		default label is "Pending"
+    		when (Status.Pending)
+    	IsHold
+    		default label is "Hold"
+    		when (Status.Hold)
+    	IsComplete
+    		default label is "Complete"
+    		when (Status.Complete)
+    	IsFailed
+    		default label is "Failed"
+    		when (Status.Failed)
+    	IsAddEvent
+    		default label is "AddEvent"
+    		when (EventType.Add)
+    	IsChangeEvent
+    		default label is "ChangeEvent"
+    		when (EventType.Change)
+
+    Sets
+
+        ByToken
+        	duplicates
+        	indexed
+        	Sort Order
+ 				Token
+ 				create stamp
+
+		ByStamp
+			duplicates
+			indexed
+			Sort Order
+				create stamp
+				Token
+
+		ByNewStamp
+			duplicates
+			indexed
+			Sort Order
+				create stamp
+				Token
+			Instance Selection
+				where (IsNew)
+		
+ 				
+ 	Field Rules 
+		Token
+			required
+		Fc
+	   		required
+	   	EventType
+			required
+
+	SubType IsNew Field Rules
+		ResponseMessage
+			cannot be changed
+	
+	SubType IsReset Field Rules
+		BusinessClass
+			cannot be changed
+		Token
+			cannot be changed
+		Fc
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+		
+	SubType IsPending Field Rules
+		BusinessClass
+			cannot be changed
+		Token
+			cannot be changed
+		Fc
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+	
+	SubType IsComplete Field Rules
+		BusinessClass
+			cannot be changed
+		Token
+			cannot be changed
+		Fc
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+		ResponseMessage
+			cannot be changed
+			
+	SubType IsFailed Field Rules
+		BusinessClass
+			cannot be changed
+		Token
+			cannot be changed
+		Fc
+			cannot be changed
+		EventType
+			cannot be changed
+
+
+
+	Actions
+		PurgeClassicMessages is a Set Action
+			restricted
+			valid when (LawsonClassicMessageGroup.Status.PendingDelete)
+			
+			Parameters
+				ParamGroup			is a LawsonClassicMessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.PendingDelete)
+						"ActionOnlyValidForCompleteGroups"
+				
+			Instance Selection
+				include deleted records
+				where (LawsonClassicMessageGroup = ParamGroup)
+								
+			Sort Order
+				LawsonClassicMessageGroup
+				Sequence
+								
+			Action Rules
+
+				Instance Rules
+
+					if (Status.Complete)
+						invoke Complete.PurgeRecord
+					else
+					if (Status.Hold)
+						invoke Hold.PurgeRecord
+					else
+					if (Status.Hold)
+						invoke Failed.PurgeRecord
+				
+				Empty Set Rules 
+					invoke PendingDelete.PurgeRecordInternal ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke PendingDelete.PurgeRecordInternal ParamGroup
+			
+  		ResetFailedMessages is a Set Action
+  			restricted
+			valid when (LawsonClassicMessageGroup.Status.PendingReset)
+			
+			Parameters
+				ParamGroup			is a LawsonClassicMessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.PendingReset)
+						"ActionOnlyValidForFailedGroups"
+						
+			Instance Selection
+				where (LawsonClassicMessageGroup = ParamGroup
+				and    Status.Failed)
+
+			Sort Order
+				LawsonClassicMessageGroup
+				Status
+							
+			Action Rules
+				Instance Rules
+					invoke Failed.Reset
+					
+				Empty Set Rules 
+					invoke PendingReset.Reset ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke PendingReset.Reset ParamGroup
+						
+		ResetHoldFailedMessages is a Set Action
+  			restricted
+			valid when (LawsonClassicMessageGroup.Status.Hold)
+			
+			Parameters
+				ParamGroup			is a LawsonClassicMessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.Hold)
+						"ActionOnlyValidForHeldGroups"
+						
+			Instance Selection
+				where (LawsonClassicMessageGroup = ParamGroup
+				and   (Status.Hold
+				or     Status.Failed))
+
+			Sort Order
+				LawsonClassicMessageGroup
+				Status
+							
+			Action Rules
+				Instance Rules
+					if (Status.Hold)
+						invoke Hold.Reset
+					else
+						invoke Failed.Reset
+					
+				Empty Set Rules 
+					invoke Hold.Reset ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke Hold.Reset ParamGroup									
+  
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+
+				Create is a Create Action
+					restricted
+					bypass field rules
+					Action Rules
+						autosequence Sequence
+							minimize contention
+				
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+
+			Reset is a State
+
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+						
+			Pending is a State
+				
+				Complete is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+						
+
+
+
+					
+					Action Rules
+						ResponseMessage	= Message
+						make transition to Complete
+						
+				PlaceOnHold is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+						
+					Action Rules
+						ResponseMessage	= Message
+						FailureCount = FailureCount + 1
+						make transition to Hold
+						
+				Failed is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+					
+
+
+
+						
+					Action Rules
+						ResponseMessage	= Message
+						FailureCount = FailureCount + 1
+						
+						if (FailureCount >= MaxRetries)
+							make transition to Hold
+						else
+							make transition to Failed
+
+			Hold is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"			
+				
+				Reset is an Instance Action
+					Action Rules
+						ResponseMessage	= ""
+						make transition to Reset
+				
+			Complete is a State
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+						
+				PurgeRecordInternal is a Purge Action
+					restricted
+			
+			Failed is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				
+				PlaceOnHold is an Instance Action
+					Action Rules
+						make transition to Hold
+				
+				Reset is an Instance Action
+					Action Rules
+						ResponseMessage	= ""
+						make transition to Reset
+    

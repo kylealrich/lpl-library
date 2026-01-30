@@ -1,0 +1,158 @@
+DocumentARPaymentRemitImport is a BusinessClass
+	owned by ar
+	prefix is DARRI
+
+
+	Ontology
+		symbolic key is DocumentARPaymentRemitImport
+
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		Company					is a ReceivableCompany
+		TransType				is AlphaUpper size 1
+			States
+				Invoice		value is "I"
+				CreditMemo	value is "C"
+					default label is "Credit memo"
+				DebitMemo	value is "D"
+		TransRemNbr
+		AppldAmt				is an InternationalAmount
+		CertificationNumber
+		CertificationDate		is Date
+		InterfaceRun			is a ReceivablesInterfaceResult
+			delete ignored
+		RPAProcess 				is Boolean
+
+	Field Rules
+		RPAProcess
+			initial value is DocumentARPaymentImport.RPAProcess
+			default to DocumentARPaymentImport.RPAProcess
+		Company
+			initial value is DocumentARPaymentImport.Company
+			default to DocumentARPaymentImport.Company
+
+	Derived Fields
+		DerivedInvoiceReqMsg is a MessageField
+			restricted
+			"Receivable_\InvoiceIsRequired"
+		
+		DerivedInvoiceTypeReqMsg is a MessageField
+			restricted
+			"Receivable_\Invoice_\TypeIsRequired"
+
+		DerivedApplicationAmountMsg is a MessageField
+			restricted
+			"Requested_\Application_\AmountCannotBeNegative"
+
+	Conditions
+		ErrorExists
+			restricted
+			when (DocumentARPaymentImportErrorRel exists)
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+
+	Relations
+		GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		DocumentARPaymentImportErrorRel	is a DocumentARPaymentImportError set
+
+		RemitImportWithCreateOrUpdateErrorsRel 
+			one-to-many relation using DocumentARPaymentImportErrorRel
+			Instance Selection
+				where (related.Type.Error)	
+	
+	Sets
+		ByInterfaceRun
+			Sort Order
+				InterfaceRun
+				DocumentARPaymentImport
+				DocumentARPaymentRemitImport
+				
+	Actions
+		Create is a Create Action
+			Exit Rules
+				if (RPAProcess)
+					if (TransType not entered)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage            = DerivedInvoiceTypeReqMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+					if (TransRemNbr not entered)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage       		= DerivedInvoiceReqMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+					if (AppldAmt < 0)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage       		= DerivedApplicationAmountMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+		Update is an Update Action
+			Exit Rules
+				if (RPAProcess)
+					if (RemitImportWithCreateOrUpdateErrorsRel exists)
+						invoke Delete RemitImportWithCreateOrUpdateErrorsRel
+						
+					if (TransType not entered)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage            = DerivedInvoiceTypeReqMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+					if (TransRemNbr not entered)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage       		= DerivedInvoiceReqMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+					if (AppldAmt < 0)
+						invoke Create DocumentARPaymentImportErrorRel
+							fill in fields from this instance
+							invoked.ErrorMessage       		= DerivedApplicationAmountMsg
+							invoked.Type					= "E"
+							invoked.RPAProcess				= true
+
+
+		Delete is a Delete Action
+
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+		ResetErrorMessage is an Instance Action
+			restricted
+			Action Rules
+				invoke Delete DocumentARPaymentImportErrorRel
+
+
+		CreateRemitDocumentImportError is an Instance Action
+			restricted
+			Parameters
+				PrmErrorMessage		is Text
+				PrmInterfaceRun		is like ReceivablesInterfaceResult
+			Action Rules
+				InterfaceRun		= PrmInterfaceRun
+				invoke Create DocumentARPaymentImportErrorRel
+					invoked.DocumentARPaymentImport 		= DocumentARPaymentImport
+					invoked.DocumentARPaymentRemitImport	= DocumentARPaymentRemitImport
+					invoked.ErrorMessage            		= PrmErrorMessage
+		
+		Purge is a Purge Action

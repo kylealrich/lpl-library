@@ -1,0 +1,346 @@
+PurgeActionResult is a BusinessClass
+    owned by la
+    prefix is PACR
+    
+    Ontology
+    	symbolic key is PurgeActionResult
+    
+    Patterns
+    	disable Auditing
+		disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+		RunTimeStamp 		is TimeStamp
+			default label is "StartTime"
+		EndTimeStamp 		is TimeStamp
+			default label is "EndTime"
+		ActionParameters 	is DataView existence not required
+		AsyncActionGroup	is UniqueID
+		RestoreAsyncId  is UniqueID
+		
+	Field Rules
+		AsyncActionGroup
+			default to current action background group id
+		
+	Conditions
+		CanPurge
+			when (not NonArchivedArchivedDataRel exists)
+			
+		HasParameters
+			default label is untranslatable
+			when (ActionParameters entered)
+			
+		ActionGroupMembersExist
+			when (ActionGroupMembers exists)
+		
+		DisplayActionGroupMembers
+			default label is untranslatable
+			when (instance count of ActionGroupMembers > 1)
+			
+		ActionGroupEntered
+			when (AsyncActionGroup entered)
+			
+		AllArchivedDataRelExists
+			default label is untranslatable
+			when (AllArchivedDataRel exists)
+			
+		ArchivedMembersHaveActionGroup
+			restricted
+			default label is untranslatable
+		 	when (first AllArchivedDataRel.AsyncActionGroup entered)
+		 
+		IsRestored
+			restricted
+			default label is untranslatable
+			when (RestorableArchivedDataRestoredRel exists)
+			
+		IsPartiallyRestored
+			restricted
+			default label is untranslatable
+			when (RestorableArchivedDataRestoredRel exists and RestorableArchivedDataUnrestoredRel exists)
+			
+		IsFullyRestored
+			restricted
+			default label is untranslatable
+			when (RestorableArchivedDataRestoredRel exists and not RestorableArchivedDataUnrestoredRel exists)
+		
+		RaiseYellowAlert
+			restricted
+			default label is untranslatable
+			when (IsPartiallyRestored or RestoreInProgress)
+		
+		RestoreInProgress
+			when (RestoreAsyncRel exists and RestoreAsyncRel.NonFinishedTriggersExist)
+		
+	Derived Fields
+		ActionParametersDoc is a DerivedField
+			type is XMLDocument
+			default label is "ActionParameters"
+			return ActionParameters
+	
+		DerRecordCount is a DerivedField
+			type is Numeric size 12
+			default label is "RecordCount"
+			return (sum PurgeActionResultBusClass set.RecordCount)
+			
+		DerCreatedInArchive is a DerivedField
+			type is Numeric size 12
+			default label is "CreatedInArchive"
+			return (sum PurgeActionResultBusClass set.CreatedInArchive)
+		
+		DerUpdatedInArchive is a DerivedField
+			type is Numeric size 12
+			default label is "UpdatedInArchive"
+			return (sum PurgeActionResultBusClass set.UpdatedInArchive)
+		
+		DerRestoredCount is a DerivedField
+			type is Numeric size 12
+			default label is "RestoredCount"
+			return (sum PurgeActionResultBusClass set.RestoredCount)
+		
+		DerPurgedFromArchive is a DerivedField
+			type is Numeric size 12
+			default label is "PurgedFromArchive"
+			return (sum PurgeActionResultBusClass set.PurgedFromArchive)
+			
+		AllowRestoreWithErrors is a DerivedField
+			type is Boolean
+			default label is untranslatable
+			return config(framework).AllowRestoreWithErrors = "true"
+		
+		CanRevert is a DerivedField
+			type is Boolean
+			default label is untranslatable
+			
+			if (CurrentAsyncID entered
+		    or  IsPartiallyRestored)
+				return true 
+			
+			if (PurgeActionResult != last RestorableByRuntimeStampRel.PurgeActionResult)
+				return false
+				
+			return IsRestorable
+		
+		IsRestorable is a DerivedField
+			type is Boolean
+			default label is untranslatable
+			
+			if (ActionGroupEntered)
+				for each ActionGroupMembers
+					if (RestorableArchivedDataRel not exists or RestorableArchivedDataRestoredRel exists or (not AllowRestoreWithErrors and UnfinishedArchivedArchivedDataRel exists))
+						return false
+				return true
+			
+			return (RestorableArchivedDataRel exists and not RestorableArchivedDataRestoredRel exists and (AllowRestoreWithErrors or not UnfinishedArchivedArchivedDataRel exists))
+
+		CurrentAsyncID is a DerivedField
+			type is UniqueID
+			restricted
+			default label is untranslatable
+			return current async action request id
+			
+		PartiallyRestoredMessage is a MessageField
+			"DataPartiallyRestored"
+		
+		RestoreInProgressMessage is a MessageField
+			"RestoreInProgress"
+		
+		YellowAlertMessage is a DerivedField
+			type is MessageField
+			
+			if (IsPartiallyRestored)
+				return PartiallyRestoredMessage
+			
+			if (RestoreInProgress)
+				return RestoreInProgressMessage
+			
+			return blank
+			
+
+		DerRestoreAsyncId is a DerivedField
+			type is UniqueID
+			restricted
+			default label is untranslatable
+			
+			if (RestoreAsyncId entered)
+				return RestoreAsyncId
+				
+			if (AsyncActionGroup entered)
+				for each ActionGroupMembers
+					if (each.RestoreAsyncId entered)
+						return each.RestoreAsyncId
+				
+			return blank
+		 		
+	Create Rules
+		invoke SetLastRunTime PurgeActionDefinitionRel
+			invoked.ParamLastRunTime = RunTimeStamp
+	
+	Actions
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			valid when (CanPurge)
+			restricted
+			
+		Revert is an Instance Action 
+			valid when (CanRevert)
+			confirmation required
+				"ThisWillRestoreAllResultsThatWerePartOfTheSamePurgeProcess.Continue?"
+			run in background
+			
+			Entrance Rules
+				RestoreAsyncId = current async action request id
+			
+
+				
+		PurgeActionResults is a Set Action
+			Parameters
+				ThruDate 		 is Date
+				PurgeOffsetDays  is Numeric size 3
+				IncludeErrors	  is Boolean
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+			
+
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+						
+			Instance Selection
+				where (RunTimeStamp < LocalThruDate)
+
+			Sort Order is ByRunTimeStamp
+				
+			Action Rules
+
+				Instance Rules
+					if (CanPurge and (IncludeErrors or not ErrorArchivedArchivedDataRel exists))
+						invoke Delete 
+							
+	Relations
+		AllArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+				
+		RestorableArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+			Instance Selection
+				where (related.SentToArchive = 1 
+				or     related.SentToArchive = 3) 
+	
+		RestorableArchivedDataRestoredRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+			Instance Selection
+				where ((related.SentToArchive = 1 
+				or     related.SentToArchive = 3) 
+				and    related.LastRestoredStamp entered)
+				
+		RestorableArchivedDataUnrestoredRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+			Instance Selection
+				where ((related.SentToArchive = 1 
+				or     related.SentToArchive = 3) 
+				and    related.LastRestoredStamp not entered)
+		
+		
+		NonArchivedArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+				related.SentToArchive = 0 
+				
+		ErrorArchivedArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultUniqueID
+				related.PurgeActionResultUniqueID = UniqueID 
+				related.SentToArchive = 2 
+		
+		UnfinishedArchivedArchivedDataRel
+    		one-to-many relation using AllArchivedDataRel
+    		delete cascades
+			Instance Selection
+				where (related.SentToArchive = 0 or related.SentToArchive = 2) 
+				
+		ActionGroupMembers
+			one-to-many relation to PurgeActionResult
+			Field Mapping uses ByAsyncActionGroup
+				related.AsyncActionGroup = AsyncActionGroup
+				
+		PurgeActionDefinitionRel
+			one-to-one relation to PurgeActionDefinition
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+				related.BusinessAction = BusinessAction
+				
+		RestorableByRuntimeStampRel
+			one-to-many relation to PurgeActionResult
+			Field Mapping uses ByRunTimeStamp
+			Instance Selection
+				where (related.IsRestorable)
+				
+		RestoreAsyncRel
+			one-to-one relation to AsyncActionRequest
+			Field Mapping uses symbolic key
+				related.AsyncActionRequest = DerRestoreAsyncId
+	Sets
+		ByUniqueID
+			indexed
+			Sort Order
+				UniqueID
+				
+		ByRunTimeStamp
+			indexed
+			Sort Order
+				RunTimeStamp
+				PurgeActionResult
+				
+		ByBusViewRunTimeStamp
+			indexed
+			Sort Order
+				BusinessView
+				RunTimeStamp
+				PurgeActionResult
+				
+		ByAsyncActionGroup
+			indexed
+			Sort Order
+				AsyncActionGroup
+				RunTimeStamp
+				PurgeActionResult
+			Instance Selection
+				where (ActionGroupEntered)
+				

@@ -1,0 +1,494 @@
+UserCube is a BusinessClass
+    owned by repository
+    prefix is uscb
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+
+		implements AuditLogEntryActions
+				
+    Ontology
+        symbolic key is UserCube
+    
+    Persistent Fields
+    	BusinessClass
+    	Status 				is a UserObjectStatus
+    	LPL             	is LPL
+    	Description			is a ConfigDescription
+    	UserEditorType
+    	HasPendingChanges	is Boolean 
+    		default label is "PendingChanges"	
+    	ErrorText			is Text
+    	
+
+
+    	
+	Field Rules
+		BusinessClass
+			required
+			
+			constraint (BusinessClass.Configurable)
+				"<BusinessClass>isNotConfigurable"
+			
+
+
+
+    		
+		LPL
+			if (Status.Active)
+				if (not LPL entered)
+					initialize ErrorText
+					HasPendingChanges = true	
+				else 
+					LocParseText = ParseText
+					
+					if (not LocParseText = blank)
+
+
+
+
+							confirmation required
+								"<LocParseText>:_User_CubeIsInvalid.__DoYouWantToSaveAnyway?"
+					
+						Status = Status.Invalid	
+						ErrorText = LocParseText
+						HasPendingChanges = false
+					else	
+						HasPendingChanges = true
+			else
+			if (not LPL entered)
+				initialize ErrorText
+				
+		UserEditorType
+			default to UserEditorType.LPL	
+	
+		Status
+			if (Status.Active)
+				initialize ErrorText
+				
+				if (DeployedCubeRel not exists
+				or  (DeployedCubeRel exists
+				and  (not DeployedCubeRel.Status.Active
+				or  not DeployedCubeRel.LPL = LPL)))
+					HasPendingChanges = true
+			else
+			if (DeployedCubeRel exists
+			and DeployedCubeRel.Status.Active)
+				HasPendingChanges = true
+			else
+				HasPendingChanges = false	
+    		
+    Derived Fields
+		ConfigActor is a DerivedField
+			type is Actor
+			default label is "Actor"
+			return blank
+			
+    	ParseText is a NativeField
+			type is Text
+			
+		ApplyPendingMessage is a DerivedField
+			type is MessageField
+			restricted
+			
+			if (not LocAnyRecords)
+				return NoRecordsMessage
+			else
+			if (LocAnyErrors)
+				return ErrorsMessage
+			else
+				return NoErrorsMessage
+			
+		NoRecordsMessage is a MessageField
+			restricted
+			"NoPendingRecordsFoundToApply"		
+			
+		ErrorsMessage is a MessageField
+			restricted
+			"NotAllPendingRecordsCouldBeAppliedDueToErrors"
+			
+		NoErrorsMessage is a MessageField
+			restricted
+			"PendingRecordsApplied"
+			
+		WorkingLPL is a DerivedField
+			type is LPL
+			restricted
+			if (LPL entered)
+				return LPL
+			
+			return DeployedCubeRel.LPL 
+			
+	Local Fields
+		LocParseText 	is Text	
+		LocParsed 		is Boolean  
+		LocAnyErrors 	is Boolean
+		LocAnyRecords 	is Boolean
+		LocBusinessView is LPLName
+						
+    Conditions
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when (true)
+			
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+		CanSetPendingChanges
+			default label is "ValidToApply"
+			when (not HasPendingChanges and ((not LPL entered and DeployedCubeRel exist) or Status.Active))
+			
+		PendingDelete
+			when (Status.Active and HasPendingChanges and not LPL entered)	
+			
+		AnalyticCubeExists
+			when (AnalyticCubeRel exists)				
+	
+	Relations
+		AnalyticCubeRel
+			one-to-one relation to AnalyticCube
+			Field Mapping uses AnalyticCubeSet
+				related.BusinessClass = BusinessClass		
+				
+		DeployedCubeRel
+			one-to-one relation to UserCubeDeployed 
+				Field Mapping uses ByClass
+					related.BusinessClass = BusinessClass
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses symbolic key
+                related.ConfigEntity = UserCube
+
+		LocalDuplicateRel
+    		one-to-many relation to UserCube
+			Field Mapping uses ByClass
+				related.BusinessClass = LocBusinessView
+
+   	Actions
+    	Create is a Create Action
+    	
+    	CreateFromSnapshot is a Create Action
+    		restricted
+    		bypass field rules
+    		Entrance Rules
+    			if (DeployedCubeRel exists
+    			and DeployedCubeRel.Status.Active
+    			and AnalyticCubeExists
+    			and not AnalyticCubeRel.CubeIsDeployingConfiguration)
+					invoke LockForConfiguration AnalyticCubeRel
+    			
+    	Update is an Update Action
+    	
+    	UpdateFromSnapshot is an Update Action
+    		restricted
+    		bypass field rules
+    		Entrance Rules
+    			if (DeployedCubeRel exists
+    			and DeployedCubeRel.Status.Active
+    			and AnalyticCubeExists
+    			and not AnalyticCubeRel.CubeIsDeployingConfiguration)
+					invoke LockForConfiguration AnalyticCubeRel
+
+    	Delete is an Instance Action
+    		Action Rules
+	    		if (DeployedCubeRel exists
+	    		and DeployedCubeRel.Status.Active)
+	    			initialize LPL
+	    			HasPendingChanges = true
+	    		else
+	    			invoke Delete DeployedCubeRel
+	    			invoke DeleteInternal
+	    	
+	   	DeleteFromSnapshot is an Instance Action 
+	   		restricted	
+	   		Entrance Rules
+    			if (DeployedCubeRel exists
+    			and DeployedCubeRel.Status.Active
+    			and AnalyticCubeExists
+    			and not AnalyticCubeRel.CubeIsDeployingConfiguration)
+					invoke LockForConfiguration AnalyticCubeRel
+			
+			Action Rules
+				if (DeployedCubeRel exists
+	    		and DeployedCubeRel.Status.Active)
+	    			initialize LPL
+	    			HasPendingChanges = true
+	    		else
+	    			invoke Delete DeployedCubeRel
+	    			invoke DeleteInternalFromSnapshot
+					
+    	DeleteInternal is a Delete Action
+    		restricted
+    		Exit Rules
+                invoke FireConfigEntityClear
+
+    	DeleteInternalFromSnapshot is a Delete Action
+    		restricted
+    		bypass relational integrity rules
+    	
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    			
+    		Action Rules
+    			if (LPL entered)
+	    			LocParseText = ParseText
+					
+					if (not LocParseText = blank)
+
+
+
+
+						constraint(LocParseText = blank)							
+							"<LocParseText>:_User_CubeIsInvalid._Cannot_Activate."				
+				
+				Status = Status.Active
+				HasPendingChanges = true
+				initialize ErrorText
+			
+			Exit Rules
+                invoke FireConfigEntityClear
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		
+    		Action Rules
+    			Status =  Status.Inactive
+				if (DeployedCubeRel exists
+				and DeployedCubeRel.Status.Active)
+					HasPendingChanges = true
+
+			Exit Rules
+                invoke FireConfigEntityClear
+
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		
+    		Action Rules
+    			Status = Status.Invalid
+				if (DeployedCubeRel exists
+				and DeployedCubeRel.Status.Active)
+					HasPendingChanges = true
+
+			Exit Rules
+                invoke FireConfigEntityClear
+
+		DoNotApplyUntilNextChange is an Instance Action
+			valid when (HasPendingChanges)
+			Action Rules
+				HasPendingChanges = false
+				
+		SetToValidToApply is an Instance Action
+			valid when (CanSetPendingChanges)
+			Action Rules
+				HasPendingChanges = true				    			
+
+		FireEvent is an Instance Action
+			restricted
+
+
+		FireConfigEntityClear is an Instance Action
+			restricted
+
+    			
+   		ApplyPending is an Instance Action
+   			restricted
+   			valid when (HasPendingChanges)
+   				
+   			Local Fields
+   				SetDeployStatus is Boolean
+   				FireCubeEvent is Boolean
+   				 
+    		Action Rules
+    			if (LPL entered and Status.Active)
+    				LocParseText = ParseText
+    			
+					constraint(LocParseText = blank)							
+						"<LocParseText>:_User_CubeIsInvalid._Cannot_Apply."				
+	
+				FireCubeEvent = false
+				
+
+
+
+				if (DeployedCubeRel exists)
+					if (Status.Active)
+						if (LPL entered)
+							if (not DeployedCubeRel.Status.Active
+							or  not LPL = DeployedCubeRel.LPL)
+								invoke Update DeployedCubeRel
+									invoked.LPL         	= LPL
+									invoked.Status      	= Status
+									invoked.Description		= Description
+		    						invoked.UserEditorType 	= UserEditorType
+		    						invoked.DeployStatus    = 1 
+		    					
+		    					HasPendingChanges = false
+	    				else
+
+	    					invoke Update DeployedCubeRel
+	    						invoked.DeployStatus    = 2 
+	    					
+	    					invoke DeleteInternal
+	    					
+	    				if (not AnalyticCubeRel.CubeIsDeployingConfiguration)
+	    					invoke LockForConfiguration AnalyticCubeRel
+	    					FireCubeEvent = true
+	    			else
+	    			if (Status.Inactive)
+	    				if (DeployedCubeRel.Status.Active)
+	    					SetDeployStatus = true 
+	    				else
+	    					SetDeployStatus = false 
+	    					
+	    				invoke Update DeployedCubeRel
+	    					if (LPL entered)
+								invoked.LPL         	= LPL
+							
+							invoked.Status      	= Status
+							invoked.Description		= Description
+    						invoked.UserEditorType 	= UserEditorType
+    						
+    						if (SetDeployStatus)
+    							invoked.DeployStatus    = 1 
+    							
+    					HasPendingChanges = false
+    					
+    					if (SetDeployStatus
+    					and not AnalyticCubeRel.CubeIsDeployingConfiguration)
+							invoke LockForConfiguration AnalyticCubeRel
+							FireCubeEvent = true
+				else
+				if (Status.Active)
+					if (LPL entered)
+						invoke Create DeployedCubeRel
+							invoked.LPL         	= LPL
+							invoked.Status      	= Status
+							invoked.Description		= Description
+	    					invoked.UserEditorType 	= UserEditorType
+	    					invoked.DeployStatus    = 1 
+	    					
+	    				HasPendingChanges = false
+	    				
+	    				if (not AnalyticCubeRel.CubeIsDeployingConfiguration)
+	    					invoke LockForConfiguration AnalyticCubeRel
+	    					FireCubeEvent = true
+	    				
+    				else		
+    					invoke DeleteInternal
+    			else
+    				HasPendingChanges = false
+    				
+				commit transaction  
+				
+				if (FireCubeEvent)
+					invoke FireEventImmediate AnalyticCubeRel			
+					
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserCubeIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserCubeIsInvalid,TagAnyway?"
+							
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance		              
+				
+		ApplyPendingChanges is a Set Action
+
+
+			confirmation required
+				"ThisProcessWillLockAnyCubesThatHavePendingChanges,ApplyTheChanges,ReloadChangedCubes,ThenUnlock.ThisCanTakeSomeTime.Proceed?"
+			completion message is "<ApplyPendingMessage>"
+			
+			Instance Selection
+				where (HasPendingChanges and not AnalyticCubeRel.CubeIsDeactivated)
+			
+			Local Fields
+				AnyErrors 	 	is Boolean
+				AnyRecords 		is Boolean
+				CurrentError 	is Boolean
+				CurrentAsyncId 	is an AsyncActionRequest
+				
+			Action Rules
+				Empty Set Rules
+					LocAnyRecords = false
+					invoke DeployPendingChanges UserCubeDeployed in background
+					 
+				Instance Rules
+				    CurrentError = false
+					AnyRecords = true
+					
+					invoke ApplyPending
+						resume on error
+							AnyErrors = true
+							CurrentError = true
+							log "ApplyPendingChanges:<BusinessClass>FailedToApplyPendingCubeChanges"
+							
+				Set Rules
+					Exit Rules 
+						LocAnyRecords = AnyRecords
+						LocAnyErrors = AnyErrors	
+						
+						invoke DeployPendingChanges UserCubeDeployed in background
+						
+
+
+
+        ConfigureCube is a Create Action
+            Parameters
+                BusinessClassParam is a BusinessClass
+                    default label is "BusinessClass"
+
+                BeginningBalancePeriodZeroParam is Boolean
+                    default label is "BeginningBalancePeriodZero"
+
+            Parameter Rules
+                BusinessClassParam
+                    required
+					constraint (!BusinessClassParam.IsUserClass)
+						"ConfigurationNotAllowedInAUserDefinedBusinessClass."
+
+		            constraint (BusinessClassParam.Configurable)
+				        "<BusinessClassParam>isNotConfigurable."
+
+                BeginningBalancePeriodZeroParam
+
+			Local Fields
+				LocalLPLParam is LPL
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                constraint (!LocalDuplicateRel exists)
+                    "CubeExistsForBusinessClass_'<LocBusinessView>'"
+
+                invoke Create this instance
+                    invoked.BusinessClass           = BusinessClassParam
+                    invoked.LPL 				    = LocalLPLParam
+
+    Sets
+    	ByClass
+    		indexed
+    		Sort Order
+    			BusinessClass
+		
+		ByClassHasPending
+			indexed
+			Sort Order
+				BusinessClass  
+			Instance Selection
+ 				where (HasPendingChanges)				  			

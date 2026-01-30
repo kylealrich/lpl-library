@@ -1,0 +1,215 @@
+QuestionAnswer is a BusinessClass
+    owned by procurement
+    prefix is QANS
+
+    Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+
+	Ontology
+    	symbolic key is QuestionAnswer
+    	
+	Persistent Fields
+		DisplayOrder
+		CorrectAnswer 		is Boolean
+		ScoreAllocation
+		
+	Transient Fields
+		NewDisplayOrder		is a DisplayOrder
+
+	Local Fields
+		LocalDisplayOrder			is a DisplayOrder
+		LocalConditionalQuestion	is like Question
+		LocalSupplierGroup			is like SupplierGroup
+		LocalSupplier				is like Supplier
+
+	Conditions
+		QuestionUsedForContractInterview
+			restricted
+			when (Question.UsedForContractInterview)
+		AnswerHasTerms
+			when (QuestionAnswerTermRel exists)
+		YesNoOrList 
+			when (Question.ResponseType.List
+			or    Question.IsYesNo)
+		HasConditionalQuestions 
+			when (ConditionalQuestionsRel exists)
+			
+	Relations
+		TermAndConditionRel 
+			one-to-many relation to TermAndCondition
+			Field Mapping uses symbolic key
+				related.ProcurementGroup = ProcurementGroup
+				
+		TermAndConditionDisplayRel
+			one-to-many relation to TermAndCondition
+			Field Mapping uses ByDisplayOrder
+				related.ProcurementGroup = ProcurementGroup
+
+		ArticleRel 
+			one-to-many relation to Article
+			Field Mapping uses ByDisplayOrder
+				related.ProcurementGroup = ProcurementGroup
+				
+		ConditionalQuestionsRel is a ConditionalQuestion set 
+		
+		LocalConditionalQuestionsRel 
+			one-to-one relation to ConditionalQuestion 
+			Field Mapping uses symbolic key 
+				related.ProcurementGroup 	= ProcurementGroup
+				related.Question            = Question
+				related.QuestionAnswer   	= QuestionAnswer
+				related.ConditionalQuestion	= LocalConditionalQuestion
+		QuestionAnswerTermRel is a QuestionAnswerTerm set
+		
+		HasAnotherCorrectAnswerRel
+			one-to-many relation to QuestionAnswer
+			Field Mapping uses symbolic key
+				related.ProcurementGroup = ProcurementGroup
+				related.Question         = Question	
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.CorrectAnswer)
+				
+		SupplierQuestionsRel
+			one-to-many relation to SupplierQuestions
+			Field Mapping uses ByQuestion
+				related.SupplierGroup	= LocalSupplierGroup
+				related.Question		= Question	
+
+		SupplierQuestionsSetResponseRel
+			one-to-many relation to SupplierQuestionsSetResponse
+			Field Mapping uses part of key
+				related.SupplierGroup			= LocalSupplierGroup
+				related.Supplier				= LocalSupplier	
+
+	Sets
+		ByDisplayOrder
+			duplicates
+			Sort Order
+				ProcurementGroup
+				Question
+				DisplayOrder
+				
+		CorrectAnswerSet
+  			Sort Order
+  				ProcurementGroup	
+  				Question
+  			Instance Selection
+  				where (CorrectAnswer)
+  				
+  		ByAnswerSet
+  			Sort Order
+  				ProcurementGroup
+  				QuestionAnswer
+  				Question
+  				
+    Field Rules
+		CorrectAnswer
+            if (CorrectAnswer)
+                constraint (Question.ResponseRequired)
+                    "ACorrectAnswerCannotBeSelected;TheQuestionIsNotSetAsRequiredToBeAnswered"
+        ScoreAllocation
+            if (ScoreAllocation entered)
+                constraint (Question.ResponseRequired)
+                    "CannotEnterAnAllocationIfQuestionResponseTypeDoesNotRequireAResponse"
+							
+	Actions
+		Create is a Create Action
+			valid when (Question.ResponseType.List)
+			
+			Field Rules
+				DisplayOrder
+					autosequence using Question.LastQuestionAnswerDisplayOrder
+				
+     		Action Rules
+				constraint (!Question.AllContractsRel exists)
+					"CannotCreateAnotherAnswer;ThisQuestionIsAlreadyAssociatedWithAContract"
+     		
+				if (CorrectAnswer)
+					if (HasAnotherCorrectAnswerRel exists)
+						invoke ChangeCorrectAnswer HasAnotherCorrectAnswerRel
+							invoked.CorrectAnswer = false
+			
+			Exit Rules
+				if (Question.ResponseType.List)
+					invoke Update QuestionAnswer.QuestionAnswerGroup.QuestionListValue
+						invoked.DisplayOrder = DisplayOrder
+
+		InternalCreate is a Create Action
+			restricted
+
+     	Update is an Update Action
+     		Field Rules
+				CorrectAnswer
+					if (CorrectAnswer != old CorrectAnswer)
+						if ((Question.ResponseType.List 
+						or 	 Question.ResponseType.YesNo 
+						or 	 Question.ResponseType.YesNoText 
+						or 	 Question.ResponseType.Rebate)
+						and  Question.AllContractsRel exists)
+							cannot be changed
+								"CannotChangeTheCorrectAnswerOption;ThisQuestionIsAssociatedWithContracts"
+     						
+     		Action Rules
+				if (CorrectAnswer changed
+				and !NewDisplayOrder entered)
+					if (HasAnotherCorrectAnswerRel exists)
+						invoke ChangeCorrectAnswer HasAnotherCorrectAnswerRel
+							invoked.CorrectAnswer = false
+							
+				LocalDisplayOrder = NewDisplayOrder
+
+			Exit Rules
+				if (Question.ResponseType.List
+				and LocalDisplayOrder entered)
+					invoke Update QuestionAnswer.QuestionAnswerGroup.QuestionListValue
+						invoked.NewDisplayOrder = LocalDisplayOrder
+						
+		CreateConditionalQuestion is an Instance Action
+			valid when (YesNoOrList)
+			Parameters 
+				ParmConditionalQuestion is a Question
+					default label is "ConditionalQuestion"
+
+			Parameter Rules 
+				ParmConditionalQuestion 
+					required 
+			Action Rules
+
+				constraint (ParmConditionalQuestion.Active)
+					"CannotUseAnInactiveQuestion"
+				LocalConditionalQuestion = ParmConditionalQuestion 
+				constraint (ParmConditionalQuestion.Active)
+					"CannotUseAnInactiveQuestion"
+				constraint (LocalConditionalQuestionsRel !exists)
+					"ConditionalQuestionAlreadyExists"
+				constraint (ParmConditionalQuestion != Question)
+					"ConditionalQuestionCannotBeTheSameAsQuestion"
+
+				for each SupplierQuestionsRel
+					LocalSupplierGroup			= each.SupplierGroup
+					LocalSupplier				= each.Supplier
+					constraint (SupplierQuestionsSetResponseRel !exists)
+						"CannotAddConditionalQuestion,ASupplierHasRespondedToTheQuestion"
+
+				invoke Create ConditionalQuestion 
+					invoked.ProcurementGroup 	= ProcurementGroup 
+					invoked.Question            = Question 
+					invoked.QuestionAnswer   	= QuestionAnswer 
+					invoked.ConditionalQuestion	= ParmConditionalQuestion
+
+				if (Question.UsedForContractInterview)
+					invoke Update ParmConditionalQuestion 
+						invoked.UsedForContractInterview = true
+						invoked.IsConditionalQuestion    = true
+		
+		ChangeCorrectAnswer is an Update Action
+			restricted	
+									
+     	Delete is a Delete Action		
+			valid when (Question.ResponseType.List)
+			
+			Action Rules
+				invoke Delete QuestionAnswer.QuestionAnswerGroup.QuestionListValue

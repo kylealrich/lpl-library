@@ -1,0 +1,1052 @@
+GeneralLedgerDepartmentTransaction is a BusinessClass
+	default label is "GlobalLedgerDepartmentTransaction"
+    owned by GeneralLedger
+	sql name is "GLDepartmentTransaction"
+    prefix is GLDTR
+
+    Ontology
+    	symbolic key is GeneralLedgerDepartmentTransaction
+    	
+    Patterns
+
+    Context Fields
+
+    Persistent Fields
+        Status							is Numeric 1
+            States
+                Unreleased				value is 0
+                Released	   			value is 1
+                PendingApproval			value is 2
+				Posted					value is 9
+        	disable Auditing
+		FinanceCodeBlock				is a TransactionCodeBlock
+	    DimensionCode
+        GeneralLedgerEvent
+        	default label is "GlobalLedgerEvent"
+        TransactionDate					is an ExchangeDate
+        CurrencyCode					is a FromCurrency
+        TransactionAmount				is a CurrencyAmount 
+        	precision is CurrencyCode.NumberOfDecimals     
+        Reference
+        Description						is Alpha up to 60
+        UnitsAmount						
+        PostingDate
+		ReportCurrencyAmount			is a FinanceCurrencyAmount
+    	System							is a GeneralLedgerSystemCode
+		PrimaryLedger					is a Ledger
+#ifdef module sharedfinance
+		ApprovalCode
+		ApprovalLevel					is Numeric 8
+		ReassignToApprovalLevel			is an ApprovalCodeResource
+		Approver						is a FinanceResource
+		ApproverTeam					is a FinanceTeamField
+#endif
+#ifndef module sharedfinance
+		ApprovalCode					is AlphaUpper 30
+		ApprovalLevel					is Numeric 8
+		ReassignToApprovalLevel			is Numeric 8
+		Approver						is Numeric 13
+		ApproverTeam					is a GlonlyFinanceTeamField
+#endif
+    	IsASystemTransaction			is Boolean
+		OriginExpenseTransaction		is Boolean
+		SortByDimension					is like AccountingUnit
+
+	Transient Fields
+
+	Local Fields
+		LocalApprovalLevel			   	is Numeric 8
+		LocalApproverList			   	is Alpha 250
+		LocalFirstApproverAssigned	  	is Boolean
+#ifdef module sharedfinance
+		LocalApprover				   	is a FinanceResource  
+		LocalApproverTeam			   	is a FinanceTeamField  
+#endif
+#ifndef module sharedfinance
+		LocalApprover				   	is Numeric 13
+		LocalApproverTeam			   	is AlphaUpper 20		
+#endif
+		LocalSystemAccount				is a SystemAccount
+		LocalFinanceCodeBlock			is a FinanceCodeBlock
+		LocalJournalMessage				is Alpha 150
+        LocalActor		   				is Actor
+
+	Rule Blocks
+
+		InitiateJournalFlow
+
+
+			trigger "DepartmentTransactionApproval" PA service
+				resume on error
+				title is "<DepartmentTransactionApprovalTitle>"
+				Variables
+					include persistent fields from GeneralLedgerDepartmentTransaction
+				URLs
+					"<DepartmentLineLinkBack>"
+
+		SendRejectNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<DepartmentLineRejectedMessage>"
+				priority is very high
+
+				linkback(webapp is JournalApprover navigation is DepartmentTransactionLinkbackNav text is "DepartmentTransactionRejection")
+ 
+		SendManualApproveNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<DepartmentLineApprovedMessage>"
+				priority is very high
+
+				linkback(webapp is JournalApprover navigation is DepartmentTransactionLinkbackNav text is "DepartmentTransactionApproval")				
+
+
+
+
+
+
+
+												
+#ifdef module sharedfinance
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+#endif					
+
+		AddJournalTotals
+			invoke UpdateJournalTotals GeneralLedgerDepartmentJournal
+				invoked.PrmEnteredAmount		= TransactionAmount
+
+		DeleteJournalTotals
+			invoke UpdateJournalTotals GeneralLedgerDepartmentJournal
+				invoked.PrmEnteredAmount		-= old TransactionAmount
+
+    Derived Fields
+		DepartmentJournalMessage		is a MessageField
+			restricted
+			"Journal"
+		LineMessage					is a MessageField
+			restricted
+			"Line"
+		RejectedMessage 			is a MessageField
+			restricted
+			"Rejected"
+		ApprovedMessage 			is a MessageField
+			restricted
+			"Approved"
+		DepartmentLineRejectedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			DepartmentJournalMessage
+			":"
+			GeneralLedgerDepartmentJournal
+			" "
+			LineMessage
+			":"
+			GeneralLedgerDepartmentTransaction
+			" "
+			RejectedMessage
+		DepartmentLineApprovedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			DepartmentJournalMessage
+			":"
+			GeneralLedgerDepartmentJournal
+			" "
+			LineMessage
+			":"
+			GeneralLedgerDepartmentTransaction
+			" "
+			ApprovedMessage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		DepartmentLineLinkBack 		is a MessageField
+        	restricted
+			"<linkback(webapp is JournalApprover navigation is DepartmentTransactionLinkbackNav text is \"ViewTransaction\")>"
+		DepartmentTransactionApprovalTitle		is a StringField
+			type is Alpha 150
+			restricted
+			FinanceEnterpriseGroup.AccountingEntityLabel
+			"-"
+			AccountingEntity
+			":DepartmentJournal-"
+			GeneralLedgerDepartmentJournal
+			":Transaction-"
+			GeneralLedgerDepartmentTransaction
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.Approver
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+#ifdef module sharedfinance
+			include BuildTeamApproverActorList
+			return LocalApproverList
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays	
+			else
+				return 10000
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+		DepartmentPayablesAccount			is a DerivedField
+			type is like GeneralLedgerChartAccount
+			restricted
+			LocalSystemAccount = SystemAccount.DepartmentPayables 
+			if (SystemAccountRel exists)
+				return first SystemAccountRel.GeneralLedgerChartAccount
+			else
+				LocalSystemAccount = SystemAccount.DepartmentPayablesAndReceivables 
+				return first SystemAccountRel.GeneralLedgerChartAccount
+		DepartmentReceivablesAccount		is a DerivedField
+			type is like GeneralLedgerChartAccount
+			restricted
+			LocalSystemAccount = SystemAccount.DepartmentReceivables 
+			if (SystemAccountRel exists)
+				return first SystemAccountRel.GeneralLedgerChartAccount
+			else
+				LocalSystemAccount = SystemAccount.DepartmentPayablesAndReceivables 
+				return first SystemAccountRel.GeneralLedgerChartAccount
+
+  	Field Groups
+
+	Conditions
+		GLProcessingSystems
+			restricted
+			when (System 	= "GL")
+
+
+		UnreleaseAllowed
+			when (GeneralLedgerDepartmentJournal.Status.Released
+			and   GeneralLedgerDepartmentJournal.create stamp.actor	= actor)
+		ReleaseAllowed
+			when (GeneralLedgerDepartmentJournal.Status.Unreleased
+			and   GeneralLedgerDepartmentJournal.create stamp.actor	= actor)
+		IsPendingApproval
+			restricted
+			when (Status.PendingApproval)
+		DisplayFinanceCodeOnly
+			restricted
+			when (Status.Released
+			or    Status.Posted)
+		DisplayOnly
+			restricted
+			when (Status.Released
+			or    Status.Posted
+			or   (GeneralLedgerDepartmentJournal.Status.Released
+			and   Status.PendingApproval))		
+		AccessForCreator
+			when (Status.Unreleased
+			and   GeneralLedgerDepartmentJournal.create stamp.actor	= actor)
+		AccessForApprover
+			restricted
+			when (GeneralLedgerDepartmentJournal.Status.Released
+			and   Status.PendingApproval)
+		SystemOrOriginalExpenseTransaction
+			restricted
+			when (IsASystemTransaction
+			or	  OriginExpenseTransaction)
+
+    Relations
+		SystemAccountRel
+			one-to-many relation to GeneralLedgerChartAccount
+			Field Mapping uses BySystemAccount
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.SystemAccount				= LocalSystemAccount
+#ifdef module sharedfinance
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+			Instance Selection
+				where (!related.FinanceTeamMember.TeamMember.FinanceResourceActor = update stamp.actor  
+				and    !related.FinanceTeamMember.TeamMember.FinanceResourceActor = create stamp.actor) 
+		ApprovalCodeResourceByResourceRel
+			one-to-one relation to ApprovalCodeResource
+			Field Mapping uses ByApprover
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.Approver				= LocalApprover
+		ApproverNameRel
+			one-to-one relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Employee				= Approver				
+#endif
+
+    Sets
+
+	Field Rules
+		TransactionDate
+			initial value is GeneralLedgerDepartmentJournal.TransactionDate
+			default to GeneralLedgerDepartmentJournal.TransactionDate
+			required
+		Description
+			default to GeneralLedgerDepartmentJournal.Description
+			required
+		CurrencyCode
+			initial value is GeneralLedgerDepartmentJournal.Currency
+			default to GeneralLedgerDepartmentJournal.Currency
+			default to AccountingEntity.FunctionalCurrency
+			required
+			if (CurrencyCode	!= AccountingEntity.FunctionalCurrency
+			or (AccountingEntity.AlternateCurrency entered
+			and CurrencyCode	!= AccountingEntity.AlternateCurrency)
+			or (AccountingEntity.AlternateCurrency2 entered
+			and  CurrencyCode	!= AccountingEntity.AlternateCurrency2)
+			or (AccountingEntity.AlternateCurrency3 entered
+			and  CurrencyCode	!= AccountingEntity.AlternateCurrency3))
+				constraint (FinanceEnterpriseGroup.CurrencyTable entered)
+					"CurrencyExchangeTableIsRequiredOnFinanceEnterpriseGroupForCurrencyTransaction"
+		PostingDate
+			initial value is GeneralLedgerDepartmentJournal.PostingDate
+			default to GeneralLedgerDepartmentJournal.PostingDate
+			required
+		FinanceCodeBlock
+			if (FinanceCodeBlock.ToAccountingEntity.ValidSystems entered
+			and !GLProcessingSystems)
+				constraint (System within FinanceCodeBlock.ToAccountingEntity.ValidSystems)
+					"InvalidSystemForPosting<FinanceEnterpriseGroup.AccountingEntityLabel>"
+			constraint (!FinanceCodeBlock.Ledger.CurrencyLedger)
+				"CannotEnterTransactionForCurrencyLedger<FinanceCodeBlock.Ledger.CurrencyLedger>"
+
+
+			if (OriginExpenseTransaction)
+				constraint (FinanceCodeBlock		= GeneralLedgerDepartmentJournal.FinanceCodeBlock)
+					"CannotChangeExpense"
+			if  (FinanceCodeBlock.ToAccountingEntity		= AccountingEntity
+			and !SystemOrOriginalExpenseTransaction)
+				if (GeneralLedgerDepartmentJournal.AccountingUnitSelected)
+					constraint (!FinanceCodeBlock.AccountingUnit		= GeneralLedgerDepartmentJournal.FinanceCodeBlock.AccountingUnit)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.AccountingUnitLabel>"
+				if (GeneralLedgerDepartmentJournal.Dimension1Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension1	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension1)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension1Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension2Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension2	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension2)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension2Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension3Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension3	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension3)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension3Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension4Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension4	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension4)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension4Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension5Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension5	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension5)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension5Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension6Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension6	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension6)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension6Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension7Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension7	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension7)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension7Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension8Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension8	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension8)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension8Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension9Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension9	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension9)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension9Label>"
+				if (GeneralLedgerDepartmentJournal.Dimension10Selected)
+					constraint (!FinanceCodeBlock.FinanceDimension10	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension10)
+						"TransactionCannotBeToTheSameExpense<FinanceEnterpriseGroup.FinanceDimension10Label>"
+			
+			required
+		DimensionCode
+			force default to FinanceCodeBlock.DimensionCode
+		GeneralLedgerEvent
+			initial value is GeneralLedgerDepartmentJournal.GeneralLedgerEvent
+			default to GeneralLedgerDepartmentJournal.GeneralLedgerEvent	
+			required
+		ReportCurrencyAmount
+			required
+		System
+			initial value is GeneralLedgerDepartmentJournal.System
+			default to GeneralLedgerDepartmentJournal.System
+			if (FinanceCodeBlock.GeneralLedgerChartAccount.Account.SystemRestriction entered)
+				constraint (System within FinanceCodeBlock.GeneralLedgerChartAccount.Account.SystemRestriction)
+					"InvalidSystemForAccount"	
+		Reference
+			initial value is GeneralLedgerDepartmentJournal.Reference
+			default to GeneralLedgerDepartmentJournal.Reference
+		PrimaryLedger
+			force default to GeneralLedgerDepartmentJournal.Ledger
+		ApprovalCode
+			if (!OriginExpenseTransaction)
+				required
+		SortByDimension
+			if (GeneralLedgerDepartmentJournal.AccountingUnitSelected)
+				force default to FinanceCodeBlock.AccountingUnit
+			if (GeneralLedgerDepartmentJournal.Dimension1Selected)
+				force default to FinanceCodeBlock.FinanceDimension1
+			if (GeneralLedgerDepartmentJournal.Dimension2Selected)
+				force default to FinanceCodeBlock.FinanceDimension2
+			if (GeneralLedgerDepartmentJournal.Dimension3Selected)
+				force default to FinanceCodeBlock.FinanceDimension3
+			if (GeneralLedgerDepartmentJournal.Dimension4Selected)
+				force default to FinanceCodeBlock.FinanceDimension4
+			if (GeneralLedgerDepartmentJournal.Dimension5Selected)
+				force default to FinanceCodeBlock.FinanceDimension5
+			if (GeneralLedgerDepartmentJournal.Dimension6Selected)
+				force default to FinanceCodeBlock.FinanceDimension6
+			if (GeneralLedgerDepartmentJournal.Dimension7Selected)
+				force default to FinanceCodeBlock.FinanceDimension7
+			if (GeneralLedgerDepartmentJournal.Dimension8Selected)
+				force default to FinanceCodeBlock.FinanceDimension8
+			if (GeneralLedgerDepartmentJournal.Dimension9Selected)
+				force default to FinanceCodeBlock.FinanceDimension9
+			if (GeneralLedgerDepartmentJournal.Dimension10Selected)
+				force default to FinanceCodeBlock.FinanceDimension10
+			required
+		
+	Actions
+
+		CreateSystemJournalTransaction is a Set Action
+			restricted
+			Parameters
+				PrmEnterpriseGroup			is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmAccountingEntity			is a AccountingEntity
+					default label is "<FinanceEnterpriseGroup.AccountingEntityLabel>"
+				PrmDepartmentJournal		is a GeneralLedgerDepartmentJournal
+					default label is "DepartmentJournal"
+
+			Parameter Rules
+
+			Local Fields
+				LocalPayablesAccount			is like GeneralLedgerChartAccount
+				LocalReceivablesAccount			is like GeneralLedgerChartAccount
+				LocalToAccountingEntity			is like AccountingEntity
+				LocalSortByDimension			is like AccountingUnit
+				LocalAccountingUnit				is a AccountingUnit
+				LocalFinanceDimension1			is a FinanceDimension1
+				LocalFinanceDimension2			is a FinanceDimension2
+				LocalFinanceDimension3			is a FinanceDimension3
+				LocalFinanceDimension4			is a FinanceDimension4
+				LocalFinanceDimension5			is a FinanceDimension5
+				LocalFinanceDimension6			is a FinanceDimension6
+				LocalFinanceDimension7			is a FinanceDimension7
+				LocalFinanceDimension8			is a FinanceDimension8
+				LocalFinanceDimension9			is a FinanceDimension9
+				LocalFinanceDimension10			is a FinanceDimension10
+				LocalAmount						is an InternationalAmount 
+				LocalCurrencyAmount				is a FinanceCurrencyAmount
+
+			Instance Selection
+				where (FinanceEnterpriseGroup				= PrmEnterpriseGroup
+				and	   AccountingEntity						= PrmAccountingEntity
+				and    GeneralLedgerDepartmentJournal		= PrmDepartmentJournal
+				and   ((!FinanceCodeBlock.ToAccountingEntity	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.ToAccountingEntity)
+				or     (GeneralLedgerDepartmentJournal.AccountingUnitSelected
+				and	   !FinanceCodeBlock.AccountingUnit		= GeneralLedgerDepartmentJournal.FinanceCodeBlock.AccountingUnit)
+				or     (GeneralLedgerDepartmentJournal.Dimension1Selected
+				and    !FinanceCodeBlock.FinanceDimension1	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension1)
+				or     (GeneralLedgerDepartmentJournal.Dimension2Selected
+				and    !FinanceCodeBlock.FinanceDimension2	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension2)
+				or     (GeneralLedgerDepartmentJournal.Dimension3Selected
+				and    !FinanceCodeBlock.FinanceDimension3	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension3)
+				or     (GeneralLedgerDepartmentJournal.Dimension4Selected
+				and    !FinanceCodeBlock.FinanceDimension4	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension4)
+				or     (GeneralLedgerDepartmentJournal.Dimension5Selected
+				and    !FinanceCodeBlock.FinanceDimension5	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension5)
+				or     (GeneralLedgerDepartmentJournal.Dimension6Selected
+				and    !FinanceCodeBlock.FinanceDimension6	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension6)
+				or     (GeneralLedgerDepartmentJournal.Dimension7Selected
+				and    !FinanceCodeBlock.FinanceDimension7	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension7)
+				or     (GeneralLedgerDepartmentJournal.Dimension8Selected
+				and    !FinanceCodeBlock.FinanceDimension8	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension8)
+				or     (GeneralLedgerDepartmentJournal.Dimension9Selected
+				and    !FinanceCodeBlock.FinanceDimension9	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension9)
+				or     (GeneralLedgerDepartmentJournal.Dimension10Selected
+				and    !FinanceCodeBlock.FinanceDimension10	= GeneralLedgerDepartmentJournal.FinanceCodeBlock.FinanceDimension10))
+				and    Status.Released)
+				
+			Set Is
+				PrmEnterpriseGroup
+				PrmAccountingEntity
+				GeneralLedgerDepartmentJournal
+
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingEntity
+				GeneralLedgerDepartmentJournal
+				FinanceCodeBlock.ToAccountingEntity
+				SortByDimension
+
+			Accumulators
+				TransactionAmountTotal
+				FunctionalAmountTotal
+				AlternateAmountTotal
+				AlternateAmount2Total
+				AlternateAmount3Total
+				ProjectAmountTotal
+				ReportAmount1Total
+				ReportAmount2Total
+				ReportAmount3Total
+				ReportAmount4Total
+				ReportAmount5Total
+
+			Action Rules
+				Empty Set Rules
+
+				Set Rules
+					Entrance Rules
+						LocalPayablesAccount	= DepartmentPayablesAccount
+						LocalReceivablesAccount	= DepartmentReceivablesAccount
+
+				FinanceCodeBlock.ToAccountingEntity Set Rules
+					Entrance Rules
+						LocalToAccountingEntity			= FinanceCodeBlock.ToAccountingEntity
+
+				SortByDimension Set Rules
+					Entrance Rules
+						LocalSortByDimension			= SortByDimension
+
+					Exit Rules
+						LocalAmount													= TransactionAmountTotal
+						LocalCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount	= FunctionalAmountTotal
+						LocalCurrencyAmount.AlternateAmount.EnteredCurrencyAmount	= AlternateAmountTotal
+						LocalCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount	= AlternateAmount2Total
+						LocalCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount	= AlternateAmount3Total
+						LocalCurrencyAmount.ProjectAmount.EnteredCurrencyAmount		= ProjectAmountTotal
+						LocalCurrencyAmount.ReportAmount1.EnteredCurrencyAmount		= ReportAmount1Total
+						LocalCurrencyAmount.ReportAmount2.EnteredCurrencyAmount		= ReportAmount2Total
+						LocalCurrencyAmount.ReportAmount3.EnteredCurrencyAmount		= ReportAmount3Total
+						LocalCurrencyAmount.ReportAmount4.EnteredCurrencyAmount		= ReportAmount4Total
+						LocalCurrencyAmount.ReportAmount5.EnteredCurrencyAmount		= ReportAmount5Total
+
+						LocalFinanceCodeBlock							= GeneralLedgerDepartmentJournal.FinanceCodeBlock
+						LocalFinanceCodeBlock.GeneralLedgerChartAccount	= LocalReceivablesAccount							 
+						invoke Create Released GeneralLedgerDepartmentTransaction
+							fill in fields from this instance
+							invoked.FinanceEnterpriseGroup				= PrmEnterpriseGroup
+							invoked.AccountingEntity					= PrmAccountingEntity
+							invoked.GeneralLedgerDepartmentJournal		= PrmDepartmentJournal
+							invoked.FinanceCodeBlock					= LocalFinanceCodeBlock
+							invoked.CurrencyCode						= GeneralLedgerDepartmentJournal.Currency
+							invoked.TransactionAmount					= LocalAmount
+							invoked.ReportCurrencyAmount				= LocalCurrencyAmount
+							invoked.IsASystemTransaction				= true
+			
+						LocalAmount													= TransactionAmountTotal * -1
+						LocalCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount	= FunctionalAmountTotal  * -1
+						LocalCurrencyAmount.AlternateAmount.EnteredCurrencyAmount	= AlternateAmountTotal	 * -1
+						LocalCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount	= AlternateAmount2Total  * -1
+						LocalCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount	= AlternateAmount3Total	 * -1
+						LocalCurrencyAmount.ProjectAmount.EnteredCurrencyAmount		= ProjectAmountTotal	 * -1
+						LocalCurrencyAmount.ReportAmount1.EnteredCurrencyAmount		= ReportAmount1Total	 * -1
+						LocalCurrencyAmount.ReportAmount2.EnteredCurrencyAmount		= ReportAmount2Total	 * -1
+						LocalCurrencyAmount.ReportAmount3.EnteredCurrencyAmount		= ReportAmount3Total	 * -1
+						LocalCurrencyAmount.ReportAmount4.EnteredCurrencyAmount		= ReportAmount4Total	 * -1
+						LocalCurrencyAmount.ReportAmount5.EnteredCurrencyAmount		= ReportAmount5Total	 * -1
+
+						LocalFinanceCodeBlock							= GeneralLedgerDepartmentJournal.FinanceCodeBlock
+
+
+
+						if (LocalToAccountingEntity				= LocalFinanceCodeBlock.ToAccountingEntity)
+							if (GeneralLedgerDepartmentJournal.AccountingUnitSelected)
+								LocalFinanceCodeBlock.AccountingUnit		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension1Selected)
+								LocalFinanceCodeBlock.FinanceDimension1		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension2Selected)
+								LocalFinanceCodeBlock.FinanceDimension2		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension3Selected)
+								LocalFinanceCodeBlock.FinanceDimension3		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension4Selected)
+								LocalFinanceCodeBlock.FinanceDimension4		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension5Selected)
+								LocalFinanceCodeBlock.FinanceDimension5		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension6Selected)
+								LocalFinanceCodeBlock.FinanceDimension6		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension7Selected)
+								LocalFinanceCodeBlock.FinanceDimension7		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension8Selected)
+								LocalFinanceCodeBlock.FinanceDimension8		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension9Selected)
+								LocalFinanceCodeBlock.FinanceDimension9		= LocalSortByDimension
+							if (GeneralLedgerDepartmentJournal.Dimension10Selected)
+								LocalFinanceCodeBlock.FinanceDimension10	= LocalSortByDimension
+						LocalFinanceCodeBlock.GeneralLedgerChartAccount	= LocalPayablesAccount  							
+						invoke Create Released GeneralLedgerDepartmentTransaction
+							fill in fields from this instance
+							invoked.FinanceEnterpriseGroup				= PrmEnterpriseGroup
+							invoked.AccountingEntity					= PrmAccountingEntity
+							invoked.GeneralLedgerDepartmentJournal		= PrmDepartmentJournal
+							invoked.FinanceCodeBlock					= LocalFinanceCodeBlock
+							invoked.CurrencyCode						= GeneralLedgerDepartmentJournal.Currency
+							invoked.TransactionAmount					= LocalAmount
+							invoked.ReportCurrencyAmount				= LocalCurrencyAmount
+							invoked.IsASystemTransaction				= true
+
+				Instance Rules
+					TransactionAmountTotal		+= TransactionAmount
+					FunctionalAmountTotal		+= ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+					AlternateAmountTotal		+= ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+					AlternateAmount2Total		+= ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+					AlternateAmount3Total		+= ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+					ProjectAmountTotal			+= ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+					ReportAmount1Total			+= ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+					ReportAmount2Total			+= ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+					ReportAmount3Total			+= ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+					ReportAmount4Total			+= ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+					ReportAmount5Total			+= ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+
+
+		CreateGLTransactionDetail is a Set Action
+			restricted
+			Parameters
+				PrmEnterpriseGroup			is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmAccountingEntity			is a AccountingEntity
+					default label is "<FinanceEnterpriseGroup.AccountingEntityLabel>"
+				PrmDepartmentJournal		is a GeneralLedgerDepartmentJournal
+					default label is "DepartmentJournal"
+
+			Parameter Rules
+
+			Local Fields	
+
+			Instance Selection
+				where (FinanceEnterpriseGroup			= PrmEnterpriseGroup
+				and	   AccountingEntity					= PrmAccountingEntity
+				and    GeneralLedgerDepartmentJournal	= PrmDepartmentJournal
+				and    Status.Released)
+				
+			Set Is
+				PrmEnterpriseGroup
+				PrmAccountingEntity
+				GeneralLedgerDepartmentJournal
+
+			Action Rules
+				Empty Set Rules
+
+				Set Rules
+
+				Instance Rules
+					invoke CreateReleasedGLTransDetailNoRules Released GLTransactionDetail
+						fill in fields from this instance
+						invoked.JournalizeGroup					= "DEPARTMENTJOURNAL:"+AccountingEntity+":"+GeneralLedgerDepartmentJournal
+						invoked.OriginatingTransaction			= reference to GeneralLedgerDepartmentTransaction
+
+					Status		= 9  	
+
+		PurgeForDepartmentJournal is a Set Action
+			restricted
+			
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmAccountingEntity					is a AccountingEntity
+				PrmDepartmentJournal				is a GeneralLedgerDepartmentJournal
+				
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmAccountingEntity
+					required
+				PrmDepartmentJournal
+					required
+					
+			Instance Selection
+				where (FinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+				and    AccountingEntity					= PrmAccountingEntity
+				and    GeneralLedgerDepartmentJournal	= PrmDepartmentJournal)
+				
+			Action Rules
+				Instance Rules
+					invoke Purge Unreleased this instance
+
+#ifdef module sharedfinance
+
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+#endif
+
+	StateCycles
+		DepartmentTransactionLifeCycle is a StateCycle
+			state field is Status
+			
+			Unreleased	is a State
+				Create is a Create Action
+					valid when (AccessForCreator)
+					Entrance Rules
+						constraint (AccessForCreator)
+							"CannotDelete;UnauthorisedUser"
+					Action Rules
+
+					Exit Rules
+						include AddJournalTotals
+
+				Update is an Update Action
+					valid when (AccessForCreator)
+					Entrance Rules
+						constraint (AccessForCreator)
+							"CannotChange;UnauthorisedUser"
+						if (TransactionAmount changed)
+							include DeleteJournalTotals
+
+					Action Rules
+
+					Exit Rules
+						if (TransactionAmount changed)
+							include AddJournalTotals
+
+				Delete is a Delete Action
+					valid when (AccessForCreator)
+					Entrance Rules
+						constraint (AccessForCreator)
+							"CannotDelete;UnauthorisedUser"
+						constraint (GeneralLedgerDepartmentJournal.Status.Unreleased)
+							"CannotDelete;JournalIsReleased"
+						if (OriginExpenseTransaction)
+							invoke NoRulesUpdate Unreleased GeneralLedgerDepartmentJournal
+								invoked.OriginExpenseCreated	= false
+						include DeleteJournalTotals
+
+
+
+
+
+
+
+
+
+
+				ReleaseFromJournal is an Instance Action
+					restricted
+					Entrance Rules
+					Action Rules
+						if (OriginExpenseTransaction)
+							make transition to Released
+						else
+
+
+
+#ifdef module sharedfinance
+							if (ApprovalCode entered)
+								constraint (ApprovalCode.HasApprovalLevels) 
+									"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+								constraint (!ApprovalCode.HasTeamWithNoMembers) 
+									"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+								constraint (!ApprovalCode.HasInvalidEscalations)
+									"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+								constraint (!ApprovalCode.HasInactiveResources)
+									"CannotComplete;TheApprovalCodeHasInactiveResources"
+#endif
+
+
+
+
+
+
+
+#ifdef module sharedfinance
+							include GetNextApprovalLevel
+#endif						
+							ApprovalLevel	= LocalApprovalLevel
+							Approver 		= LocalApprover
+							ApproverTeam 	= LocalApproverTeam
+
+
+
+
+
+							include InitiateJournalFlow
+							make transition to PendingApproval
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				Purge is a Purge Action
+					restricted
+
+            PendingApproval  	is a State
+				Update is an Update Action
+					valid when (AccessForApprover)
+					Entrance Rules
+						constraint (AccessForApprover)
+							"CannotChange;UnauthorisedUser"
+#ifdef module sharedfinance
+						if (ApprovalCode entered)
+							LocalApprover = actor.agent(Employee).Employee
+							constraint (ApprovalCodeResourceByResourceRel exists)
+								"CannotChange;UnauthorisedUser"
+#endif
+				Unrelease is an Instance Action
+					restricted
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+
+				Reject is an Instance Action
+					restricted
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+
+				ManualReject is an Instance Action
+		    		valid when (Status.PendingApproval)
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+						cancel "DepartmentTransactionApproval" PA service
+			
+		   		ManualApprove is an Instance Action
+		    		valid when (Status.PendingApproval)
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Entrance Rules
+
+
+
+
+
+					Action Rules			
+						make transition to Released
+						include SendManualApproveNotificationToUser
+						cancel "DepartmentTransactionApproval" PA service
+
+				Approve is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+
+
+
+
+
+
+
+
+
+
+
+				RejectWithReasonCode is an Instance Action
+					restricted
+					subject is RejectJournalEntry
+					reason code required
+					action comment required
+		
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+			
+					Exit Rules
+
+
+
+
+
+
+
+
+
+
+
+
+
+            Released  	is a State
+				Unrelease is an Instance Action
+					valid when (UnreleaseAllowed)
+
+					Entrance Rules
+						constraint (UnreleaseAllowed)
+							"CannotUnrelease;UnauthorisedUser"
+
+					Action Rules
+						make transition to Unreleased
+
+				Create is a Create Action
+					restricted
+
+					Action Rules
+						TransactionDate			= GeneralLedgerDepartmentJournal.TransactionDate
+						Description				= GeneralLedgerDepartmentJournal.Description
+						CurrencyCode			= GeneralLedgerDepartmentJournal.Currency
+						PostingDate				= GeneralLedgerDepartmentJournal.PostingDate
+						DimensionCode			= FinanceCodeBlock.DimensionCode
+						GeneralLedgerEvent		= GeneralLedgerDepartmentJournal.GeneralLedgerEvent
+						System					= GeneralLedgerDepartmentJournal.System
+						Reference				= GeneralLedgerDepartmentJournal.Reference
+						PrimaryLedger			= GeneralLedgerDepartmentJournal.Ledger
+
+			Posted		is a State
+
+						

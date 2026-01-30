@@ -1,0 +1,1124 @@
+ReceivableTransactionRangeApplication is a Field
+
+    Representation
+        Group Fields
+        	ReceivablePaymentGroup
+			SelectOrApply					is Alpha 1
+				States
+					Select					value is "S"
+					Apply					value is "A"
+			ProjectFilter					is Boolean
+			ApplicationGeneralLedgerDate	is Date
+				default label is "ApplicationGlobalLedgerDate"
+			InvoiceTypeRange
+			InvoiceRange
+			CompanyRange
+			ApplyToNationalAccountCustomers	is Boolean
+			CustomerRange
+			CustomerPurchaseOrderRange
+			TransUser1Range
+			ReceivableProcessLevelRange
+			ProjectRange
+			TransactionAmountRange			is an AmountRange 
+			TransactionDateRange 			is a DateRange
+			PostingDateRange				is a DateRange
+			DiscountDateRange				is a DateRange
+			DueDateRange					is a DateRange
+			XrefTypeRange					is an InvoiceTypeRange
+			XrefNbrRange					is an InvoiceRange
+			CurrencyRange
+			ApplyToOldest					is Boolean
+			ApplyToCredits					is Boolean
+			PrmReceivableOperator			is a ReceivableOperator
+			PrmLetterOfCredit				is AlphaUpper 20
+	                	        	        	        						
+	Context Fields			 
+		ContextReceivablePaymentHeader		is a ReceivablePaymentHeader
+		ContextReceivablePayment			is a ReceivablePayment
+	Transient Fields			 
+		ErrorMessage						is Alpha 250
+		ResultMessage						is Alpha 250
+
+	Local Fields
+		Function	  						is Boolean	
+		SelectInvoice						is Boolean
+		NumberOfApplications				is Numeric 9
+		LocalCompany						is Numeric size 4
+		LocalCustomer						is like Customer
+		ThisAmount							is an InternationalAmount
+		ThisAdjustAmount					is an InternationalAmount
+		ThisReason							is AlphaUpper 4
+		LocalPaymentAmountRemaining			is like InternationalAmount
+		LocalPaymentCashDetailAccount		is a FinanceCodeBlock
+		LocalApplicationGeneralLedgerDate	is Boolean
+
+	Field Rules
+		SelectOrApply
+			initial value is SelectOrApply.Select
+		ApplicationGeneralLedgerDate
+			initial value is ContextReceivablePayment.DerivedApplicationGeneralLedgerDate
+				when (!ContextReceivablePayment.Company.DefaultApplicationDate.LatestTransactionPostDate)
+			if (ContextReceivablePayment.Company.DefaultApplicationDate.LatestTransactionPostDate
+			and ApplicationGeneralLedgerDate not entered)	
+				LocalApplicationGeneralLedgerDate = true
+			
+    Relations
+
+		LocalReceivableCompanyRel
+			one-to-one relation to ReceivableCompany
+			Field Mapping uses symbolic key
+				related.Company							= LocalCompany
+				
+		LocalCompanyCustomerRel
+			one-to-one relation to CompanyCustomer
+			Field Mapping uses symbolic key
+				related.Company							= LocalCompany
+				related.Customer						= LocalCustomer
+				
+        CompanyCustomerRel
+            one-to-one relation to CompanyCustomer
+            Field Mapping uses symbolic key
+                related.Company  = ReceivablePaymentGroup.ReceivablePayment.Company
+                related.Customer = ReceivablePaymentGroup.ReceivablePayment.Customer
+
+		LocalPaymentCashDetailRel
+			one-to-many relation to ReceivablePaymentCashDetail
+			Field Mapping uses ByAdditionalDimensionsCodeBlock
+				related.Company														= ReceivablePaymentGroup.Company
+				related.ReceivablePaymentHeader										= ReceivablePaymentGroup.ReceivablePaymentHeader
+				related.ReceivablePayment											= ReceivablePaymentGroup.ReceivablePayment
+				related.AdditionalDimensionsCodeBlock.ToAccountingEntity			= LocalPaymentCashDetailAccount.ToAccountingEntity
+                related.AdditionalDimensionsCodeBlock.AccountingUnit				= LocalPaymentCashDetailAccount.AccountingUnit
+                related.AdditionalDimensionsCodeBlock.GeneralLedgerChartAccount		= LocalPaymentCashDetailAccount.GeneralLedgerChartAccount
+                related.AdditionalDimensionsCodeBlock.Project						= LocalPaymentCashDetailAccount.Project
+                related.AdditionalDimensionsCode									= LocalPaymentCashDetailAccount.DimensionCode
+
+	Derived Fields	
+
+
+		SelectAndApplyTransactions	is a DerivedField	 
+			type is Boolean
+			if (HasParameterErrors entered) 
+				return 1
+
+			initialize NumberOfApplications
+			
+			if (CompanyCustomerRel.NationalAccountIndicator.No)
+				if (ApplyToOldest)
+					Function = ApplyToTransactionsByDueDate
+				else
+					Function = ApplyToTransactions
+    		else   					 
+				if (ApplyToOldest)
+					Function = ApplyToNationalTransactionsByDueDate
+				else
+					Function = ApplyToNationalTransactions
+
+			if (SelectOrApply.Select)
+				if (NumberOfApplications = 0)
+					ResultMessage			= Msg202
+				else
+					ResultMessage			= Msg203
+			else
+				if (NumberOfApplications = 0)
+					ResultMessage			= Msg200
+				else
+					ResultMessage			= Msg201
+
+			return 1
+						
+		DerivedApplicationGeneralLedgerDate is a DerivedField
+			type is Date
+			if (ReceivablePaymentGroup.ReceivablePayment.Company.DefaultApplicationDate.LatestTransactionPostDate
+			or ReceivablePaymentGroup.ReceivablePayment.Company.DefaultApplicationDate.PaymentCreditPostDate)
+				return ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate
+			else
+				return current date
+				
+		HasParameterErrors is a DerivedField
+			type is Numeric 1					
+
+			
+			if (InvoiceTypeRange not entered
+			and InvoiceRange not entered
+			and CompanyRange not entered
+			and CustomerRange not entered
+			and CustomerPurchaseOrderRange not entered
+			and TransUser1Range not entered
+			and ReceivableProcessLevelRange not entered
+			and ProjectRange not entered
+			and TransactionAmountRange not entered
+			and TransactionDateRange not entered
+			and PostingDateRange not entered
+			and DiscountDateRange not entered
+			and DueDateRange not entered
+			and XrefTypeRange not entered
+			and XrefNbrRange not entered
+			and CurrencyRange not entered
+			and PrmLetterOfCredit not entered)
+				ErrorMessage = Msg135 
+				return 1 		
+			
+			if (ReceivablePaymentGroup.ReceivablePayment not entered)				
+				ErrorMessage = Msg101 
+				return 1 		
+
+			if (!ReceivablePaymentGroup.ReceivablePayment.TypeOfPayment.CustomerPayment)				
+				ErrorMessage = Msg102 
+				return 1 		
+
+			if (ProjectFilter)
+				if  (ProjectRange not entered
+				and  PrmLetterOfCredit not entered)
+					ErrorMessage = Msg137 
+					return 1 		
+						
+				if (ProjectRange entered)
+					if (PrmLetterOfCredit entered)
+						ErrorMessage = Msg136 
+						return 1 		
+						
+				
+			if (ApplicationGeneralLedgerDate not entered)
+				ApplicationGeneralLedgerDate = DerivedApplicationGeneralLedgerDate
+								
+			if (InvoiceTypeRange.FromInvoiceType entered
+			and InvoiceRange.FromInvoice not entered)
+				ErrorMessage = Msg103 
+				return 1 		
+					
+			if  (InvoiceTypeRange.FromInvoiceType not entered
+			and  InvoiceRange.FromInvoice  entered)
+                InvoiceTypeRange.FromInvoiceType = "C"
+
+			if  (InvoiceTypeRange.ToInvoiceType entered
+			and  InvoiceRange.ToInvoice not entered)
+				ErrorMessage = Msg104 
+				return 1 		
+
+			if  (InvoiceTypeRange.ToInvoiceType not entered
+			and  InvoiceRange.ToInvoice  entered)
+				InvoiceTypeRange.ToInvoiceType = "I"               
+
+			if  (InvoiceTypeRange.ToInvoiceType entered
+			and  InvoiceTypeRange.FromInvoiceType > InvoiceTypeRange.ToInvoiceType)
+				ErrorMessage = Msg105 
+				return 1 		
+
+			if  (InvoiceRange.ToInvoice entered
+            and  InvoiceTypeRange.FromInvoiceType = InvoiceTypeRange.ToInvoiceType
+            and  InvoiceRange.FromInvoice > InvoiceRange.ToInvoice)
+				ErrorMessage = Msg106 
+				return 1 		
+               
+			if  (CompanyRange.ToCompany not entered
+			and  CompanyRange.FromCompany entered)
+				CompanyRange.ToCompany = CompanyRange.FromCompany
+
+			if  (CompanyRange.ToCompany entered
+			and  CompanyRange.FromCompany not entered)
+				CompanyRange.FromCompany = CompanyRange.ToCompany
+
+			if  (CompanyRange.ToCompany entered
+			and  CompanyRange.FromCompany > CompanyRange.ToCompany)
+				ErrorMessage = Msg107 
+				return 1 		
+       
+			if (CompanyRange.FromCompany entered)
+				LocalCompany = CompanyRange.FromCompany
+				if (!LocalReceivableCompanyRel exists)
+					ErrorMessage = Msg108 
+					return 1 		
+
+			if (CompanyRange.ToCompany entered)	
+				LocalCompany = CompanyRange.ToCompany
+				if (!LocalReceivableCompanyRel exists)
+					ErrorMessage = Msg109 
+					return 1 		
+
+			if  (CustomerRange.ToCustomer not entered
+			and  CustomerRange.FromCustomer entered)
+				CustomerRange.ToCustomer = CustomerRange.FromCustomer
+
+			if  (CustomerRange.FromCustomer not entered
+			and  CustomerRange.ToCustomer entered)
+				CustomerRange.FromCustomer = CustomerRange.ToCustomer
+
+			if  (CustomerRange.ToCustomer entered)
+				if (CustomerRange.FromCustomer > CustomerRange.ToCustomer)
+					ErrorMessage = Msg110 
+					return 1 		
+       
+			if  (CompanyRange.FromCompany entered
+			and  CustomerRange.FromCustomer entered)
+				LocalCompany = CompanyRange.FromCompany
+				LocalCustomer = CustomerRange.FromCustomer      
+				if (!LocalCompanyCustomerRel exists)
+					ErrorMessage = Msg111 
+					return 1 		
+
+			if  (CompanyRange.ToCompany entered
+			and  CustomerRange.ToCustomer entered)
+				LocalCompany = CompanyRange.ToCompany
+				LocalCustomer = CustomerRange.ToCustomer      
+				if (!LocalCompanyCustomerRel exists)
+					ErrorMessage = Msg112 
+					return 1 		
+
+			if  (CustomerPurchaseOrderRange.ToCustomerPurchaseOrder not entered
+			and  CustomerPurchaseOrderRange.FromCustomerPurchaseOrder entered)
+				CustomerPurchaseOrderRange.ToCustomerPurchaseOrder = CustomerPurchaseOrderRange.FromCustomerPurchaseOrder 
+
+			if  (CustomerPurchaseOrderRange.ToCustomerPurchaseOrder entered
+			and  CustomerPurchaseOrderRange.FromCustomerPurchaseOrder not entered)
+				CustomerPurchaseOrderRange.FromCustomerPurchaseOrder = CustomerPurchaseOrderRange.ToCustomerPurchaseOrder
+
+			if (CustomerPurchaseOrderRange.FromCustomerPurchaseOrder > CustomerPurchaseOrderRange.ToCustomerPurchaseOrder) 
+				ErrorMessage = Msg113 
+				return 1 		
+       
+			if  (ReceivableProcessLevelRange.ToReceivableProcessLevel not entered
+			and ReceivableProcessLevelRange.FromReceivableProcessLevel entered)
+				ReceivableProcessLevelRange.ToReceivableProcessLevel = ReceivableProcessLevelRange.FromReceivableProcessLevel
+
+			if  (ReceivableProcessLevelRange.ToReceivableProcessLevel entered
+			and ReceivableProcessLevelRange.FromReceivableProcessLevel not entered)
+				ReceivableProcessLevelRange.FromReceivableProcessLevel = ReceivableProcessLevelRange.ToReceivableProcessLevel
+
+			if (ReceivableProcessLevelRange.FromReceivableProcessLevel > ReceivableProcessLevelRange.ToReceivableProcessLevel)
+				ErrorMessage = Msg114 
+				return 1 		
+       
+			if  (TransUser1Range.ToTransUser1 not entered
+			and TransUser1Range.FromTransUser1 entered)
+				TransUser1Range.ToTransUser1 = TransUser1Range.FromTransUser1
+
+			if  (TransUser1Range.ToTransUser1 entered
+			and TransUser1Range.FromTransUser1 not entered)
+				TransUser1Range.FromTransUser1 = TransUser1Range.ToTransUser1
+
+			if (TransUser1Range.FromTransUser1 > TransUser1Range.ToTransUser1)
+				ErrorMessage = Msg115 
+				return 1 		
+       
+			if  (TransactionAmountRange.ToAmount not entered
+			and TransactionAmountRange.FromAmount entered)
+				TransactionAmountRange.ToAmount = TransactionAmountRange.FromAmount
+
+			if  (TransactionAmountRange.ToAmount entered
+			and TransactionAmountRange.FromAmount not entered)
+				TransactionAmountRange.FromAmount = TransactionAmountRange.ToAmount
+
+			if (TransactionAmountRange.FromAmount > TransactionAmountRange.ToAmount)
+				ErrorMessage = Msg116 
+				return 1 		
+
+			if  (ProjectRange.ToProject not entered
+			and ProjectRange.FromProject entered)
+				ProjectRange.ToProject = ProjectRange.FromProject
+
+			if  (ProjectRange.ToProject entered
+			and ProjectRange.FromProject not entered)
+				ProjectRange.FromProject = ProjectRange.ToProject
+
+			if (ProjectRange.FromProject > ProjectRange.ToProject)
+				ErrorMessage = Msg117 
+				return 1 		
+       
+			if  (TransactionDateRange.End not entered
+			and TransactionDateRange.Begin entered)
+				TransactionDateRange.End = TransactionDateRange.Begin
+
+			if  (TransactionDateRange.End entered
+			and TransactionDateRange.Begin not entered)
+				TransactionDateRange.Begin = TransactionDateRange.End
+
+			if (TransactionDateRange.Begin > TransactionDateRange.End)
+				ErrorMessage = Msg118 
+				return 1 		
+       
+			if  (PostingDateRange.End not entered
+			and PostingDateRange.Begin entered)
+				PostingDateRange.End = PostingDateRange.Begin
+
+			if  (PostingDateRange.End entered
+			and PostingDateRange.Begin not entered)
+				PostingDateRange.Begin = PostingDateRange.End
+
+			if (PostingDateRange.Begin > PostingDateRange.End)
+				ErrorMessage = Msg119 
+				return 1 		
+       
+			if  (DiscountDateRange.End not entered
+			and DiscountDateRange.Begin entered)
+				DiscountDateRange.End = DiscountDateRange.Begin
+
+			if  (DiscountDateRange.End entered
+			and DiscountDateRange.Begin not entered)
+				DiscountDateRange.Begin = DiscountDateRange.End
+
+			if (DiscountDateRange.Begin > DiscountDateRange.End)
+				ErrorMessage = Msg120 
+				return 1 		
+       
+			if  (DueDateRange.End not entered
+			and DueDateRange.Begin entered)
+				DueDateRange.End = DueDateRange.Begin
+
+			if  (DueDateRange.End entered
+			and DueDateRange.Begin not entered)
+				DueDateRange.Begin = DueDateRange.End
+
+			if (DueDateRange.Begin > DueDateRange.End)
+				ErrorMessage = Msg121 
+				return 1 		
+
+			if (XrefTypeRange.FromInvoiceType entered)
+				if (XrefNbrRange.FromInvoice not entered)
+					ErrorMessage = Msg122 
+					return 1 		
+					
+			if  (XrefTypeRange.FromInvoiceType not entered
+			and  XrefNbrRange.FromInvoice  entered)
+                XrefTypeRange.FromInvoiceType = "C"
+
+			if  (XrefTypeRange.ToInvoiceType entered)
+				if (XrefNbrRange.ToInvoice not entered)
+					ErrorMessage = Msg123 
+					return 1 		
+
+			if  (XrefTypeRange.ToInvoiceType not entered
+			and  XrefNbrRange.ToInvoice  entered)
+				XrefTypeRange.ToInvoiceType = "I"               
+
+			if  (XrefTypeRange.ToInvoiceType entered)
+				if (XrefTypeRange.FromInvoiceType > XrefTypeRange.ToInvoiceType)
+					ErrorMessage = Msg124 
+					return 1 		
+					
+            if  (XrefNbrRange.ToInvoice entered
+            and  XrefTypeRange.FromInvoiceType = XrefTypeRange.ToInvoiceType)
+                if (XrefNbrRange.FromInvoice > XrefNbrRange.ToInvoice)
+					ErrorMessage = Msg125 
+					return 1 		
+					
+			if  (CurrencyRange.ToCurrency not entered
+			and CurrencyRange.FromCurrency entered)
+				CurrencyRange.ToCurrency = CurrencyRange.FromCurrency
+
+			if  (CurrencyRange.ToCurrency entered
+			and CurrencyRange.FromCurrency not entered)
+				CurrencyRange.FromCurrency = CurrencyRange.ToCurrency
+
+			if (CurrencyRange.FromCurrency > CurrencyRange.ToCurrency)
+				ErrorMessage = Msg126 
+    			return 1 		
+       
+			if (ReceivablePaymentGroup.ReceivablePayment.Company.CashOperatorRequired
+			and PrmReceivableOperator not entered)
+				ErrorMessage = Msg127 
+				return 1 		
+				               
+			if (ReceivablePaymentGroup.ReceivablePayment.Company.VendorCreateAndInterfaceToAP)
+				if (ReceivablePaymentGroup.ReceivablePayment.ARToAPApplicationSelectRel exists)
+					ErrorMessage = Msg128 
+					return 1 		
+
+				
+			if (CompanyCustomerRel.ReceivableProcessingMethod.BalanceForward)
+				ErrorMessage = Msg130 
+				return 1 		
+				
+    		if (ReceivablePaymentGroup.ReceivablePayment.RTMPaymentRel exists)
+    			ErrorMessage = Msg131 
+				return 1 		
+    		
+    		if (ApplyToNationalAccountCustomers)
+				if (CompanyCustomerRel.NationalAccountIndicator.No)
+					ErrorMessage = Msg132 
+					return 1 		
+					
+			if  (CompanyRange.ToCompany entered
+			or   CustomerRange.ToCustomer entered)
+				if (ApplyToNationalAccountCustomers)
+					ErrorMessage = Msg133 
+					return 1 		
+				
+			if (!ApplyToOldest)
+				if (ApplyToCredits)
+					ErrorMessage = Msg134 
+					return 1 		
+
+		ApplyToTransactions is a DerivedField
+			type is Numeric 1
+
+							
+			for each ReceivablePaymentGroup.ReceivablePayment.TransactionsForCustomerRel
+				SelectInvoice = true
+				if (LocalApplicationGeneralLedgerDate)	
+					if (each.GeneralLedgerDate > ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate)
+						ApplicationGeneralLedgerDate = each.GeneralLedgerDate
+					else
+						ApplicationGeneralLedgerDate  = ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate
+					
+	
+				if (each.SummarizeDetail and !each.LowestOpenSequence)
+					SelectInvoice = false
+				else
+				if  ( (CompanyRange entered
+				and    each.Company not within CompanyRange)
+				or    (CustomerRange entered
+				and    each.Customer not within CustomerRange)
+				or    (CustomerPurchaseOrderRange entered
+				and    each.CustomerPurchaseOrder not within CustomerPurchaseOrderRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableProcessLevel entered
+				and    each.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableProcessLevel not entered
+				and    each.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (InvoiceTypeRange entered
+				and    each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType not within InvoiceTypeRange)
+				or    (InvoiceRange entered
+				and    each.ReceivableInvoiceDetail.Invoice not within InvoiceRange)
+				or    (ProjectRange entered
+				and    each.Project not within ProjectRange)
+				or    (TransUser1Range entered
+				and    each.TransactionUserField1 not within TransUser1Range)
+				or    (TransactionDateRange entered
+				and    each.TransactionDate not within TransactionDateRange)
+				or    (PostingDateRange entered
+				and    each.GeneralLedgerDate not within PostingDateRange)
+				or    (DueDateRange entered
+				and    each.DueDate not within DueDateRange)
+				or    (XrefTypeRange entered
+				and    each.ReceivableCrossReference.ReceivableInvoiceType not within XrefTypeRange)
+				or    (XrefNbrRange entered
+				and    each.ReceivableCrossReference.ReceivableInvoice not within XrefNbrRange)
+				or    (TransactionAmountRange entered
+				and    each.InvoiceAmount.CurrencyAmount not within TransactionAmountRange)
+				or    (CurrencyRange entered
+				and    each.OriginalCurrency not within CurrencyRange))
+					SelectInvoice = false
+				else
+				if    (DiscountDateRange entered
+				and    each.DiscountDate.DiscDate[1] not within DiscountDateRange
+				and    each.DiscountDate.DiscDate[2] not within DiscountDateRange
+				and    each.DiscountDate.DiscDate[3] not within DiscountDateRange)
+					SelectInvoice = false
+				else
+				if (each.HasReceivableApplicationSelect
+				or  each.HasARToAPApplicationSelect
+				or  each.EFTTransaction
+				or  !each.Status.OpenTransaction
+				or  each.DerivedSelectApplicationAmount = 0)
+					SelectInvoice = false
+				else 
+				if  (each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo
+				and  !ApplyToCredits)
+					SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.Company.DetailedRNADistributions)
+					initialize LocalPaymentAmountRemaining
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.None)
+						SelectInvoice = true
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Unreleased
+					or  ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Amended)
+						SelectInvoice = false
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Released)
+						Function 											= each.DerivedInvoiceFinanceCodeBlockAdditionalDimensions
+						LocalPaymentCashDetailAccount 						= each.TransientAdditionalDimensions
+						LocalPaymentAmountRemaining							= sum LocalPaymentCashDetailRel.OpenAmount
+						if (LocalPaymentCashDetailRel not exists)
+							SelectInvoice = false
+						if  (LocalPaymentAmountRemaining <= 0
+						and !each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+							SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.ReceivablePayment.PaymentOpen > 0)
+
+					if (each.CompanyCustomerRel.DiscountAdjustmentReason entered
+					and each.DerivedSelectDiscountAmount entered)
+			   			ThisReason														= each.CompanyCustomerRel.DiscountAdjustmentReason
+						ThisAdjustAmount 												= each.DerivedSelectDiscountAmount
+						ThisAmount														= each.DerivedSelectApplicationAmount - each.DerivedSelectDiscountAmount
+					else
+						ThisAmount														= each.DerivedSelectApplicationAmount
+						initialize 														  ThisAdjustAmount
+						initialize 														  ThisReason
+						
+					if (!each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+						if (SelectOrApply.Apply
+						or !ReceivablePaymentGroup.Company.PaymentOverApplication)
+							if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen < ThisAmount)
+								ThisAmount													= ReceivablePaymentGroup.ReceivablePayment.PaymentOpen
+							
+						if (ReceivablePaymentGroup.Company.DetailedRNADistributions)
+							if (ThisAmount > LocalPaymentAmountRemaining)
+								ThisAmount = LocalPaymentAmountRemaining
+						
+
+					if (SelectOrApply.Apply)
+						invoke ApplyInvoiceToPayment each
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+					else
+						invoke InvoiceSelection each
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+	
+					NumberOfApplications += 1
+
+				if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen = 0)
+					end for each
+
+		ApplyToTransactionsByDueDate is a DerivedField
+			type is Numeric 1
+				
+			
+			for each ReceivablePaymentGroup.ReceivablePayment.TransactionsForCustomerByDueDateRel
+				SelectInvoice = true
+				if (LocalApplicationGeneralLedgerDate)	
+					if (each.GeneralLedgerDate > ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate)
+						ApplicationGeneralLedgerDate = each.GeneralLedgerDate
+					else
+						ApplicationGeneralLedgerDate  = ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate
+						
+				if (each.SummarizeDetail and !each.LowestOpenSequence)
+					SelectInvoice = false
+				else
+				if  ( (CompanyRange entered
+				and    each.Company not within CompanyRange)
+				or    (CustomerRange entered
+				and    each.Customer not within CustomerRange)
+				or    (CustomerPurchaseOrderRange entered
+				and    each.CustomerPurchaseOrder not within CustomerPurchaseOrderRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableProcessLevel entered
+				and    each.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableProcessLevel not entered
+				and    each.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (InvoiceTypeRange entered
+				and    each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType not within InvoiceTypeRange)
+				or    (InvoiceRange entered
+				and    each.ReceivableInvoiceDetail.Invoice not within InvoiceRange)
+				or    (ProjectRange entered
+				and    each.Project not within ProjectRange)
+				or    (TransUser1Range entered
+				and    each.TransactionUserField1 not within TransUser1Range)
+				or    (TransactionDateRange entered
+				and    each.TransactionDate not within TransactionDateRange)
+				or    (PostingDateRange entered
+				and    each.GeneralLedgerDate not within PostingDateRange)
+				or    (DueDateRange entered
+				and    each.DueDate not within DueDateRange)
+				or    (XrefTypeRange entered
+				and    each.ReceivableCrossReference.ReceivableInvoiceType not within XrefTypeRange)
+				or    (XrefNbrRange entered
+				and    each.ReceivableCrossReference.ReceivableInvoice not within XrefNbrRange)
+				or    (TransactionAmountRange entered
+				and    each.InvoiceAmount.CurrencyAmount not within TransactionAmountRange)
+				or    (CurrencyRange entered
+				and    each.OriginalCurrency not within CurrencyRange))
+					SelectInvoice = false
+				else
+				if    (DiscountDateRange entered
+				and    each.DiscountDate.DiscDate[1] not within DiscountDateRange
+				and    each.DiscountDate.DiscDate[2] not within DiscountDateRange
+				and    each.DiscountDate.DiscDate[3] not within DiscountDateRange)
+					SelectInvoice = false
+				else
+				if (each.HasReceivableApplicationSelect
+				or  each.HasARToAPApplicationSelect
+				or  each.EFTTransaction
+				or  !each.Status.OpenTransaction
+				or  each.DerivedSelectApplicationAmount = 0)
+					SelectInvoice = false
+				else 
+				if  (each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo
+				and  !ApplyToCredits)
+					SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.Company.DetailedRNADistributions)
+					initialize LocalPaymentAmountRemaining
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.None)
+						SelectInvoice = true
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Unreleased
+					or  ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Amended)
+						SelectInvoice = false
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Released)
+						Function 											= each.DerivedInvoiceFinanceCodeBlockAdditionalDimensions
+						LocalPaymentCashDetailAccount 						= each.TransientAdditionalDimensions
+						LocalPaymentAmountRemaining							= sum LocalPaymentCashDetailRel.OpenAmount
+						if (LocalPaymentCashDetailRel not exists)
+							SelectInvoice = false
+						if  (LocalPaymentAmountRemaining <= 0
+						and !each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+							SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.ReceivablePayment.PaymentOpen > 0)
+					if (each.CompanyCustomerRel.DiscountAdjustmentReason entered
+					and each.DerivedSelectDiscountAmount entered)
+			   			ThisReason														= each.CompanyCustomerRel.DiscountAdjustmentReason
+						ThisAdjustAmount 												= each.DerivedSelectDiscountAmount
+						ThisAmount														= each.DerivedSelectApplicationAmount - each.DerivedSelectDiscountAmount
+					else
+						ThisAmount														= each.DerivedSelectApplicationAmount
+						initialize 														  ThisAdjustAmount
+						initialize 														  ThisReason
+							
+					if (!each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+						if (SelectOrApply.Apply
+						or !ReceivablePaymentGroup.Company.PaymentOverApplication)
+							if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen < ThisAmount)
+								ThisAmount													= ReceivablePaymentGroup.ReceivablePayment.PaymentOpen
+						
+						if (ReceivablePaymentGroup.Company.DetailedRNADistributions)
+							if (ThisAmount > LocalPaymentAmountRemaining)
+								ThisAmount = LocalPaymentAmountRemaining
+
+
+					if (SelectOrApply.Apply)
+						invoke ApplyInvoiceToPayment each
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+					else
+						invoke InvoiceSelection each
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+	
+					NumberOfApplications += 1
+
+				if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen = 0)
+					end for each
+
+		ApplyToNationalTransactions is a DerivedField
+			type is Numeric 1
+
+							
+			for each ReceivablePaymentGroup.ReceivablePayment.NationalAccountTransactionsRel
+				SelectInvoice = true
+				if (LocalApplicationGeneralLedgerDate)	
+					if (each.ReceivableInvoiceDetailRel.GeneralLedgerDate > ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate)
+						ApplicationGeneralLedgerDate = each.ReceivableInvoiceDetailRel.GeneralLedgerDate
+					else
+						ApplicationGeneralLedgerDate  = ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate
+						
+				if (each.ReceivableInvoiceDetailRel.SummarizeDetail and !each.ReceivableInvoiceDetailRel.LowestOpenSequence)
+					SelectInvoice = false
+				else
+				if  ( (CompanyRange entered
+				and    each.ReceivableInvoiceDetailRel.Company not within CompanyRange)
+				or    (CustomerRange entered
+				and    each.ReceivableInvoiceDetailRel.Customer not within CustomerRange)
+				or    (CustomerPurchaseOrderRange entered
+				and    each.ReceivableInvoiceDetailRel.CustomerPurchaseOrder not within CustomerPurchaseOrderRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (InvoiceTypeRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType not within InvoiceTypeRange)
+				or    (InvoiceRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.Invoice not within InvoiceRange)
+				or    (ProjectRange entered
+				and    each.ReceivableInvoiceDetailRel.Project not within ProjectRange)
+				or    (TransUser1Range entered
+				and    each.ReceivableInvoiceDetailRel.TransactionUserField1 not within TransUser1Range)
+				or    (TransactionDateRange entered
+				and    each.ReceivableInvoiceDetailRel.TransactionDate not within TransactionDateRange)
+				or    (PostingDateRange entered
+				and    each.ReceivableInvoiceDetailRel.GeneralLedgerDate not within PostingDateRange)
+				or    (DueDateRange entered
+				and    each.ReceivableInvoiceDetailRel.DueDate not within DueDateRange)
+				or    (XrefTypeRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableCrossReference.ReceivableInvoiceType not within XrefTypeRange)
+				or    (XrefNbrRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableCrossReference.ReceivableInvoice not within XrefNbrRange)
+				or    (TransactionAmountRange entered
+				and    each.ReceivableInvoiceDetailRel.InvoiceAmount.CurrencyAmount not within TransactionAmountRange)
+				or    (CurrencyRange entered
+				and    each.ReceivableInvoiceDetailRel.OriginalCurrency not within CurrencyRange))
+					SelectInvoice = false
+				else
+				if   (DiscountDateRange entered
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[1] not within DiscountDateRange
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[2] not within DiscountDateRange
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[3] not within DiscountDateRange)
+					SelectInvoice = false
+				else
+				if (each.ReceivableInvoiceDetailRel.HasReceivableApplicationSelect
+				or  each.ReceivableInvoiceDetailRel.HasARToAPApplicationSelect
+				or  each.ReceivableInvoiceDetailRel.EFTTransaction
+				or  !each.ReceivableInvoiceDetailRel.Status.OpenTransaction
+				or  each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount = 0)
+					SelectInvoice = false
+				else 
+				if  (each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo
+				and  !ApplyToCredits)
+					SelectInvoice = false
+					
+				if (SelectInvoice
+				and ReceivablePaymentGroup.Company.DetailedRNADistributions)
+					initialize LocalPaymentAmountRemaining
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.None)
+						SelectInvoice = true
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Unreleased
+					or  ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Amended)
+						SelectInvoice = false
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Released)
+						Function 											= each.ReceivableInvoiceDetail.DerivedInvoiceFinanceCodeBlockAdditionalDimensions
+						LocalPaymentCashDetailAccount 						= each.ReceivableInvoiceDetail.TransientAdditionalDimensions
+						LocalPaymentAmountRemaining							= sum LocalPaymentCashDetailRel.OpenAmount
+						if (LocalPaymentCashDetailRel not exists)
+							SelectInvoice = false
+						if  (LocalPaymentAmountRemaining <= 0
+						and !each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+							SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.ReceivablePayment.PaymentOpen > 0)
+					if (each.ReceivableInvoiceDetailRel.CompanyCustomerRel.DiscountAdjustmentReason entered
+					and each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount entered)
+			   			ThisReason														= each.ReceivableInvoiceDetailRel.CompanyCustomerRel.DiscountAdjustmentReason
+						ThisAdjustAmount 												= each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount
+						ThisAmount														= each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount - each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount
+					else
+						ThisAmount														= each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount
+						initialize 														  ThisAdjustAmount
+						initialize 														  ThisReason
+							
+					if (!each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+						if (SelectOrApply.Apply
+						or !ReceivablePaymentGroup.Company.PaymentOverApplication)
+							if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen < ThisAmount)
+								ThisAmount													= ReceivablePaymentGroup.ReceivablePayment.PaymentOpen
+
+						if (ReceivablePaymentGroup.Company.DetailedRNADistributions)
+							if (ThisAmount > LocalPaymentAmountRemaining)
+								ThisAmount = LocalPaymentAmountRemaining
+
+
+					if (SelectOrApply.Apply)
+						invoke ApplyInvoiceToPayment each.ReceivableInvoiceDetailRel
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+					else
+						invoke InvoiceSelection each.ReceivableInvoiceDetailRel
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+							
+					NumberOfApplications += 1
+
+				if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen = 0)
+					end for each
+
+		ApplyToNationalTransactionsByDueDate is a DerivedField
+			type is Numeric 1
+				
+
+			for each ReceivablePaymentGroup.ReceivablePayment.NationalAccountTransactionsByDueDateRel
+				SelectInvoice = true
+				if (LocalApplicationGeneralLedgerDate)	
+					if (each.ReceivableInvoiceDetailRel.GeneralLedgerDate > ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate)
+						ApplicationGeneralLedgerDate = each.ReceivableInvoiceDetailRel.GeneralLedgerDate
+					else
+						ApplicationGeneralLedgerDate  = ReceivablePaymentGroup.ReceivablePayment.GeneralLedgerDate
+						
+				if (each.ReceivableInvoiceDetailRel.SummarizeDetail and !each.ReceivableInvoiceDetailRel.LowestOpenSequence)
+					SelectInvoice = false
+				else
+				if  ( (CompanyRange entered
+				and    each.ReceivableInvoiceDetailRel.Company not within CompanyRange)
+				or    (CustomerRange entered
+				and    each.ReceivableInvoiceDetailRel.Customer not within CustomerRange)
+				or    (CustomerPurchaseOrderRange entered
+				and    each.ReceivableInvoiceDetailRel.CustomerPurchaseOrder not within CustomerPurchaseOrderRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (ReceivableProcessLevelRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableProcessLevel not within ReceivableProcessLevelRange)
+				or    (InvoiceTypeRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType not within InvoiceTypeRange)
+				or    (InvoiceRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.Invoice not within InvoiceRange)
+				or    (ProjectRange entered
+				and    each.ReceivableInvoiceDetailRel.Project not within ProjectRange)
+				or    (TransUser1Range entered
+				and    each.ReceivableInvoiceDetailRel.TransactionUserField1 not within TransUser1Range)
+				or    (TransactionDateRange entered
+				and    each.ReceivableInvoiceDetailRel.TransactionDate not within TransactionDateRange)
+				or    (PostingDateRange entered
+				and    each.ReceivableInvoiceDetailRel.GeneralLedgerDate not within PostingDateRange)
+				or    (DueDateRange entered
+				and    each.ReceivableInvoiceDetailRel.DueDate not within DueDateRange)
+				or    (XrefTypeRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableCrossReference.ReceivableInvoiceType not within XrefTypeRange)
+				or    (XrefNbrRange entered
+				and    each.ReceivableInvoiceDetailRel.ReceivableCrossReference.ReceivableInvoice not within XrefNbrRange)
+				or    (TransactionAmountRange entered
+				and    each.ReceivableInvoiceDetailRel.InvoiceAmount.CurrencyAmount not within TransactionAmountRange)
+				or    (CurrencyRange entered
+				and    each.ReceivableInvoiceDetailRel.OriginalCurrency not within CurrencyRange))
+					SelectInvoice = false
+				else
+				if   (DiscountDateRange entered
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[1] not within DiscountDateRange
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[2] not within DiscountDateRange
+				and   each.ReceivableInvoiceDetailRel.DiscountDate.DiscDate[3] not within DiscountDateRange)
+					SelectInvoice = false
+				else
+				if (each.ReceivableInvoiceDetailRel.HasReceivableApplicationSelect
+				or  each.ReceivableInvoiceDetailRel.HasARToAPApplicationSelect
+				or  each.ReceivableInvoiceDetailRel.EFTTransaction
+				or  !each.ReceivableInvoiceDetailRel.Status.OpenTransaction
+				or  each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount = 0)
+					SelectInvoice = false
+				else 
+				if  (each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo
+				and  !ApplyToCredits)
+					SelectInvoice = false
+				
+				if (SelectInvoice
+				and ReceivablePaymentGroup.Company.DetailedRNADistributions)
+					initialize LocalPaymentAmountRemaining
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.None)
+						SelectInvoice = true
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Unreleased
+					or  ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Amended)
+						SelectInvoice = false
+					else 
+					if (ReceivablePaymentGroup.ReceivablePayment.CashDetailState.Released)
+						Function 											= each.ReceivableInvoiceDetail.DerivedInvoiceFinanceCodeBlockAdditionalDimensions
+						LocalPaymentCashDetailAccount 						= each.ReceivableInvoiceDetail.TransientAdditionalDimensions
+						LocalPaymentAmountRemaining							= sum LocalPaymentCashDetailRel.OpenAmount
+						if (LocalPaymentCashDetailRel not exists)
+							SelectInvoice = false
+						if  (LocalPaymentAmountRemaining <= 0
+						and !each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+							SelectInvoice = false
+
+				if (SelectInvoice
+				and ReceivablePaymentGroup.ReceivablePayment.PaymentOpen > 0)
+					if (each.ReceivableInvoiceDetailRel.CompanyCustomerRel.DiscountAdjustmentReason entered
+					and each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount entered)
+			   			ThisReason														= each.ReceivableInvoiceDetailRel.CompanyCustomerRel.DiscountAdjustmentReason
+						ThisAdjustAmount 												= each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount
+						ThisAmount														= each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount - each.ReceivableInvoiceDetailRel.DerivedSelectDiscountAmount
+					else
+						ThisAmount														= each.ReceivableInvoiceDetailRel.DerivedSelectApplicationAmount
+						initialize 														  ThisAdjustAmount
+						initialize 														  ThisReason
+							
+					if (!each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+						if (SelectOrApply.Apply
+						or !ReceivablePaymentGroup.Company.PaymentOverApplication)
+							if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen < ThisAmount)
+								ThisAmount													= ReceivablePaymentGroup.ReceivablePayment.PaymentOpen
+
+						if (ReceivablePaymentGroup.Company.DetailedRNADistributions)
+							if (ThisAmount > LocalPaymentAmountRemaining)
+								ThisAmount = LocalPaymentAmountRemaining
+
+
+					if (SelectOrApply.Apply)
+						invoke ApplyInvoiceToPayment each.ReceivableInvoiceDetailRel
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+					else
+						invoke InvoiceSelection each.ReceivableInvoiceDetailRel
+							invoked.ApplyOperator 											= PrmReceivableOperator
+							invoked.ReceivablePaymentGroup									= ReceivablePaymentGroup
+							invoked.ApplicationGeneralLedgerDate							= ApplicationGeneralLedgerDate
+							invoked.RangeApplication										= true
+				   			invoked.PrmAdjustReason 										= ThisReason
+							invoked.PrmAdjustAmount 										= ThisAdjustAmount
+							invoked.PrmAmount												= ThisAmount
+							invoked.PrmCurrency												= ReceivablePaymentGroup.ReceivablePayment.OriginalCurrency
+							
+					NumberOfApplications += 1
+
+				if (ReceivablePaymentGroup.ReceivablePayment.PaymentOpen = 0)
+					end for each
+
+		Msg101 is a MessageField 
+			"ReceivablePaymentRequired"
+			
+		Msg102 is a MessageField
+			"PaymentNotCustomerPayment;ActionNotValid"
+		
+		Msg103 is a MessageField 
+			"FromTransactionNumberRequired;TransactionTypeEntered"
+		
+		Msg104 is a MessageField 
+			"ToTransactionNumberRequired;TransactionTypeEntered"
+		
+		Msg105 is a MessageField 
+			"FromInvoiceTypeCannotBeGreaterThanToInvoiceType"
+		
+		Msg106 is a MessageField 
+			"FromInvoiceCannotBeGreaterThanToInvoice"
+		
+		Msg107 is a MessageField 
+			"FromCompanyCannotBeGreaterThanToCompany"
+		
+		Msg108 is a MessageField 
+			"FromCompanyDoesNotExist"
+		
+		Msg109 is a MessageField 
+			"ToCompanyDoesNotExist"
+		
+		Msg110 is a MessageField 
+			"FromCustomerCannotBeGreaterThanToCustomer"
+		
+		Msg111 is a MessageField 
+			"FromCustomerDoesNotExist"
+		
+		Msg112 is a MessageField 
+			"ToCustomerDoesNotExist"
+			
+		Msg113 is a MessageField 
+			"FromPurchaseOrderValueCannotBeGreaterThanToPurchaseOrder"
+			
+		Msg114 is a MessageField 
+			"FromProcessLevelCannotBeGreaterThanToProcessLevel"
+		
+		Msg115 is a MessageField 
+			"FromTransUser1CannotBeGreaterThanToTransUser1"
+		
+		Msg116 is a MessageField 
+			"FromTransactionAmountCannotBeGreaterThanToTransactionAmount"
+		
+		Msg117 is a MessageField 
+			"FromProjectCannotBeGreaterThanToProject"
+		
+		Msg118 is a MessageField 
+			"FromTransactionDateeCannotBeGreaterThanToTransactionDate"
+		
+		Msg119 is a MessageField 
+			"FromPostDateCannotBeGreaterThanToPostDate"
+		
+		Msg120 is a MessageField 
+			"FromDiscountDateCannotBeGreaterThanToDiscountDate"
+		
+		Msg121 is a MessageField 
+			"FromDueDateCannotBeGreaterThanToDueDate"
+		
+		Msg122 is a MessageField 
+			"FromTransactionNumberRequired;TransactionTypeEntered"
+		
+		Msg123 is a MessageField 
+			"ToTransactionNumberRequired;TransactionTypeEntered"
+		
+		Msg124 is a MessageField 
+			"FromCrossReferenceTypeCannotBeGreaterThanToCrossReferenceType"
+		
+		Msg125 is a MessageField 
+			"FromCrossReferenceInvoiceCannotBeGreaterThanToCrossReferenceInvoice"
+		
+		Msg126 is a MessageField 
+			"FromCurrencyCannotBeGreaterThanToCurrency"
+						
+		Msg127 is a MessageField 
+			"OperatorIsRequired"
+							
+		Msg128 is a MessageField 
+			"CannotProcess;UnreleasedARToAPInterfaceRecordsExistForPayment"
+						
+		Msg129 is a MessageField 
+			"PaymentHasBeenFullyApplied"
+						
+		Msg130 is a MessageField 
+			"ActionNotValidForBalanceForwardCustomers"
+					
+		Msg131 is a MessageField 
+			"CannotProcess;RTMPending."
+							
+		Msg132 is a MessageField 
+			"PaymentCustomerIsNotPartOfANationalAccount"
+							
+		Msg133 is a MessageField 
+			"@e.AR30.818"
+							
+		Msg134 is a MessageField 
+			"IfApplyCreditsSetToYes,ApplyToOldestMustAlsoBeYes"
+
+		Msg135 is a MessageField 
+			"NoSelectionCriteriaEntered"
+
+		Msg137 is a MessageField
+			"IfUsingProjectFilter,OneOfProject,ProjectContract,OrLetterOfCreditRequired"
+			
+		Msg136 is a MessageField
+			"OnlyOneOfProject,Contract,OrLetterOfCreditAllowed"
+
+		Msg200 is a MessageField
+			"NoApplicationsMade"
+
+		Msg201 is a MessageField
+			"ApplicationComplete"
+			
+		Msg202 is a MessageField
+			"NoSelectionsMade"
+
+		Msg203 is a MessageField
+			"SelectionComplete"
+						

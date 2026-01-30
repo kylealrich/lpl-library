@@ -1,0 +1,228 @@
+DirectForecastDetailImport is a BusinessClass
+	owned by cashmgmt
+	prefix is CMDFI
+
+	Ontology
+		symbolic key is DirectForecastDetailImport
+
+	Persistent Fields
+		SystemCode					is like GeneralLedgerSystemCode
+			States
+				Payables			value is "AP"
+				Receivables			value is "AR"
+				Procurement			value is "PO"		
+		CashCode
+		CashManagementAccount
+			delete cascades
+		Vendor						is AlphaUpper 9
+			default label is "Customer_/_Vendor"		
+		Name						is like VendorName 
+			holds pii
+		DueDate						is Date
+		DocumentNumber				is AlphaUpper 30
+		ProcessLevel				is AlphaUpper 5
+		TransactionCurrency			is a FromCurrency
+		Amount						is an InternationalAmount
+			default label is "TransactionAmount"
+		DiscountAmount				is an InternationalAmount
+
+	Derived Fields
+		PeriodOneAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "LessThan30"
+			if (DueDate <= current corporate date + 30)
+				return Amount
+
+		PeriodTwoAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "31To60"
+			if (DueDate > current corporate date + 30
+			and DueDate <= current corporate date + 60)
+				return Amount
+
+		PeriodThreeAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "61To90"
+			if (DueDate > current corporate date + 60
+			and DueDate <= current corporate date + 90)
+				return Amount
+
+		PeriodFourAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "91To120"
+			if (DueDate > current corporate date + 90
+			and DueDate <= current corporate date + 120)
+				return Amount
+
+		AbovePeriodAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "Above120"
+			if (DueDate > current corporate date + 120)
+				return Amount
+
+	Sets
+		CompanySystemAccountByDueDate
+			Sort Order
+				Company
+				SystemCode
+				CashManagementAccount
+				DueDate
+				DirectForecastDetailImport
+
+		CompanyAccountVendor
+			duplicates
+			Sort Order
+				SystemCode
+				Company
+				CashManagementAccount
+				Vendor
+				DocumentNumber
+
+	Field Rules
+		SystemCode
+			required
+
+		CashCode
+			required
+
+		CashManagementAccount
+			required
+			initial value is CashCode.BankAccountNumber
+
+		Vendor
+			required
+
+		Name
+			required
+
+		DueDate
+			required
+
+		DocumentNumber
+			required
+
+		TransactionCurrency
+			required
+
+		Amount
+			required
+
+		DiscountAmount
+			constraint (SystemCode = "AP")
+				"CannotBeEntered;SystemCodeMustBePayables"
+			if (Amount < 0)		
+				constraint (DiscountAmount < 0)
+					"DiscountAmountMustBeNegativeIfTransactionAmountIsNegative"
+			else
+				constraint (DiscountAmount > 0)
+					"DiscountAmountMustBePositiveIfTransactionAmountIsPositive"
+
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+
+		LoadImportDetails is a Set Action 
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup	is a CashManagementGroup
+				PrmCompany				is a GeneralLedgerCompany
+				PrmLoadDate				is Date
+				PrmRunForGroup			is Boolean
+
+			Parameter Rules
+				PrmCashManagementGroup	required
+				PrmCompany
+					if (!PrmRunForGroup)
+						required
+				PrmLoadDate				required
+
+			Instance Selection
+				where (Company = PrmCompany)
+
+			Sort Order
+				Company
+
+			Action Rules
+				Empty Set Rules
+					increment PrmCashManagementGroup.DirectForecastProcessesCompleted
+
+					if (PrmCashManagementGroup.NumberOfForecastProcessesLeft !entered)
+						invoke SummarizeDirectForecastDetail DirectForecastDetail
+							if (PrmRunForGroup)
+								invoked.PrmCashManagementGroup	= PrmCashManagementGroup
+							else
+								invoked.PrmCompany = PrmCompany
+
+				Set Rules
+					Exit Rules
+						increment PrmCashManagementGroup.DirectForecastProcessesCompleted
+
+						if (PrmCashManagementGroup.NumberOfForecastProcessesLeft !entered)
+							invoke SummarizeDirectForecastDetail DirectForecastDetail
+								if (PrmRunForGroup)
+									invoked.PrmCashManagementGroup	= PrmCashManagementGroup
+								else
+									invoked.PrmCompany = PrmCompany
+
+				Instance Rules
+					invoke Create DirectForecastDetail
+						invoked.Company								= Company
+						invoked.DueDate								= DueDate
+						invoked.LoadDate							= PrmLoadDate
+						invoked.SystemCode							= SystemCode
+						invoked.Vendor								= Vendor
+						invoked.Name								= Name
+						invoked.DocumentNumber						= DocumentNumber
+						invoked.CashCode							= CashCode
+						invoked.CashManagementAccount				= CashManagementAccount
+						invoked.ProcessLevel						= ProcessLevel
+						invoked.TransactionCurrency					= TransactionCurrency
+						invoked.Amount.TransactionAmount			= Amount
+						invoked.DiscountAmount.TransactionAmount	= DiscountAmount		
+						invoked.OriginatingTransaction				= reference to this instance
+						invoked.ImportRecord						= true
+
+		Delete is a Delete Action
+
+		PurgeImportRecords is a Set Action
+			confirmation required
+				"AllRecordsWithinEnteredParametersWillBePurged.Continue?"
+			completion message is "PurgeImportRecordsIsSubmitted"
+			Parameters
+				PrmPurgeDate			is Date
+					default label is "PurgeAsOfDate"
+				PrmSystemCode			is like GeneralLedgerSystemCode
+					default label is "SystemCode"
+					States
+						All					value is blank
+						Payables			value is "AP"
+						Receivables			value is "AR"
+						Procurement			value is "PO"		
+				PrmCompany				is a GeneralLedgerCompany
+					default label is "Company"
+
+			Parameter Rules
+				PrmPurgeDate
+					required
+
+			Instance Selection
+				where (DueDate <= PrmPurgeDate
+
+				and  ((PrmSystemCode	entered	
+				and    SystemCode		= PrmSystemCode)
+				or     PrmSystemCode	not entered)
+
+				and  ((PrmCompany		entered	
+				and    Company			= PrmCompany)
+				or     PrmCompany		not entered))
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+		Purge is a Purge Action
+			restricted
+
+

@@ -1,0 +1,299 @@
+AccountingEntityGroup is a BusinessClass
+	owned by GeneralLedger
+	
+	prefix is AEGrp
+	
+	Ontology
+		symbolic key is AccountingEntityGroup
+		
+	Patterns
+		implements StaticJava
+	
+	Persistent Fields
+		Description
+		AccountingEntityList			is Text
+
+	Local Fields 
+		LocalAccountingEntity 			is an AccountingEntity 
+		LocalCalendarPeriod				is a GeneralLedgerCalendarPeriod 
+		ErrorOccured					is Boolean
+							
+	Conditions
+		UsedInASecurityGroup
+			when (SecurityGroupRel exists)
+
+		MatrixSecurityGroup
+			when (SecurityGroupRel.MatrixSecurityGroup)
+	
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or    actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure = AccountingEntityGroup)
+
+	Relations
+	
+		SecurityGroupRel
+			one-to-many relation to FinanceDimensionSecurityGroup
+			Field Mapping uses ByStructure
+				related.FinanceEnterpriseGroup		  = FinanceEnterpriseGroup
+				related.DimensionGroupType			  = 1
+				related.FinanceDimensionStructure	  = AccountingEntityGroup		
+		NettingGeneralLedgerTotalRel
+			one-to-many relation to GeneralLedgerTotal
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = FinanceEnterpriseGroup
+				related.Scenario				 = FinanceEnterpriseGroup.ActualsScenario
+				related.AccountingEntity		 = LocalAccountingEntity
+	
+		DuplicateNettingJournalRel
+			one-to-many relation to GeneralLedgerJournalControl 
+			Field Mapping uses ByStatus 
+				related.FinanceEnterpriseGroup	 = FinanceEnterpriseGroup
+			Instance Selection 
+				where ((related.Status			= 1
+				or 		related.Status			= 2
+				or 		related.Status          = 4)
+				and    (related.AccountingEntity		 = LocalAccountingEntity)
+				and    ((LocalCalendarPeriod entered
+				and		 related.GeneralLedgerCalendarPeriod = LocalCalendarPeriod)
+				or		 LocalCalendarPeriod not entered)
+				and      related.InterEntityNettingJournal = true)
+	Field Rules
+	
+	Actions
+	
+		Create is an Action
+		Update is an Action
+		Delete is an Action
+			Entrance Rules
+				if (MatrixSecurityGroup)
+					confirmation required
+						"Accounting_Entity_GroupIsPartOfSecurityGroupCreatedFromResponsibilityMatrix.AreYouSureYouWantToDeleteThisRecord?"
+		
+		InitiatePosting is an Instance Action
+			run in background
+			restricted
+
+			Parameters
+				PrmPeriodOption				is Numeric 1
+					default label is "PeriodOption"
+					States
+						CurrentPeriod			value is 1
+						PreviousPeriod			value is 2
+						NextPeriod				value is 3
+						SpecifyYearAndPeriod	value is 4
+						AllPeriods				value is 5				
+
+
+				PrmGeneralLedgerCalendarPeriod	is like GeneralLedgerCalendarPeriod
+					default label is "GlobalLedgerClosePeriod"
+				PrmLedger					is like Ledger
+					default label is "Ledger"
+				PrmSystemCode				is like GeneralLedgerSystemCode
+					default label is "SystemCode"
+				PrmJournalPostingResult		is a JournalPostingResult
+					default label is "JournalPostingResult"				
+				PrmPostThroughDate      	is Date		
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.Status.Active)
+						invoke InitiatePosting each.AccountingEntity
+							invoked.PrmPeriodOption					= PrmPeriodOption
+
+							invoked.PrmGeneralLedgerCalendarPeriod	= PrmGeneralLedgerCalendarPeriod
+							invoked.PrmLedger						= PrmLedger
+							invoked.PrmSystemCode					= PrmSystemCode
+							invoked.PrmJournalPostingResult			= PrmJournalPostingResult
+							invoked.PrmPostThroughDate				= PrmPostThroughDate		
+						commit transaction
+
+		InitiateNetting is an Instance Action 
+			restricted 
+			Parameters 
+				PrmPeriodOption 				is Numeric 1
+					States 
+						SpecifyPeriod 			value is 1 
+						AllPeriods 				value is 2
+						PeriodRange				value is 3
+				PrmGeneralLedgerCalendarPeriod  is a GeneralLedgerCalendarPeriod  	 
+				PrmCreateInPendingApproval		is Boolean 
+#ifdef module sharedfinance			
+				PrmApprovalCode						is a ApprovalCode  
+#endif			
+				PrmStartingPeriod		 		is a GeneralLedgerCalendarPeriod
+					default label is "StartingPeriod"
+		        PrmEndingPeriod			  		is a GeneralLedgerCalendarPeriod
+		        	default label is "EndingPeriod"
+			Local Fields 
+				LocalActor 						is an Actor 		
+			Action Rules
+				for each AccountingEntityGroupMember set
+					LocalAccountingEntity  = each.AccountingEntity  
+					LocalCalendarPeriod    = PrmGeneralLedgerCalendarPeriod
+					if (DuplicateNettingJournalRel not exist)	
+						if (each.AccountingEntity.Status.Active)
+							if (NettingGeneralLedgerTotalRel exists)
+								invoke Netting each.AccountingEntity
+									invoked.PrmPeriodOption 					 = PrmPeriodOption 	
+									invoked.PrmGeneralLedgerCalendarPeriod 		 = PrmGeneralLedgerCalendarPeriod
+									invoked.PrmStartingPeriod				     = PrmStartingPeriod	
+									invoked.PrmEndingPeriod 					 = PrmEndingPeriod
+									invoked.PrmCreateInPendingApproval			 = PrmCreateInPendingApproval
+#ifdef module sharedfinance								
+									invoked.PrmApprovalCode						 = PrmApprovalCode	
+#endif																	
+					else
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "UnpostedInterEntityJournalAlreadyExists"
+							detail is "UnpostedInterEntityJournalAlreadyExistsForAccountingEntity:<LocalAccountingEntity>"				
+		
+		CloseEntityRecurringJournal is an Instance Action
+			restricted
+
+			Local Fields
+		 		LocalResultDetailsView is a RJPeriodCloseResult view
+			Action Rules
+				invoke Create RJPeriodCloseResult
+					assign result to LocalResultDetailsView 
+					invoked.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+					invoked.AccountingEntityGroup = AccountingEntityGroup
+					invoked.RunTime = current timestamp
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.RecurringJournalClosing
+					and each.AccountingEntity.Status.Active)				
+						ErrorOccured = false
+						invoke CloseRecurringJournalPeriod each.AccountingEntity
+							resume on error
+								ErrorOccured = true
+						if(ErrorOccured)
+							invoke Create RJPeriodCloseResultDetails
+								invoked.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+								invoked.RJPeriodCloseResult = LocalResultDetailsView.RJPeriodCloseResult
+								invoked.Message = "Skipping Accounting Entity " + each.AccountingEntity + "; unprocessed recurring entries exist" 
+
+#ifdef module Allocations
+		ValidateAllocationRunsForClosing is an Instance Action
+			restricted
+			default label is untranslatable
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.CostAllocationClosing
+					and each.AccountingEntity.Status.Active)
+						invoke ValidateAllocationRunsForClosing each.AccountingEntity
+#endif
+		
+		CloseEntityCostAllocation is an Instance Action
+			restricted
+
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.CostAllocationClosing
+					and each.AccountingEntity.Status.Active)					
+						invoke CloseCostAllocationPeriod each.AccountingEntity
+
+		CloseEntityGeneralLedgerSystemControl is an Instance Action
+			default label is "CloseEntityGlobalLedgerSystemControl"
+			restricted
+
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.GLJournalClosing
+					and each.AccountingEntity.Status.Active)					
+						invoke CloseGeneralLedgerSystemControl each.AccountingEntity
+
+		CloseEntityProjectLedgerSystemControl is an Instance Action
+			restricted
+
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.ProjectClosing
+					and each.AccountingEntity.Status.Active)					
+						invoke CloseProjectSystemControl each.AccountingEntity
+
+		JournalizeRecurringJournal is an Instance Action
+			run in background
+			restricted
+
+			Local Fields
+				LocalRJJournalizeResultView	is a RJJournalizeResult view				
+					
+			Action Rules
+				invoke Create RJJournalizeResult
+					assign result to LocalRJJournalizeResultView
+					invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.RunTime					= current timestamp
+					invoked.AccountingEntityGroup	= AccountingEntityGroup
+
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.Status.Active)				
+						invoke JournalizeRecurringJournal each.AccountingEntity
+							invoked.PrmRJJournalizeResult	 = LocalRJJournalizeResultView.RJJournalizeResult
+						commit transaction
+
+		UpdateZonePayablesAndReceivablesBalance is an Instance Action
+			restricted
+
+			Parameters
+				PrmPeriodOption				is Numeric 1
+					default label is "PeriodOption"
+					States
+						CurrentPeriod			value is 1
+						PreviousPeriod			value is 2
+						NextPeriod				value is 3
+						SpecifyYearAndPeriod	value is 4				
+				PrmGeneralLedgerCalendarPeriod	is like GeneralLedgerCalendarPeriod
+					default label is "GlobalLedgerClosePeriod"
+
+			Action Rules
+				for each AccountingEntityGroupMember set
+					if (each.AccountingEntity.Status.Active)				
+						invoke UpdateZonePayablesAndReceivablesBalance each.AccountingEntity
+							invoked.PrmPeriodOption					= PrmPeriodOption
+							invoked.PrmGeneralLedgerCalendarPeriod	= PrmGeneralLedgerCalendarPeriod
+
+		CopyMembers is an Instance Action
+			Parameters
+				CopyToGroup is an AccountingEntityGroup
+				
+			Parameter Rules
+			
+				CopyToGroup
+					constraint (CopyToGroup != AccountingEntityGroup)
+						"CannotCopyAGroupToItself"
+						
+			Action Rules
+				for each AccountingEntityGroupMember set
+					invoke Create AccountingEntityGroupMember
+						resume on error
+						fill in fields from each
+							except invoked.AccountingEntityGroup
+						invoked.AccountingEntityGroup = CopyToGroup
+					commit transaction				
+
+		BuildEntityList is an Instance Action  
+		    restricted
+		    Local Fields
+		        FirstEntity is Boolean
+		    Action Rules
+		        initialize AccountingEntityList
+		        FirstEntity = true
+		        for each AccountingEntityGroupMember set
+
+		            if (not FirstEntity)
+		                AccountingEntityList += ","
+		            else
+		                FirstEntity = false
+		            AccountingEntityList += each.AccountingEntity
+
+		RebuildEntityLists is a Set Action  
+		    restricted
+		    Parameters
+		        PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+		            default label is "FinanceEnterpriseGroup"
+		    Instance Selection
+		        where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup)
+		    Action Rules
+		        Instance Rules
+		            invoke BuildEntityList
+		            

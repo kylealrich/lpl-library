@@ -1,0 +1,362 @@
+PayablesJobResult is a BusinessClass
+	owned by ap
+
+	prefix is APJob
+
+	Ontology
+		symbolic key is PayablesJobResult
+
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		RunTime							is TimeStamp
+		JobType							is Numeric 2
+			States
+				VendorBalanceYearEnd	value is 1
+				VendorPaymentReport		value is 2
+				PaymentClose			value is 3
+		Status							is Numeric 1
+			States
+				Created						value is 0
+                ParametersModified			value is 1
+				InProcess					value is 2
+				Complete					value is 3
+				Incomplete					value is 4
+		PeriodEndDateArray		
+		BackgroundGroupAsyncId			is an AsyncActionRequest
+			delete ignored
+		ParametersVendorPaymentReportResult
+		Description
+		PayGroup
+		ProcessGroup					is a PayablesProcessGroup
+		CBJournalizeGroup				is AlphaUpper size 30
+		APJournalizeGroup				is AlphaUpper size 30
+
+	Local Fields
+		VerifyPayablesMonitor
+		BackgroundGroup			is AlphaUpper up to 60
+		LocalCheckAPMonitor		is Alpha 1
+		LocalActor				is Actor
+		LocalMaxPeriod			is Numeric 2
+		LocalPeriodIdx			is Numeric 2
+		LocalDatesEntered		is Numeric 2
+		LocalDateInError		is Boolean
+		LocalProcessGroup		is like PayablesProcessGroup
+
+
+	Derived Fields
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+
+		InProcessMessage is a MessageField
+			restricted
+			"InProcess"
+		
+		CompleteMessage is a DerivedField
+			type is Alpha 150
+			restricted
+			if (JobType.VendorBalanceYearEnd)
+				return "VendorBalanceYearEnd"
+			else
+			if (JobType.PaymentClose)
+				return "Payment Close submitted"
+
+		NotificationDetailMessage is a DerivedField
+			type is Alpha 150
+			restricted
+			if (JobType.VendorBalanceYearEnd)
+				return "Results Can Be Seen In Payables Job Result"
+			else
+			if (JobType.PaymentClose)
+				if (PayablesInvoicePaymentsPayablesJobResultRel exists)
+					return "Results can be seen in Payables Job Result"
+				else
+					return "No records found to process"
+
+		NumInvoiceManualPaymentsClosedRel is a DerivedField
+			type is Numeric 10
+			restricted
+			return instance count of InvoiceManualPaymentsClosedRel
+
+		ManualPaymentsCloseTitle	is a DerivedField
+			type is Alpha size up to 200
+			return "Manual payments closing result "+PayablesJobResult+" | "+"Vendor group " +VendorGroup+" "+"and Pay group "+PayGroup
+
+		NumCashLedgerPayablesPaymentRel is a DerivedField
+			type is Numeric 10
+			restricted
+			return instance count of CashLedgerPayablesPaymentPayablesJobResultRel
+
+		ProcessGroupRepresentativeText is a StringField
+			type is Text
+			default label is "ProcessGroup"
+			ProcessGroup " - " ProcessGroup.Description
+
+	Field Rules
+		RunTime
+			default to current timestamp
+		VendorGroup
+			required
+				"VendorGroupRequired"
+		Description
+			if (!JobType.PaymentClose)
+				required
+		JobType
+            if (JobType.VendorPaymentReport)
+                constraint (ParametersVendorPaymentReportResult.PaymentDateRange entered)
+                    "PaymentDateRangeIsRequired"
+                constraint (ParametersVendorPaymentReportResult.InvoiceCurrency entered)
+                    "InvoiceCurrencyIsRequired"
+
+
+
+
+	Relations
+		InvoiceManualPaymentsClosedRel
+			one-to-many relation to PayablesInvoicePayment
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.VendorGroup 			= VendorGroup
+				and related.PayGroup				= PayGroup
+				and related.PayablesJobResult		= PayablesJobResult
+				and	!related.IsOnHold
+				and related.Status.Historical)
+
+		PayablesInvoicePaymentsPayablesJobResultRel
+			one-to-many relation to PayablesInvoicePayment
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.VendorGroup			= VendorGroup
+				and related.PayGroup				= PayGroup
+				and related.PayablesJobResult		= PayablesJobResult)
+
+		PayablesJobErrorResultRel is a PayablesJobErrorResult set
+
+		CashLedgerPayablesPaymentPayablesJobResultRel
+			one-to-many relation to CashLedgerPayablesPayment
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.CashManagementGroup 	= VendorGroup.FinanceEnterpriseGroup
+				and related.VendorGroup				= VendorGroup
+				and related.PayGroup				= PayGroup
+				and related.PayablesJobResult		= PayablesJobResult)
+
+	Conditions					
+		AllowUpdate
+			restricted
+			when (JobType.VendorPaymentReport
+			and   !Status.InProcess)
+
+		ShowAPManualPaymentsClosed
+			restricted
+			when (InvoiceManualPaymentsClosedRel exists)
+
+		ShowPayments
+			restricted
+			when (Status.Complete
+			and  !PayablesJobErrorResultRel exists)
+
+		ErrorsExist
+			restricted
+			when (PayablesJobErrorResultRel exists)
+
+	Rule Blocks
+		EditParameters
+			if (!JobType.PaymentClose)
+				LocalMaxPeriod = 13
+				while (VendorGroup.PeriodEndingDates.PeriodEndingDate[LocalMaxPeriod] not entered
+				and LocalMaxPeriod >= 1 )
+						LocalMaxPeriod -= 1
+					
+				LocalDatesEntered = LocalMaxPeriod
+				LocalMaxPeriod = 1
+				LocalPeriodIdx = 2
+				LocalDateInError = false
+				while(LocalMaxPeriod <= LocalDatesEntered
+				and !LocalDateInError)
+					if(PeriodEndDateArray.PerEndDate[LocalMaxPeriod] >= PeriodEndDateArray.PerEndDate[LocalPeriodIdx] )
+						LocalDateInError = true
+					LocalMaxPeriod += 1
+					LocalPeriodIdx  += 1
+				constraint (LocalDateInError)
+					"InvalidDateSequence"
+					
+		BeginMonitor
+			VerifyPayablesMonitor.RunProgram		= RunProgram.PaymentClosing
+			VerifyPayablesMonitor.VendorGroup		= VendorGroup
+			VerifyPayablesMonitor.PayGroup			= PayGroup
+			VerifyPayablesMonitor.ProcessGroup		= ProcessGroup
+			VerifyPayablesMonitor.BatchNumber		= blank
+			LocalCheckAPMonitor						= VerifyPayablesMonitor.CallVerifyPayablesMonitor
+			constraint (VerifyPayablesMonitor.NoErrors)
+				"<VerifyPayablesMonitor.APMonitorProcessingMessage>"
+
+			LocalCheckAPMonitor						= VerifyPayablesMonitor.BeginMonitor
+
+		EndMonitor
+			VerifyPayablesMonitor.RunProgram		= RunProgram.PaymentClosing
+			VerifyPayablesMonitor.VendorGroup		= VendorGroup
+			VerifyPayablesMonitor.PayGroup			= PayGroup
+			VerifyPayablesMonitor.ProcessGroup		= ProcessGroup
+			VerifyPayablesMonitor.BatchNumber		= blank
+			LocalCheckAPMonitor						= VerifyPayablesMonitor.EndMonitor
+				
+	Sets
+		ForPayablesProcessingMonitor
+			Sort Order
+				VendorGroup
+				PayablesJobResult
+
+		ByVendorGroup
+			Sort Order
+				VendorGroup
+				PayGroup
+				PayablesJobResult
+
+	Actions
+
+		Create is a Create Action
+			restricted
+
+		CreateVendorPaymentReport is a Create Action		
+			Entrance Rules
+				JobType = 2
+				Status = Status.ParametersModified
+
+
+		Update is an Update Action
+			valid when (AllowUpdate)
+
+			Entrance Rules
+				if (Status.Complete)
+					Status	= Status.ParametersModified
+		
+		FastUpdate is an Update Action
+			restricted
+			default label is untranslatable
+			bypass field rules
+
+		Delete is a Delete Action
+			valid when (!Status.InProcess)
+
+		RunVendorPaymentReport is an Instance Action
+			valid when (AllowUpdate)			
+			Action Rules
+				Status			= Status.InProcess
+				RunTime			= current timestamp
+				if (PayablesJobResultDetail set exists)
+					confirmation required
+						"ReportDetailsExist:DeleteAndRerun"
+					invoke Delete PayablesJobResultDetail set
+				invoke VendorSpendReport Vendor
+					invoked.PrmVendorGroup				= VendorGroup
+					invoked.PrmPayablesJobResult 		= PayablesJobResult
+					invoked.PrmVendorClass 				= ParametersVendorPaymentReportResult.VendorClass
+					invoked.PrmVendorSelectGroup		= ParametersVendorPaymentReportResult.VendorSelectGroup
+
+			
+		Purge is a Purge Action
+			restricted
+
+		UpdateStatusOnResult is an Instance Action
+			restricted
+			Action Rules
+				Status = Status.Complete
+				if (JobType.PaymentClose)
+					if (PayablesJobErrorResultRel exists)
+						Status = Status.Incomplete
+					else
+						include EndMonitor
+				LocalActor = actor
+				send notification
+					to LocalActor
+					description is "<CompleteMessage>"
+					priority is high
+					detail is "<NotificationDetailMessage>"
+
+		UpdateCashLedger is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+			Action Rules
+				if (InvoiceManualPaymentsClosedRel exists)
+					invoke UpdateCashLedgerSetFromPaymentClose CashLedgerPayablesPayment
+						invoked.PrmCashManagementGroup		= VendorGroup.FinanceEnterpriseGroup
+						invoked.PrmVendorGroup				= VendorGroup
+						invoked.PrmPayGroup					= PayGroup
+						invoked.PrmProcessGroup				= ProcessGroup
+						invoked.PrmPayablesJobResult		= PayablesJobResult
+
+		JournalizeDistributionsForGroup is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmBackgroundGroup 			is AlphaUpper up to 60
+				PrmJournalizeGroup 			is AlphaUpper size 30
+				PrmCBJournalizeGroup 		is AlphaUpper size 30
+			Action Rules
+				if (InvoiceManualPaymentsClosedRel exists)
+					APJournalizeGroup		= PrmJournalizeGroup
+					CBJournalizeGroup		= PrmCBJournalizeGroup
+					invoke JournalizeDistributionsForGroup VendorGroup
+						invoked.PrmPayGroup 						= PayGroup
+						invoked.PrmRunProgram 						= "AP170"
+						invoked.PrmProcessGroup 					= ProcessGroup
+						invoked.PrmEnterpriseGroup 					= VendorGroup.FinanceEnterpriseGroup
+						invoked.PrmJournalizeGroup 					= PrmJournalizeGroup
+						invoked.PrmCBJournalizeGroup 				= PrmCBJournalizeGroup
+						invoked.PrmJournalizeGroupDescription 		= "Journal Created By Payment Close"
+
+		PerformVendorBalanceYearEnd is a Create Action
+			completion message is "PerformVendorBalanceYearEnd"
+			Entrance Rules
+				JobType = 1
+				include EditParameters
+
+			Exit Rules
+				display "=========PerformVendorBalanceYearEnd============"
+
+				BackgroundGroup = "PerformVendorBalanceYearEnd" + PayablesJobResult
+				invoke UpdatePeriodEndDate VendorGroup in background group(BackgroundGroup)
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmPeriodEndDate				= PeriodEndDateArray
+				invoke VendorBalanceYearEndUpdate VendorBalance in background 
+					run after background group(BackgroundGroup)
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmVendorGroup					= VendorGroup
+
+				invoke UpdateStatusOnResult in background
+					run after background group(BackgroundGroup)
+
+		EndMonitor is an Instance Action
+			default label is untranslatable
+			restricted
+			run in background
+			Action Rules
+				if (PayablesJobErrorResultRel not exists)
+					include EndMonitor
+
+		PurgePayablesJobResults is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmVendorGroup				is a VendorGroup
+				PrmPayGroup					is a PayGroup
+				PrmProcessGroup				is a PayablesProcessGroup
+				PrmPayablesJobResult		is a PayablesJobResult
+			Instance Selection
+				where (VendorGroup			= PrmVendorGroup
+				and   PayGroup				= PrmPayGroup
+				and   ProcessGroup			= PrmProcessGroup
+				and   PayablesJobResult		!= PrmPayablesJobResult
+				and   JobType.PaymentClose
+				and   PayablesJobErrorResultRel exists)
+			Action Rules
+				Instance Rules
+					invoke Purge PayablesJobErrorResultRel
+					invoke Purge

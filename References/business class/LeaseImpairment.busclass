@@ -1,0 +1,370 @@
+LeaseImpairment is a BusinessClass
+	owned by lm
+	prefix is LMIM
+
+	Ontology
+		symbolic key is LeaseImpairment
+
+	Persistent Fields
+		Status							is Numeric 1
+			States
+				Unreleased	value is 1
+				Released	value is 2
+		ImpairmentDate					is Date
+		EffectiveDate					is Date
+		Description
+        RemainingTerm					is Numeric 3
+		ImpairmentAmount				is a CurrencyExchangeGroup
+		ImpairmentROUBalance			is a CurrencyExchangeGroup
+		ROUBalanceBeforeImpairment		is a CurrencyExchangeGroup
+		StraightLineAmount				is a CurrencyExchangeGroup
+        ImpairmentAccount				is a FinanceCodeBlockFull
+
+	Local Fields
+		LocalCurrencyExchangeGroup		is a CurrencyExchangeGroup
+		LocalBaseImpairmentAmount		is an InternationalAmount
+		LocalBaseImpairmentROUBalance	is an InternationalAmount
+		LocalStraightLineAmount			is an InternationalAmount
+		LocalLease						is like Lease
+		LocalCompany 					is like PayablesCompany
+		
+	Transient Fields
+		Currency						is a FromCurrency
+			derive value from Lease.Currency
+		BaseCurrency					is a ToCurrency
+			derive value from Lease.BaseCurrency
+				
+	Field Rules
+		ImpairmentDate
+			required
+				"MustEnterImpairmentDateWhenProcessingAnImpairment"
+			constraint (ImpairmentDate < Lease.EndDate)
+				"ImpairmentDateHasToBeBeforeLeaseScheduledEndDate;ConsiderClosingTheLease"
+			constraint (ImpairmentAllowedPaymentsRel not exist)
+				"ThereCannotBeInvoicedPaymentsAfterTheImpairmentDate"
+
+		Description
+			default to Lease.Description
+			
+		ImpairmentROUBalance
+			constraint (ImpairmentROUBalance.TransactionAmount > "0")
+				"ImpairmentAmountCannotBeGreaterThanTheROUBalance"			
+			
+	Derived Fields
+
+		ProgramName is a MessageField 
+			restricted
+			"LeaseImpairment"
+		
+		DerivedImpairmentPeriods is a DerivedField  
+			type is Numeric 3
+			restricted
+			if (ImpairmentPeriodsRemainingRel exist)
+				return (instance count of ImpairmentPeriodsRemainingRel)
+
+		DerivedImpairmentGLYear  is a DerivedField
+			type is Year
+			restricted
+			return (first GLClosePeriodImpairmentRel.GeneralLedgerCloseYear)
+
+		DerivedImpairmentBalance is a DerivedField	
+			type is like InternationalAmount
+			restricted
+			if (ImpairmentROUBalancesRel exist)
+				return (ImpairmentROUBalancesRel.ROUBalance)
+
+	Relations
+
+		ImpairmentROUBalancesRel
+            one-to-many relation to LeaseCurrencyPaymentPeriodBalance
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+                related.Vendor	= Lease.Lessor
+            Instance Selection
+                where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+                and  related.PaymentDueDate = EffectiveDate)
+
+		ImpairmentPeriodsRemainingRel
+			one-to-many relation to LeasePaymentDetail
+            Field Mapping uses Set3
+                related.Company  = Company
+                related.Lease    = Lease
+                related.DueDate  > EffectiveDate
+			Instance Selection
+				where (related.Vendor = Lease.Lessor
+				and    related.LeasePaymentDetail.ExecutoryCostCode not entered
+				and    related.ResidualPayment = false)
+
+		LeasePaymentBalanceAfterImpairmentRel
+			one-to-many relation to LeasePaymentBalance
+            Field Mapping uses Set3
+                related.Company 					   = Company
+                related.Lease   					   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.FiscalYear >= DerivedImpairmentGLYear
+				and    related.LeasePaymentBalance.ExecutoryCostCode not entered)
+
+		GLClosePeriodImpairmentRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDate
+				related.FinanceEnterpriseGroup			 = Company.BusinessGroup.FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration	 = Company.AccountingEntity.CloseConfiguration
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod.DerivedPeriodMonth = ImpairmentDate month
+				and    related.GeneralLedgerClosePeriod.DerivedPeriodYear = ImpairmentDate year)
+
+        LeaseCurrencyPaymentBalanceAfterImpairmentRel
+            one-to-many relation to LeaseCurrencyPaymentBalance
+            Field Mapping uses Set3
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeaseCurrencyPaymentBalance.LeasePaymentBalance.FiscalYear >= DerivedImpairmentGLYear
+				and    related.LeasePaymentBalance.ExecutoryCostCode not entered) 
+
+		ImpairmentAllowedPaymentsRel
+            one-to-many relation to LeasePaymentDetail
+            Field Mapping uses Set3
+                related.Company  = Company
+                related.Lease	 = Lease
+                related.DueDate  > EffectiveDate
+			Instance Selection
+				where (related.Vendor = Lease.Lessor
+				and	   related.LeasePaymentDetail.ExecutoryCostCode not entered
+				and    related.Released = true
+				and    related.PaymentAmount entered)
+
+        AssetsRel
+            one-to-many relation to Asset
+            Field Mapping uses Set13
+                related.FinanceEnterpriseGroup 	= Company.FinanceEnterpriseGroup
+                related.AssetLease.LeaseCompany = Company
+                related.AssetLease.Lease 		= Lease
+
+		ImpairmentBaseROUBalancesRel
+            one-to-many relation to LeasePaymentPeriodBalance
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+                related.Vendor	= Lease.Lessor
+            Instance Selection
+                where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+                and  related.PaymentDueDate = EffectiveDate)
+
+		ImpairmentInProgressRel
+			one-to-many relation to LeaseImpairment
+			Field Mapping uses symbolic key
+				related.Company 		   = Company
+				related.Lease			   = Lease
+				related.Vendor			   = Vendor			
+			Instance Selection
+				where (related.Status.Unreleased)
+
+	Sets
+
+		ByLeaseImpairmentDate
+			Sort Order
+				Lease
+				Company
+				ImpairmentDate
+				LeaseImpairment
+				
+
+				
+    Conditions
+    	HasDifferentCurrencies
+    		when (Lease.Currency != Lease.BaseCurrency)
+
+		IsImpairmentInProgress
+			when (Lease.Status.Impairment
+			and   Status.Unreleased)
+
+		ValidForTransfer
+			when (Status.Released)
+
+		IsValidForActorContext
+            restricted
+            when (Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+    		                	
+	Rule Blocks
+
+		CalculateImpairmentBaseAmounts
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= ImpairmentAmount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseImpairmentAmount									= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= ImpairmentROUBalance.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseImpairmentROUBalance								= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= StraightLineAmount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalStraightLineAmount										= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+	
+	Actions
+		Purge is a Purge Action
+			restricted
+
+		DeleteImpairments is a Delete Action
+			restricted
+
+		LeaseImpairmentsTransfer is a Set Action
+			restricted
+			default label is "LeaseImpairmentsTransfer" 
+			Parameters
+				PrmTransferOption					is Numeric 1
+					default label is "ActionOption"
+					States
+						TransferImpairments 	   value is 1
+						ReportOnly		       	   value is 2
+				PrmCompany 						   is a PayablesCompany
+				PrmReasonCode 					   is a LeaseAdjustmentReasonCode
+					default label is "ReasonCode"
+				PrmLease                           is a Lease
+				PrmSelectLease                     is Boolean
+
+			Parameter Rules
+				PrmReasonCode
+					if(PrmTransferOption.TransferImpairments)
+						required
+				PrmCompany
+					required
+				PrmTransferOption
+					required
+					initial value is  PrmTransferOption.ReportOnly
+				PrmSelectLease
+					initial value is false
+
+			Instance Selection
+				where (((PrmCompany entered 
+				and   Company = PrmCompany)
+				or     PrmCompany !entered)
+				and    ((PrmLease entered
+				and      Lease = PrmLease)
+				or       PrmLease !entered)
+				and  (Status.Released))
+
+			Local Fields
+				LocalActor									is an Actor
+				LocalCounter								is Numeric 10
+				LocalNewLine								is LPLText
+				LocalNotificationDetails					is LPLText
+			
+			Action Rules
+				Empty Set Rules
+					send notification
+						to LocalActor
+						description is "LeaseImpairmentsTransfer"
+						priority is high
+						detail is "No_Lease_ImpairmentRecords_to_process"
+				Set Rules
+					Entrance Rules
+						LocalActor 							= actor
+						LocalLease 							= PrmLease
+						LocalCompany 						= PrmCompany
+	
+					Exit Rules
+						LocalNewLine 	= "\u000a"
+						if(PrmTransferOption.TransferImpairments)
+							LocalNotificationDetails = "Number of records that have been transferred"+ LocalNewLine
+						else
+							LocalNotificationDetails = "Number of records that are available to Transfer "+ LocalNewLine
+						LocalNotificationDetails += "Total LeaseImpairments: "+ LocalCounter +LocalNewLine 
+
+						send notification
+							to LocalActor
+							description is "LeaseImpairmentsTransferDetails"
+							priority is high
+							detail is "<LocalNotificationDetails>"
+
+				Instance Rules
+					if (PrmTransferOption.ReportOnly) 						
+						LocalCounter +=1
+					else			
+						LocalCounter +=1
+						invoke CreateImpairment LeaseAdjustment	
+							invoked.Vendor                                                =  Vendor
+							invoked.Lease												  =  Lease
+							invoked.AdjustmentDate    									  =  ImpairmentDate
+							invoked.Status           									  =  "2"
+							invoked.Company           									  =  PrmCompany
+							invoked.Description       									  =  Description
+							invoked.AdjustmentAmount.TransactionAmount 				      =  ImpairmentAmount.TransactionAmount
+							invoked.AdjustmentROUBalance.TransactionAmount 				  =  ImpairmentROUBalance.TransactionAmount
+							invoked.AdjustmentAmount.BaseAmount.EnteredCurrencyAmount 	  =  ImpairmentAmount.BaseAmount.EnteredCurrencyAmount
+							invoked.AdjustmentROUBalance.BaseAmount.EnteredCurrencyAmount =  ImpairmentROUBalance.BaseAmount.EnteredCurrencyAmount
+							invoked.LeaseReasonCode    				         			  =  PrmReasonCode
+							invoked.RemainingTerm                                         =  RemainingTerm
+							invoked.AdjustmentAccount                                     =  ImpairmentAccount
+						invoke DeleteImpairments
+
+	StateCycles
+		LeaseModificationCycle is a StateCycle
+			state field is Status
+													
+			Unreleased is a State
+				Create is a Create Action
+					restricted
+				    Action Rules
+						if (ImpairmentROUBalancesRel exist)
+							ROUBalanceBeforeImpairment.TransactionAmount	= DerivedImpairmentBalance
+							ImpairmentROUBalance.TransactionAmount			= DerivedImpairmentBalance - ImpairmentAmount.TransactionAmount
+							RemainingTerm									= DerivedImpairmentPeriods
+							StraightLineAmount.TransactionAmount			= ImpairmentROUBalance.TransactionAmount / RemainingTerm
+
+						if (LeasePaymentBalanceAfterImpairmentRel exist)
+							include CalculateImpairmentBaseAmounts
+							invoke UpdateROUForImpairment first LeasePaymentBalanceAfterImpairmentRel
+								invoked.PrmImpairmentAmount			= LocalBaseImpairmentAmount
+								invoked.PrmImpairmentDate			= EffectiveDate
+								invoked.PrmRemainingTerm			= RemainingTerm
+								invoked.PrmImpairmentROUBalance		= LocalBaseImpairmentROUBalance
+								invoked.PrmStraightLineAmount		= LocalStraightLineAmount
+								
+						if (LeaseCurrencyPaymentBalanceAfterImpairmentRel exist)
+							invoke UpdateROUForImpairment first LeaseCurrencyPaymentBalanceAfterImpairmentRel
+								invoked.PrmImpairmentAmount			= ImpairmentAmount.TransactionAmount
+								invoked.PrmImpairmentDate			= EffectiveDate
+								invoked.PrmRemainingTerm			= RemainingTerm
+								invoked.PrmImpairmentROUBalance		= ImpairmentROUBalance.TransactionAmount
+								invoked.PrmStraightLineAmount		= StraightLineAmount.TransactionAmount
+				    Exit Rules
+				    	if (ImpairmentROUBalancesRel exist)
+				    		ImpairmentROUBalance.BaseAmount.EnteredCurrencyAmount	= first ImpairmentBaseROUBalancesRel.ROUBalance
+				    		ImpairmentAmount.BaseAmount.EnteredCurrencyAmount		= LocalBaseImpairmentAmount
+				    	
+				Update is an Update Action
+					restricted
+
+						
+				RestrictedUpdate is an Update Action
+					restricted
+					bypass field rules
+				
+				Delete is a Delete Action
+					restricted
+		
+				Release is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+				
+				ResetImpairment is an Instance Action
+					restricted
+					Action Rules
+						if (ImpairmentROUBalancesRel exist)
+								ImpairmentROUBalance.TransactionAmount	= DerivedImpairmentBalance - ImpairmentAmount.TransactionAmount
+								RemainingTerm	= DerivedImpairmentPeriods
+								
+							if (LeasePaymentBalanceAfterImpairmentRel exist)
+
+								invoke ResetROUForImpairment first LeasePaymentBalanceAfterImpairmentRel
+						
+			Released is a State

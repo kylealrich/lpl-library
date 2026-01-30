@@ -1,0 +1,343 @@
+PayablesOnHold is a BusinessClass
+    owned by ap
+    prefix is HLI
+    classic name is APHLDINV
+
+    Ontology
+        symbolic key is PayablesOnHold
+            classic set name is HLISET1
+            name for PayablesHoldCode is HoldCode
+            classic name for HoldCode is HLD-CODE
+
+            classic name for PayablesInvoicePayment.PaymentSequence is SEQ-NBR
+            classic name for PayablesInvoicePayment.VoidSequence is VOID-SEQ
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements Archivable
+        
+    Context Fields
+		VendorRange						is a VendorNumberRange
+		FilterGeneralLedgerCompanyGroup is a GeneralLedgerCompanyGroup
+            default label is "CompanyGroup"
+
+  			
+    
+    Persistent Fields
+    	Invoice			is a snapshot of PayablesInvoice.Invoice
+    	Suffix			is a snapshot of PayablesInvoice.Suffix
+    	CancelSequence	is a snapshot of PayablesInvoice.CancelSequence
+        ProcessLevel   	is a PayablesProcessLevel
+            classic name is PROC-LEVEL
+        HoldRecordType 	is AlphaUpper size 1
+            classic name is REC-TYPE
+            States
+                Invoice value is "I"
+                Payment value is "P"
+                Vendor  value is "V"
+				VendorLocation value is "L"		
+	
+	Local Fields
+    	NativeLPLBODTrigger			is Boolean
+		LocalTriggerFrom			is Alpha size 100
+        LocalPayGroup               is like PayGroup
+		
+   	Rule Blocks
+ 
+    Derived Fields
+
+    	InvoiceAmount is a DerivedField
+    		type is like CurrencyAmount
+    		return (PayablesInvoice.InvoiceAmount.CurrencyAmount)
+    			
+    	OutOfBalanceType is a DerivedField
+    		type is Alpha 1
+    		return PayablesInvoice.InvoiceOutOfBalance
+    		
+    	InvoiceComment is a DerivedField
+    		type is MessageField
+    		restricted
+    		return PayablesInvoice.first PayablesInvoiceCommentRel.Comment
+    		
+    Conditions
+    	WithinVendorRange
+    		restricted
+			when (VendorRange not entered
+			or	 (VendorRange entered
+			and	 (PayablesInvoice.Vendor within VendorRange
+			or    Vendor within VendorRange)))
+		
+		IsOutOfBalanceInvoice
+			restricted
+			when (PayablesInvoice.IsOutOfBalance)
+		
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   VendorGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+        IsHliset2
+            classic name is HLISET2
+            restricted
+            when (HoldRecordType.Invoice)
+
+        IsHliset3
+            classic name is HLISET3
+            restricted
+            when (HoldRecordType.Vendor)
+
+        IsHliset4
+            classic name is HLISET4
+            restricted
+            when (HoldRecordType.Payment)
+
+        IsInvoice
+        	restricted
+            when (HoldRecordType.Invoice)
+
+        IsPayment
+        	restricted
+            when (HoldRecordType.Payment)
+
+		IsInvoiceOrPayment		
+			restricted
+			when (IsInvoice
+			or    IsPayment)
+        IsVendor
+        	restricted
+            when (HoldRecordType.Vendor)
+        
+        IsMemberOfFilterGeneralLedgerCompanyGroup
+			restricted
+			when (FilterGeneralLedgerCompanyGroup not entered
+			or   (FilterGeneralLedgerCompanyGroup entered
+			and   GeneralLedgerCompanyGroupMemberRel exists))
+
+    Relations
+        		
+        GeneralLedgerCompanyGroupMemberRel
+	    	one-to-one relation to GeneralLedgerCompanyGroupMember
+	    	Field Mapping uses symbolic key
+	    		related.GeneralLedgerCompanyGroup 	= FilterGeneralLedgerCompanyGroup
+	    		related.Company						= Company
+	    		
+        PayablesInvoiceRel
+            classic name is APINVOICE
+            one-to-one relation to PayablesInvoice
+            valid when (IsInvoice)
+            required
+            Field Mapping uses ByCompanyVendorInvoice
+                related.Company        = Company
+                related.Vendor         = Vendor
+                related.Invoice        = Invoice
+                related.Suffix         = Suffix
+                related.CancelSequence = CancelSequence
+                related.InvoiceDate    = PayablesInvoice.InvoiceDate        
+
+        PayablesInvoicePaymentRel
+            classic name is APPAYMENT
+            one-to-one relation to PayablesInvoicePayment
+            valid when (IsPayment)
+            required
+            Field Mapping uses ByCompanyVendorInvoice
+                related.Company                                	= Company
+                related.Vendor                                 	= Vendor
+                related.Invoice                					= Invoice
+                related.Suffix                 					= Suffix
+                related.CancelSequence         					= CancelSequence
+                related.PayablesInvoicePayment.PaymentSequence 	= PayablesInvoicePayment.PaymentSequence
+                related.PayablesInvoicePayment.VoidSequence    	= PayablesInvoicePayment.VoidSequence
+                related.PayablesInvoice  = PayablesInvoicePayment.PayablesInvoice       
+    
+        PayGroupCompanyRelationshipRel
+            one-to-one relation to PayGroupCompanyRelationship
+            Field Mapping uses symbolic key
+                related.VendorGroup     = VendorGroup
+                related.PayGroup        = LocalPayGroup
+                related.Company         = Company
+                related.ProcessLevel    = ProcessLevel
+
+    Actions
+		Create is a Create Action
+
+		Update is an Update Action
+			
+		Delete is a Delete Action
+			Entrance Rules
+				if (!HoldCode.HoldOnInvoice.TemporaryHold)			
+					if(!PayablesInvoice.Status.Unreleased and !PayablesInvoice.Status.Approved and !PayablesInvoice.Status.PendingApproval)
+						increment PayablesInvoice.bod id.VariationID
+						invoke TriggerSupplierInvoiceBOD PayablesInvoice
+							invoked.PrmUpdateTimeStamp = current timestamp
+							invoked.PrmInvoiceOnHold   = false
+							invoked.PrmHoldAction      = "D"
+
+
+
+
+		
+		TakeOffHold is an Instance Action
+			Action Rules
+			Exit Rules
+				invoke TakeOffHold PayablesInvoicePaymentRel	
+		
+		UpdateHoldCode is an Instance Action
+			Parameters
+				VendorGroup
+				InvoiceHoldCode is a PayablesHoldCode
+			Parameter Rules
+				VendorGroup
+					initial value is Company.VendorGroup
+					force default to Company.VendorGroup
+				InvoiceHoldCode
+					required
+					constraint (InvoiceHoldCode.HoldOnInvoice entered)
+						"HoldCodeTypeMustBeForInvoicesAndPayments"
+					constraint (InvoiceHoldCode not = HoldCode)
+						"NewHoldCodeCannotBeTheSameAsTheCurrentHoldCode"
+			Action Rules
+			Exit Rules
+				invoke UpdateHoldCode PayablesInvoicePaymentRel	
+    				invoked.InvoiceHoldCode		= InvoiceHoldCode
+
+		UpdateSnapshotFields is an Instance Action
+			restricted
+			Action Rules
+				Invoice				= PayablesInvoice.Invoice
+				Suffix				= PayablesInvoice.Suffix
+				CancelSequence		= PayablesInvoice.CancelSequence
+				
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+				    
+        RemoveTemporaryHolds is a Set Action
+            default label is untranslatable
+            restricted
+            Parameters
+                PrmVendorGroup      is a VendorGroup
+                PrmPayGroup         is a PayGroup
+                PrmProcessGroup     is a PayablesProcessGroup
+
+            Local Fields
+                LocalSkip           is Boolean
+                DeleteRecord        is Boolean
+
+            Instance Selection
+                where (VendorGroup = PrmVendorGroup)
+
+            Action Rules
+                Instance Rules
+                    initialize DeleteRecord
+                    LocalPayGroup = PrmPayGroup
+                    if (HoldRecordType.Payment
+                    and HoldCode.HoldOnInvoice.TemporaryHold)
+                        if (PayGroupCompanyRelationshipRel exists)
+                            if (ProcessLevel entered
+                            and PayablesInvoicePayment.ProcessLevel entered 
+                            and PayablesInvoicePayment.ProcessLevel != PayGroupCompanyRelationshipRel.ProcessLevel)
+                                LocalSkip = true
+                            if (PrmProcessGroup entered
+                            and PayablesInvoicePayment.ProcessGroup != PrmProcessGroup)
+                                LocalSkip = true
+                            if (!LocalSkip)
+                                invoke TakeOffHoldFromPaymentClose PayablesInvoicePayment
+                                DeleteRecord = true
+                    if (HoldRecordType.Vendor
+                    and HoldCode.HoldOnVendor.TemporaryHold)
+                        invoke TakeOffHoldFromPaymentClose Vendor
+                        DeleteRecord = true
+                    if (DeleteRecord)
+                        invoke Delete
+
+    Sets
+    	ByHoldCode
+    		duplicates
+    		Sort Order
+    			HoldCode.HoldCode
+
+        ByVendor
+        	duplicates
+            Sort Order
+                Vendor
+
+        ByVendorSearchName
+        	duplicates
+            Sort Order
+                Vendor.VendorSearchName
+        
+        Set3
+            indexed
+            Instance Selection
+                where (IsHliset3)
+            Sort Order
+                VendorGroup
+                HoldCode
+                Vendor
+
+        Set4
+            indexed
+            Instance Selection
+                where (IsHliset4)
+            Sort Order
+                VendorGroup
+                HoldCode
+                Company
+                Vendor
+                PayablesInvoice
+                PayablesInvoicePayment
+
+        Set5
+            indexed
+            Sort Order
+                HoldRecordType
+                VendorGroup
+                Company
+                Vendor
+                PayablesInvoice
+                PayablesInvoicePayment
+                HoldCode
+				VendorLocation		
+
+		Set6		
+			indexed
+			Sort Order
+				HoldRecordType
+				VendorGroup
+				Company
+				Vendor
+				VendorLocation
+				PayablesInvoice
+				PayablesInvoicePayment
+				HoldCode
+
+        OldSet4
+            indexed
+            Instance Selection
+                where (IsHliset4)
+            Sort Order
+                VendorGroup
+                HoldCode
+                Company
+                Vendor
+                Invoice
+                Suffix
+                PayablesInvoice            
+                PayablesInvoicePayment
+
+        OldSet5
+            indexed
+            Sort Order
+                HoldRecordType
+                VendorGroup
+                Company
+                Vendor
+                Invoice
+                Suffix
+                CancelSequence
+                PayablesInvoice             
+                PayablesInvoicePayment
+                HoldCode
+				VendorLocation		

@@ -1,0 +1,359 @@
+VendorBackorderDetails is a BusinessClass
+    owned by po
+    prefix is VBO
+
+    Ontology
+        symbolic key is VendorBackorderDetails
+
+    Patterns
+        implements ForceUIRefreshOnStale
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        RecordType                  is Alpha size 2
+        	States
+				VendorItem			    value is "VI"
+				Contract                value is "CM"
+				PurchaseOrder           value is "PO"
+        PurchasingCompany
+        PurchaseOrder
+        PurchaseOrderLine
+		Contract
+        ContractLine
+        Item
+        ItemDescription
+        Vendor
+        VendorItem
+		VendorItemDescription		is a Description
+		BackorderType				is Numeric size 1
+            States
+                VendorBackorder			value is 1
+                ManufacturerBackorder	value is 2
+		BackorderQuantity			is like UnsignedQuantity
+        StartDate	                is Date
+		EstimatedAvailabilityDate	is Date
+		Status				        is Numeric size 1
+            States
+                Open			        value is 0
+                Closed	                value is 1
+                Cancelled               value is 2
+        AcknowledgementType         is Numeric size 1
+        	States
+                Manual			        value is 1
+                EDI	                    value is 2
+                SupplierPortal          value is 3
+        AcknowledgementDate         is Date
+
+    Local Fields
+
+    Context Fields
+
+    Rule Blocks
+
+    Relations
+        BackorderDetailsContractTypeRel
+			one-to-many relation to VendorBackorderDetails
+			Field Mapping uses ByProcurementGroup
+				related.ProcurementGroup 			= ProcurementGroup
+				related.Item 						= Item
+				related.Vendor 						= Vendor
+				related.VendorItem 					= VendorItem
+			Instance Selection
+				where (related.IsOpen
+				and    related.RecordType = "CM") 
+
+		BackorderDetailsPurchaseOrderTypeRel
+			one-to-many relation to VendorBackorderDetails
+            Field Mapping uses ByProcurementGroup
+				related.ProcurementGroup 			= ProcurementGroup
+				related.Item 						= Item
+				related.Vendor 						= Vendor
+				related.VendorItem 					= VendorItem
+			Instance Selection
+				where (related.IsOpen
+				and    related.RecordType = "PO") 
+
+		PurchaseOrderLineRel 
+            one-to-one relation to PurchaseOrderLine 
+            Field Mapping uses symbolic key 
+                related.Company                     = PurchasingCompany 
+                related.PurchaseOrder               = PurchaseOrder 
+                related.PurchaseOrderLine           = PurchaseOrderLine 
+
+        ContractLineRel 
+            one-to-one relation to ContractLine 
+            Field Mapping uses symbolic key 
+                related.ContractGroup               = ProcurementGroup 
+                related.Contract                    = Contract
+                related.ContractLine                = ContractLine 
+
+        VendorItemRel 
+            one-to-one relation to VendorItem 
+            Field Mapping uses symbolic key 
+                related.ProcurementGroup            = ProcurementGroup 
+                related.Item                        = Item 
+                related.Vendor                      = Vendor 
+                related.VendorItem                  = VendorItem 
+        
+        BackorderDetailsVendorItemTypeRel
+			one-to-many relation to VendorBackorderDetails
+			Field Mapping uses ByProcurementGroup
+				related.ProcurementGroup 			= ProcurementGroup
+				related.Item 						= Item
+				related.Vendor 						= Vendor
+				related.VendorItem 					= VendorItem
+			Instance Selection
+				where (related.IsOpen
+				and    related.RecordType = "VI")	
+
+    Conditions
+        HasValidDate
+            restricted
+            when (ContractLine not entered
+            or    not ContractLine.PastExpirationDate)
+
+        IsContract
+            when (RecordType.Contract)
+
+        IsContractExpired
+            when (Contract entered
+            and   Contract.PastExpirationDate)
+
+        IsOpen
+            when (Status.Open)
+
+        IsPurchaseOrder
+            when (RecordType.PurchaseOrder)
+
+        IsVendorItem
+            when (RecordType.VendorItem)
+
+        RecordExist
+            restricted
+            when (VendorBackorderDetails exists)
+
+    Derived Fields
+		ContractExpiredMessage      is a MessageField
+			"ContractIsExpired"    
+
+    Sets
+        ByProcurementGroup
+            Sort Order
+                ProcurementGroup
+                Item
+                Vendor
+                VendorItem
+                VendorBackorderDetails
+
+        ByItem
+            Sort Order
+                Item
+                VendorItem
+                Vendor
+                ProcurementGroup
+                VendorBackorderDetails
+
+        ByVendorItem
+            Sort Order
+                VendorItem
+                Vendor
+                Item
+                ProcurementGroup
+                VendorBackorderDetails
+
+        ByContractLine 
+            Sort Order 
+                ProcurementGroup 
+                Contract
+                ContractLine 
+                VendorBackorderDetails    
+        
+        ByRecordType
+            not indexed
+            Sort Order
+                RecordType
+                Item
+                Vendor
+                VendorItem
+                ProcurementGroup
+                VendorBackorderDetails
+
+        ByPurchaseOrderLine
+            Sort Order
+                ProcurementGroup
+                PurchasingCompany
+                PurchaseOrder
+                PurchaseOrderLine
+                EstimatedAvailabilityDate descending
+                VendorBackorderDetails
+
+        ByVendorItemAvailabilityDate
+            Sort Order
+                ProcurementGroup
+                Vendor
+                VendorItem
+                Item
+                EstimatedAvailabilityDate descending
+                VendorBackorderDetails
+
+        ByVendorAvailabilityDate
+            Sort Order
+                ProcurementGroup
+                Vendor
+                Item
+                EstimatedAvailabilityDate descending
+                VendorBackorderDetails
+
+        ByItemAvailabilityDate
+            Sort Order
+                ProcurementGroup
+                Item
+                EstimatedAvailabilityDate descending
+                VendorBackorderDetails
+
+    Field Rules
+        Contract
+            cannot be changed
+            if (IsContract)
+                required
+            invoke ValidateContract Contract
+                invoked.PrmIgnoreStockless = true
+
+		ContractLine
+			cannot be changed
+            if (Contract entered)
+				required
+
+			if (Contract changed)
+				initialize ContractLine	
+				
+			constraint (ContractLine.ItemType.Special)
+				"MustUseAContractLineWithSpecialItem"
+            constraint (ContractLine.CanBackorderSpecialItem)
+                "CannotUseContractLine,ContractLineIsInvalidForBackorder"
+
+        Item
+            initial value is ContractLine.ItemNumber
+            if (ContractLine entered)
+                force default to ContractLine.ItemNumber
+            required
+
+            if (IsVendorItem)
+                constraint (Item.Active)
+                    "Item<Item>IsInactive"
+
+        ItemDescription
+            initial value is ContractLine.ItemDescription
+            if (ContractLine entered)
+                force default to ContractLine.ItemDescription
+            default to Item.Description
+ 
+        ProcurementGroup
+            required
+
+        StartDate
+            if (EstimatedAvailabilityDate entered)
+                constraint (StartDate <= EstimatedAvailabilityDate)
+                    "StartDateMustNotBeBeyondEstimatedAvailabilityDate"
+            if (ContractLine entered
+            and ContractLine.ExpirationDateEntered)
+                constraint (StartDate <= ContractLine.ExpirationDate)
+                    "StartDateMustNotBeBeyond_ContractLineExpirationDate"
+            default to current corporate date             
+
+        Vendor
+            initial value is Contract.Vendor
+            if (Contract entered)
+                force default to Contract.Vendor
+            required
+
+        VendorItem
+            initial value is ContractLine.VendorItem
+            if (ContractLine entered)
+                force default to ContractLine.VendorItem
+            required
+
+            if (IsVendorItem)
+                constraint (VendorItem entered)
+                    "VendorItemIsRequired"
+                constraint (VendorItem exists)
+                    "VendorItem<VendorItem>DoesNotExist"
+                constraint (VendorItem.Active)
+                    "VendorItem<VendorItem>IsInactive"
+
+            if (action type.Create)
+                if (IsVendorItem)
+                    constraint (BackorderDetailsVendorItemTypeRel not exists)    
+                        "CannotAdd,OpenBackorderDetailsAlreadyExistForThe_Vendor_Item<VendorItem>"
+                    constraint (BackorderDetailsPurchaseOrderTypeRel not exists) 
+                        "CannotAdd,OpenBackorderDetailsAlreadyExistForThe_Vendor_Item<VendorItem>"
+                else 
+                if (IsContract)
+                    constraint (BackorderDetailsContractTypeRel not exists)      
+                        "CannotAdd,OpenBackorderDetailsAlreadyExistForThe_Vendor_Item<VendorItem>"
+                    constraint (BackorderDetailsPurchaseOrderTypeRel not exists) 
+                        "CannotAdd,OpenBackorderDetailsAlreadyExistForThe_Vendor_Item<VendorItem>"
+
+        VendorItemDescription
+            initial value is ContractLine.VendorItemDescription
+            if (ContractLine entered)
+                force default to ContractLine.VendorItemDescription
+            default to VendorItem.VendorItemDescription
+
+    Actions
+        CloseBackorder  is an Instance Action
+            valid when (IsOpen)
+            Entrance Rules
+                confirmation required
+                    "ProceedToClosingTheBackorder?"
+                invoke FastUpdate
+                    invoked.Status = Status.Closed
+
+		Create is a Create Action
+			restricted
+
+        CreateBackorderFromPurchaseOrder is a Create Action
+            restricted
+            Entrance Rules
+                RecordType = RecordType.PurchaseOrder
+
+        CreateSpecialItemBackorder is a Create Action
+			default label is "BackorderSpecialItem"
+            Field Rules
+                Contract
+                    required
+                ContractLine
+                    required
+            Entrance Rules
+                RecordType = RecordType.Contract
+
+        CreateVendorItemBackorder is a Create Action
+			default label is "BackorderVendorItem"
+            Entrance Rules
+                RecordType = RecordType.VendorItem
+
+		Delete is a Delete Action
+			valid when (IsOpen)
+
+        Update is an Update Action
+            valid when (IsOpen)
+            
+        FastUpdate is an Update Action
+			bypass field rules
+			restricted
+
+        UpdateFromPurchaseOrder is an Instance Action
+            restricted
+			Parameters
+                PrmStatus				        is Numeric size 1
+                PrmReceivedQuantity             is like Quantity
+            Entrance Rules
+                if (PrmStatus entered)
+                    Status = PrmStatus
+                if (PrmReceivedQuantity entered)
+                    if (BackorderQuantity <= PrmReceivedQuantity)
+                        initialize BackorderQuantity
+                    else
+                        BackorderQuantity -= PrmReceivedQuantity
+                    

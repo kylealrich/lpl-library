@@ -1,0 +1,132 @@
+LeaseIncentive is a BusinessClass
+    owned by lm
+    prefix is LINC
+
+    Ontology
+        symbolic key is LeaseIncentive
+
+    Patterns
+		implements Archivable
+        
+    Persistent Fields
+        IncentiveDate                      is Date
+        Amount                             is a CurrencyExchangeGroup
+        IncentiveType                      is Numeric size 2
+            States
+                Cash	    		       value is 1
+                NonCash  			       value is 0
+                    default label is "Non-Cash"
+        Currency						is a FromCurrency
+		BaseCurrency					is a ToCurrency
+           
+    Local Fields
+        LocalCurrencyExchangeGroup		is a CurrencyExchangeGroup
+		LocalBaseChangeToAmount		    is an InternationalAmount
+        LocalIncentiveAmount            is an InternationalAmount
+
+	Transient Fields
+        TransientIncentiveDate          is an ExchangeDate
+            derive value from IncentiveDate
+		
+    Conditions
+        IncentiveBeforeModification
+            when (Lease.Status.Modify
+            and IncentiveDate < LeaseModificationRel.DerivedModificationPeriodDate)
+        
+        IncentiveDateBeforeBeginDate
+            when (IncentiveDate < Lease.BeginDate)
+        
+        IncentiveDateAfterEndDate
+            when (IncentiveDate > Lease.EndDate)
+          
+       
+    Relations
+        LeaseModificationRel
+            one-to-many relation to LeaseModification
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+
+        LeasePaymentsRel
+            one-to-one relation to LeasePayment
+            Field Mapping uses symbolic key
+            	related.Company		= Company
+                related.Lease 		= Lease
+                related.Vendor   	= Lease.Lessor
+
+    Sets   
+        ByIncentiveDate
+			Sort Order
+				IncentiveDate
+				LeaseIncentive
+				IncentiveType
+                Lease
+                Vendor
+
+    Rule Blocks
+
+        UpdateLeaseAmortization
+            if (Amount.TransactionAmount entered)
+                LocalCurrencyExchangeGroup.TransactionAmount 	            = Amount.TransactionAmount
+                LocalCurrencyExchangeGroup.BaseAmount.ToCurrency            = BaseCurrency
+                LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+                Amount.BaseAmount.EnteredCurrencyAmount			            = LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+            if (LeasePaymentsRel exist
+            and Lease.LeaseClassification.Operating
+            and LeasePaymentsRel.StraightLine)
+                invoke StraightLineUpdate LeasePaymentsRel
+
+            if (Lease.HasAmortizationSchedule
+            and Lease.Status.Unreleased)
+                invoke RemoveAmortization Lease
+				if (Lease.ASC842Lease)
+					invoke Test Lease
+				if (Lease.IsGASBLease)
+					invoke GASBPresentValueCalculation Lease
+
+
+    Derived Fields
+    
+    Field Rules
+        IncentiveDate
+            required
+            constraint(!IncentiveDateBeforeBeginDate)
+                "CannotReceiveIncentivesBeforeLeaseBeginDate"
+            constraint(!IncentiveDateAfterEndDate)
+                "CannotReceiveIncentivesAfterLeaseEndDate"
+            default to Lease.BeginDate
+                   
+        Amount
+            required
+
+        Currency
+            default to Lease.Currency
+
+        BaseCurrency
+            default to Lease.BaseCurrency
+
+
+    Actions
+        Create is a Create Action
+            Entrance Rules
+                Currency        = Lease.Currency
+                BaseCurrency    = Lease.BaseCurrency
+                IncentiveDate   = Lease.BeginDate
+
+			Exit Rules
+                include UpdateLeaseAmortization
+
+        Update is an Update Action
+            valid when (!IncentiveBeforeModification)
+
+			Exit Rules
+                IncentiveDate   = Lease.BeginDate
+                include UpdateLeaseAmortization
+
+        Delete is a Delete Action
+            valid when (!IncentiveBeforeModification)
+
+			Exit Rules
+                include UpdateLeaseAmortization
+
+        Purge is a Purge Action

@@ -1,0 +1,125 @@
+LeaseInitialDirectCost is a BusinessClass
+    owned by lm
+    prefix is LIDC
+
+    Ontology
+        symbolic key is LeaseInitialDirectCost
+
+    Persistent Fields
+        IDCDate                is Date
+        Vendor              
+        Amount                 is a CurrencyExchangeGroup 
+    
+    Local Fields
+		LocalCurrencyExchangeGroup		is a CurrencyExchangeGroup
+		LocalBaseChangeToAmount		    is an InternationalAmount
+
+	Transient Fields
+		Currency						is a FromCurrency
+			derive value from Lease.Currency
+		BaseCurrency					is a ToCurrency
+			derive value from Lease.BaseCurrency
+
+    Conditions
+
+        IDCAfterBeginDate 
+            restricted
+            when (DerivedMonth > Lease.BeginDate month)
+    Relations
+
+        InitialDirectCostRel
+            one-to-many relation to LeaseInitialDirectCost
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease 
+
+        LeaseRel
+            one-to-many relation to Lease
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+                
+    Rule Blocks
+
+        CalculateBaseAmounts
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= Amount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseChangeToAmount     								= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+        UpdateLeaseAmortization
+            if (Amount.TransactionAmount entered)
+                LocalCurrencyExchangeGroup.TransactionAmount 	            = Amount.TransactionAmount
+                LocalCurrencyExchangeGroup.BaseAmount.ToCurrency            = BaseCurrency
+                LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+                Amount.BaseAmount.EnteredCurrencyAmount			            = LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+            if (Lease.HasAmortizationSchedule
+            and Lease.Status.Unreleased)
+                invoke RemoveAmortization Lease
+				invoke GASBPresentValueCalculation Lease
+                
+    Derived Fields
+
+        InitialDirectCostTotal is a DerivedField
+            type is like InternationalAmount
+            for each InitialDirectCostRel
+                InitialDirectCostTotal += each.Amount.TransactionAmount
+            return InitialDirectCostTotal
+
+        InitialDirectCostBaseTotal is a DerivedField
+            type is like InternationalAmount
+            for each InitialDirectCostRel
+                InitialDirectCostBaseTotal += each.Amount.BaseAmount.EnteredCurrencyAmount
+            return InitialDirectCostBaseTotal
+
+        BeginningIDC is a DerivedField
+            type is like InternationalAmount
+            if (LeaseRel.BeginDate month = IDCDate month
+            and LeaseRel.BeginDate year  = IDCDate year)
+                BeginningIDC += Amount.TransactionAmount
+            return BeginningIDC
+                
+        DerivedMonth is a DerivedField
+            type is Numeric size 2
+            restricted
+            return IDCDate month
+
+        DerivedYear is a DerivedField
+            type is Numeric size 4
+            restricted
+            return IDCDate year
+
+    Field Rules
+
+        IDCDate
+            required 
+            constraint (IDCDate >= Lease.BeginDate)
+				"InitialDirectCostCannotBeBeforeTheLeaseBeginDate"
+
+            constraint (IDCDate <= Lease.EndDate)
+				"InitialDirectCostCannotBeAfterTheLeaseEndDate"
+            initial value is Lease.BeginDate
+            force default to Lease.BeginDate
+
+        Vendor
+            required
+
+        Amount 
+            required
+             
+
+    Actions
+
+        Create is a Create Action
+            Exit Rules
+                include UpdateLeaseAmortization
+
+        Update is an Update Action
+            Exit Rules
+                include UpdateLeaseAmortization
+
+        Delete is a Delete Action
+            Exit Rules
+                include UpdateLeaseAmortization

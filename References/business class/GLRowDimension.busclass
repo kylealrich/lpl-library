@@ -1,0 +1,597 @@
+GLRowDimension is a BusinessClass
+	default label is "RowDimension"
+    owned by GeneralLedger
+    prefix is GLRDM
+
+    Ontology
+    	symbolic key is GLRowDimension
+
+    Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+
+    Persistent Fields
+		Dimension       	is Alpha 200
+			is related value for "GeneralLedgerTotal"
+				dimensions only
+		PostingLevelOnly	is Boolean
+		SummaryLevelOnly   	is Boolean
+		AddPageBreak 		is Boolean
+		StartingLevel		is Numeric 2
+		Levels				is Numeric 2
+		DisplayValue		is Numeric 1
+            States
+                Code				value is 1
+                Description			value is 2	
+				CodeAndDescription	value is 3
+		ColumnHeader		is Alpha 100
+			translatable
+		ColumnSize			is Numeric 3
+		Indent				is Numeric 2 
+		OffsetPadding		is Numeric 2  
+		TotalsAtBottom		is Boolean
+		SuppressTotal		is Boolean
+		DisplayOrder		is Numeric 2
+			disable Auditing
+		DisplayFilter       is LPLText
+			is condition for "GeneralLedgerTotal"
+		RepeatDisplayValue	is Boolean
+
+	Transient Fields
+		NewDisplayOrder	is Numeric 2
+		AdvancedFilter	is Boolean
+
+	Field Rules
+		Dimension
+			required
+			constraint(IsValidDimension)
+				"UnsupportedDimensionSelection"
+			constraint (BirstPublishedSources)
+				"<Dimension>IsNotDefinedIn_\G\L_\ReportDesignerDataModel"
+			if (Dimension changed)
+				constraint (!HasGLRowAttributes)
+					"CannotChange;AttributesExist"
+		
+		PostingLevelOnly
+			default to DerivedPostingLevel
+			constraint(!SummaryLevelOnly)
+				"BothSummaryAndPostingLevelCannotBeSelected"
+
+		SummaryLevelOnly
+			constraint(!PostingLevelOnly)
+				"BothSummaryAndPostingLevelCannotBeSelected"
+			if (action type.Update and MoreThanOneRowDimension)
+				constraint(IsLastRowDimension)
+					"SummaryLevelOnlyAllowedOnTheLastRowDimension"
+			
+		DisplayOrder
+			default to GLRowDimension
+
+		DisplayValue
+			initial value is 3
+
+		StartingLevel
+			if (!PostingLevelOnly) 
+				default to 1
+				constraint(StartingLevel <= 10)
+					"StartingLevelCannotBeGreaterThan10"
+			else
+				initialize StartingLevel
+
+		Levels
+			if (!PostingLevelOnly) 
+				default to 1
+				constraint((StartingLevel + Levels - 1) <= 10) 
+					"LastLevelOnReportCannotBeGreaterThan10"	
+			else
+				initialize Levels 
+
+		ColumnHeader
+			default to DerivedDimensionHeaderLabel
+			LocalRowDimRegex = "^([A-Za-z0-9 _.-])*$"
+			constraint (ColumnHeader matches LocalRowDimRegex)
+				"ColumnHeaderOnlyAllowsSpecialCharacters:__Underscore,_Period_and__Hyphen"
+			
+		ColumnSize
+			required
+			constraint (ColumnSize > 2)
+				"ColumnSizeMustBeGreaterThan2"
+		Indent
+			if (!PostingLevelOnly and Levels>1)
+				required
+					"IndentRequiredWhenRowDimensionIsNotPostingLevelOnly"
+				constraint (Indent > 1)
+					"IndentMustBeGreaterThan1WhenRowDimensionIsNotPostingLevelOnly"
+
+		AddPageBreak
+			default to false
+
+		RepeatDisplayValue
+            if (!PostingLevelOnly)
+                force default to false
+
+	Conditions
+		IsFirstRowDimension
+			restricted
+			when (Dimension = first GLRowByDisplayOrderRel.Dimension) 
+
+		MoreThanOneRowDimension
+			restricted
+			when (instance count of GLRowRel > 1)
+
+		AddPageBreakIsValid
+			restricted
+			when (IsFirstRowDimension and MoreThanOneRowDimension)
+
+		IsLastRowDimension
+			restricted
+			when (Dimension = last GLRowByDisplayOrderRel.Dimension)
+		
+		HasGLRowAttributes
+			restricted
+			when (first GLRowAttributeRel exists)
+
+		ShowSuppressTotals
+			restricted
+			when (!IsLastRowDimension or !MoreThanOneRowDimension)
+
+	Local Fields
+		LocalNewLine				is Alpha 1
+		LocalNoDataPreview			is Alpha 3000
+		LocalDimensionText			is Alpha 200
+		LocalMeasureText			is Alpha 200
+		LocalMeasurePrefix			is Alpha 100
+		LocalIndentText				is Alpha 100
+		LocalIndentTextTmp			is Alpha 100
+		LocalIndentPreview			is Alpha 5001
+		LocalLevel					is Numeric 3
+		LocalEndingLevel			is Numeric 3
+		LocalGroupLevel				is Numeric 3
+		LocalFooterGroupLevel		is Numeric 3
+		I1							is Numeric 4
+		I2							is Numeric 4
+		LocalColumnHeader			is Alpha 100
+		LocalRowDimRegex			is Alpha 200
+		LocalPostingLevel			is Numeric 2
+		LocalSummaryLevel			is Boolean
+		LocalUncheckSuppressTotals	is Boolean
+		LocalRowDimension			is LPLName
+
+	Rule Blocks
+		UpdateExitRules
+			if (IsRowDimensionUpdated)
+				if (GLReportRel exists)
+					for each GLReportRel
+						invoke UpdateGLReport each
+							if(each.IntegrationStatus = 0)
+								invoked.PrmIntegrationStatus = 0
+							else
+								invoked.PrmIntegrationStatus = 2
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+
+		SetNumberPadding
+			LocalMeasureText = "9.99"
+			LocalMeasurePrefix = "__________"
+			
+			while (LocalGroupLevel < Levels)
+				LocalMeasureText = "9" + LocalMeasureText
+				LocalGroupLevel +=1
+				I2 = 1
+				while (I2 <= Indent - 1)
+					LocalMeasurePrefix += "_" 
+					I2 +=1
+
+		SetFooterIndentText
+			LocalIndentTextTmp = ""
+			LocalIndentText = ""
+			if ((LocalFooterGroupLevel - 1) != 0)
+				I1 = 1
+				while (I1 <= Indent)
+					LocalIndentTextTmp += "~"
+					I1 += 1			
+				
+				I1 = 1
+				while (I1 <= (LocalFooterGroupLevel - 1))
+					I1 += 1
+					LocalIndentText += LocalIndentTextTmp
+		
+		DisplayOrderUpdateRules
+			if (LocalSummaryLevel)
+				invoke Update last GLRowByDisplayOrderRel
+					invoked.SummaryLevelOnly = false
+			if (LocalUncheckSuppressTotals)
+				invoke Update OtherGLRowDimenionRel
+					invoked.SuppressTotal = false
+
+	Derived Fields
+		DerivedTotalNumberOfLevels is a DerivedField
+			type is Numeric size 3
+			return sum GLRowRel.Levels
+				
+		IsValidDimension is a DerivedField
+			type is Boolean
+			restricted
+			if(Dimension = "GeneralLedgerTotal.EntityYearPeriod")
+				return false
+			else
+				return true
+				
+		BirstDimensionName is a NativeField
+			type is Alpha size 100
+			restricted
+
+		BirstFieldName is a NativeField
+			type is Alpha size 100
+			restricted
+			
+		BirstPublishedSources is a NativeField
+			type is Boolean
+			restricted
+		
+		IsRowDimensionUpdated is a DerivedField
+			type is Boolean
+			restricted
+			if(Dimension changed
+			or PostingLevelOnly changed
+			or SummaryLevelOnly changed
+			or StartingLevel changed
+			or Levels changed
+			or DisplayValue changed
+			or ColumnHeader changed
+			or TotalsAtBottom changed
+			or SuppressTotal changed
+			or DisplayOrder changed
+			or DisplayFilter changed
+			or RepeatDisplayValue changed
+			or AddPageBreak changed
+			or ColumnSize changed
+			or Indent changed
+			or OffsetPadding changed
+			or NewDisplayOrder changed)
+				return true
+			else
+				return false
+
+		DerivedNoDataPreview is a DerivedField
+			type is Alpha 9000
+			
+			LocalNewLine = "\u000a"
+			LocalNoDataPreview = ColumnHeader + LocalNewLine
+			LocalLevel = StartingLevel
+			LocalEndingLevel = ((Levels + StartingLevel) - 1)
+			
+			LocalDimensionText += "X"
+			I1 = 1
+			while (I1 < ColumnSize -1)
+				I1 += 1
+				LocalDimensionText += "X"
+
+
+			if (TotalsAtBottom)
+				LocalNoDataPreview += LocalDimensionText
+			else
+				LocalGroupLevel = 1
+				include SetNumberPadding				
+				LocalNoDataPreview += LocalDimensionText + LocalMeasurePrefix + LocalMeasureText
+			
+			I1 = 1
+			while (I1 <= Indent)
+				LocalIndentText += "~"
+				I1 += 1
+			
+
+
+			I1 = 2
+			while (LocalLevel < LocalEndingLevel)
+				LocalLevel += 1
+				LocalIndentPreview += LocalIndentText
+				
+				if (LocalLevel != StartingLevel)
+					LocalNoDataPreview += LocalNewLine
+				
+				LocalNoDataPreview += LocalIndentPreview + LocalDimensionText
+
+				if (!TotalsAtBottom or LocalLevel = Levels)
+					LocalGroupLevel = I1
+					include SetNumberPadding
+					LocalNoDataPreview += LocalMeasurePrefix + LocalMeasureText
+				
+				I1 += 1
+
+
+			LocalFooterGroupLevel = Levels
+			if (TotalsAtBottom)				
+				while (LocalLevel > (StartingLevel))	
+					LocalFooterGroupLevel -= 1
+					include SetFooterIndentText
+					LocalNoDataPreview += LocalNewLine + LocalIndentText
+					LocalGroupLevel = LocalFooterGroupLevel
+					include SetNumberPadding
+					LocalNoDataPreview += LocalDimensionText + LocalMeasurePrefix + LocalMeasureText
+					LocalLevel -= 1			
+				
+			return LocalNoDataPreview
+
+		DerivedDimensionHeaderLabel is a DerivedField
+			type is Alpha 100
+			restricted
+			initialize LocalColumnHeader
+			if (Dimension = "AccountingEntity")
+				LocalColumnHeader = FinanceEnterpriseGroup.AccountingEntityLabel
+			if (Dimension = "GeneralLedgerTotal.AccountingUnit")
+				LocalColumnHeader = FinanceEnterpriseGroup.AccountingUnitLabel
+			if (Dimension = "FinanceDimension1")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension1Label
+			if (Dimension = "FinanceDimension2")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension2Label
+			if (Dimension = "FinanceDimension3")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension3Label
+			if (Dimension = "FinanceDimension4")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension4Label
+			if (Dimension = "FinanceDimension5")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension5Label
+			if (Dimension = "FinanceDimension6")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension6Label
+			if (Dimension = "FinanceDimension7")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension7Label
+			if (Dimension = "FinanceDimension8")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension8Label
+			if (Dimension = "FinanceDimension9")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension9Label
+			if (Dimension = "FinanceDimension10")
+				LocalColumnHeader = FinanceEnterpriseGroup.FinanceDimension10Label
+			if (Dimension = "GeneralLedgerTotal.GeneralLedgerChartAccount")
+				LocalColumnHeader = FinanceEnterpriseGroup.AccountLabel
+			if (Dimension = "GeneralLedgerTotal.Project")
+				LocalColumnHeader = FinanceEnterpriseGroup.ProjectLabel
+			if (Dimension = "Scenario")
+				LocalColumnHeader = "Scenario"
+			if (Dimension = "GeneralLedgerTotal.Currency")
+				LocalColumnHeader = "Currency"
+			if (Dimension = "GeneralLedgerTotal.Ledger")
+				LocalColumnHeader = "Ledger"				
+			if (Dimension = "GeneralLedgerTotal.System")
+				LocalColumnHeader = "System"
+				
+			if (LocalColumnHeader = blank)
+				LocalColumnHeader = Dimension
+
+			return LocalColumnHeader
+		
+		DerivedTotalPostingAndSummaryLevels is a DerivedField
+			type is Numeric size 3
+			LocalPostingLevel = DerivedTotalNumberOfLevels
+			for each GLRowRel
+				if (each.PostingLevelOnly = true)
+					LocalPostingLevel = LocalPostingLevel + 1
+			return	LocalPostingLevel
+
+		DerivedPostingLevel is a DerivedField
+			type is Boolean
+			if (Dimension = "GeneralLedgerTotal.Currency" 
+			or	Dimension = "GeneralLedgerTotal.Ledger"
+			or	Dimension = "GeneralLedgerTotal.System"
+			or	Dimension = "Scenario")
+				return true
+			else
+				return false
+
+		DerivedGLRowAttributeExists is a DerivedField
+			type is Boolean
+			restricted
+			if(first GLRowAttributeRel exists)
+				return true
+			else
+				return false
+
+		DerivedDimensionBusClass is a DerivedField
+			type is LPLName
+			restricted
+			initialize LocalRowDimension
+			if (GLRowDimension.Dimension = "GeneralLedgerTotal.AccountingUnit")
+				LocalRowDimension = "AccountingUnit"
+			else
+			if (GLRowDimension.Dimension = "GeneralLedgerTotal.GeneralLedgerChartAccount")
+				LocalRowDimension = "GeneralLedgerChartAccount"
+			else
+			if (GLRowDimension.Dimension = "GeneralLedgerTotal.Project")
+				LocalRowDimension = "Project"
+			else
+			if (GLRowDimension.Dimension = "GeneralLedgerTotal.System")
+				LocalRowDimension = "GeneralLedgerSystemCode"
+			else
+			if (GLRowDimension.Dimension = "AccountingEntity")
+				LocalRowDimension = "AccountingEntity"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension1")
+				LocalRowDimension = "FinanceDimension1"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension2")
+				LocalRowDimension = "FinanceDimension2"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension3")
+				LocalRowDimension = "FinanceDimension3"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension4")
+				LocalRowDimension = "FinanceDimension4"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension5")
+				LocalRowDimension = "FinanceDimension5"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension6")
+				LocalRowDimension = "FinanceDimension6"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension7")
+				LocalRowDimension = "FinanceDimension7"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension8")
+				LocalRowDimension = "FinanceDimension8"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension9")
+				LocalRowDimension = "FinanceDimension9"
+			else
+			if (GLRowDimension.Dimension = "FinanceDimension10")
+				LocalRowDimension = "FinanceDimension10"
+			else
+			if (GLRowDimension.Dimension = "Scenario")
+				LocalRowDimension = "Scenario"
+
+			return LocalRowDimension
+
+		DerivedDimensionKeyBirstFieldName is a DerivedField
+			type is Alpha 300
+			restricted
+			return first BirstModelBCFieldDimKeyRel.BirstFieldName 
+
+	Actions
+		Create is an Action
+			Entrance Rules
+				if (GLRowView.Lock)	
+					constraint(GLRowView.DerivedCreatedBy = actor)
+						"ThisHasBeenLockedForEditing"
+			Action Rules
+				if (GLRowRel exists)
+					constraint (DerivedTotalNumberOfLevels + Levels <= 20)
+						"TotalRowDimensionsLevelsCannotNotBeGreaterThan20"
+
+			Exit Rules
+				if (MoreThanOneRowDimension)
+					for each GLRowRel
+						invoke Update each
+							if (!invoked.IsLastRowDimension)
+								invoked.SummaryLevelOnly = false
+							else
+								invoked.SuppressTotal = false
+				
+				if (GLReportRel exists)
+					for each GLReportRel
+						invoke UpdateGLReport each
+							if(each.IntegrationStatus = 0)
+								invoked.PrmIntegrationStatus = 0
+							else
+								invoked.PrmIntegrationStatus = 2
+				
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+			
+		Update is an Action
+			Entrance Rules
+				if (GLRowView.Lock)
+					constraint(create stamp.actor = actor)
+						"ThisHasBeenLockedForEditing"
+				if (NewDisplayOrder changed)
+                    if ((last GLRowByDisplayOrderRel.NewDisplayOrder entered
+					or NewDisplayOrder = last GLRowByDisplayOrderRel.DisplayOrder)
+					and last GLRowByDisplayOrderRel.NewDisplayOrder !=last GLRowByDisplayOrderRel.DisplayOrder)
+						confirmation required
+                            "SuppressTotalsOptionWillBeUnchecked!"
+						LocalUncheckSuppressTotals = true
+						SuppressTotal = false
+						if (last GLRowByDisplayOrderRel.SummaryLevelOnly = true)
+							confirmation required
+								"SummaryLevelOnlyOptionWillBeUnchecked"
+							LocalSummaryLevel = true
+						include DisplayOrderUpdateRules
+					if (NewDisplayOrder = last GLRowByDisplayOrderRel.DisplayOrder
+					and last GLRowByDisplayOrderRel.NewDisplayOrder !=last GLRowByDisplayOrderRel.DisplayOrder)
+						for each GLRowByDisplayOrderRel
+							if (each.SummaryLevelOnly = true)
+								each.SummaryLevelOnly = false
+			Action Rules
+				if (GLRowRel exists)
+					constraint (DerivedTotalNumberOfLevels <= 20)
+						"TotalRowDimensionsLevelsCannotNotBeGreaterThan20"	
+			Exit Rules
+				include UpdateExitRules
+
+		Delete is an Action
+			Entrance Rules
+				if (GLRowView.Lock)
+					constraint(create stamp.actor = actor)
+						"ThisHasBeenLockedForEditing"
+			Exit Rules	
+				if (!MoreThanOneRowDimension)
+					for each GLRowRel
+						invoke Update each
+							invoked.AddPageBreak = false
+				
+				if (GLReportRel exists)
+					for each GLReportRel
+						invoke UpdateGLReport each
+							if(each.IntegrationStatus = 0)
+								invoked.PrmIntegrationStatus = 0
+							else
+								invoked.PrmIntegrationStatus = 2
+				
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+
+	Sets
+		ByDisplayOrder
+			Sort Order
+				FinanceEnterpriseGroup
+				GLRowView
+				DisplayOrder
+				GLRowDimension
+
+		ByDimension
+			Sort Order
+				FinanceEnterpriseGroup
+				GLRowView
+				Dimension
+
+	Relations
+		GLReportRel
+			one-to-many relation to GLReport
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.RowView		    = GLRowView)
+				
+		GLRowRel
+			one-to-many relation to GLRowDimension
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView			    = GLRowView
+
+		GLRowByDisplayOrderRel
+			one-to-many relation to GLRowDimension
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView			    = GLRowView
+
+		OtherGLRowDimenionRel
+			one-to-many relation to GLRowDimension
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView			    = GLRowView
+			Instance Selection	
+				where (related.GLRowDimension	!= GLRowDimension)
+		
+		SubReportRel
+			one-to-many relation to GLReportElement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.SubReport.RowView		= GLRowView)
+
+		GLRowAttributeRel is a GLRowAttribute set
+
+		BirstModelBCFieldDimKeyRel
+			one-to-many relation to BirstModelBCField
+			Field Mapping uses ByDimensionKey
+				related.BirstModel					= "CSFLA"	
+				related.BusinessClass				= DerivedDimensionBusClass
+				related.IncludeInBirstModel			= true
+				related.IsDimensionKey				= true

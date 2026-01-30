@@ -1,0 +1,109 @@
+LogDataHeader is a BusinessClass
+    owned by edi
+    prefix is EDILH
+
+    Ontology
+        symbolic key is LogDataHeader
+    
+    Patterns
+        implements StaticJava
+        disable Auditing
+        disable EffectiveDated
+    
+    Persistent Fields
+        TranslateTask   is Alpha size 20
+        ProcessStatus
+        LogActor    is Alpha size 30
+            default label is "Actor"
+        TimestampTransRun is TimeStamp
+         
+    Derived Fields
+        DerivedCompletionEDILogDataDetailText	is a DerivedField
+			type is RichText
+			if (LocalPurgeRecords)
+				return DerivedPurgeEDILogDataText
+			else
+				return DerivedReportPurgeEDILogDataText
+              
+        DerivedPurgeEDILogDataText is a MessageField
+			"EDILogDataPurgeHasBeenCompletedFor<LocalPurgeCount>Records."
+
+		DerivedReportPurgeEDILogDataText is a MessageField
+			"ThereAre<LocalPurgeCount>EDILogDataRecordsWhichCanBePurged."
+
+    Local Fields
+        LocalPurgeCount					is Numeric 10
+        LocalActor						is an Actor
+        LocalPurgeRecords               is Boolean
+
+    Sets
+        ByConnectionId
+            Sort Order
+                LogDataHeader
+
+    Relations
+        LogDataDetailRel
+            one-to-many relation to LogDataDetail
+            delete cascades
+            Field Mapping uses symbolic key
+            	related.LogDataHeader = LogDataHeader	
+                
+    Actions
+        Create is a Create Action 
+            restricted
+            Action Rules
+                LogActor = actor
+
+        Delete is a Delete Action
+        Update is an Update Action
+            restricted
+            
+        PurgeLogData is a Set Action
+            default label is "Purge"
+            Parameters
+                ThroughDate         is Date
+                OlderThanDays       is Numeric size 3
+                PurgeAll           is Boolean
+                
+            Parameter Rules
+                ThroughDate
+                    if (OlderThanDays entered)
+                        ThroughDate = current corporate date - OlderThanDays as days
+                    if (ThroughDate entered)
+                        ThroughDate += 1 day                
+                PurgeAll
+                    if (PurgeAll not entered)
+                        constraint (ThroughDate  entered  or OlderThanDays entered )
+                            "EnterFilterCriteriaOrSelectPurgeAll"
+
+            Local Fields
+                LocalSetPurgeCount is Numeric size 10
+
+            Instance Selection
+                include deleted records
+                where (ThroughDate not entered or TimestampTransRun < ThroughDate)
+
+            Action Rules
+                Set Rules
+                    Exit Rules
+                        LocalPurgeRecords = true
+                        LocalActor = actor
+                        LocalPurgeCount = LocalSetPurgeCount
+                        send notification
+                            to LocalActor
+                            description is "EDILogDataPurgeHasBeenCompleted"
+                            priority is high
+                            detail is "<DerivedCompletionEDILogDataDetailText>"
+                Empty Set Rules
+                    LocalActor = actor
+                    send notification
+                        to LocalActor
+                        description is "NoEDILogDataRecordsFoundToPurge"
+                        priority is high
+                        detail is "ThereAreNoLogDataRecordsPurged"
+                Instance Rules
+                    LocalSetPurgeCount += 1
+                    invoke Purge
+
+        Purge is a Purge Action
+			restricted

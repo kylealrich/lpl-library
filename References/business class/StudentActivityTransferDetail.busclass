@@ -1,0 +1,333 @@
+StudentActivityTransferDetail is a BusinessClass
+    owned by studentactivities
+    prefix is SATD
+
+    Ontology
+    	symbolic key is StudentActivityTransferDetail
+
+ 	Patterns
+		implements ContextualParent
+
+    Persistent Fields
+		TransferDetailAmount		is an InternationalAmount
+		SignedTransferDetailAmount	is an InternationalAmount
+		GLAccount					is a FinanceCodeBlockFull
+		TransferDate				is Date
+		ClosedPeriod				is a StudentActivityClosedPeriod
+			delete ignored
+		Status						is Numeric 2
+			States
+				Entered				value is 0
+				Released			value is 1		
+				Closed				value is 2
+		TransferOffset				is Boolean		
+
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+	Derived Fields
+		JournalDescription is a MessageField
+			"<StudentActivitySchool>_<StudentActivityTransfer.FromActivity>"			
+
+	Context Fields
+		DateRangeFilter			is a DateRange
+
+	Sets
+		ByDistrictActivityAccount
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				SchoolActivityAccount.StudentActivityAccount
+				Status
+				StudentActivitySchool
+
+		ByClosedPeriod
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+				StudentActivitySchool
+				StudentActivityTransfer
+
+		ByClosedPeriodBySchool
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				StudentActivitySchool
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+				StudentActivityTransfer
+
+
+	Relations
+		BankAccountActivityRel
+			one-to-many relation to StudentActivityBankAccount
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+			Instance Selection
+				where (related.BankAccountActivity	= SchoolActivityAccount)
+
+
+
+
+
+
+
+
+	Conditions
+
+
+
+	Field Rules
+		SchoolActivityAccount
+			if (!TransferOffset)
+				constraint (!SchoolActivityAccount	= StudentActivityTransfer.FromActivity)
+					"CannotEnterTheSameActivityAsFromActivity"
+			constraint (!BankAccountActivityRel exists)
+				"CannotEnterActivityAssignedToBankAccount"
+			constraint (SchoolActivityAccount.StudentActivityAccount.ActivityLevel.Detail)
+				"ToActivityMustBeDetailType"
+			if (SchoolActivityAccount.GLAccount entered)
+				constraint (StudentActivityTransfer.FromActivity.GLAccount entered)
+					"CannotTransferNonPostingActivity<StudentActivityTransfer.FromActivity>ToPostingActivity<SchoolActivityAccount>"			
+			if (!SchoolActivityAccount.GLAccount entered)
+				constraint (!StudentActivityTransfer.FromActivity.GLAccount entered)
+					"CannotTransferPostingActivity<StudentActivityTransfer.FromActivity>ToNonPostingActivity<SchoolActivityAccount>"			
+			initialize GLAccount
+			
+		GLAccount
+			default to SchoolActivityAccount.GLAccount
+
+		TransferDate
+			force default to StudentActivityTransfer.TransferDate
+
+		TransferDetailAmount
+			if ((SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset
+			and	!StudentActivityTransfer.FromActivity.StudentActivityAccount.StudentActivityType.Asset)
+			or (!SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset
+			and	 StudentActivityTransfer.FromActivity.StudentActivityAccount.StudentActivityType.Asset))
+				default to (StudentActivityTransfer.TransferAmount	* -1)
+				if (StudentActivityTransfer.TransferAmount > 0)
+					constraint (TransferDetailAmount	< 0)
+						"TransferAmountMustBeNegativeWhenTransferringFrom<StudentActivityTransfer.FromActivity.StudentActivityAccount.StudentActivityType>TypeActivityTo<SchoolActivityAccount.StudentActivityAccount.StudentActivityType>TypeActivity"
+				else 
+					constraint (TransferDetailAmount	> 0)
+						"TransferAmountMustBeGreaterThanZeroWhenTransferringFromNegative<StudentActivityTransfer.FromActivity.StudentActivityAccount.StudentActivityType>TypeActivityTo<SchoolActivityAccount.StudentActivityAccount.StudentActivityType>TypeActivity"
+			default to StudentActivityTransfer.TransferAmount
+			if (SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+				SignedTransferDetailAmount	= TransferDetailAmount
+			else
+				SignedTransferDetailAmount	= (TransferDetailAmount * -1)
+		
+		
+	Actions
+
+
+	StateCycles
+		ActivityTransferDetailLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+					valid when (StudentActivityTransfer.Status.Entered)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				Update is an Update Action
+				
+				Delete is a Delete Action
+				
+				Release is an Instance Action
+					restricted
+					
+					Exit Rules
+						invoke UpdateCurrentBalances SchoolActivityAccount
+							invoked.PrmCurrentTransfers	+= TransferDetailAmount
+							
+						invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+							invoked.PrmCurrentTransfers	+= TransferDetailAmount
+
+
+						make transition to Released
+
+
+			Released is a State
+
+				CloseTransferDetails is a Set Action
+					restricted
+					completion message is "TransferCloseComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmCloseDate				is Date
+					
+					Local Fields
+						StudentActivityCloseFields
+						CreateJournal						is Boolean
+					
+					Instance Selection
+						where (StudentActivityTransferDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityTransferDetail.StudentActivitySchool		= PrmStudentActivitySchool
+						and    StudentActivityTransferDetail.TransferDate				<= PrmCloseDate
+						and    StudentActivityTransferDetail.Status.Released)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+		
+					
+					Accumulators
+						TotalTransferAmount
+						TransferPostingAmount
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendar				= StudentActivityDistrict.SchoolCalendar
+								StudentActivityCloseFields.SchoolCalendarGroup			= StudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.SchoolClosedPeriod			= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivityJournal		= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivitySchool		= StudentActivitySchool
+								
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								CreateJournal	= false
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodTransfers		+= TotalTransferAmount
+									invoked.PostedTransfers		+= TransferPostingAmount
+			
+								invoke Update StudentActivityCloseFields.StudentActivityBalanceDetail 
+									invoked.PeriodTransfers		+= TotalTransferAmount
+									invoked.PostedTransfers		+= TransferPostingAmount
+						
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentTransfers	-= TotalTransferAmount
+							
+								if (CreateJournal)
+									invoke Create Unreleased StudentActivityJournalDetail
+										invoked.StudentActivityDistrict		= StudentActivityDistrict
+										invoked.StudentActivitySchool		= StudentActivitySchool
+										invoked.StudentActivityClosedPeriod	= StudentActivityCloseFields.StudentActivityClosedPeriod
+										invoked.StudentActivityJournal		= StudentActivityCloseFields.StudentActivityJournal
+										invoked.GLAccount					= GLAccount
+										invoked.StudentActivityAccount		= StudentActivityCloseFields.StudentActivityAccount
+										invoked.PostingAmount				+= TransferPostingAmount
+										invoked.Description					= JournalDescription
+										invoked.OriginatingTransaction		= reference to this instance
+										invoked.System						= TransactionSystemCode.StudentActivity
+										invoked.CurrencyCode				= StudentActivityDistrict.AccountingEntity.FunctionalCurrency	
+										invoked.GLAccountingEntity			= StudentActivityDistrict.AccountingEntity
+										invoked.TransactionDate				= StudentActivityCloseFields.StudentActivityClosedPeriod.Date
+										
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+		
+							Exit Rules
+								invoke Update StudentActivityCloseFields.SchoolActivityAccountBalance 
+									invoked.PeriodTransfers		+= TotalTransferAmount
+									invoked.PostedTransfers		+= TransferPostingAmount
+									
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentTransfers	-= TotalTransferAmount
+							
+						Instance Rules
+							TotalTransferAmount	+= TransferDetailAmount
+							ClosedPeriod		= StudentActivityCloseFields.StudentActivityClosedPeriod
+							
+							if (GLAccount entered)
+								CreateJournal	= true
+								StudentActivityCloseFields.GLAccount	= GLAccount
+								TransferPostingAmount					+= SignedTransferDetailAmount
+								
+							make transition to Closed
+			Closed is a State
+
+				OpenTransferDetails is a Set Action
+					restricted
+					completion message is "OpenTransferComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmClosedPeriod				is a StudentActivityClosedPeriod
+					
+					Local Fields
+						StudentActivityCloseFields
+					
+					Instance Selection
+						where (StudentActivityTransferDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityTransferDetail.StudentActivitySchool		= PrmStudentActivitySchool
+						and    StudentActivityTransferDetail.ClosedPeriod				= PrmClosedPeriod)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+		
+					
+					Accumulators
+						TotalTransferAmount
+						TransferPostingAmount
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendarGroup			= PrmStudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= PrmClosedPeriod
+		
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodTransfers		-= TotalTransferAmount
+									invoked.PostedTransfers		-= TransferPostingAmount
+			
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentTransfers	+= TotalTransferAmount
+							
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+		
+							Exit Rules
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentTransfers	+= TotalTransferAmount
+							
+						Instance Rules
+							TotalTransferAmount	+= TransferDetailAmount
+							initialize ClosedPeriod
+							
+							if (GLAccount entered)
+								TransferPostingAmount	+= SignedTransferDetailAmount
+								
+							make transition to Released
+
+			

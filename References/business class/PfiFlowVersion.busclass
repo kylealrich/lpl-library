@@ -1,0 +1,229 @@
+PfiFlowVersion is a BusinessClass
+    owned by pfi
+    prefix is PfiFV
+    default label is "ProcessVersion"
+    framework type is ProcessFlow
+    disable data area copy
+		preserve target data
+
+    Ontology
+        symbolic key is PfiFlowVersion
+
+    Patterns
+        implements CRUD
+        implements LightweightAuditing
+        disable AuditIndex
+        disable AsOfDateProcessing
+        disable EffectiveDated
+        implements AuditLogEntryActions
+
+    Persistent Fields
+
+        Comment    is a PfiComment
+        FlowXml    is Text
+            default label is "ProcessXml"
+        UploadDate is TimeStamp
+        UploadBy   is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+            default label is "UploadedBy"
+		IsStaged   is Boolean
+			default label is "Staged"
+		IsStagedSubProcess is Boolean
+            default label is "StagedSubProcess"
+			
+    Derived Fields
+
+        UploadByName is a DerivedField
+            type is Alpha size 101
+            default label is "UploadedByName"
+            return PfiActorRel.FirstNameAndLastNameOrActor
+
+        ActorName is a DerivedField
+            type is Alpha size 101
+            return PfiActorRel2.FirstNameAndLastNameOrActor
+
+        ActorEmail is a DerivedField
+            type is EmailAddressField
+            return PfiActorRel2.ContactInfo.EmailAddress
+
+        Url is a NativeField
+            type is Text
+            
+        Urlv2 is a NativeField
+            type is Text
+            
+        IPDWebLinkbackUrl is a DerivedField
+            type is Text
+            restricted
+            return linkback(webapp is ProcessDesigner navigation is IPDCompositeFormNav) 
+        
+        AccessType is a NativeField
+            type is Numeric size 1 
+
+        AutoRestart is a NativeField
+            type is Numeric size 1
+            default label is "AutoRestartCode"
+
+        AutoRestartText is a DerivedField
+            type is Alpha size 20
+            default label is "AutoRestart"
+            if (AutoRestartEnabled)
+                return "Enabled"
+            else
+                return "Disabled"
+      
+    Field Rules
+
+        UploadDate
+            default to current time
+
+        UploadBy
+            default to actor
+
+    Relations
+
+        PfiWorkunitByFlowDefinitionRel
+            one-to-many relation to PfiWorkunit
+            Field Mapping uses ByFlowDefWorkunitLive
+                related.FlowDefinition = PfiFlowDefinition
+
+        PfiActorRel
+            one-to-one relation to Actor
+            Field Mapping uses symbolic key
+                related.Actor = UploadBy
+
+        PfiActorRel2
+            one-to-one relation to Actor
+            Field Mapping uses symbolic key
+                related.Actor = actor
+
+    Conditions
+
+        UploadDateEntered
+            when (UploadDate != blank)
+
+        UploadByEntered
+            when (UploadBy != blank)
+
+        CanViewProcess
+            when (CanEditProcess or 
+                (AccessType = 1))
+
+        CanEditProcess
+            when (AccessType = 2)
+        
+        
+        IsSystemDefined
+            when (PfiFlowDefinition.FlowType.SystemDefined)
+        
+        IsUserDefined
+            default label is "UserDefined"
+            when (PfiFlowDefinition.FlowType.UserDefined)
+            
+        AutoRestartEnabled
+            when (AutoRestart = 1)
+            
+        AutoRestartInXmlToggle
+            when (stackconfig(ipa).AutoRestartInXml = "true" or stackconfig(ipa).AutoRestartInXml = "")
+            
+        AutoRestartEnabledAndToggle
+            when (AutoRestartEnabled and AutoRestartInXmlToggle)
+        
+        AutoRestartDisabledAndToggle
+            when (!AutoRestartEnabled and AutoRestartInXmlToggle)
+            
+	Sets
+		ByStagedFlowVersion
+            sql name is PfiFV01
+            indexed
+            Sort Order
+                IsStaged
+                PfiFlowDefinition
+                PfiFlowVersion
+        ByUploadDate
+            sql name is PfiFV02
+            Sort Order
+                UploadDate
+                PfiFlowVersion
+                PfiFlowDefinition
+                
+    Actions
+
+        Create is a Create Action
+            
+            restricted
+            
+            Entrance Rules
+                constraint(!IsSystemDefined or PfiFlowVersion = 1)
+                    "SystemDefinedFlowCannotBeUpdated"
+            	constraint (IsUserDefined or !IsStaged)
+            		"CannotStageApplicationDefinedFlow"
+            		
+            Exit Rules
+                invoke Update PfiFlowDefinition
+                    invoked.PfiFlowDefinition  = PfiFlowDefinition
+                    if(IsStaged)
+                    	invoked.StagedFlowVersion = PfiFlowVersion
+                    else
+                    	invoked.CurrentFlowVersion = PfiFlowVersion
+                invoke LogProcessAction
+                    invoked.ActionType = "C"
+		
+        Update is an Update Action
+            Exit Rules
+                invoke LogProcessAction
+                    invoked.ActionType = "U"
+
+        Delete is a Delete Action
+        
+        	Exit Rules
+        		invoke UpdateVersionNumber PfiFlowDefinition
+                    invoked.PfiFlowDefinition  = PfiFlowDefinition
+
+        MakeCurrentVersion is an Instance Action
+
+			Entrance Rules
+				constraint(!IsStaged)
+					"CannotMakeStagedVersionAsCurrent"
+					
+            Action Rules
+	                invoke Update PfiFlowDefinition
+	                    invoked.PfiFlowDefinition  = PfiFlowDefinition
+	                    invoked.CurrentFlowVersion = PfiFlowVersion
+
+		
+        MakeCurrentVersionOnActionPendingWorkunits is an Instance Action
+        	default label is "MakeCurrentVersionOnActionPendingWorkUnits"
+			
+			Entrance Rules
+				constraint(!IsStaged)
+					"CannotMakeStagedVersionAsCurrent"
+					
+            Action Rules
+                if (PfiWorkunitByFlowDefinitionRel exists)
+                    for each PfiWorkunitByFlowDefinitionRel
+                        invoke UpdateFlowVersionOnActionPendingWorkunit each
+                            invoked.PrmFlowDefinition = PfiFlowDefinition
+                            invoked.PrmFlowVersion    = PfiFlowVersion
+
+        LogProcessAction is an Instance Action
+            default label is untranslatable
+            restricted
+            manual update
+
+            Parameters
+                ActionType is Alpha size 1
+
+        EnableAutoRestartAction is an Instance Action
+            default label is "EnableAutoRestartForThisVersion"
+            valid when (AutoRestartDisabledAndToggle)
+            Entrance Rules
+                constraint(!AutoRestartEnabled)
+                    "AlreadyEnabled"
+
+        DisableAutoRestartAction is an Instance Action
+            default label is "DisableAutoRestartForThisVersion"
+            valid when (AutoRestartEnabledAndToggle)
+            Entrance Rules
+                constraint(AutoRestartEnabled)
+                    "AlreadyDisabled"
+        

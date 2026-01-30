@@ -1,0 +1,242 @@
+ProjectContractChangeRequest is a BusinessClass
+	owned by Projects
+	
+	prefix is PCCR
+	
+	Ontology
+		symbolic key is ProjectContractChangeRequest
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+		NewContractAmount			is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		NewMaximumFees				is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		Status						is Numeric size 1				
+			States	
+				Open					value is 1
+				SubmittedForApproval	value is 2
+				Approved				value is 3  
+				Rejected				value is 4
+		ChangeRequestDate			is Date		
+		Scenario
+		BudgetChangeOrder				
+		RequestedBy					is an Actor	
+		ApprovedBy					is an Actor					
+    	Comment						is Text
+#ifdef module idm
+		Attachment					is an AlternateAttachment
+#endif
+#ifndef module idm
+		Attachment
+#endif
+		ErrorMessage				is Text
+			disable Auditing
+   		DocumentURL					is URL  			
+	
+	Local Fields
+		CompletionMessage		  	is Alpha size 100
+		ErrorFound					is Boolean
+		LocalErrorMessage			is Text	
+		LocalAttributeCtr   		is Numeric 2	
+
+    Derived Fields
+    				
+		SubmitForApprovalMF is a MessageField
+			restricted
+			"This_request_will_be_routed_for_approval;_after_it_is_reviewed_this_record_will_be_updated"
+				
+	Field Rules
+	
+		Description
+			required	
+			
+		NewContractAmount
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectContractChangeRequestHasBeenProcessed"				
+				
+		NewMaximumFees				
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectContractChangeRequestHasBeenProcessed"				
+							
+		ChangeRequestDate
+			required
+			default to current corporate date	
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectContractChangeRequestHasBeenProcessed"				
+				
+		Scenario
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectContractChangeRequestHasBeenProcessed"				
+				
+		BudgetChangeOrder				
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectContractChangeRequestHasBeenProcessed"				
+					
+	Conditions
+		
+		EligibleToDelete
+			restricted
+			when (Status.Open
+			or    Status.Rejected)
+			
+		EligibleToRelease			
+			restricted
+			when (Status.Open
+			or    Status.Rejected)
+
+		EligibleToReset			
+			restricted
+			when (Status.SubmittedForApproval)
+			
+		HasURL
+			restricted
+			when (DocumentURL entered)
+		
+		HasAttachment		
+			restricted    	
+    		when (Attachment entered)
+	
+	Relations	
+	
+	Sets
+	
+		ByProjectContract
+			Sort Order
+				FinanceEnterpriseGroup			
+				ProjectContract	
+				ProjectContractChangeRequest
+
+		ByStatus
+			Sort Order
+				FinanceEnterpriseGroup	
+				Status						
+				ProjectContract	
+				ProjectContractChangeRequest
+
+#ifdef module idm	
+	Create Rules   
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment	
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment			
+
+#endif				
+
+    Actions
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+
+		Delete is a Delete Action
+			valid when (EligibleToDelete)
+
+		Release is an Instance Action
+			valid when (EligibleToRelease)
+			completion message is "<CompletionMessage>"
+			Action Rules
+				CompletionMessage = SubmitForApprovalMF
+				Status            = 2				
+			Exit Rules
+				trigger "ProjectContractChangeRequest" PA service
+					title is "ProjectContractChangeRequest"
+					Variables
+						FinanceEnterpriseGroup
+						ProjectContract		
+						ProjectContractChangeRequest
+						Description	
+							variable name is ChangeRequestDescription	
+					URLs
+						"<linkback(webapp is ProjectAccountant navigation is ProjectContractChangeRequestNav text is \"ProjectContractChangeRequest\")>"
+
+		ApproveChangeRequest is an Instance Action
+			restricted
+			Parameters
+				PrmApprover				is an Actor
+			Action Rules
+    			initialize ErrorMessage
+    			ErrorFound = false
+				invoke Update ProjectContract
+					resume on error		
+						ErrorFound = true
+						LocalErrorMessage = error message        				
+					invoked.ContractAmount      = NewContractAmount
+					invoked.MaximumFees	        = NewMaximumFees
+					invoked.ChangeOrderApproved = true
+    			if (ErrorFound)
+					Status       = 4
+					ApprovedBy   = blank
+    				ErrorMessage = LocalErrorMessage
+				else 					
+					Status       = 3
+					ApprovedBy   = PrmApprover
+					ErrorMessage = blank
+			Exit Rules
+				if (Comment entered)	
+					invoke Create ProjectContractComment
+						invoked.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+						invoked.ProjectContract 	   = ProjectContract
+						invoked.Subject				   = "ProjectContractChangeRequest"
+    					invoked.From				   = actor
+						invoked.CommentDate			   = current timestamp
+						invoked.Comment                = Comment
+
+						invoked.Attachment.File		   = Attachment.File
+						invoked.Attachment.Title	   = Attachment.Title
+						invoked.Attachment.MimeType	   = Attachment.MimeType
+						invoked.DocumentURL			   = DocumentURL				    	
+
+		RejectChangeRequest is an Instance Action
+			restricted
+			action comment required			
+			Parameters
+				PrmApprover				is an Actor
+			Action Rules
+				Status     = 4
+				ApprovedBy = blank
+						
+
+		ResetStatus is an Instance Action
+			valid when (EligibleToReset)		
+			Action Rules
+				Status = 1
+#ifdef module idm		
+		UploadToIDM is an Instance Action
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+						
+#endif				

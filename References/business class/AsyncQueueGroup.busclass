@@ -1,0 +1,181 @@
+AsyncQueueGroup is a BusinessClass
+    owned by async
+    prefix is AQG
+    stored in environment
+	contains environment data
+	disable data area copy
+		preserve target data
+
+    Ontology
+		symbolic key is AsyncQueueGroup
+		
+    Patterns
+        disable Auditing
+        disable EffectiveDated
+
+    Persistent Fields
+    	Description 		is Alpha 50
+    
+		MaxActiveActions 	is Numeric 3   
+
+		
+		Suspended 			is Boolean
+
+
+		
+	Rule Blocks
+		LogSuspendStatus
+			log "QueueGroup_'<AsyncQueueGroup>'_SuspendedSetTo<Suspended>.<CurrentActionInfo>"		
+		
+	Field Rules
+		MaxActiveActions
+			required
+			initial value is 1
+			
+		Suspended
+			if (Suspended changed)
+				include LogSuspendStatus			
+							
+    Derived Fields
+    	NoOfActive is a DerivedField  
+    		type is Numeric 10
+    		for each AsyncQueueDefinition set
+    			NoOfActive += each.NoOfActive
+    		return NoOfActive
+	
+		Members is a ComputeField  
+			type is Numeric 10
+			(instance count of AsyncQueueDefinition set)
+			
+		AsyncAuditingEnabled is a NativeField
+			type is Boolean
+			default label is untranslatable
+			restricted
+
+			
+		CurrentActionInfo is a NativeField
+			type is Text
+			default label is untranslatable
+			restricted
+
+			
+	Conditions
+		HasAuditRecords
+			default label is "AuditRecordsExist"
+			when (AuditingRel exists)	
+			
+	Create Exit Rules
+		log "QueueGroup_'<AsyncQueueGroup>'_createdWith_SuspendedSetTo<Suspended>.<CurrentActionInfo>"		
+			
+	Actions
+		Create is a Create Action
+			Exit Rules
+				if (AsyncAuditingEnabled) 
+					invoke Create AsyncAuditEntry  
+				 		
+		Delete is a Delete Action
+			Entrance Rules
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry
+				 		
+		Update is an Update Action
+			Action Rules
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+		
+		DeleteFinishedTriggers is an Instance Action
+			completion message is "TriggerDeleteSubmittedToBackground"
+			confirmation required
+				"AreYouSureYouWantToDeleteAllFinishedTriggersInQueuesForThisGroup?"
+			Action Rules
+				for each AsyncQueueDefinition set
+					invoke DeleteFinishedTriggersForQueue AsyncActionTrigger
+							invoked.PrmQueue = each.AsyncQueueDefinition					
+
+		Suspend is an Instance Action
+			Action Rules
+				Suspended = true
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+					
+				include LogSuspendStatus
+				
+		Resume is an Instance Action
+			Action Rules
+				Suspended = false
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+					
+				include LogSuspendStatus
+
+		SetMaxActiveActions is an Instance Action
+			Parameters
+				NewMaxActiveActions is Numeric 3
+			Action Rules
+				MaxActiveActions = NewMaxActiveActions
+				
+				if (AsyncAuditingEnabled)
+					invoke Create AsyncAuditEntry 
+				
+		AddQueue is an Instance Action
+			Parameters
+				ParamAsyncQueueDefinition is an AsyncQueueDefinition
+					default label is "Queue"
+					
+			Parameter Rules
+				ParamAsyncQueueDefinition
+					required
+					
+					constraint (ParamAsyncQueueDefinition.AsyncQueueGroup != AsyncQueueGroup)
+						"QueueIsAlreadyPartOfQueueGroup<AsyncQueueGroup>"
+						
+					if (ParamAsyncQueueDefinition.AsyncQueueGroup entered)
+						confirmation required
+							"QueueIsPartOfGroup<ParamAsyncQueueDefinition.AsyncQueueGroup>.DoYouWantToChangeItToBePartOf<AsyncQueueGroup>?"
+					
+			Action Rules
+				invoke SetQueueGroup ParamAsyncQueueDefinition
+					invoked.ParamAsyncQueueGroup = AsyncQueueGroup
+
+		SuspendQueueGroup is a Set Action
+			disable checkpoint
+			Parameters
+				QueueGroup is a AsyncQueueGroup
+			Action Rules
+				Instance Rules
+					invoke Suspend
+			Instance Selection
+				where (AsyncQueueGroup = QueueGroup)
+
+		ResumeQueueGroup is a Set Action
+			disable checkpoint
+			Parameters
+				QueueGroup is a AsyncQueueGroup
+			Action Rules
+				Instance Rules
+					invoke Resume
+			Instance Selection
+				where (AsyncQueueGroup = QueueGroup)
+
+		SetMaxActiveActionsForQueueGroup is a Set Action
+			disable checkpoint
+			Parameters
+				QueueGroup is a AsyncQueueGroup
+				NewMaxActiveActions is Numeric 3
+			Action Rules
+				Instance Rules
+					invoke SetMaxActiveActions
+						invoked.NewMaxActiveActions = NewMaxActiveActions
+			Instance Selection
+				where (AsyncQueueGroup = QueueGroup)
+				
+    Relations
+		AuditingRel
+			one-to-many relation to AsyncAuditEntry
+			Field Mapping uses ByBusClassID
+				related.Reference.BusinessClassName = "AsyncQueueGroup"
+				related.Reference.BusinessObjectKey = UniqueID
+    			
+	

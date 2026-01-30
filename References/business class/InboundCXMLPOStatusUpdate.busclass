@@ -1,0 +1,210 @@
+InboundCXMLPOStatusUpdate is a BusinessClass
+	owned by cxml
+
+	prefix is IPOS
+
+	Ontology
+		symbolic key is InboundCXMLPOStatusUpdate
+
+	Patterns
+		implements CRUD
+
+	Persistent Fields
+		RunGroup
+		ProcessStatus			is AlphaUpper size 10
+			default label is "Status"
+			States
+				New				value is "0"
+				Error			value is "1"
+				Success			value is "2"
+				Warning			value is "3"
+		ResponseXML				is XMLDocument
+			default label is "Data"
+		LastUpdatedTimeStamp	is TimeStamp
+			default label is "LastUpdated"
+		StatusMessage			is Text
+			default label is "Message"
+		DocumentNumber			is Alpha size 22
+
+	Local Fields
+
+		LocalDate				is Alpha size 25
+		LocalMonth				is Alpha size 2
+		LocalDay				is Alpha size 2
+		LocalYear				is Alpha size 4
+
+		LocalHour				is Alpha size 2
+		LocalMinute				is Alpha size 2
+		LocalSecond				is Alpha size 2
+
+		LocalCompany			is Numeric size 9
+		LocalPurchaseOrder		is Numeric size 9
+		
+		LocalDelimiter			is Alpha size 1
+		LocalPayloadID			is Alpha size 100
+		LocalStatusCode			is Numeric 3
+		
+		LocalActor				is an Actor
+		
+	Derived Fields
+		DerivedDate is a DerivedField
+			type is Alpha size 16
+			restricted
+			LocalDate = (ResponseXML select "/cXML/@timestamp")
+
+			if (LocalDate != "")
+				LocalDay		= LocalDate[9:10]
+				LocalMonth		= LocalDate[6:7]
+				LocalYear		= LocalDate[1:4]
+				LocalHour		= LocalDate[12:13]
+				LocalMinute		= LocalDate[15:16]
+				LocalSecond		= LocalDate[18:19]
+				return LocalYear + LocalMonth + LocalDay + LocalHour + LocalMinute + LocalSecond + "00"
+			else
+				return blank
+
+		DocumentNumberLabel is a LabelField
+			"<LocalCompany>-<LocalPurchaseOrder>"	
+	
+	Field Rules
+		ProcessStatus
+			default to ProcessStatus.New
+		RunGroup
+			default to ResponseXML select "/cXML/Header/To/Credential[1]/Identity"
+		LastUpdatedTimeStamp
+            default to current timestamp
+            initial value is current timestamp
+		LocalDelimiter
+          	default to "-"
+        LocalPayloadID
+        	default to ResponseXML select "/cXML/Request/StatusUpdateRequest/DocumentReference/@payloadID"
+        LocalStatusCode
+        	default to ResponseXML select "/cXML/Request/StatusUpdateRequest/Status/@code"
+
+	Sets
+		ByLastUpdated
+			duplicates
+			Sort Order
+				LastUpdatedTimeStamp
+				RunGroup
+				ProcessStatus
+
+	Conditions
+
+		NotifyError
+		    when ((CXMLConfigurationRel.NotificationLevel.Error
+		    or CXMLConfigurationRel.NotificationLevel.Both)
+		    and ProcessStatus.Error or ProcessStatus.Warning)
+		NotifySuccess
+		    when ((CXMLConfigurationRel.NotificationLevel.Success
+		    or CXMLConfigurationRel.NotificationLevel.Both)
+		    and ProcessStatus.Success)
+		EmailNotification
+		    when (CXMLConfigurationRel.NotificationType.Email
+		    or CXMLConfigurationRel.NotificationType.Both)
+		UserNotification
+		    when (CXMLConfigurationRel.NotificationType.User
+		    or CXMLConfigurationRel.NotificationType.Both)	
+		
+	Relations
+
+		PurchaseOrderRevisionsRel
+			one-to-many relation to PurchaseOrderRevision
+			Field Mapping uses ByStatusUpdate
+				related.TransmissionPayloadID 	= LocalPayloadID
+				
+		CXMLConfigurationRel
+		    one-to-many relation to CXMLConfiguration
+		    Field Mapping uses symbolic key
+		        related.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+		    Instance Selection
+		        where (related.Default)
+			
+	Rule Blocks
+
+		UpdatePOStatus
+
+			if (PurchaseOrderRevisionsRel exists)
+
+				LocalCompany		= PurchaseOrderRevisionsRel.Company
+				LocalPurchaseOrder	= PurchaseOrderRevisionsRel.PurchaseOrder
+			
+				invoke Update first PurchaseOrderRevisionsRel
+
+					invoked.TransmissionDate			= DerivedDate
+
+					if (LocalStatusCode >= 200 and LocalStatusCode < 300)
+						invoked.TransmissionMessage 	= "Purchase order successfully sent"
+						invoked.TransmissionStatus		= 1
+					if (LocalStatusCode >= 400 and LocalStatusCode < 500)
+						invoked.TransmissionMessage 	= "Error: See transmission message for more detail"
+						invoked.TransmissionStatus		= 2
+					if (LocalStatusCode >= 500 and LocalStatusCode < 600)
+						invoked.TransmissionMessage 	= "Error: Please retry dispatching purchase order"
+						invoked.TransmissionStatus		= 2
+
+					invoked.TransmissionMessageDetail	= ResponseXML select "/cXML/Request/StatusUpdateRequest/Status"
+
+					DocumentNumber	= DocumentNumberLabel
+			else
+				StatusMessage 	+= "Purchase Order Status could not be updated"
+				ProcessStatus 	= ProcessStatus.Error
+				DocumentNumber 	= "ERROR"
+				
+		SendNotification
+			if (EmailNotification)
+		        send email
+		            to CXMLConfigurationRel.ToNotificationEmail
+		            from CXMLConfigurationRel.FromNotificationEmail
+		            subject "CXML_PO_Status_Update_<ProcessStatus>_-_Order_ID:<DocumentNumber>_|_Company:<LocalCompany>"
+		            Contents
+		            	"Order_ID:<DocumentNumber>"
+		                "Company:<LocalCompany>"
+		                "PurchaseOrder:<LocalPurchaseOrder>"
+		                "PayloadID:<LocalPayloadID>"
+		                "Status:<ProcessStatus>_-_<StatusMessage>"
+		    if (UserNotification and ProcessStatus.Success)
+		        LocalActor = actor
+		        send notification
+		            to LocalActor
+		            description is "CXML_PO_Status_Update_<ProcessStatus>_-_Order_ID:<DocumentNumber>_|_Company:<LocalCompany>"
+		            priority is low
+		            detail is "Order_ID:<DocumentNumber>_|_Company:<LocalCompany>_|_PurchaseOrder:<LocalPurchaseOrder>_|_PayloadID:<LocalPayloadID>_|_Status:<ProcessStatus>_-_<StatusMessage>"
+		  	if (UserNotification and (ProcessStatus.Error or ProcessStatus.Warning))
+		        LocalActor = actor
+		        send notification
+		            to LocalActor
+		            description is "CXML_PO_Status_Update_<ProcessStatus>_-_Order_ID:<DocumentNumber>_|_Company:<LocalCompany>"
+		            priority is high
+		            detail is "Order_ID:<DocumentNumber>_|_Company:<LocalCompany>_|_PurchaseOrder:<LocalPurchaseOrder>_|_PayloadID:<LocalPayloadID>_|_Status:<ProcessStatus>_-_<StatusMessage>"
+
+	Actions
+		Create is a Create Action
+			Exit Rules
+				if (ProcessStatus.New)
+					invoke TranslateInboundPurchaseOrderStatusUpdateCXML
+						resume on error
+							ProcessStatus = ProcessStatus.Error
+							StatusMessage += error message
+							DocumentNumber = "ERROR"
+					if (NotifyError)
+						include SendNotification
+							
+		Delete is a Delete Action
+		Update is an Update Action
+			Action Rules
+                LastUpdatedTimeStamp = current timestamp
+
+		TranslateInboundPurchaseOrderStatusUpdateCXML is an Instance Action
+			restricted
+			Action Rules
+				StatusMessage = ""
+				include UpdatePOStatus
+				if (StatusMessage = "")
+					ProcessStatus = ProcessStatus.Success
+					StatusMessage = "Record successfully translated"
+					if (NotifySuccess)
+						include SendNotification
+				LastUpdatedTimeStamp = current timestamp
+				
+

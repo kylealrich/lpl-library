@@ -1,0 +1,366 @@
+EFTNotificationPrintResult is a BusinessClass
+	owned by ar
+	
+	prefix is PriRe
+	
+	Ontology
+		symbolic key is EFTNotificationPrintResult
+
+	Patterns
+
+
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+
+		CustGroup					is a CustomerGroup
+		Company						is a ReceivableCompany
+		ProcessingCompany			is a ReceivableCompany
+		EFTBaseCurrency				is like Currency
+		BankTransactionCode
+		DataFileName				is AlphaUpper size 50
+		IDMPrinter
+		RunTime						is TimeStamp
+		EndTime						is TimeStamp
+		RecordsExists				is Boolean
+		Status						is Numeric 1
+			States
+				InProcess			value is 0
+				Complete			value is 1
+		BackgroundGroupAsyncId		is an AsyncActionRequest
+			delete ignored
+
+		FinalNoteCreditsCount				is Numeric 12
+		FinalNoteDebitsOrInvoicesCount		is Numeric 12
+
+
+		PreNoteCreditsCount					is Numeric 12
+		PreNoteDebitsOrInvoicesCount		is Numeric 12
+
+
+		FinalNoteCreditsAmount				is like InternationalAmount
+			precision is ProcessingCompany.Currency.NumberOfDecimals
+		FinalNoteDebitsOrInvoicesAmount		is like InternationalAmount
+			precision is ProcessingCompany.Currency.NumberOfDecimals
+
+
+
+		PreNoteCreditsAmount				is like InternationalAmount
+			precision is ProcessingCompany.Currency.NumberOfDecimals
+		PreNoteDebitsOrInvoicesAmount		is like InternationalAmount
+			precision is ProcessingCompany.Currency.NumberOfDecimals
+
+
+
+	Local Fields
+		BackgroundGroup				is AlphaUpper up to 60
+		WsCreateDate				is TimeStamp
+		LocalActor					is Actor
+		LocalCustGroup				is like CustomerGroup
+
+	Field Rules
+		FinanceEnterpriseGroup
+			initial value is actor.context.FinanceEnterpriseGroup
+			required
+				"Field_\Finance_\Enterprise_\GroupIsRequired"
+
+		CustGroup
+			if (CustGroup not entered
+			and Company not entered)
+				required
+					"EitherCustomerGroupOrCompanyShouldBeEntered"
+			constraint (Company not entered)
+				"CannotEnterBothCustomerGroupAndCompany"
+			if (CustGroup entered)
+
+				constraint (CustGroup.EFTProcessingLevel.GroupLevelProcessing)
+					"EFT_\processingNotSetupAtTheCustomer_\Group_\Level"
+				constraint (any ReceivableCompanyRel.EFTDebitCashCode entered)
+					"NoDefaultProcessCompanySetUpForGroup:<CustGroup>"
+
+		Company
+			constraint (Company.CustomerGroupField.CustomerGroup.EFTProcessingLevel.CompanyLevelProcessing)
+				"EFTProcessingNotSetupAtTheCompanyLevel"
+			constraint (Company.EFTCalendar entered)
+				"EFTCalendarNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDueDays entered)
+				"EFTDueDaysNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDueDaysType entered)
+				"EFTDueDaysTypeNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDebitCashCode entered)
+				"NoCashCodeSetUpForCompany:<Company>"
+
+		BankTransactionCode
+			constraint (FinanceEnterpriseGroup entered)
+				"FinanceEnterpriseGroupMustBeEntered"
+			constraint (BankTransactionCode.IsCashPaymentAndOriginReceivable)
+				"Payment_\Code_(\Bank_\Transaction_\Code)MustHaveA_\Transaction_\CategoryOf_\Cash_\PaymentAndA_\Transaction_\OriginOf_\Receivable.YouCanUseTheIconInThe_\Payment_\CodeFieldToOpenTheSelectListForValidCodes."	
+
+		IDMPrinter
+			if (CustGroup entered)
+				constraint (CustGroup.UseIDMTemplate entered)
+					"Use_\IDM_\TemplateFlagIsNotTurnedOnFor_\Customer_\Group"
+			if (Company entered)
+				constraint (Company.UseIDM entered)
+					"Use_\IDM_\TemplateFlagIsNotTurnedOnFor_\Company"
+
+		RunTime
+			default to current timestamp
+
+	Conditions
+		IsEFTNotificationOutputCreated
+			restricted
+			when (EFTNotificationOutputRel exists)
+
+		IsCGEFTNotificationOutputCreated
+			restricted
+			when (EFTNotificationOutputRel exists
+			and  !IsCompanyEFTNotificationOutputCreated)
+
+		IsCompanyEFTNotificationOutputCreated
+			restricted
+			when (EFTNotificationOutputRel exists
+			and   (Company entered
+			or	  (CustGroup entered 
+			and	   instance count of ReceivableCompanyRel = 1)))
+
+	Derived Fields
+		PreNoteCount is a DerivedField
+			type is Numeric 12
+			return (PreNoteCreditsCount + PreNoteDebitsOrInvoicesCount)
+
+		PreNoteNetAmount is a DerivedField
+			type is like InternationalAmount
+				precision is ProcessingCompany.Currency.NumberOfDecimals
+			return (PreNoteCreditsAmount + PreNoteDebitsOrInvoicesAmount) 
+
+		FinalNoteCount is a DerivedField
+			type is Numeric 12
+			return (FinalNoteCreditsCount + FinalNoteDebitsOrInvoicesCount)
+
+		FinalNoteNetAmount is a DerivedField
+			type is like InternationalAmount
+				precision is ProcessingCompany.Currency.NumberOfDecimals
+			return (FinalNoteCreditsAmount + FinalNoteDebitsOrInvoicesAmount)
+
+		TotalCount	is a DerivedField
+			type is Numeric 12
+			return (FinalNoteCount + PreNoteCount)
+
+		DerivedRunDate is a DerivedField	
+			type is Date
+			restricted
+			return RunTime date
+
+	Relations
+		CGPreNoteEFTTranRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTNotificationPrintResult	
+				related.EFTNotificationPrintResult	= EFTNotificationPrintResult	
+				related.CustomerGroup				= CustGroup
+				related.ProcessingCompany			= ProcessingCompany
+			Instance Selection
+				where (related.EftNote.NotePrinted
+				and	   related.ElectronicFundsTransferTransaction.EftType.Prenote)
+
+
+		CGFinalNoteEFTTranRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTNotificationPrintResult	
+				related.EFTNotificationPrintResult	= EFTNotificationPrintResult	
+				related.CustomerGroup				= CustGroup
+				related.ProcessingCompany			= ProcessingCompany
+			Instance Selection
+				where (related.EftNote.NotePrinted
+				and	   related.ElectronicFundsTransferTransaction.EftType.FinalNote)
+
+
+		CompanyPreNoteEFTTranRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTNotificationPrintResult	
+				related.EFTNotificationPrintResult	= EFTNotificationPrintResult	
+				related.CustomerGroup				= Company.CustomerGroupField.CustomerGroup
+				related.ProcessingCompany			= ProcessingCompany
+			Instance Selection
+				where (related.EftNote.NotePrinted
+				and	   related.ElectronicFundsTransferTransaction.EftType.Prenote)
+
+
+		CompanyFinalNoteEFTTranRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTNotificationPrintResult	
+				related.EFTNotificationPrintResult	= EFTNotificationPrintResult	
+				related.CustomerGroup				= Company.CustomerGroupField.CustomerGroup
+				related.ProcessingCompany			= ProcessingCompany
+			Instance Selection
+				where (related.EftNote.NotePrinted
+				and	   related.ElectronicFundsTransferTransaction.EftType.FinalNote)
+
+
+		EFTNotificationOutputRel
+			one-to-many relation to EFTNotificationOutput
+			Field Mapping uses ByEFTNotificationPrintResult	
+				related.EFTNotificationPrintResult = EFTNotificationPrintResult	
+
+
+
+		ReceivableCompanyRel
+			one-to-many relation to ReceivableCompany
+			Field Mapping uses Set2
+				related.CustomerGroupField.CustomerGroup	 = CustGroup.CustomerGroup
+
+		EFTProcessingCompanyRel
+			one-to-many relation to ReceivableCompany
+			Field Mapping uses Set2
+				related.CustomerGroupField.CustomerGroup	= CustGroup.CustomerGroup
+			Instance Selection
+				where (related.EFTDebitCashCode entered)
+
+		WorkPreNotificationPrintRel
+			one-to-many relation to WorkPreNotificationPrint
+			Field Mapping uses RecKey
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+				related.EFTNotificationPrintResult			= EFTNotificationPrintResult
+
+		WorkFinalNotificationPrintRel
+			one-to-many relation to WorkFinalNotificationPrint
+			Field Mapping uses ByEFTNotificationPrintResult
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+				related.EFTNotificationPrintResult			= EFTNotificationPrintResult
+
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				EFTNotificationPrintResult
+				FinanceEnterpriseGroup
+
+		ByCompany
+			Sort Order
+				Company
+				EFTNotificationPrintResult
+				FinanceEnterpriseGroup
+
+	Actions
+		PerformEFTNotificationPrint is a Create Action
+			completion message is "PerformEFTNotificationPrintSubmitted"
+			Exit Rules
+
+
+				BackgroundGroup = "EFTNotificationPrintResult_" + EFTNotificationPrintResult
+				if ((CustGroup entered 
+				and  CustGroup.UseIDMTemplate)
+				or  (Company entered
+				and  Company.UseIDM))	
+					invoke EFTNotificationIDMPrintSetAction ElectronicFundsTransferTransaction in background group(BackgroundGroup)
+						assign async action request id to BackgroundGroupAsyncId				
+						invoked.ParmFinanceEnterpriseGroup			= FinanceEnterpriseGroup
+						invoked.ParmCustomerGroup 					= CustGroup
+						invoked.ParmReceivableCompany				= Company
+						invoked.ParmCashManagementGroup				= FinanceEnterpriseGroup
+						invoked.ParmPaymentCode						= BankTransactionCode
+
+				invoke EFTNotificationPrint ElectronicFundsTransferTransaction in background
+					run after background group(BackgroundGroup)
+
+					invoked.PrmCustGroup					= CustGroup
+					invoked.PrmCompany						= Company
+					invoked.PrmProcessingCompany			= EFTProcessingCompanyRel.Company
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup 
+					invoked.PrmBankTransactionCode			= BankTransactionCode
+					invoked.PrmDataFileName					= DataFileName
+					invoked.PrmEFTNotificationPrintResult	= EFTNotificationPrintResult
+					invoked.PrmCreateDate					= WsCreateDate
+
+
+
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			Entrance Rules	
+				invoke Delete WorkPreNotificationPrintRel
+				invoke Delete WorkFinalNotificationPrintRel
+
+		Purge is a Purge Action
+			bypass relational integrity rules
+			Entrance Rules
+				invoke Purge WorkPreNotificationPrintRel
+				invoke Purge WorkFinalNotificationPrintRel
+ 
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		UpdateStatusOnResult is an Instance Action
+			restricted
+			Local Fields
+				DoNothing	is Boolean
+			Action Rules
+				if (Company entered)
+					LocalCustGroup	= Company.CustomerGroupField.CustomerGroup
+				else
+					LocalCustGroup	= CustGroup
+
+
+				EndTime		  = current timestamp
+				if (DoNothing or !RecordsExists)
+					Status = 1
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "EFTNotificationPrintHasCompleted"
+						priority is high
+						detail is "NoRecordsFoundToProcess"
+				if (RecordsExists)
+					Status = 1
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "EFTNotificationPrintHasCompleted"
+						priority is high
+						detail is "ResultsCanBeSeenInEFTNotificationPrintResults"
+
+		DeleteAllResults is a Set Action	
+			default label is "DeleteAllResults"
+			confirmation required
+				"DeletingEFTNotificationPrintResultWillPreventAccessToAnyListViewsAssociatedWithTheResultSet"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and	   DerivedRunDate <= PrmCutoffDate)
+			
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoEFTNotificationPrintResultRecordsFoundToDelete"
+						priority is medium
+				
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "EFTNotificationPrintResultsHaveBeenDeletedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Delete
+
+

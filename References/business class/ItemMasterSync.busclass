@@ -1,0 +1,659 @@
+ItemMasterSync is a BusinessClass
+	owned by ic
+	
+	prefix is IMS
+	
+	Ontology
+		symbolic key is ItemMasterSync
+		
+	Patterns
+	    implements StaticJava
+        disable AuditIndex
+        disable Auditing 
+       	disable EffectiveDated
+       	disable DataTranslations
+        
+	Persistent Fields
+		Actor
+		OldDescription1				 is a Description
+		OldDescription2				 is a Description
+		OldDescription3				 is a Description3
+		ReplacedDescription1		 is a Description
+		ReplacedDescription2		 is a Description
+		ReplacedDescription3		 is a Description3
+		OldManufacturer				 is a Manufacturer
+		OldManufacturerNumber		 is a ManufacturerNumber
+		Manufacturer
+		ManufacturerNumber		
+		SyncStatus					 is Numeric size 1
+			States
+				New						value is 0
+				ReadyToSyncItem			value is 1
+				ErrorExist				value is 2	
+				SyncCompleted			value is 3
+				ReadyToSyncContract		value is 4
+			restricted
+		IsSelected 					 is Boolean
+		ContractsFound				 is Boolean  
+			restricted
+		BatchNumber    
+			restricted
+		
+	Local Fields
+		
+		LocalCheckInventoryCompany	 is Boolean
+		LocalCheckItemGroup			 is Boolean
+		LocalUpdateManufacturerInfo  is Boolean
+		LocalUpdateVendorDescription is Boolean
+		LocalVendor					 is a Vendor
+		LocalVendorItem				 is a VendorItem
+		Reassign                     is Boolean
+		LocalUOM                     is like UnitOfMeasure
+		LocalGTIN                    is like ItemGTIN
+		LocalFromAttributeUpdate     is Boolean 
+
+	Conditions
+	
+		IsSelectedCondition
+			restricted
+			when (IsSelected)
+			
+		UnSelectedCondition
+			restricted
+			when (not IsSelected)
+			
+		ItemGroupSyncAllowed
+			restricted
+			when (!ItemGroup.ItemSyncOption.DoNotAllowItemSync)
+			
+		ManufacturerChanged
+			restricted
+			when (Manufacturer       != OldManufacturer
+			or    ManufacturerNumber != OldManufacturerNumber)
+		
+		ContractsAreFound
+			when (ContractLinesRel exists)
+			
+		ContractInterfacesAreFound
+			when (ContractInterfaceLinesRel exists)
+
+		GTINsAreFound
+			restricted
+			when (GTINRel exists)
+
+		ItemEntered
+			restricted
+			when (Item entered)
+
+		ItemGroupEntered
+			restricted
+			when (ItemGroup entered)
+	Field Rules
+	
+		ItemGroup
+			
+			constraint (Manufacturer entered 
+					or  ManufacturerNumber	 entered 
+					or  ReplacedDescription1 entered 
+					or  ReplacedDescription2 entered 
+					or  ReplacedDescription3 entered)
+				"MustHaveAValueInOneOfTheReplaceFields"		
+			
+		Item
+		
+			constraint (ItemMasterItemRel !exists)
+				"CannotHaveTwoItemSynchronizationRecordsForTheSameItem"
+		
+		Manufacturer
+			constraint (ManufacturerNumber entered)
+				"MustEnterFullManufacturerInformationOrBlankOutBothManufacturerAndManufacturerNumber"
+			initial value is Item.Manufacturer
+				
+		ManufacturerNumber
+			constraint (Manufacturer entered
+			or          LocalFromAttributeUpdate)
+				"MustEnterFullManufacturerInformationOrBlankOutBothManufacturerAndManufacturerNumber"
+			initial value is Item.ManufacturerNumber
+				
+		OldDescription1
+			default to Item.Description
+			
+		OldDescription2
+			default to Item.Description2
+			
+		OldDescription3
+			default to Item.Description3
+			
+		OldManufacturer
+			default to Item.Manufacturer
+			
+		OldManufacturerNumber
+			default to Item.ManufacturerNumber
+
+		ReplacedDescription1		 
+			initial value is Item.Description
+			required
+				"DescriptionIsRequired"
+			
+		ReplacedDescription2		 
+			initial value is Item.Description2
+			
+		ReplacedDescription3
+			initial value is Item.Description3
+	
+	Rule Blocks
+		
+		ItemLocationValidation
+		
+
+			if (ManufacturerChanged)  
+			
+				for each ItemLocationRel
+
+					
+					if (each.InventoryLocation.ItemSyncOption.CheckICCompanyValue)
+						LocalCheckInventoryCompany = true
+						
+					if (each.InventoryLocation.ItemSyncOption.OnlyMatchingValues)
+						if (each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber  = Item.ManufacturerNumber)
+							LocalUpdateManufacturerInfo = true
+								
+					if (each.InventoryLocation.ItemSyncOption.BlankValues)
+						if ((each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber = Item.ManufacturerNumber) 
+						or  (each.Manufacturer not entered and each.ManufacturerNumber not entered))
+							LocalUpdateManufacturerInfo = true
+								
+					if (each.InventoryLocation.ItemSyncOption.UpdateIfDifferent)
+						if  (each.Manufacturer not = Item.Manufacturer 
+						or   each.ManufacturerNumber not = Item.ManufacturerNumber
+						or  (each.Manufacturer not = Manufacturer
+						and  Manufacturer entered) 
+						or  (each.ManufacturerNumber not = ManufacturerNumber
+						and  ManufacturerNumber entered))
+							LocalUpdateManufacturerInfo = true
+								
+					if (each.InventoryLocation.ItemSyncOption.AllValues)
+						LocalUpdateManufacturerInfo = true
+	
+
+					if (LocalCheckInventoryCompany) 
+						if (each.Company.ItemSyncOption.CheckItemGroupValue)
+							LocalCheckItemGroup = true
+							
+						if (each.Company.ItemSyncOption.OnlyMatchingValues)
+							if (each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber = Item.ManufacturerNumber) 
+								LocalUpdateManufacturerInfo = true
+					
+						if (each.Company.ItemSyncOption.BlankValues)
+							if ((each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber = Item.ManufacturerNumber) 
+							or  (each.Manufacturer not entered and each.ManufacturerNumber not entered))
+								LocalUpdateManufacturerInfo = true
+					
+						if (each.Company.ItemSyncOption.UpdateIfDifferent)
+							if  (each.Manufacturer not = Item.Manufacturer 
+							or   each.ManufacturerNumber not = Item.ManufacturerNumber
+							or  (each.Manufacturer not = Manufacturer
+							and  Manufacturer entered) 
+							or  (each.ManufacturerNumber not = ManufacturerNumber
+							and  ManufacturerNumber entered))
+								LocalUpdateManufacturerInfo = true
+						
+						if (each.Company.ItemSyncOption.AllValues)
+							LocalUpdateManufacturerInfo = true
+							
+						initialize LocalCheckInventoryCompany
+							
+
+					if (LocalCheckItemGroup)
+						if (ItemGroup.ItemSyncOption.OnlyMatchingValues)
+							if (each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber = Item.ManufacturerNumber)
+								LocalUpdateManufacturerInfo = true
+						
+						if (ItemGroup.ItemSyncOption.BlankValues)
+							if ((each.Manufacturer = Item.Manufacturer and each.ManufacturerNumber = Item.ManufacturerNumber) 
+							or  (each.Manufacturer not entered and each.ManufacturerNumber not entered))
+								LocalUpdateManufacturerInfo = true
+						
+						if (ItemGroup.ItemSyncOption.UpdateIfDifferent)
+							if  (each.Manufacturer not = Item.Manufacturer 
+							or   each.ManufacturerNumber not = Item.ManufacturerNumber
+							or  (each.Manufacturer not = Manufacturer
+							and  Manufacturer entered) 
+							or  (each.ManufacturerNumber not = ManufacturerNumber
+							and  ManufacturerNumber entered))
+								LocalUpdateManufacturerInfo = true
+						
+						if (ItemGroup.ItemSyncOption.AllValues)
+							LocalUpdateManufacturerInfo = true
+								
+						initialize LocalCheckItemGroup	
+				
+
+					if (LocalUpdateManufacturerInfo)
+						invoke UpdateManufacturerInfo each
+							invoked.PrmManufacturer			= Manufacturer
+							invoked.PrmManufacturerNumber	= ManufacturerNumber
+						initialize LocalUpdateManufacturerInfo 
+			
+			
+		VendorItemValidation
+
+			for each VendorItemRel
+				LocalVendorItem = each.VendorItem
+				LocalVendor     = each.Vendor
+				if (ItemGroup.ItemSyncOption.AllValues)
+					if (ManufacturerChanged)
+						if (SameManufacturerInfoAsReplacementRel not exist
+						or  ManufacturerNumber !entered)
+							LocalUpdateManufacturerInfo = true
+					if (ReplacedDescription1 entered)
+						LocalUpdateVendorDescription = true
+				else		
+				if (not ItemGroup.ItemSyncOption.DoNotAllowItemSync
+				and not ItemGroup.ItemSyncOption.AllValues)
+					if (ReplacedDescription1 entered
+					and ItemGroup.ItemSyncOption.OnlyMatchingValues)
+						if (each.VendorItemDescription = Item.Description)
+							LocalUpdateVendorDescription = true
+							
+					if (ReplacedDescription1 entered
+					and ItemGroup.ItemSyncOption.UpdateIfDifferent)
+						if (each.VendorItemDescription != Item.Description)
+							LocalUpdateVendorDescription = true
+					if (ReplacedDescription1 entered
+					and ItemGroup.ItemSyncOption.BlankValues)
+						LocalUpdateVendorDescription = true
+					
+					if (ManufacturerChanged)
+						if (SameManufacturerInfoAsReplacementRel not exist)
+							if (each.Manufacturer = Item.Manufacturer 
+							and each.ManufacturerNumber = Item.ManufacturerNumber
+							and ItemGroup.ItemSyncOption.OnlyMatchingValues)
+								LocalUpdateManufacturerInfo = true
+							else
+							if  ((each.Manufacturer not = Item.Manufacturer 
+							or   each.ManufacturerNumber not = Item.ManufacturerNumber
+							or  (each.Manufacturer not = Manufacturer
+							and  Manufacturer entered) 
+							or  (each.ManufacturerNumber not = ManufacturerNumber
+							and  ManufacturerNumber entered))
+							and  ItemGroup.ItemSyncOption.UpdateIfDifferent)
+								LocalUpdateManufacturerInfo = true
+							else
+							if (each.Manufacturer   	= blank
+							and each.ManufacturerNumber = blank
+							and ItemGroup.ItemSyncOption.BlankValues)
+								LocalUpdateManufacturerInfo = true
+				if ((LocalUpdateManufacturerInfo
+				or  LocalUpdateVendorDescription)
+				and ((ItemGroup.DoNotUpdateInactiveVendorItem
+				and  each.Active)
+				or   ItemGroup.DoNotUpdateInactiveVendorItem = false))
+					invoke UpdateVendorItemMfgInfoAndDesc each
+						if (LocalUpdateManufacturerInfo)
+							invoked.PrmUpdateManufacturer       = true
+							invoked.PrmManufacturer		  		= Manufacturer
+							invoked.PrmManufacturerNumber 		= ManufacturerNumber
+						if (LocalUpdateVendorDescription)
+							invoked.PrmUpdateVendorDescription 	= true
+							invoked.PrmDescription				= ReplacedDescription1
+				
+					if (ContractLineRel exists
+					or  ContractInterfaceLineRel exists)
+						invoke UpdateContractMfgInfoAndDesc each						
+							if (LocalUpdateManufacturerInfo)
+								invoked.PrmManufacturer		  	= Manufacturer
+								invoked.PrmManufacturerNumber 	= ManufacturerNumber
+								invoked.UpdateManufacturer      = true
+							if (LocalUpdateVendorDescription)
+								invoked.PrmDescription		= ReplacedDescription1
+								invoked.PrmDescription2 	= ReplacedDescription2
+								invoked.PrmDescription3 	= ReplacedDescription3
+								invoked.UpdateDescription   = true
+  							
+				LocalUpdateVendorDescription	= false
+				LocalUpdateManufacturerInfo		= false 		
+	
+		UpdateContractLines 
+			for each ContractLinesRel 
+				if (each.VendorItem !exists)
+					invoke FastUpdateWithoutEdits each
+						invoked.UpdateDescription 		= true 
+						invoked.Description1            = ReplacedDescription1
+						invoked.Description2            = ReplacedDescription2
+						invoked.Description3            = ReplacedDescription3
+						if (ManufacturerChanged)
+							invoked.UpdateManufacturerInformation = true
+							invoked.NewManufacturer			= Manufacturer
+							invoked.NewManufacturerNumber	= ManufacturerNumber					
+		
+		ItemGTINValidation
+		
+			if (ManufacturerChanged
+			and ManufacturerNumber entered)
+			
+				for each GTINRel
+						
+					LocalGTIN = each.ItemGTIN
+					LocalUOM  = each.UnitOfMeasure
+					if (ItemGroup.ItemSyncOption.AllValues)
+						if (DuplicateGTINDetailsRel not exist)
+							LocalUpdateManufacturerInfo = true
+					else		
+					if (not ItemGroup.ItemSyncOption.DoNotAllowItemSync
+					and not ItemGroup.ItemSyncOption.AllValues)
+						
+						if (DuplicateGTINDetailsRel not exist)
+							if (each.Manufacturer = Item.Manufacturer 
+							and each.ManufacturerNumber = Item.ManufacturerNumber
+							and ItemGroup.ItemSyncOption.OnlyMatchingValues)
+								LocalUpdateManufacturerInfo = true
+							else
+							if ((each.Manufacturer not = Manufacturer or each.ManufacturerNumber not = ManufacturerNumber)
+							and ItemGroup.ItemSyncOption.UpdateIfDifferent)
+								LocalUpdateManufacturerInfo = true
+							else
+							if (each.Manufacturer   	= blank
+							and each.ManufacturerNumber = blank
+							and ItemGroup.ItemSyncOption.BlankValues)
+								LocalUpdateManufacturerInfo = true
+					if (LocalUpdateManufacturerInfo)
+						invoke Update each
+							invoked.Manufacturer		  	= Manufacturer
+							invoked.ManufacturerNumber 		= ManufacturerNumber
+					
+					LocalUpdateManufacturerInfo		= false
+					 			
+	Relations
+		
+		ItemLocationRel
+			one-to-many relation to ItemLocation				
+			Field Mapping uses ByItem
+				related.Item = Item
+			Instance Selection
+				where (related.Item.ItemGroup = ItemGroup)
+				
+		ItemMasterItemRel
+			one-to-many relation to ItemMasterSync
+			Field Mapping uses symbolic key
+				related.ItemGroup  = ItemGroup
+				related.Item       = Item
+			Instance Selection
+				where (related.ItemMasterSync 	!= ItemMasterSync)
+		
+		DuplicateGTINDetailsRel
+			one-to-many relation to ItemGTIN
+			Field Mapping uses Set7
+				related.ItemGroup			= ItemGroup
+				related.Manufacturer		= Manufacturer
+				related.ManufacturerNumber	= ManufacturerNumber
+				related.Item				= Item
+				related.UnitOfMeasure		= LocalUOM
+			Instance Selection
+				where (related.ItemGTIN != LocalGTIN
+				and    related.Active)
+
+		VendorItemRel
+            one-to-many relation to VendorItem
+            Field Mapping uses symbolic key
+                related.ProcurementGroup	= ItemGroup
+                related.Item				= Item
+                
+        SameManufacturerInfoAsReplacementRel
+			one-to-many relation to VendorItem
+			Field Mapping uses Set5
+				related.ProcurementGroup	= ItemGroup
+				related.Vendor				= LocalVendor
+				related.Manufacturer		= Manufacturer
+				related.ManufacturerNumber	= ManufacturerNumber
+			Instance Selection
+				where (related.VendorItem  != LocalVendorItem
+				and    related.Active)
+    	
+    	ContractLinesRel
+    		one-to-many relation to ContractLine
+    		Field Mapping uses ByVendorItemOpen
+    			related.ContractGroup = ItemGroup	
+				related.ItemNumber	  = Item
+    	
+		ContractInterfaceLinesRel
+			one-to-many relation to ContractLineImport
+   			Field Mapping uses ByItemVendorItem
+    			related.ContractGroup = ItemGroup	
+				related.ItemNumber	  = Item				
+
+    	ContractLineRel
+    		one-to-many relation to ContractLine
+    		Field Mapping uses ByVendorItemOpen
+    			related.ContractGroup = ItemGroup	
+				related.ItemNumber	  = Item
+				related.VendorItem	  = VendorItemRel.VendorItem
+				
+   		ContractInterfaceLineRel
+    		one-to-many relation to ContractLineImport
+    		Field Mapping uses ByItemVendorItem
+    			related.ContractGroup = ItemGroup	
+				related.ItemNumber	  = Item
+				related.VendorItem	  = VendorItemRel.VendorItem
+
+		GTINRel
+			one-to-many relation to ItemGTIN
+			Field Mapping uses symbolic key
+				related.ItemGroup     = ItemGroup
+				related.Item          = Item
+			Instance Selection
+				where (related.Active)
+
+		ItemMasterSyncBatchNumberRel
+			one-to-many relation to ItemMasterSyncBatchNumber
+			Field Mapping uses symbolic key
+				related.Actor = actor
+				
+		ItemMasterSyncReportRel
+			one-to-many relation to ItemMasterSyncReport
+			Field Mapping uses symbolic key
+				related.Actor = actor
+				
+		UploadSpreadsheetRel
+			one-to-many relation to SampleDocumentTemplate
+			Field Mapping uses ByType
+				related.Type        = 104 
+				
+		FactSheetRel
+			one-to-one relation to SampleDocumentTemplate
+			Field Mapping uses symbolic key
+				related.SampleDocumentTemplate                  = "ItemSyncProcessing_ST"	
+
+	Actions
+	
+		Create is a Create Action
+		
+			Exit Rules
+				invoke SelectRecord
+			
+		Update is an Update Action
+		
+			Exit Rules
+				invoke SelectRecord
+			
+		Delete is a Delete Action
+				
+		SelectRecord is an Instance Action
+			valid when (UnSelectedCondition)
+			completion message is "RecordSelected"
+			Entrance Rules
+				if (!Reassign)
+					constraint (not IsSelectedCondition or Actor = actor)
+						"ItemMasterSynchornizationRecordIsSelectedByAnotherUser"
+			Action Rules
+				IsSelected = true
+				if (!Reassign)
+					Actor      = actor
+		
+		AssignMyRecordsToAnotherActor is a Set Action
+			default label is "ReassignMyRecords"
+			run in foreground
+			Parameters
+				CurrentActor        is an Actor
+				ParmActor   		is an Actor 
+					default label is "NewActor"
+			
+			Parameter Rules
+				CurrentActor
+					initial value is actor
+				ParmActor
+					required
+			
+			Instance Selection
+				where (Actor = actor)
+										
+			Action Rules
+				
+				Instance Rules
+					Reassign = true
+					invoke Update
+						invoked.Actor      = ParmActor
+
+		UnselectRecord is an Instance Action
+			valid when (IsSelectedCondition)
+			completion message is "RecordUnselected"
+			Entrance Rules
+				constraint (Actor = actor)
+					"ItemMasterSynchronizationIsSelectedByAnotherUser"
+			Action Rules
+				IsSelected = false
+				initialize Actor  
+				
+		UnselectAllMyRecords is a Set Action
+			run in foreground
+			Instance Selection
+				where (IsSelected = true and Actor = actor)
+				
+			Action Rules
+				Instance Rules
+					invoke UnselectRecord
+		
+		SelectAll is a Set Action
+			disable resume on error
+			run in foreground
+			Instance Selection
+				where (IsSelected = false 
+				and Actor not entered)
+			
+			Action Rules
+				Instance Rules
+					invoke Update
+						invoked.IsSelected = true
+						invoked.Actor      = actor	
+		
+		SyncItemInformationForSingleItem is a Create Action
+			restricted
+				
+			Exit Rules
+				invoke SelectRecord
+				invoke ProcessSyncForSingleItem
+			
+		ProcessSyncForSingleItem is an Instance Action
+			restricted	
+			Local Fields
+           		LocalBatchNumber	 is a BatchNumber
+           		LocalActor           is an Actor
+           		
+			Entrance Rules
+				invoke Create ItemMasterSyncBatchNumber
+					invoked.Actor = actor
+					
+			Action Rules		
+				include ItemLocationValidation
+				include VendorItemValidation
+				include ItemGTINValidation
+				include UpdateContractLines
+						
+				LocalBatchNumber = last ItemMasterSyncBatchNumberRel.ItemMasterSyncBatchNumber	
+				LocalActor = Actor
+				
+				invoke Create ItemMasterSyncReport
+					invoked.Actor 				  = LocalActor
+					invoked.BatchNumber 		  = LocalBatchNumber 
+					invoked.ItemGroup			  = ItemGroup
+					invoked.Item				  = Item
+					invoked.OldDescription1		  = OldDescription1
+					invoked.OldDescription2		  = OldDescription2	 
+					invoked.OldDescription3		  = OldDescription3		 
+					invoked.ReplacedDescription1  = ReplacedDescription1		 
+					invoked.ReplacedDescription2  = ReplacedDescription2		 
+					invoked.ReplacedDescription3  = ReplacedDescription3		 
+					invoked.OldManufacturer		  = OldManufacturer			 
+					invoked.OldManufacturerNumber = OldManufacturerNumber		 
+					invoked.Manufacturer		  = Manufacturer
+					invoked.ManufacturerNumber    = ManufacturerNumber
+					
+				invoke Delete
+				
+		SyncItemInformation is a Set Action
+			completion message is "ItemInformationSynchronizationComplete"
+			disable resume on error
+			run in foreground
+			Instance Selection
+				where (IsSelected = true
+				and    Actor      = actor)
+				
+			Local Fields
+				LocalBatchNumber	is a BatchNumber
+				LocalActor			is an Actor
+
+			Sort Order
+				Actor
+				ItemGroup
+				ItemMasterSync
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+
+						invoke Create ItemMasterSyncBatchNumber
+							invoked.Actor = actor
+
+				ItemGroup Set Rules
+					Entrance Rules
+						constraint (ItemGroupSyncAllowed)
+							"ItemGroupDoesNotAllowItemSynchronization"
+
+				Instance Rules
+					if (ItemGroupSyncAllowed) 
+						include ItemLocationValidation
+						include VendorItemValidation
+						include ItemGTINValidation
+
+
+						invoke UpdateManufacturerInfo Item
+							invoked.PrmManufacturer 		= Manufacturer
+							invoked.PrmManufacturerNumber	= ManufacturerNumber
+							invoked.PrmDescription			= ReplacedDescription1
+							invoked.PrmDescription2			= ReplacedDescription2
+							invoked.PrmDescription3			= ReplacedDescription3
+
+						include UpdateContractLines
+						LocalActor = Actor
+						LocalBatchNumber = last ItemMasterSyncBatchNumberRel.ItemMasterSyncBatchNumber	
+
+						invoke Create ItemMasterSyncReport
+							invoked.Actor					= LocalActor
+							invoked.BatchNumber				= LocalBatchNumber
+							invoked.ItemGroup				= ItemGroup
+							invoked.Item					= Item
+							invoked.OldDescription1			= OldDescription1
+							invoked.OldDescription2			= OldDescription2
+							invoked.OldDescription3			= OldDescription3
+							invoked.ReplacedDescription1	= ReplacedDescription1
+							invoked.ReplacedDescription2	= ReplacedDescription2
+							invoked.ReplacedDescription3	= ReplacedDescription3
+							invoked.OldManufacturer			= OldManufacturer
+							invoked.OldManufacturerNumber	= OldManufacturerNumber
+							invoked.Manufacturer			= Manufacturer
+							invoked.ManufacturerNumber		= ManufacturerNumber
+						if (Item.ItemGroup.BusinessGroup.FinanceEnterpriseGroup.BODTrigger)		
+							increment Item.bod id.VariationID
+							invoke TriggerItemMasterBOD Item
+
+						invoke Delete

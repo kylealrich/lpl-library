@@ -1,0 +1,150 @@
+SourcingEventResponseBuyerWeighting is a BusinessClass 
+    owned by ss
+    prefix is ERBYW
+    sql name is ResponseBuyerWeighting
+
+    Ontology
+    	symbolic key is SourcingEventResponseBuyerWeighting
+    	   			    			
+    Persistent Fields
+		BuyerScore						is Numeric 3
+		ScoreOfZero						is Boolean
+		Comment							is Text
+		Attachment
+
+   	Local Fields
+   		LocalBuyer                      is like Employee
+		LocalCompany                    is a SourcingCompany
+		LocalEvent                      is a SourcingEvent
+			context of LocalCompany
+   	
+   	Derived Fields
+   		CriteriaScore is a DerivedField
+			type is like InternationalAmount
+			return (((BuyerScore/SourcingEventBuyerWeighting.BestPossibleScore * 100) * SourcingEventBuyerWeighting.CriteriaWeighting) / NumberOfBuyersResponding)
+   			
+   		NumberOfBuyersResponding is a ComputeField
+			type is Numeric 2
+			restricted
+			(instance count of BuyersRespondingRel)
+   			
+   	Conditions
+		HasAttachment
+			restricted
+			when (Attachment entered)
+	
+	Relations
+	
+		DuplicateBuyerRel
+			one-to-many relation to SourcingEventResponseBuyerWeighting
+    		Field Mapping uses ByEvent
+    			related.Company						= Company
+    			related.SourcingEvent				= SourcingEvent
+			Instance Selection
+				where (Employee   		= LocalBuyer)
+			
+		BuyersRespondingRel	
+			one-to-many relation to SourcingEventWeightingBuyer
+    		Field Mapping uses symbolic key
+    			related.Company						= Company
+    			related.SourcingEvent				= SourcingEvent
+    		Instance Selection
+    			where (related.EnteredScores)
+    			
+    	EventBuyerWeightingRel
+    		one-to-many relation to SourcingEventResponseBuyerWeighting
+    		Field Mapping uses ByEvent
+    			related.Company						= LocalCompany
+    			related.SourcingEvent				= LocalEvent
+    		Instance Selection
+    			where (Employee = LocalEvent.Buyer)
+    			
+    	SourcingEventResponseRel
+    		one-to-one relation to SourcingEventResponse
+    		Field Mapping uses symbolic key
+    			related.NotifiedSupplier           = NotifiedSupplier
+    			related.Company                    = Company
+    			related.SourcingEvent              = SourcingEvent
+						
+	Sets
+ 		ByEvent
+ 			duplicates
+ 			Sort Order
+ 				Company
+ 				SourcingEvent
+				SourcingEventBuyerWeighting
+				
+		ByBuyer
+			duplicates
+			Sort Order
+				Company
+				SourcingEvent
+				SourcingEventBuyerWeighting
+				Employee
+				
+		ByEmployeeFirst
+			Sort Order
+				Company
+				SourcingEvent
+				Employee
+				SourcingEventBuyerWeighting
+				NotifiedSupplier
+ 				
+   	Field Rules
+		
+		BuyerScore
+			constraint (BuyerScore <= SourcingEventBuyerWeighting.BestPossibleScore)
+				"BuyerScoreCannotBeGreaterThanTheBestPossibleScore"
+			constraint (BuyerScore >= 0)
+				"BuyerScoreCannotBeLessThanZero"
+
+		ScoreOfZero
+			if (true)
+				constraint (BuyerScore = 0)
+					"ScoreOfZeroCannotBeSetWhenABuyerScoreHasBeenEntered"
+   				   					
+ 	Actions
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			valid when (SourcingEvent.AvailableToEnterBuyerWeighting)
+			Action Rules
+				invoke CalculateEventScore SourcingEventResponseRel
+							
+		Delete is a Delete Action
+			restricted
+			
+		SendBuyerWeightingEmail is an Instance Action
+			valid when (SourcingEvent.AvailableToEnterBuyerWeighting)			
+			Action Rules
+				invoke SendBuyerWeightingEmail SourcingEvent
+
+		AddANewBuyer is an Instance Action
+			valid when (SourcingEvent.AvailableToEnterBuyerWeighting)
+			Parameters
+				NewBuyer   			is an Employee
+				NotifyToEnterScores is Boolean
+			Parameter Rules
+			
+				NewBuyer
+					required
+					LocalBuyer = NewBuyer
+					constraint (!DuplicateBuyerRel exists)
+						"WeightingRecordsAlreadyExistForThisBuyer"
+								
+			Action Rules
+			
+				invoke Create SourcingEventWeightingBuyer
+					invoked.Company                      = Company
+					invoked.SourcingEvent                = SourcingEvent
+					invoked.Employee                     = NewBuyer
+				
+				if (NotifyToEnterScores)
+					send email
+						to Employee.EmployeeWorkEmailAddress
+						from SourcingEvent.Buyer.EmployeeWorkEmailAddress
+						subject "EventBuyerWeightingToScore"
+						Contents
+							"YouHaveBuyerWeightingToScoreForEvent<SourcingEvent>-<SourcingEvent.Description>"
+							"EnterScoringInManageEvents;EventBuyerWeighting"										

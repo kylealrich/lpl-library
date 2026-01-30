@@ -1,0 +1,392 @@
+M3Message is a BusinessClass
+	default label is "M\3Message"
+    owned by la
+    prefix is M3M
+
+    Ontology
+
+		part of M3MessageGroup
+    		relative key is Sequence is Numeric size 6
+
+	Patterns
+    	implements CRUD
+		implements CreateStamp
+
+    Persistent Fields
+        BusinessClass 		is BusinessObjectReference 
+		MiName		  		is Alpha size 25
+        Status		  		is Numeric size 1
+        	States
+        		New				value is 0
+        		Reset			value is 1
+        		Pending			value is 2
+        		Hold			value is 3
+        		Complete		value is 8
+        		Failed			value is 9
+        Program    	  		is AlphaUpper size 25
+        TransName	  		is AlphaUpper size 15
+        	default label is "TransactionName"
+        EventType 	  		is AlphaUpper size 3	
+			States
+	            Add   			value is "ADD" 
+	            Change 			value is "CHG"
+        Data 		  		is Text
+        ResponseMessage 	is Text
+        	disable Auditing
+        FailureCount		is Numeric size 6
+        
+	Derived Fields
+		MaxRetriesConfig is a DerivedField
+            type is Numeric size 3
+            return config.ags_max_retry
+
+		MaxRetries is a DerivedField
+            type is Numeric size 3
+            if (MaxRetriesConfig > 0)
+            	return MaxRetriesConfig
+           	else
+            	return 10
+    
+	Conditions
+    	IsNew
+    		default label is "New"
+    		when (Status.New) 
+    	IsReset
+    		default label is "Reset"
+    		when (Status.Reset) 
+    	IsPending
+    		default label is "Pending"
+    		when (Status.Pending)
+    	IsHold
+    		default label is "Hold"
+    		when (Status.Hold)
+    	IsComplete
+    		default label is "Complete"
+    		when (Status.Complete)
+    	IsFailed
+    		default label is "Failed"
+    		when (Status.Failed)
+    	IsAddEvent
+    		default label is "AddEvent"
+    		when (EventType.Add)
+    	IsChangeEvent
+    		default label is "ChangeEvent"
+    		when (EventType.Change)
+
+    Sets
+
+        ByProgram
+        	duplicates
+        	indexed
+        	Sort Order
+ 				Program
+ 				create stamp
+
+		ByStamp
+			duplicates
+			indexed
+			Sort Order
+				create stamp
+				Program
+
+		ByNewStamp
+			duplicates
+			indexed
+			Sort Order
+				create stamp
+				Program
+			Instance Selection
+				where (IsNew)
+		
+ 				
+ 	Field Rules 
+		Program
+			required
+		TransName
+	   		required
+	   	EventType
+			required
+
+	SubType IsNew Field Rules
+		ResponseMessage
+			cannot be changed
+	
+	SubType IsReset Field Rules
+		BusinessClass
+			cannot be changed
+		Program
+			cannot be changed
+		TransName
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+		
+	SubType IsPending Field Rules
+		BusinessClass
+			cannot be changed
+		Program
+			cannot be changed
+		TransName
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+	
+	SubType IsComplete Field Rules
+		BusinessClass
+			cannot be changed
+		Program
+			cannot be changed
+		TransName
+			cannot be changed
+		EventType
+			cannot be changed
+		Data
+			cannot be changed
+		ResponseMessage
+			cannot be changed
+			
+	SubType IsFailed Field Rules
+		BusinessClass
+			cannot be changed
+		Program
+			cannot be changed
+		TransName
+			cannot be changed
+		EventType
+			cannot be changed
+
+
+	
+	Actions
+		PurgeM3Messages is a Set Action		
+			default label is "PurgeM\3Messages"
+			restricted
+			valid when (M3MessageGroup.Status.PendingDelete)
+			
+			Parameters
+				ParamGroup			is a M3MessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.PendingDelete)
+						"ActionOnlyValidForCompleteGroups"
+				
+			Instance Selection
+				include deleted records
+				where (M3MessageGroup = ParamGroup)
+								
+			Sort Order
+				M3MessageGroup
+				Sequence
+								
+			Action Rules
+
+				Instance Rules
+
+					if (Status.Complete)
+						invoke Complete.PurgeRecord
+					else
+					if (Status.Hold)
+						invoke Hold.PurgeRecord
+					else
+					if (Status.Hold)
+						invoke Failed.PurgeRecord
+				
+				Empty Set Rules 
+					invoke PendingDelete.PurgeRecordInternal ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke PendingDelete.PurgeRecordInternal ParamGroup
+			
+  		ResetFailedMessages is a Set Action
+  			restricted
+			valid when (M3MessageGroup.Status.PendingReset)
+			
+			Parameters
+				ParamGroup			is a M3MessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.PendingReset)
+						"ActionOnlyValidForFailedGroups"
+						
+			Instance Selection
+				where (M3MessageGroup = ParamGroup
+				and    Status.Failed)
+
+			Sort Order
+				M3MessageGroup
+				Status
+							
+			Action Rules
+				Instance Rules
+					invoke Failed.Reset
+					
+				Empty Set Rules 
+					invoke PendingReset.Reset ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke PendingReset.Reset ParamGroup
+						
+		ResetHoldFailedMessages is a Set Action
+  			restricted
+			valid when (M3MessageGroup.Status.Hold)
+			
+			Parameters
+				ParamGroup			is a M3MessageGroup
+					default label is "Group"
+			
+			Parameter Rules
+				ParamGroup
+					required
+					constraint (ParamGroup.Status.Hold)
+						"ActionOnlyValidForHeldGroups"
+						
+			Instance Selection
+				where (M3MessageGroup = ParamGroup
+				and   (Status.Hold
+				or     Status.Failed))
+
+			Sort Order
+				M3MessageGroup
+				Status
+							
+			Action Rules
+				Instance Rules
+					if (Status.Hold)
+						invoke Hold.Reset
+					else
+						invoke Failed.Reset
+					
+				Empty Set Rules 
+					invoke Hold.Reset ParamGroup
+							
+				Set Rules
+					Exit Rules
+						invoke Hold.Reset ParamGroup			
+    
+    
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+
+				Create is a Create Action
+					restricted
+					Action Rules
+						autosequence Sequence
+							minimize contention
+							
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+
+			Reset is a State
+
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+						
+			Pending is a State
+				
+				Complete is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+						
+
+
+
+					
+					Action Rules
+						ResponseMessage	= Message
+						make transition to Complete
+						
+				PlaceOnHold is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+						
+					Action Rules
+						ResponseMessage	= Message
+						FailureCount = FailureCount + 1
+						make transition to Hold
+						
+				Failed is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+					
+
+
+
+						
+					Action Rules
+						ResponseMessage	= Message
+						FailureCount = FailureCount + 1
+						
+						if (FailureCount >= MaxRetries)
+							make transition to Hold
+						else
+							make transition to Failed
+
+			Hold is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				
+				Reset is an Instance Action
+					Action Rules
+						ResponseMessage	= ""
+						make transition to Reset
+			
+			Complete is a State
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+						
+				PurgeRecordInternal is a Purge Action
+					restricted						
+			
+			Failed is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				
+				PlaceOnHold is an Instance Action
+					Action Rules
+						make transition to Hold
+				
+				Reset is an Instance Action
+					Action Rules
+						ResponseMessage	= ""
+						make transition to Reset
+    

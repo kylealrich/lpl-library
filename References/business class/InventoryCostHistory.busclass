@@ -1,0 +1,783 @@
+InventoryCostHistory is a BusinessClass
+    owned by ic
+    prefix is ICR
+    classic name is ICRECEIPTS
+
+    Ontology
+        symbolic key is InventoryCostHistory
+            classic set name is ICRSET1
+
+            classic name for InventoryCostHistory.TransactionSystemCode is SYSTEM-CD
+            classic name for InventoryCostHistory.LineNumber is LINE-NBR
+            classic name for InventoryCostHistory.ComponentSequence is COMPONENT-SEQ
+            classic name for InventoryLocation is LOCATION
+
+    Patterns
+    
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+
+        ReceivedQuantity       is a Quantity
+            classic name is RECEIVED-QTY
+            precision is Item.NumberOfDecimalsQuantity
+            protected
+        UsedQuantity           is a Quantity
+            classic name is USED-QTY
+            protected
+        UnitCost				is an InternationalCost
+        	protected
+        ReceivedDate           is TimeStamp
+        LastActivityDate       is Date
+            classic name is LAST-ACT-DATE
+        InspectionHoldQuantity is a Quantity
+            classic name is HOLD-QTY
+            protected
+        CreatedBy              is an Operator 
+        	holds pii
+        LastUpdateDate         is TimeStamp
+            classic name is LAST-UPDT-DATE
+        LastUpdateBy           is an Operator 
+        	holds pii
+        ItemLocation
+        
+	Transient Fields
+	
+		AdjustToZeroFlag  is Boolean
+		SkipInactiveEdit  is Boolean
+		NewUnitCost	      is like UnitCost			// IEFIN-30054 changed to "like"
+		TransientNewUnitCost is like UnitCost		
+			default label is "NewUnitCost"
+		UnusedQuantity    is a Quantity
+			derive value from CalculatedUnusedQuantity
+			precision is Item.NumberOfDecimalsQuantity
+		InventoryReasonCode	 
+		LineComment       is Alpha size 40 
+		GeneralLedgerDate is Date
+			default label is "GlobalLedgerDate"
+		OffsetAccount     is a TransactionCodeBlock
+			derive value from InventoryTransactionLineRel.OffsetAccount
+		FromCurrency
+			derive value from InventoryTransactionLineRel.FromCurrency
+		TransientMatchOffsetAccount is a FinanceCodeBlock
+		TransientOldUnitCost is an InternationalCost
+  		BypassActiveCodeBlockEdit
+		TransientTransactionDate is an ExchangeDate
+			derive value from ReceivedDate date
+		TransientSupplementalMultiplier					is like UOMMultiplier
+			derive value from DerivedSupplementalUOMMultiplier
+		TransientLocationStockMultiplier				is like UOMMultiplier
+			derive value from DerivedLocationStockUOMMultiplier
+
+ 	Rule Blocks
+		SupplementalQuantityCalculation
+			LocalSupplementalComputed 						= true
+			LocalReceivedQuantityInSupplementalUOM			= ReceivedQuantity	/ TransientSupplementalMultiplier
+			LocalUnusedQuantityInSupplementalUOM			= UnusedQuantity	/ TransientSupplementalMultiplier
+			LocalUnitCostInSupplementalUOM					= UnitCost			* TransientSupplementalMultiplier
+			LocalNewUnitCostInSupplementalUOM				= NewUnitCost		* TransientSupplementalMultiplier 
+
+	Derived Fields	
+		
+		DerivedDisplayUnitCost is a DerivedField
+			type is like UnitCost
+				precision is ItemLocation.Item.NumberOfDecimalsCost
+			default label is "UnitCost"
+			if (HasItemLocationStockUOM)
+				return DerivedUnitCostInLocationStockUOM
+			else
+				return UnitCost
+		
+        CalculatedUnusedQuantity is a DerivedField    
+            type is like Quantity		
+            restricted
+            return (ReceivedQuantity - UsedQuantity)
+         
+		TotalCostAdjustmentUnitCost is a DerivedField
+			type is like UnitCost
+			restricted
+			for each CostAdjustmentInventoryTransactionLineRel
+				LocalUnitCostInTransactionCurreny += each.DerivedUnitCostInTransactionCurreny
+			return LocalUnitCostInTransactionCurreny
+
+		TotalCostAdjustmentFromPOUnitCost is a DerivedField
+			type is like UnitCost
+			restricted
+			for each CostAdjustmentInventoryTransactionLineFromPORel
+				LocalUnitCost += each.UnitCost
+			return LocalUnitCost
+
+		TotalCostAdjustmentFromPOUnitCostInTransactionCurrency is a DerivedField
+			type is like UnitCost
+			restricted
+			for each CostAdjustmentInventoryTransactionLineFromPORel
+				LocalUnitCostInTransactionCurreny += each.UnitCostInTransactionCurrency
+			return LocalUnitCostInTransactionCurreny
+		
+		DerivedOriginatingTransaction is a DerivedField
+			type is like InventoryTransaction
+			restricted
+			return InventoryTransactionLineRel.OriginatingTransactionDocument
+		
+		DerivedRoundTo			is a DerivedField
+
+			type is Unsigned Decimal 21.8
+			if (Item.NumberOfDecimalsCost = 8)
+				return .00000001
+			else
+			if (Item.NumberOfDecimalsCost = 7)
+				return .0000001
+			else
+			if (Item.NumberOfDecimalsCost = 6)
+				return .000001
+			else
+			if (Item.NumberOfDecimalsCost = 5)
+				return .00001
+			else
+			if (Item.NumberOfDecimalsCost = 4)
+				return .0001
+			else
+			if (Item.NumberOfDecimalsCost = 3)
+				return .001
+			else
+			if (Item.NumberOfDecimalsCost = 2)
+				return .01
+			else
+			if (Item.NumberOfDecimalsCost = 1)
+				return .1
+			else
+			if (Item.NumberOfDecimalsCost = 0)
+				return 1
+			else
+				return 0
+				
+
+		MobileItemDisplay is a LabelField
+			"<Item>_-_<Item.Description>"
+		
+		MobileCompanyDisplay is a LabelField
+			"<Company>_-_<Company.Name>"
+			
+		MobileLocationDisplay is a LabelField
+			"<InventoryLocation>_-_<InventoryLocation.Name>"
+
+		CostHistoryTitle is a LabelField
+			"System<InventoryCostHistory.TransactionSystemCode>-Transaction<InventoryTransaction>-Line<InventoryCostHistory.LineNumber>"
+
+
+		DerivedSupplementalUOMMultiplier										is a DerivedField  
+			type is like UOMMultiplier
+			return ItemLocation.SupplementalUOM.ItemUOM.UOMConversion
+
+		DerivedSupplementalUOM													is a DerivedField 
+			type is like UnitOfMeasure
+			default label is "SupplementalUOM"
+			return ItemLocation.SupplementalUOM.UnitOfMeasure
+
+		DerivedReceivedQuantityInSupplementalUOM								is a DerivedField  
+			type is like Quantity
+
+			default label is "ReceivedQuantity"
+			if (HasSupplementalUOM)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalReceivedQuantityInSupplementalUOM
+
+		DerivedUnusedQuantityInSupplementalUOM									is a DerivedField  
+			type is like Quantity
+
+			default label is "UnusedQuantity"
+			if (HasSupplementalUOM)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalUnusedQuantityInSupplementalUOM
+				
+		DerivedUnitCostInSupplementalUOM										is a DerivedField  
+			type is like InternationalCost
+			default label is "UnitCost"
+			if (HasSupplementalUOM)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalUnitCostInSupplementalUOM
+
+		DerivedNewUnitCostInSupplementalUOM										is a DerivedField  
+			type is like InternationalCost
+			default label is "UnitCost"
+			if (HasSupplementalUOM)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalNewUnitCostInSupplementalUOM
+
+		DerivedReceivedQuantity											is a DerivedField  
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "ReceivedQuantity"
+			if (HasItemLocationStockUOM)
+				return DerivedReceivedQuantityInLocationStockUOM
+			else
+				return ReceivedQuantity
+
+		DerivedUnusedQuantity											is a DerivedField  
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "UnusedQuantity"
+			if (HasItemLocationStockUOM)
+				return DerivedUnusedQuantityInLocationStockUOM
+			else
+				return UnusedQuantity
+
+		DerivedUOM														is a DerivedField
+			type is like UnitOfMeasure
+			default label is "UOM"
+			if (HasItemLocationStockUOM)
+				return DerivedLocationStockUOM
+			else
+				return Item.StockUOM
+
+
+		DerivedLocationStockUOMMultiplier								is a DerivedField  
+			type is like UOMMultiplier
+			return ItemLocation.ItemLocationStockUOM.ItemUOM.UOMConversion
+
+		DerivedLocationStockUOM											is a DerivedField 
+			type is like UnitOfMeasure
+			return ItemLocation.ItemLocationStockUOM.UnitOfMeasure
+
+		DerivedReceivedQuantityInLocationStockUOM						is a DerivedField  
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "ReceivedQuantity"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InQuantity   		= ReceivedQuantity
+				return LocationItemUOMConversion.OutputQuantity
+
+
+		DerivedUnusedQuantityInLocationStockUOM							is a DerivedField  
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "UnusedQuantity"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InQuantity   		= UnusedQuantity
+				return LocationItemUOMConversion.OutputQuantity
+
+		DerivedUnitCostInLocationStockUOM								is a DerivedField  
+			type is like InternationalCost
+				precision is ItemLocation.Item.NumberOfDecimalsCost
+			default label is "UnitCost"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InUnitCost   		= UnitCost
+				return LocationItemUOMConversion.OutputUnitCost
+
+		DerivedNewUnitCostInLocationStockUOM							is a DerivedField  
+			type is like InternationalCost
+				precision is ItemLocation.Item.NumberOfDecimalsCost
+			default label is "UnitCost"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InUnitCost   		= NewUnitCost
+				return LocationItemUOMConversion.OutputUnitCost
+
+
+
+		DerivedAverageCostDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "AverageCost"
+            return ItemLocation.DerivedAverageCostDisplay
+
+		DerivedStandardCostDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "StandardCost"
+            return ItemLocation.DerivedStandardCostDisplay
+
+		DerivedLastReceiptCostDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "LastReceiptCost"
+            return ItemLocation.DerivedLastReceiptCostDisplay
+
+		DerivedUnitCostDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "CurrentUnitCost"
+            if (HasItemLocationStockUOM)
+				return DerivedUnitCostInLocationStockUOM
+			else
+			if (not HasSupplementalUOM)
+            	return UnitCost
+            else
+            	return UnitCost + " " + Item.StockUOM + "\u000a" + DerivedUnitCostInSupplementalUOM + " " + DerivedSupplementalUOM
+
+		DerivedUNewUnitCostDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "NewUnitCost"
+            if (HasItemLocationStockUOM)
+				return DerivedNewUnitCostInLocationStockUOM
+			else
+            if (not HasSupplementalUOM)
+            	return TransientNewUnitCost
+            else
+            	return TransientNewUnitCost + " " + Item.StockUOM + "\u000a" + DerivedNewUnitCostInSupplementalUOM + " " + DerivedSupplementalUOM
+
+		DerivedReceivedQuantityDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "TransactionQuantity"
+ 			if (HasItemLocationStockUOM)
+				return DerivedReceivedQuantityInLocationStockUOM
+			else
+            if (not HasSupplementalUOM)
+            	return ReceivedQuantity
+            else
+            	return ReceivedQuantity + " " + Item.StockUOM + "\u000a" + DerivedReceivedQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+
+		DerivedUnusedQuantityDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "UnusedQuantity"
+ 			if (HasItemLocationStockUOM)
+				return DerivedUnusedQuantityInLocationStockUOM
+            else
+			if (not HasSupplementalUOM)
+            	return UnusedQuantity
+            else
+            	return UnusedQuantity + " " + Item.StockUOM + "\u000a" + DerivedUnusedQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+
+
+
+	Local Fields
+		LocalInventoryTransaction			is an InventoryTransaction
+		LocalInventoryTransactionSystemCode	is an TransactionSystemCode
+		NewInventoryTransaction				is an InventoryTransaction view
+		LocalPostingDate					is a PostingDate
+		LocalGeneralLedgerSystemCode 		is a GeneralLedgerSystemCode
+		LocalUnitCostInTransactionCurreny	is like UnitCost
+		LocalUnitCost						is like UnitCost
+		LocalCostAdjustmentQuantity			is like Quantity
+		LocalSecondaryQuantity				is like Quantity
+		LocalCostAdjustmentAmount			is like InternationalCost
+		LocalEnteredItem					is like EnteredItem
+		LocalSupplementalComputed					is Boolean
+		LocalReceivedQuantityInSupplementalUOM		is like Quantity
+		LocalUnusedQuantityInSupplementalUOM 		is like Quantity
+		LocalUnitCostInSupplementalUOM 				is like InternationalCost
+		LocalNewUnitCostInSupplementalUOM			is like UnitCost
+		LocalLocationStockComputed					is Boolean
+
+
+
+
+		UOMCalculation
+		LocationItemUOMConversion
+
+    Conditions
+
+        DisplaySupplementalQuantities
+        	when (ItemLocation.SupplementalUOM.UnitOfMeasure entered)
+
+        ReceivedQuantityDifferentThanUsedQuantity
+            classic name is ICRSET3
+            restricted
+            when (ReceivedQuantity != UsedQuantity)
+
+        ReceivedQuantityDifferentThanUsedQuantity2
+            classic name is ICRSET4
+            restricted
+            when (ReceivedQuantity != UsedQuantity)
+
+        ReceivedQuantityDifferentThanUsedQuantity3
+            classic name is ICRSET5
+            restricted
+            when (ReceivedQuantity != UsedQuantity)
+
+        IsNonPurchaseOrder
+            classic name is NON-PO
+            restricted
+            when (not InventoryCostHistory.TransactionSystemCode.PurchaseOrder)
+            
+       	IsLastReceiptRecord
+       		restricted
+       		when (Company				= first InventoryCostHistoryRel.Company
+            and   InventoryLocation		= first InventoryCostHistoryRel.InventoryLocation
+            and   InventoryTransaction  = first InventoryCostHistoryRel.InventoryTransaction
+            and   Item					= first InventoryCostHistoryRel.Item
+            and   ReceivedDate			= first InventoryCostHistoryRel.ReceivedDate)
+
+		AllowOnlineCostAdjustment
+			restricted
+			when (UnusedQuantity > 0
+			and  (ValidInventoryControlTransaction
+			or    ValidWorkOrderTransaction
+			or    ValidOrderEntryTransaction))
+		
+		AllowCostAdjustment
+			restricted
+			when ((UnusedQuantity > 0
+			and    ValidInventoryControlTransaction)
+			or     ValidWorkOrderTransaction
+			or     ValidOrderEntryTransaction
+			or	   ValidPurchaseOrderTransaction)
+		
+		ValidInventoryControlTransaction
+			restricted
+			when (InventoryCostHistory.TransactionSystemCode.InventoryControl
+
+
+
+
+
+			and  (InventoryTransaction.InventoryDocumentType.Adjustment
+			or    InventoryTransaction.InventoryDocumentType.CostAdjustment
+			or    InventoryTransaction.InventoryDocumentType.PhysicalInventoryAdjustment
+			or    InventoryTransaction.InventoryDocumentType.InventoryReceipt
+			or    InventoryTransaction.InventoryDocumentType.RequisitionReturn
+			or    InventoryTransaction.InventoryDocumentType.ReceivingTransfer))			
+		
+		ValidWorkOrderTransaction
+			restricted
+			when (InventoryCostHistory.TransactionSystemCode.WorkOrder
+
+			and   InventoryTransaction.InventoryDocumentType.InventoryReceipt)
+						
+		ValidOrderEntryTransaction
+			restricted
+			when (InventoryCostHistory.TransactionSystemCode.OrderEntry
+
+			and   InventoryTransaction.InventoryDocumentType.CustomerReturn)
+
+		ValidPurchaseOrderTransaction
+			restricted
+			when (InventoryCostHistory.TransactionSystemCode.PurchaseOrder
+			and   InventoryTransaction.InventoryDocumentType.PurchaseOrderReceipt)
+
+		HasSupplementalUOM
+			when (DerivedSupplementalUOM entered)
+
+		HasItemLocationStockUOM
+			when (ItemLocation.HasItemLocationStockUOM)
+
+		HasSameStockUOM
+			when (ItemLocation.ItemLocationStockUOM.UnitOfMeasure = Item.StockUOM)	
+
+		HasRecipe
+			restricted
+			when (Item.Recipe)
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                ReceivedDate descending
+                InventoryCostHistory
+                InventoryTransaction
+
+        Set3
+            indexed
+            Instance Selection
+                where (ReceivedQuantityDifferentThanUsedQuantity)
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                ReceivedDate
+                InventoryCostHistory
+                InventoryTransaction
+
+
+        Set5
+            indexed
+            Instance Selection
+                where (ReceivedQuantityDifferentThanUsedQuantity3)
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                ReceivedDate descending
+                InventoryCostHistory 
+                InventoryTransaction
+
+    Relations
+    	MatchCompanyRel
+			one-to-one relation to MatchCompany
+			Field Mapping uses symbolic key
+				related.Company = Company
+
+		InventoryTransactionRel
+			one-to-one relation to InventoryTransaction
+			Field Mapping uses symbolic key
+				related.Company 											= Company
+				related.InventoryLocation									= InventoryLocation
+				related.InventoryTransaction								= InventoryTransaction
+				
+    	InventoryTransactionLineRel
+			one-to-one relation to InventoryTransactionLine
+			Field Mapping uses symbolic key
+				related.Company 											= Company
+				related.InventoryLocation									= InventoryLocation								
+              	related.InventoryTransaction								= InventoryTransaction
+            	related.TransactionSystemCode								= InventoryCostHistory.TransactionSystemCode
+				related.InventoryTransactionLine.WarehouseShipment 			= blank
+            	related.InventoryTransactionLine.LineNumber		    		= InventoryCostHistory.LineNumber
+            	related.InventoryTransactionLine.ComponentSequence   		= InventoryCostHistory.ComponentSequence
+
+		InventoryCostHistoryRel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set5
+				related.Company 											= Company
+				related.InventoryLocation									= InventoryLocation
+				related.Item												= Item		
+
+		CostAdjustmentInventoryTransactionLineRel
+			one-to-many relation to InventoryTransactionLine
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction								= reference to this instance
+
+		CostAdjustmentInventoryTransactionLineFromPORel
+			one-to-many relation to InventoryTransactionLine
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction								= reference to this instance
+			Instance Selection
+				where (related.InventoryTransactionLine.EnteredItem entered)				
+		
+		GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup                  = Company.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode                 = "IC"
+
+		ItemRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup	= Company.ItemGroup
+				related.Item		= Item 
+
+    Field Rules
+    
+    	ReceivedDate
+    		initial value is current timestamp
+    		default to current timestamp
+    			
+    	LastActivityDate  
+    		initial value is current corporate date    	     
+    		default to current corporate date	
+    	
+    	LastUpdateDate 
+    		initial value is current timestamp
+    		default to current timestamp
+		
+		LastUpdateBy           
+			default to actor 			
+    		
+	Actions
+		Create is a Create Action
+			restricted
+			Action Rules
+				if (GeneralLedgerSystemCodeRel exists)
+					LocalGeneralLedgerSystemCode = GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode	
+				if (Company.FinanceEnterpriseGroup.ProjectDateEdit.PostingDate)
+					if (GeneralLedgerDate entered)								
+						LocalPostingDate = GeneralLedgerDate
+					else 								
+						LocalPostingDate = InventoryTransaction.GeneralLedgerDate	
+			
+		Update is an Update Action
+			restricted
+			Action Rules
+				if (GeneralLedgerSystemCodeRel exists)
+					LocalGeneralLedgerSystemCode = GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode	
+				if (Company.FinanceEnterpriseGroup.ProjectDateEdit.PostingDate)
+					if (GeneralLedgerDate entered)								
+						LocalPostingDate = GeneralLedgerDate
+					else 								
+						LocalPostingDate = InventoryTransaction.GeneralLedgerDate	
+						
+		UpdateFromTransaction is an Instance Action
+			restricted
+			Parameters
+				PrmUsedQuantity 		  is like Quantity
+				PrmInspectionHoldQuantity is like Quantity
+				PrmReceivedQuantity		  is like Quantity
+				PrmLastActivityDate		  is Date
+				PrmDecrease				  is Boolean
+			
+			Action Rules
+				if (PrmDecrease)
+					UsedQuantity 		-= PrmUsedQuantity
+				else
+					if (PrmUsedQuantity entered)
+						UsedQuantity	+= PrmUsedQuantity
+				InspectionHoldQuantity 	+= PrmInspectionHoldQuantity
+				ReceivedQuantity		+= PrmReceivedQuantity
+				if (PrmLastActivityDate entered)
+					LastActivityDate	= PrmLastActivityDate			
+					
+		CostAdjustmentForPurchaseOrder is an Update Action
+			restricted
+			Action Rules
+				if (GeneralLedgerSystemCodeRel exists)
+					LocalGeneralLedgerSystemCode = GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode	
+				if (Company.FinanceEnterpriseGroup.ProjectDateEdit.PostingDate)
+					if (GeneralLedgerDate entered)								
+						LocalPostingDate = GeneralLedgerDate
+					else 								
+						LocalPostingDate = InventoryTransaction.GeneralLedgerDate
+				
+		CostAdjustment is an Update Action	
+	 		valid when (AllowOnlineCostAdjustment)
+	 		Local Fields
+	 			LocalInventoryTransactionLine 			is an InventoryTransactionLine view
+	 		Field Rules
+				
+				NewUnitCost
+		    		if (!AdjustToZeroFlag)
+						required
+		    				"AdjustToZeroNotChecked,UnitCostCannotBeZero"
+		    		else
+						constraint (NewUnitCost not entered)
+		    				"AdjustToZeroChecked,UnitCostShouldBeZero"	
+		    				   	    		  					   		
+					if  (TransientOldUnitCost != 0)	
+		    			constraint (NewUnitCost != TransientOldUnitCost)
+		    				"CurrentCostAndNewCostCannotBeTheSame"    
+					else
+		    			constraint (NewUnitCost != old UnitCost)
+		    				"CurrentCostAndNewCostCannotBeTheSame"   
+		    		
+		    Action Rules
+				if (GeneralLedgerSystemCodeRel exists)
+					LocalGeneralLedgerSystemCode = GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode	
+				if (Company.FinanceEnterpriseGroup.ProjectDateEdit.PostingDate)
+					if (GeneralLedgerDate entered)								
+						LocalPostingDate = GeneralLedgerDate
+					else 								
+						LocalPostingDate = InventoryTransaction.GeneralLedgerDate
+
+				if (TransientNewUnitCost entered)
+		    		constraint (TransientNewUnitCost decimals <= Item.NumberOfDecimalsCost)
+		    			"TooManyDecimalDigitsEnteredForUnitCost:MaxIs<Item.NumberOfDecimalsCost>"
+	    			
+					if (HasItemLocationStockUOM)
+
+						NewUnitCost = TransientNewUnitCost / DerivedLocationStockUOMMultiplier
+					else
+						NewUnitCost = TransientNewUnitCost
+	    			
+				if (LocalCostAdjustmentQuantity entered)
+
+					UnitCost = (((UnitCost * ReceivedQuantity) + (LocalCostAdjustmentAmount * LocalCostAdjustmentQuantity)) / ReceivedQuantity)
+				else
+					UnitCost = NewUnitCost
+			
+			Exit Rules
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				invoke Unreleased.Create InventoryTransaction
+					assign result to NewInventoryTransaction
+					invoked.Company											= Company
+					invoked.InventoryLocation								= InventoryLocation
+					invoked.InventoryTransaction.InventoryDocumentType		= InventoryDocumentType.CostAdjustment
+					invoked.GeneralLedgerDate								= GeneralLedgerDate
+					invoked.OriginatingTransaction							= reference to this instance
+					
+				LocalInventoryTransaction           						= NewInventoryTransaction.InventoryTransaction
+				LocalInventoryTransactionSystemCode							= InventoryCostHistory.TransactionSystemCode
+				
+				if (TransientMatchOffsetAccount not entered)
+					if (LocalInventoryTransactionSystemCode.InventoryControl)
+						TransientMatchOffsetAccount		= OffsetAccount	
+					else
+					if (LocalInventoryTransactionSystemCode.PurchaseOrder)	
+						TransientMatchOffsetAccount		= MatchCompanyRel.ReceiptAccrualAccount
+				
+				invoke Unreleased.Create InventoryTransactionLine
+					assign result to LocalInventoryTransactionLine
+					invoked.Company											= Company
+					invoked.InventoryLocation								= InventoryLocation
+					invoked.TransactionSystemCode							= LocalInventoryTransactionSystemCode					
+					invoked.InventoryTransaction							= LocalInventoryTransaction 											
+					invoked.TransactionCounter								= ItemLocation.TransactionCounter + 1
+					invoked.Item											= Item
+					invoked.OriginatingTransaction							= reference to this instance
+					invoked.EnteredItem										= LocalEnteredItem
+
+					invoked.StockOnHandQuantity                             = ItemLocation.StockOnHandQuantity
+					if (TransientOldUnitCost != 0)  
+						invoked.UnitCost									= NewUnitCost - TransientOldUnitCost
+					else
+						invoked.UnitCost									= NewUnitCost - old UnitCost
+					invoked.NewUnitCost										= NewUnitCost					
+					invoked.OffsetAccount									= TransientMatchOffsetAccount
+					invoked.InventoryReasonCode								= InventoryReasonCode
+					invoked.LineComment										= LineComment
+					invoked.LastReceiptRecord								= IsLastReceiptRecord
+					
+					if (ValidPurchaseOrderTransaction) 
+						if (LocalCostAdjustmentQuantity entered)
+							if (LocalCostAdjustmentQuantity > UsedQuantity)
+								invoked.TransientUsedQuantity				= UsedQuantity
+							else
+								invoked.TransientUsedQuantity				= LocalCostAdjustmentQuantity
+							invoked.Quantity								= LocalCostAdjustmentQuantity
+							if (LocalSecondaryQuantity entered)
+								invoked.SecondaryQuantity					= LocalSecondaryQuantity
+						else
+							invoked.TransientUsedQuantity					= UsedQuantity
+							invoked.Quantity								= ReceivedQuantity
+					else
+						invoked.Quantity									= UnusedQuantity
+					
+					if (SkipInactiveEdit = true)
+						invoked.SkipInactiveEdit                            = true
+
+				invoke FinalRelease LocalInventoryTransaction						
+
+				TransientOldUnitCost 										= UnitCost  
+				
+				if (LocalCostAdjustmentQuantity not entered) 
+					invoke UpdateFromTransaction ItemLocation
+						invoked.PrmLastReceiptCost = NewUnitCost
+						invoked.PrmIsReceiptCost   = true
+			
+		Delete is a Delete Action				    		
+    		restricted		
+    	
+    	Purge is a Purge Action
+    		restricted
+    	
+    	InventoryCostHistoryPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany								is an InventoryCompany
+				PrmCostingRecordsCutoffDate				is Date
+					default label is "CostingRecordsCutoffDate"
+				PrmPurgeOption								is Numeric 1
+					default label is "ActionOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2
+			Instance Selection
+				include deleted records
+				where(Company							=	PrmCompany
+				and LastActivityDate					<=	PrmCostingRecordsCutoffDate
+				and CalculatedUnusedQuantity 			= 0)
+			Action Rules
+				Instance Rules
+					if(PrmPurgeOption.PurgeRecords)
+						invoke Purge		

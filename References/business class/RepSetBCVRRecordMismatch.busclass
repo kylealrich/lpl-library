@@ -1,0 +1,164 @@
+RepSetBCVRRecordMismatch is a BusinessClass
+	prefix is RSCMM
+	owned by la
+	default label is "ReplicationSetBusinessClassValidationResult"
+
+	
+	Ontology
+		symbolic key is RepSetBCVRRecordMismatch
+	
+	Patterns
+        disable Auditing
+        disable EffectiveDated
+        disable AsOfDateProcessing
+        implements UniqueID
+        implements UpdateStamp
+	
+	Persistent Fields
+		CheckSumResults    		is a CheckSumResultsArray
+		RecordUniqueID			is UniqueID
+		PrimaryKeys				is Text
+		Keys					is Alpha size up to 250
+		MismatchType			is Numeric size 1
+			States
+				ExistsOnlyInRowStore	value is 1
+				MissingFromRowStore		value is 2
+				ValueMismatch			value is 3
+		Notes					is Alpha size up to 500
+		FromArchive				is Boolean
+		Type					is Numeric size 1
+			States
+				Mismatch	value is 0
+				Warning		value is 1
+		
+	Field Rules
+		PrimaryKeys
+			if (not RecordUniqueID entered)
+				required
+					"MustSpecifyUniqueIDOrPrimaryKeys"
+		
+		MismatchType
+			required
+			
+	Derived Fields
+		DerBusinessClass is a DerivedField
+			type is LPLName
+			default label is "BusinessClass"
+			return RepSetBC.BusinessClass
+			
+		RepresentitiveText is a NativeField
+			type is LPLName
+
+			
+		CurrentTimeStamp is a NativeField
+			type is TimeStamp
+			default label is "CurrentUpdateTimeStamp"
+
+			
+		IndicatorWillReplicate is a NativeField 
+			type is Boolean
+
+			
+		DefaultIndicatorField is a DerivedField
+			type is LPLName
+			return RepSetBC.DefaultIndicatorField
+			
+	Conditions
+		HasRepresentitiveText
+			default label is untranslatable
+			when (RepresentitiveText entered)
+			
+		RecordTouchValid
+			default label is untranslatable:"IncludeInNextReplicationIsValid"
+			restricted
+			when (!MismatchType.MissingFromRowStore and not FromArchive and (RepSetBC.BusinessClass.HasUpdateStamp or RepSetBC.CreateOnly))
+		
+		UpdateStampBased
+			default label is untranslatable
+			restricted
+			when (!MismatchType.MissingFromRowStore and RepSetBC.BusinessClass.HasUpdateStamp and (not RepSetBC.EnableIndicator or RepSetBC.CreateOnly))
+			
+		IndicatorBased
+			default label is untranslatable
+			restricted
+			when (RepSetBC.CanChooseIndicator and RepSetBC.DefaultIndicatorField entered)
+			
+		WillReplicateNextRun
+			default label is "RecordWillReplicateNextRun"
+			when ((UpdateStampBased and CurrentTimeStamp > ReplicationSet.LastRefreshStamp)
+			or    (IndicatorBased and IndicatorWillReplicate))
+			
+		OpenRecordValid
+			default label is untranslatable
+			restricted
+			when (!MismatchType.MissingFromRowStore)
+			
+	Actions
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+			 
+		Delete is a Delete Action
+		
+		TouchRecord is an Instance Action
+			default label is "IncludeInNextReplication"
+			valid when (RecordTouchValid)
+			
+		OpenRecord is an Update Action
+
+			
+		TouchAllRecordsForResult is an Instance Action
+			default label is "IncludeAllMismatchesInNextReplication"
+			valid when (RepSetBCValidationResult.RecordTouchValid)
+			completion message is "IncludeAllMismatchesInNextReplicationSubmittedToTheBackground,CheckMyActionsForStatus."
+			
+			Action Rules
+				invoke TouchAllRecords RepSetBCVRRecordMismatch in background
+					invoked.ParamRepSet = ReplicationSet
+					invoked.ParamRepSetBC = RepSetBC
+					invoked.ParamRepSetBCValResult = RepSetBCValidationResult
+			
+		TouchAllRecords is a Set Action
+			default label is "IncludeAllMismatchesInNextReplication"
+			restricted
+			Parameters
+				ParamRepSet is a ReplicationSet
+					default label is "ReplicationsSet"
+				ParamRepSetBC is a RepSetBC
+					default label is "ReplicationSetBusinessClass"
+				ParamRepSetBCValResult is a RepSetBCValidationResult
+					default label is "ValidationResult"	
+			
+			Parameter Rules
+				ParamRepSet
+					required
+				
+				ParamRepSetBC
+					required	
+					constraint (ParamRepSetBCValResult.RecordTouchValid)
+						"BusinessClassDoesNotHaveAndUpdateStampAndIsNotIndicatorBased.IncludeInNextReplicationIsInvalid."
+					
+				ParamRepSetBCValResult
+					required
+							
+			Instance Selection
+				where (ReplicationSet = ParamRepSet and RepSetBC = ParamRepSetBC and RepSetBCValidationResult = ParamRepSetBCValResult and RecordTouchValid)
+
+			Sort Order is primary
+									
+			Action Rules
+				Instance Rules
+					invoke TouchRecord
+		
+	Sets
+		ByResultType
+			indexed
+			Sort Order
+				ReplicationSet
+				RepSetBC
+				RepSetBCValidationResult
+				Type
+				RepSetBCVRRecordMismatch
+				

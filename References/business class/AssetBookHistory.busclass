@@ -1,0 +1,243 @@
+AssetBookHistory is a BusinessClass
+    owned by am
+    prefix is ABH
+    classic name is AMBKHIST
+
+    Ontology
+        symbolic key is AssetBookHistory
+            classic set name is ABHSET1
+            classic name for YearEndDate is YR-END-DATE
+
+    Patterns
+        implements DynamicCreation
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        YearToDateDepreciation          is an InternationalAmount
+            classic name is DEPR-YTD
+            disable Auditing
+        LifeToDateDepreciation          is an InternationalAmount
+            classic name is DEPR-LTD
+            disable Auditing
+        BeginningLifeToDateDepreciation is an InternationalAmount
+            sql name is BLifeToDateDepreciation
+            classic name is BEG-DEPR-LTD
+            disable Auditing
+        Life
+        DepreciationMethodSwitchDate    is Date
+            classic name is METH-SW-DATE
+        BalanceExists                   is Boolean
+            classic name is BALANCE-FLAG
+
+    Derived Fields
+
+        LifeToDateDepreciationCalculation is a DerivedField		
+            type is like InternationalAmount
+            restricted 					
+            classic name is CALC-DEPR-LTD
+            return (YearToDateDepreciation + BeginningLifeToDateDepreciation)
+
+    Conditions
+
+        IsBalanceExists
+        	restricted
+            classic name is BALANCE-EXIST
+            when (BalanceExists)
+
+        AssetBookPeriodHistoryExists
+        	restricted
+            classic name is PRD-DEPR-EXIST
+            when (first AssetBookPeriodHistoryRel exists)
+            
+	Local Fields
+		LocalFinanceEnterpriseGroup		is like FinanceEnterpriseGroup
+		LocalGeneralLedgerCompanyGroup	is like GeneralLedgerCompanyGroup
+		LocalBook						is like Book
+		LocalAsset						is like Asset
+    Relations
+
+        AssetBookPeriodHistoryRel
+            classic name is AMBKHISTX
+            one-to-many relation to AssetBookPeriodHistory
+            Field Mapping uses Set3
+                related.Asset       = Asset
+                related.Book        = Book
+                related.YearEndDate = YearEndDate
+        
+        PurgeAssetBookPeriodHistoryRel
+            one-to-many relation to AssetBookPeriodHistory
+            Field Mapping uses Set2
+                related.Book       	= Book
+                related.Asset       = Asset
+                related.Company		= Company
+                related.YearEndDate = YearEndDate        
+            Instance Selection
+            	include deleted records 
+                
+		AssetBookRel
+			one-to-one relation to AssetBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= Book
+		
+		GeneralLedgerCompanyGroupMemberRel
+			one-to-many relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup		= LocalGeneralLedgerCompanyGroup
+			Instance Selection
+				include deleted records
+				
+		AssetBookPurgeRel
+			one-to-many relation to AssetBook
+			Field Mapping uses Set2
+				related.FinanceEnterpriseGroup		= LocalFinanceEnterpriseGroup
+		      	related.Book						= LocalBook
+		    Instance Selection
+		    	include deleted records
+	
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Book
+                Asset
+                YearEndDate
+                Company
+
+        Set3
+            indexed
+            Sort Order
+                Asset
+                Book
+                Company
+                YearEndDate descending
+
+        Set4
+            not indexed
+            Sort Order
+                Company
+                Book
+                YearEndDate
+                Asset
+
+	Actions
+		Create is a Create Action
+			restricted
+		Update is an Update Action
+			restricted
+		Delete is a Delete Action
+			restricted
+		Purge is a Purge Action
+			bypass relational integrity rules
+			restricted
+			Entrance Rules
+				display "138::::::::::::"
+				invoke Purge PurgeAssetBookPeriodHistoryRel
+
+		UpdateFromImport is an Instance Action
+			restricted
+			Parameters
+				PrmTransactionAmount	is an InternationalAmount
+			Action Rules
+				Life							= AssetBookRel.Life
+				YearToDateDepreciation			+= PrmTransactionAmount
+				LifeToDateDepreciation			+= PrmTransactionAmount
+		
+		DeleteAssetBookHistory is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup		is a FinanceEnterpriseGroup
+				PrmCompany						is like Company
+				PrmAsset						is an Asset
+				PrmBook							is a Book
+
+			Instance Selection
+				where(FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and	  Book						= PrmBook
+				and   Company 					= PrmCompany
+				and   Asset						= PrmAsset)
+				
+			Action Rules
+				Instance Rules
+					invoke Delete				
+				
+		AssetBookHistoryPurge is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup		is a FinanceEnterpriseGroup
+				PrmCompanyGroup					is like GeneralLedgerCompanyGroup
+				PrmCompany						is like Company
+				PrmAsset						is an Asset
+				PrmBook							is a Book
+				PrmPurgeOption					is Numeric 1
+					default label is "ActionOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					LocalFinanceEnterpriseGroup 		= PrmFinanceEnterpriseGroup
+				PrmCompanyGroup
+					LocalGeneralLedgerCompanyGroup		= PrmCompanyGroup
+				PrmBook
+					LocalBook 							= PrmBook
+				PrmAsset
+					LocalAsset 							= PrmAsset
+			Local Fields
+				LocalCounter					is Numeric 10
+			Instance Selection
+				include deleted records
+				where(FinanceEnterpriseGroup						= PrmFinanceEnterpriseGroup
+				and	  Book											= PrmBook
+				and   ((PrmCompanyGroup entered 	and GeneralLedgerCompanyGroupMemberRel exists)
+				or    (PrmCompany entered 			and Company 	= PrmCompany))
+				and   (PrmAsset not entered 		or  Asset		= PrmAsset))
+				
+			Action Rules
+				Set Rules
+					Exit Rules
+
+
+				Instance Rules
+
+
+
+
+
+
+
+					if(PrmPurgeOption.PurgeRecords)
+							invoke Purge	
+	
+		PurgeDisposedAssetBookHistory is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is an AssetCompany
+				PrmAsset					is an Asset
+				PrmFinanceEnterpriseGroup	is like FinanceEnterpriseGroup
+				PrmLeaseCompany				is like GeneralLedgerCompany
+				PrmLocationName				is like AssetLocation
+				PrmDivision					is like AssetDivision
+				PrmAssetGroup				is like AssetGroup
+				PrmFromDate					is Date
+				PrmToDate					is Date
+				
+			Instance Selection
+				include deleted records
+				where (Asset.Company = PrmCompany
+				and   (PrmAsset not entered or (Asset = PrmAsset and Asset.Company.FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup))
+				and   (PrmLeaseCompany not entered or Asset.AssetLease.LeaseCompany = PrmLeaseCompany)
+				and   (PrmLocationName not entered or Asset.AssetLocation = PrmLocationName)
+				and   (PrmDivision not entered or Asset.AssetDivision = PrmDivision)
+				and   (PrmAssetGroup not entered or Asset.AssetGroup = PrmAssetGroup)
+				and   (PrmFromDate not entered or Asset.AssetDisposalDate >= PrmFromDate)
+				and   (PrmToDate not entered or Asset.AssetDisposalDate <= PrmToDate)
+				and   Asset.Status.Disposed)
+				
+			Action Rules
+				Instance Rules
+					invoke Purge

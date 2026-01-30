@@ -1,0 +1,193 @@
+BillingManualInvoiceHeader is a BusinessClass
+    owned by bl
+    prefix is OIH
+    classic name is OEINVHDR
+
+    Ontology
+        symbolic key is BillingManualInvoiceHeader
+            classic set name is OIHSET1
+            classic name is BATCH-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Status               is Numeric size 1
+            States
+                Unreleased value is 0
+                Released   value is 1
+        BatchDate            is Date
+        Description
+        BatchCount           is a DetailCount
+        DetailCount
+        BatchQuantity        is like Quantity
+            classic name is BTCH-QUANTITY
+        DetailQuantity       is like Quantity
+            classic name is DTL-QUANTITY
+        BillingInvoiceSource
+            classic name is INVC-SOURCE
+		InterfaceInProcess	is Boolean
+		OriginatingInterfaceRun is like BillingInterfaceResult
+    	        
+    Conditions
+    	IsBatchControlTotal
+    		restricted
+    		when (Company.BatchControlTotal)
+
+		IsValidForActorContext
+            restricted
+            when ((actor.context.FinanceEnterpriseGroup != ""
+         	and   Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+            or   (actor.context.FinanceEnterpriseGroup = ""))
+           
+        IsValidForUpdateParallelReference
+        	restricted
+        	when (Status.Unreleased
+        	and   BillingInvoiceUpdateReferenceRel exists) 
+
+	Local Fields
+		LocalBillingInvoice				is like BillingInvoice
+		
+    Relations
+        		
+       	BillingInvoicesRel
+			one-to-many relation to BillingInvoice
+			Field Mapping uses Set8
+                related.Company     = Company
+                related.BatchNumber = BillingManualInvoiceHeader
+       
+		BillingInvoiceRel
+       		one-to-one relation to BillingInvoice
+       		Field Mapping uses symbolic key
+       			related.Company			= Company
+       			related.BillingInvoice	= LocalBillingInvoice
+ 
+ 		BillingInvoiceUpdateReferenceRel
+ 			one-to-many relation to BillingInvoice
+			Field Mapping uses Set8
+                related.Company     = Company
+                related.BatchNumber = BillingManualInvoiceHeader
+            Instance Selection  			
+       			where (related.IsValidForUpdateParallelReference)
+       			
+	Field Rules
+	
+		BillingInvoiceSource
+			default to BillingInvoiceSource.Manual
+					
+		BatchDate
+			default to current corporate date
+			
+		BatchCount
+			constraint (BatchCount >= 0)
+				"BatchCountCanNotBeLessThanZero"
+			
+        
+                               
+    Rule Blocks
+		ReleaseBlock	
+	    	if (!BillingInvoiceSource.Shipment)
+	    		if (IsBatchControlTotal)
+	    			constraint (BatchCount    = DetailCount)
+	    				"ActualCountDoesNotMatchBatchControlTotal"
+	    			constraint (BatchQuantity = DetailQuantity)
+	    				"ActualQuantityDoesNotMatchBatchControlTotal"
+				else 
+					if (BatchCount entered)
+						constraint (BatchCount = DetailCount)
+							"ActualCountDoesNotMatchBatchControlTotal"
+	    		    if (BatchQuantity entered)
+	    		    	constraint (BatchQuantity = DetailQuantity)	 
+	    					"ActualQuantityDoesNotMatchBatchControlTotal"
+
+	Actions
+	
+		Create is a Create Action
+		
+		InterfaceCreate is a Create Action
+			restricted
+	
+		Update is an Update Action
+		
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+			
+		DeleteRestricted is a Delete Action
+			restricted
+			
+		Delete is a Delete Action
+			Entrance Rules
+				constraint (!BillingInvoiceSource.Shipment)
+					"CannotDeleteSystemGeneratedInvoices"
+			
+			Action Rules
+				for each BillingInvoicesRel
+					invoke Delete each
+					
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+			
+		DeleteReleasedBatch is a Set Action
+			restricted
+			Parameters
+				PrmOriginatingInterfaceRun is like BillingInterfaceResult
+			Instance Selection
+				where (OriginatingInterfaceRun = PrmOriginatingInterfaceRun
+				and    !InterfaceInProcess
+				and	   BillingInvoicesRel not exists)
+			Action Rules
+				Instance Rules
+					invoke FastDelete
+					
+		Release is an Instance Action					
+			Action Rules
+				include ReleaseBlock	
+				for each BillingInvoicesRel
+					invoke Release each
+				invoke DeleteRestricted
+					
+		ReleaseAndBypassPrint is an Instance Action
+			Action Rules
+				include ReleaseBlock
+				for each BillingInvoicesRel
+					invoke ReleaseAndStatusToPrinted each
+				invoke DeleteRestricted  
+					
+
+
+
+
+
+
+
+
+		CalculateDetailQuantity	is an Instance Action
+			restricted
+			Local Fields
+				LocalComputedDetailQuantity 		is like Quantity
+			Action Rules
+				initialize LocalComputedDetailQuantity
+				initialize LocalBillingInvoice
+				for each BillingInvoicesRel
+					LocalBillingInvoice = each.BillingInvoice
+					for each BillingInvoiceRel.BillingInvoiceLineRel
+						LocalComputedDetailQuantity += each.Quantity
+				DetailQuantity			= 	LocalComputedDetailQuantity	
+				
+		CalculateDetailQuantityInterface	is an Instance Action
+			restricted
+			Parameters
+				PrmDetailQuantity		is like Quantity
+			Action Rules
+				DetailQuantity			+= PrmDetailQuantity	
+
+		UpdateParallelReference is an Instance Action   
+			valid when (IsValidForUpdateParallelReference)			
+			Action Rules
+				for each BillingInvoiceUpdateReferenceRel
+						invoke FastUpdate each
+							invoked.ParallelReference = each.DerivedStructuredParallelReference		                

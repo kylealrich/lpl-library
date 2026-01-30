@@ -1,0 +1,173 @@
+APDistributionAggregation is a BusinessClass
+	owned by ap
+	prefix is APDA
+
+	Ontology
+		symbolic key is APDistributionAggregation
+
+	Patterns
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp		
+
+	Persistent Fields
+		Vendor								is a snapshot of PayablesInvoice.Vendor
+		SummaryAccount                      is a FinanceCodeBlock
+			default label is "FinanceStructure"
+		SummaryAmount                       is an InternationalAmount
+			default label is "Amount"
+		Status								is AlphaUpper size 1
+			States
+				Unreleased			value is 0
+				Released			value is 1
+				ApprovalNotRequired value is 2
+				PendingApproval		value is 5
+				Approved			value is 6
+				Rejected			value is 7
+				RejectedOther		value is 8
+				Historical			value is 9
+		Revision							is Numeric size 2
+
+	Local Fields	
+		LocalFunctionalAmount				is a CurrencyAmount
+		LocalReportCurrencyExchangeGroup	is a ReportCurrencyExchangeGroup
+	Transient Fields 
+		InputAmount                         is an InternationalAmount
+		BypassLedgerEdits
+	Relations
+
+		GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company	= Company
+
+		ResponsibilityMatrixApprovalProcessorRel
+			one-to-one relation to ApprovalProcessor
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup						= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.ApprovalProcessor.ApprovalType				= "PI"
+				related.ApprovalProcessor.SystemCode				= "AP"
+				related.ApprovalProcessor.ApprovalTransactionForm	= ApprovalTransactionForm.PayablesInvoice
+				related.ApprovalProcessor.TransactionHeader1		= Company								
+				related.ApprovalProcessor.TransactionHeader2		= PayablesInvoice
+				related.ApprovalProcessor.TransactionHeader3		= blank
+				related.ApprovalProcessor.TransactionHeader4		= blank
+				related.ApprovalProcessor.TransactionLine1			= blank
+            	related.ApprovalProcessor.TransactionLine2          = blank
+				related.ApprovalProcessor.Transaction				= APDistributionAggregation
+
+		ResponsibilityMatrixRel
+			one-to-many relation to ResponsibilityMatrix
+			Field Mapping uses ByPriorityAndDimensionCount
+				related.FinanceEnterpriseGroup						= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+			Instance Selection
+                where (related.Active)
+
+		PayablesInvoiceDistributionRel
+			one-to-many relation to PayablesInvoiceDistribution
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.PayablesInvoice = PayablesInvoice
+			Instance Selection
+				where (related.DistributionAggregation = APDistributionAggregation)
+
+		AccountingEntityRel
+			one-to-one relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		   = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.AccountingEntity			   = SummaryAccount.ToAccountingEntity
+
+	Conditions
+
+		ResponsibilityMatrixApprovalExists
+			restricted
+			when (ResponsibilityMatrixApprovalProcessorRel exists)
+	Sets 
+		BySummaryAccount 
+			Sort Order 
+				Company 
+				PayablesInvoice 
+				SummaryAccount 
+				APDistributionAggregation
+
+		ByVendor 
+			Sort Order 
+				Vendor 
+				SummaryAccount 
+				Company
+				PayablesInvoice
+				APDistributionAggregation
+
+	Derived Fields
+
+		ApprovalTitle		is a StringField
+			type is Alpha 200
+			restricted
+			"Matrix Approval | Invoice - "
+			PayablesInvoice.Invoice
+			" | Distribution - "
+			SummaryAccount
+			" for Amt "
+			
+		DerivedApprovalTitle	is a DerivedField
+			type is Alpha 200
+			restricted
+			return ApprovalTitle + " " + SummaryAmount
+
+	Field Rules
+	
+	Actions 
+
+		SubmitForApproval is an Instance Action
+			restricted
+			Action Rules
+				if (AccountingEntityRel.FunctionalCurrency != PayablesInvoice.InvoiceCurrency)
+					LocalReportCurrencyExchangeGroup.CurrencyTable			  = PayablesInvoice.CurrencyTable
+					LocalReportCurrencyExchangeGroup.FinanceEnterpriseGroup	  = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+					LocalReportCurrencyExchangeGroup.BaseAmount.ToCurrency	  = AccountingEntityRel.FunctionalCurrency
+					LocalReportCurrencyExchangeGroup.ExchangeDate			  = PayablesInvoice.InvoiceDate
+					LocalReportCurrencyExchangeGroup.TransactionAmount		  = SummaryAmount
+					LocalReportCurrencyExchangeGroup.FromCurrency			  = PayablesInvoice.InvoiceCurrency
+					LocalFunctionalAmount									  = LocalReportCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+				else
+					LocalFunctionalAmount									  = SummaryAmount
+				invoke SubmitForMatrixApproval first ResponsibilityMatrixRel
+					invoked.PrmFinanceEnterpriseGroup 		= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+					invoked.PrmApprovalType					= "PI"
+					invoked.PrmSystemCode					= "AP"
+					invoked.PrmApprovalTransactionForm		= ApprovalTransactionForm.PayablesInvoice
+					invoked.PrmTransactionHeader1			= Company
+					invoked.PrmTransactionHeader2			= PayablesInvoice
+					invoked.PrmTransactionHeader3			= blank
+					invoked.PrmTransactionHeader4			= blank
+					invoked.PrmTransactionLine1				= blank
+					invoked.PrmTransactionLine2				= blank
+					invoked.PrmTransaction					= APDistributionAggregation
+					invoked.PrmFinanceCodeBlock				= SummaryAccount
+					invoked.PrmApprovalTitle				= DerivedApprovalTitle
+					invoked.PrmApprovalAmount				= LocalFunctionalAmount
+
+		Create is a Create Action 
+			restricted 
+			Entrance Rules
+				BypassLedgerEdits = true
+
+		Update is an Update Action
+			restricted
+			Entrance Rules
+				BypassLedgerEdits = true
+
+		CalculateAggregationUpdate is an Update Action 
+			restricted 
+			Entrance Rules
+				BypassLedgerEdits = true
+			Action Rules 
+				SummaryAmount += InputAmount
+
+		Delete is a Delete Action
+			restricted
+
+		Purge is a Purge Action 
+			restricted 
+			

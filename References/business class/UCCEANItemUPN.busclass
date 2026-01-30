@@ -1,0 +1,192 @@
+UCCEANItemUPN is a BusinessClass
+    owned by ic
+    prefix is IP2
+    classic name is ITEMUPN2
+
+    Ontology
+        symbolic key is UCCEANItemUPN
+            classic set name is IP2SET1
+            classic name is UPN2-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        ReplacementUPN                 is AlphaRight size 25
+            classic name is REPL-UPN2
+        ManufacturerProductDescription
+            classic name is MFG-PD-DESC
+        SaleByDistributor              is Boolean
+            classic name is SALE-BY-DISTR
+        SaleByManufacturer             is Boolean
+            classic name is SALE-BY-MFG
+        TradeName
+        UnitOfMeasure                  is a UnitOfMeasureEdit
+            classic name for UnitOfMeasure.UnitOfMeasure is UOM
+        UnitOfMeasureCost              is an InternationalCost
+            classic name is UOM-COST
+                precision is Item.NumberOfDecimalsCost
+        ManufacturerName
+            classic name is MFG-NAME
+        DivisionOfManufacturer
+            classic name is MFG-DIVISION
+        FromWorksheetResult             is an ItemInformationWorksheetResult 
+
+    Derived Fields
+
+        ItemTypeUPN2 is a ConditionalField
+            type is Numeric size 1
+            classic name is ITEM-TYPE-UPN2
+            restricted
+            if (HasUCCEANItemUPN)
+                4
+            else
+                blank
+
+    Conditions
+
+        HasUCCEANItemUPN
+            classic name is UPN2-ENTERED
+            restricted
+            when (UCCEANItemUPN entered)
+
+		UCCEANItemUPNDuplicated
+			restricted
+			when (DuplicateUCCEANItemUPNRel exists)
+
+		UOMDuplicated
+			restricted
+			when (DuplicateUOMRel exists)
+
+		ConsolidatedItemMasterExists
+			restricted 
+			when (ConsolidatedItemMasterRel exists)                     
+
+ 	Relations
+
+		DuplicateUCCEANItemUPNRel
+			one-to-many relation to UCCEANItemUPN
+			Field Mapping uses Set6
+				related.ItemGroup		= ItemGroup
+				related.UCCEANItemUPN	= UCCEANItemUPN
+			Instance Selection
+				where (related.Item	!= Item)
+
+		DuplicateUOMRel
+			one-to-many relation to UCCEANItemUPN
+			Field Mapping uses Set5
+				related.ItemGroup		= ItemGroup
+				related.Item			= Item
+				related.UnitOfMeasure	= UnitOfMeasure
+			Instance Selection
+				where (related.UCCEANItemUPN != UCCEANItemUPN)
+
+        OnContractLineRel 
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item 
+            Instance Selection 
+                where (related.UccEanUpn = UCCEANItemUPN)
+
+        ContractLineForItemUOMRel
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item  
+            Instance Selection 
+                where (related.UOM.UnitOfMeasure = UnitOfMeasure)     
+
+		ConsolidatedItemMasterRel
+			one-to-many relation to ConsolidatedItemMaster
+			Field Mapping uses ByInternalItem     
+				related.ContractGroup	    = ItemGroup
+				related.InternalItem		= Item                                         
+ 
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                UCCEANItemUPN
+                ItemGroup
+
+        Set5
+            indexed
+            Sort Order
+                ItemGroup
+                Item
+                UnitOfMeasure
+                UCCEANItemUPN
+
+        Set6
+            indexed
+            Sort Order
+                ItemGroup
+                UCCEANItemUPN
+                
+        FromWorksheet
+        	Sort Order
+        		FromWorksheetResult
+        		ItemGroup
+        		Item
+        		UCCEANItemUPN
+
+	Field Rules
+		
+		UCCEANItemUPN
+			constraint (!Item.DrugPharmacyOrNarcoticUsage)
+				"CannotDefineUCCEANItemUPNForDrugsOrPharmacyOrNarcoticUsage"
+			constraint (!UCCEANItemUPNDuplicated)
+				"UCCEANItemUPNAlreadyExistsForAnotherItem:<first DuplicateUCCEANItemUPNRel.Item>"
+
+		UnitOfMeasure
+			required
+				"UnitOfMeasureIsRequired"
+			constraint (!UOMDuplicated)
+				"AnotherUCCEANCodeExistsWithTheSameUnitOfMeasure"
+
+		UnitOfMeasureCost
+			constraint (UnitOfMeasureCost decimals <= Item.NumberOfDecimalsCost)
+				"TooManyDecimalsEntered:MaxIs<Item.NumberOfDecimalsCost>"	
+
+	Actions
+		
+        Create is a Create Action 
+            Action Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterUCCEANItemUPN        = true
+                        invoked.UCCEANItemUPNToEnter      = UCCEANItemUPN
+
+		Update is an Update Action
+
+            Action Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveUCCEANItemUPN = true            
+            Exit Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterUCCEANItemUPN    = true
+                        invoked.UCCEANItemUPNToEnter  = UCCEANItemUPN 
+
+		Delete is a Delete Action
+
+            Entrance Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveUPC = true
+
+				if (ConsolidatedItemMasterExists)
+					invoke UpdateUOMDetails ConsolidatedItemMasterRel 
+						invoked.ParmHIBCCDI		= UCCEANItemUPN 
+						invoked.ParmUOM         = UnitOfMeasure.UnitOfMeasure
+						invoked.ParmDeleted     = true  
+	Action Exit Rules
+		invoke ItemDetailChanged Item 
+
+		if  (ConsolidatedItemMasterExists)
+			invoke Update ConsolidatedItemMasterRel                 

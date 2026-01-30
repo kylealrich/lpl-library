@@ -1,0 +1,1789 @@
+RequisitionLineAddOnCharge is a BusinessClass
+    owned by rq
+    prefix is RAO
+	sql name is RQLineAddOnCharge
+    classic name is RQAOCDTL
+	
+	Ontology
+		symbolic key is RequisitionLineAddOnCharge
+			classic set name is RAOSET1
+			classic name for Company is COMPANY
+            classic name for Requisition is REQ-NUMBER
+            classic name for RequisitionLine is LINE-NBR
+            classic name for AddOnCharge is AOC-CODE
+
+	Patterns
+    	implements ContextualParent
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Vendor
+        PurchaseFromLocation
+        Location								is an InventoryLocation
+        AddOnChargeEntryMethod
+            classic name is ENTRY
+        Quantity
+        	precision is DerivedNumberOfDecimalsQuantity
+        AddOnChargePercent
+            classic name is AOC-RATE
+        EnteredUnitCost        					is an UnsignedUnitCost
+            classic name is ENT-UNIT-CST
+            precision is DerivedNumberOfDecimalsCost
+        Currency
+            classic name is CURRENCY-CODE
+        TotalAddOnChargeAmount 					is an InternationalAmount
+            classic name is TOTAL-AOC
+        Taxable                         		is Boolean
+        TaxCode
+        AocOnRq                					is Boolean
+        Summarize								is Boolean
+        ZeroCost								is Boolean
+            classic name is ZERO-COST-FLG
+        LandedAddOnCharge						is Boolean
+            classic name is LANDED-FLAG
+        POCode
+        GlobalDocumentType
+            classic name is GLBL-DOC-TYPE
+        GlobalLineType
+            classic name is GLBL-LINE-TYPE
+        PrintOnRequisition						is Boolean
+        	classic name is AOC-ON-RQ
+        Account 								is a TransactionCodeBlock
+		LandedUnitCost                  		is an InternationalCost
+			protected
+			precision is DerivedNumberOfDecimalsCost
+		AccruedTaxAmount						is an InternationalAmount
+			protected
+		InvoicedTaxAmount						is an InternationalAmount
+			protected
+
+	Local Fields
+		LocalTotalAOC							is an InternationalAmount
+		LocalOldTotalAmount                     is an InternationalAmount
+		LocalLandedUnitCost						is an InternationalCost
+		CurrencyExchange
+		CurrencyTable
+    	LocalFromCurrency						is a FromCurrency
+		LocalTransactionAmount					is a CurrencyAmount
+		LocalTotalAddOnChargeAmount				is a CurrencyAmount
+		LocalAccruedTaxAmount					is a CurrencyAmount
+		LocalInvoicedTaxAmount					is a CurrencyAmount
+		LocalPostingDate                    	is a PostingDate
+		LocalAccountingEntity 					is an AccountingEntity 
+		LocalExchangeDate                   	is an ExchangeDate
+		LocalCalculateTaxExecuted				is Alpha 1	
+		LocalJurisdictionLookupKey  			is Alpha 200					
+		CalculateTax
+		DerivedTotalWithTaxChanged              is Boolean		
+		LocalBypassUpdateRequisition			is Boolean
+		LocalBypassComputeTotals				is Boolean
+
+		LocalOneSourceTaxAttribute				is a TaxAttributeGroup50
+		LocalOneSourceTaxAttributeText			is Text
+		AttributeCounter						is Numeric 2
+		LocalCallOneSource						is Boolean
+
+		TaxLineItemView							is a TaxLineItem view
+		LocalLineItemNumber						is like DistributionSequence 
+		LocalUniqueID							is like UniqueID
+
+		LocalVertexDistributionAccount      	is a FinanceCodeBlock
+		Idx										is Numeric 3		
+	Transient Fields
+		TransientAssetInformation		is an AssetInformation
+			derive value from RequisitionLineDistributionRel.AssetInformation
+			
+		TransientTaxEntity				is a TaxEntity
+			derive value from DerivedTaxEntity
+			
+	Conditions
+		IsLineAddOnCharge
+			when (RequisitionLine entered)
+			
+		IsAddOnChargeAllowed
+			when ((IsLineAddOnCharge
+			and    RequisitionLine.IsUnreleased)
+			or    (not IsLineAddOnCharge
+			and    Requisition.IsUnreleased)
+			and   !Requisition.BudgetEditInProgress
+			and   !Requisition.InterfaceInProcess)
+			
+		FromSpread
+        	restricted
+        	when (RequisitionSpreadAddOnChargeRel exists)		
+
+		FromContract
+			restricted
+			when (ContractLineAOCRel exists)
+
+		TaxEntityUsesThirdPartyTax
+			restricted
+			when (TaxEntityUsesVertex
+			or    TaxEntityUsesSabrix)
+
+		TaxEntityUsesVertex
+			restricted
+			when (TaxEntityRel.ThirdParty.VertexOSeries)
+
+		TaxEntityUsesSabrix
+			restricted
+			when (TaxEntityRel.ThirdParty.Sabrix)
+						
+		DoOneSource
+			restricted
+			when (not TaxEntityRel.DelayTaxProcessing
+			or    LocalCallOneSource)
+
+		SingleCallToOneSource
+			restricted
+			when (Taxable
+			and	  TaxEntityRel.ThirdParty.Sabrix
+			and	  TaxEntityRel.DelayTaxProcessing
+			and	  Requisition.DerivedNumberOfTaxLineItems <= 200)
+
+		SingleCallToVertex  
+			restricted
+			when (TaxEntityRel.ThirdParty.VertexOSeries
+			and   TaxEntityRel.VertexCallMethod.ByTransaction
+			and	  Requisition.DerivedNumberOfTaxLineItems <= 200)
+
+		VertexDelayTaxCall
+			when (TaxEntityRel.ThirdParty.VertexOSeries
+			and   TaxEntityRel.TaxAttributeCode entered)	
+
+		IsAllowanceAddOnCharge
+			when (AddOnCharge.AddOnChargeType.Allowance)
+		
+		DisplayAccounting
+			restricted
+			when (RequesterRel.DisplayAccounting)
+		
+		DisplayVendor
+			restricted
+			when (RequesterRel.DisplayVendor)
+		
+		DisplayPurchaseFrom
+			restricted
+			when (RequesterRel.DisplayPurchaseFrom)
+
+		DisplayTaxInfo
+			restricted
+			when (RequesterRel.DisplayTaxInfo)
+
+	Sets
+		BySpreadMethod
+			Sort Order
+				Company
+				Requisition
+				RequisitionLine
+				AddOnCharge.SpreadMethod descending
+				AddOnCharge
+	
+	Field Rules
+		AddOnChargeEntryMethod
+			if (action type.Create
+			or  AddOnChargePercent changed
+			or  EnteredUnitCost changed
+			or  TotalAddOnChargeAmount changed)
+				if (AddOnChargePercent entered)
+					force default to AddOnChargeEntryMethod.RatePercentage
+				else 
+					if (EnteredUnitCost entered)
+						force default to AddOnChargeEntryMethod.UnitCost
+						initialize AddOnChargePercent
+					else
+						if (TotalAddOnChargeAmount entered)
+							force default to AddOnChargeEntryMethod.TotalAmount
+							initialize AddOnChargePercent
+		
+		Quantity
+			force default to RequisitionLine.Quantity
+		
+		AddOnChargePercent
+			if (AddOnCharge.SpreadMethod.Rate)
+				default to AddOnCharge.AddOnChargePercent
+			
+			if (AddOnChargePercent entered and (action type.Create or AddOnChargePercent changed))
+				constraint (TotalAddOnChargeAmount not entered and EnteredUnitCost not entered)  
+					"CanOnlyEnterOneCost,Rate,OrZeroCostValue"
+					
+			if (FromSpread)
+				cannot be changed
+					"RateCannotBeChanged;AddOnChargeCreatedFromSpread"
+
+
+
+
+			
+		EnteredUnitCost
+			if (IsLineAddOnCharge)
+				if (EnteredUnitCost entered and action type.Create)
+					constraint (TotalAddOnChargeAmount not entered)
+						"CanOnlyEnterOneCost,Rate,OrZeroCostValue"
+						
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				
+		TotalAddOnChargeAmount
+			if (FromSpread
+			and not AddOnChargeEntryMethod.RatePercentage)
+				cannot be changed
+					"TotalAOCAmountCannotBeChanged;AddOnChargeCreatedFromSpread"
+					
+			if(IsLineAddOnCharge)
+				if (AddOnChargeEntryMethod.RatePercentage)
+					TotalAddOnChargeAmount = AddOnChargePercent * RequisitionLine.LineExtendedAmount
+					if (Requisition.BaseCurrencyCode != DerivedCurrency) 
+						LocalFromCurrency				= Requisition.BaseCurrencyCode
+						CurrencyExchange.ToCurrency		= DerivedCurrency
+						LocalTransactionAmount			= TotalAddOnChargeAmount
+						TotalAddOnChargeAmount			= ConvertedCost
+					EnteredUnitCost = (TotalAddOnChargeAmount / Quantity)
+				else
+				if (AddOnChargeEntryMethod.UnitCost)
+					force default to Quantity * EnteredUnitCost
+				else 
+					EnteredUnitCost = (TotalAddOnChargeAmount / Quantity)
+					
+				if (AddOnCharge.AddOnChargeType.Allowance
+				and EnteredUnitCost > 0)
+					EnteredUnitCost = EnteredUnitCost * -1
+					
+					
+			else
+				if (AddOnChargeEntryMethod.RatePercentage)
+					LocalOldTotalAmount = TotalAddOnChargeAmount
+					force default to (AddOnChargePercent * Requisition.ExtendedAmountTotal)
+			    	if (LocalOldTotalAmount != TotalAddOnChargeAmount)
+						DerivedTotalWithTaxChanged = true			    			
+			    		 							        			
+			if (AddOnCharge.AddOnChargeType.Allowance
+			and TotalAddOnChargeAmount > 0)
+				TotalAddOnChargeAmount = TotalAddOnChargeAmount * -1
+						
+		ZeroCost
+			if (ZeroCost)
+				constraint (TotalAddOnChargeAmount not entered
+				and 		AddOnChargePercent not entered
+				and 	   (not IsLineAddOnCharge or (EnteredUnitCost not entered)))
+					"CanOnlyEnterOneCost,Rate,OrZeroCostValue"
+		
+		Taxable
+			if (not Taxable)
+				if (TaxCode entered and IsLineAddOnCharge)
+					Taxable = true
+				else
+					if (AddOnCharge.AddOnChargeType.Cost)
+						Taxable = AddOnCharge.Taxable
+					else 
+						if (AddOnCharge.Taxable and RequisitionLine.PurchaseTaxable)
+							Taxable = true
+						else
+							Taxable = false
+			
+		TaxCode
+			if (Taxable)
+				if (AddOnCharge.AddOnChargeType.Cost)
+					default to AddOnCharge.TaxCode
+					default to Location.TaxCode
+				else 
+					if (not IsLineAddOnCharge)
+						cannot be entered
+							"CannotHaveTaxOnMiscellaneousAllowanceAddOnCharge"
+					else 
+						force default to RequisitionLine.PurchaseTaxCode
+				required
+				if (not TaxEntityRel.ThirdParty.Sabrix
+				and not TaxEntityRel.ThirdParty.VertexOSeries)
+					initialize CalculateTax
+					CalculateTax.TaxEntity                      = DerivedTaxEntity
+					CalculateTax.TaxCode                        = TaxCode
+					CalculateTax.Function                       = CalculateTax.Function.Inquire
+					LocalCalculateTaxExecuted					= CalculateTax.ExecuteCalculateTax
+					constraint (CalculateTax.OutputErrorNumber not entered)
+						"<CalculateTax.OutputErrorMessage>"	
+
+				if (TaxEntityRel.ThirdParty.VertexOSeries
+				and Requisition.DropshipAddress not entered
+				and TaxCode = "00")
+					constraint (Requisition.RequestingLocation.PostalAddress entered)
+						"AddressRequiredOnRequestingLocationToCalculateTax"
+
+			else
+				initialize TaxCode
+					
+		LandedAddOnCharge
+			force default to AddOnCharge.LandedAddOnCharge
+			
+		PurchaseFromLocation
+			if (Vendor not entered)
+				default to RequisitionLine.PurchaseFromLocation
+				
+		Vendor
+			default to RequisitionLine.Vendor
+			if (Currency entered)
+				required
+					"VendorRequiredIfCurrencyIsEntered"
+			
+		Location
+			if (RequisitionLine.FromCompanyLocationBin.FromLocation not entered)
+				default to Requisition.FromCompanyLocation.FromLocation
+			else
+				default to RequisitionLine.FromCompanyLocationBin.FromLocation
+			
+		Summarize
+			if (not PrintOnRequisition)
+				force default to false
+			else
+				default to AddOnCharge.Summarize
+		
+		Account
+			if (not LandedAddOnCharge)
+				default to AddOnCharge.PostingAccount
+			if (IsLineAddOnCharge
+			and LandedAddOnCharge)
+				force default to blank
+			if (Account.Project entered)     
+				LocalExchangeDate = Requisition.CreationDate
+				if (RequisitionLine.RequestedDeliveryDate entered)
+					LocalPostingDate  = RequisitionLine.RequestedDeliveryDate
+				else
+					LocalPostingDate  = current corporate date
+		
+		LandedUnitCost
+			force default to DerivedLandedUnitCost
+			
+		PrintOnRequisition
+			initial value is true
+			default to true
+
+		Currency
+			default to VendorLocationRel.InvoiceCurrency
+			default to Vendor.InvoiceCurrency											
+			
+		TransientTaxEntity
+			force default to DerivedTaxEntity
+			
+	Relations
+		TaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				related.TaxEntity 				= Company.AccountingEntity
+				
+		ContractLineAOCRel
+			one-to-many relation to ContractLineAOC
+			Field Mapping uses part of key
+				related.ContractGroup		= Requisition.PurchasingCompanyRel.ProcurementGroup
+				related.Contract			= RequisitionLine.Contract
+				related.ContractLine		= RequisitionLine.ContractLine
+			Instance Selection
+				where (related.AOC			= AddOnCharge)
+
+		RequisitionLineDistributionRel
+			one-to-many relation to RequisitionLineDistribution
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.Requisition			= Requisition
+				related.RequisitionLine 	= RequisitionLine
+				related.AddOnCharge			= AddOnCharge
+				
+		RequisitionLineRel
+    		one-to-many relation to RequisitionLine
+    		Field Mapping uses symbolic key
+    			related.Company				= Company
+    			related.Requisition			= Requisition
+    			related.RequisitionLine		= RequisitionLine
+			Instance Selection
+				where (IsLineAddOnCharge)
+		
+		InventoryCompanyRel
+            one-to-one relation to InventoryCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+		
+		GeneralLedgerSystemCodeRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "RQ"
+				
+		RequisitionSpreadAddOnChargeRel
+			one-to-one relation to RequisitionSpreadAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company            = Company
+				related.Requisition        = Requisition
+				related.AddOnCharge        = AddOnCharge 
+				
+		EntityTaxCodeRel
+			one-to-one relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= Company.FinanceEnterpriseGroup
+				related.TaxEntity					= Company.AccountingEntity
+				related.TaxCode						= TaxCode
+				
+		AllEntityTaxCodesRel
+			one-to-many relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= Company.FinanceEnterpriseGroup
+				related.TaxEntity					= Company.AccountingEntity
+
+        VendorLocationRel
+            one-to-one relation to VendorLocation
+            Field Mapping uses symbolic key
+                related.VendorGroup    = Company.FinanceEnterpriseGroup
+                related.Vendor         = Vendor
+                related.VendorLocation = PurchaseFromLocation
+
+		TaxAttributesRel			
+			one-to-one relation to TaxAttribute
+			Field Mapping uses symbolic key
+	 			related.FinanceEnterpriseGroup 	= Company.FinanceEnterpriseGroup	 
+	 			related.TaxAttribute	        = TaxEntityRel.TaxAttributeCode
+
+		TaxLineItemsRel
+			one-to-many relation to TaxLineItem
+			Field Mapping uses ByUniqueIdOfRelatedObject
+				related.FinanceEnterpriseGroup				= Company.FinanceEnterpriseGroup
+				related.TaxLineItem.UniqueIdOfRelatedObject = LocalUniqueID
+			Instance Selection
+				where (related.InvoiceNumber				= Requisition)
+		
+		RequesterRel
+			one-to-one relation to Requester
+			Field Mapping uses symbolic key
+				related.HROrganization = actor.agent(Employee).HROrganization
+				related.Requester = actor.agent(Employee).Employee.Requester.Requester
+
+	Rule Blocks
+		LoadOneSourceInputFields
+			if (TaxEntityRel.ThirdParty.Sabrix)
+				CalculateTax.CallingModule				= "Requisition"
+				CalculateTax.System						= "RQ"
+				CalculateTax.InFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				CalculateTax.TaxEntity					= Company.AccountingEntity
+				CalculateTax.TaxCode					= TaxCode
+				CalculateTax.PostalAddress				= Requisition.RequestingLocation.PostalAddress
+				CalculateTax.ItemNumber					= AddOnCharge
+				CalculateTax.Description				= AddOnCharge.Description
+				CalculateTax.BypassEditing				= true
+				CalculateTax.UserElementLevel			= "L"
+
+
+		CreateTaxLineItem
+			if (TaxEntityRel.ThirdParty.Sabrix
+			or  SingleCallToVertex)
+				invoke Create TaxLineItem
+					assign result to TaxLineItemView
+					
+					invoked.FinanceEnterpriseGroup		= Company.FinanceEnterpriseGroup
+					invoked.InvoiceNumber				= Requisition
+					invoked.InvoiceDate					= current corporate date
+					invoked.TaxEntity					= Company.AccountingEntity
+
+					invoked.LineItemId					= AddOnCharge
+					invoked.RelatedObjectReference		= reference to RequisitionLineAddOnCharge
+					if (SingleCallToOneSource
+					or  SingleCallToVertex)
+						invoked.TaxLineItem.UniqueIdOfRelatedObject	= Requisition.UniqueID
+					else
+						invoked.TaxLineItem.UniqueIdOfRelatedObject	= UniqueID
+					invoked.RelatedLineItemUniqueId		= UniqueID
+					invoked.LineItemNumber				= LocalLineItemNumber
+					invoked.InvoiceAmount				= TotalAddOnChargeAmount
+					invoked.TaxableAmount				= TotalAddOnChargeAmount
+					invoked.ShipToTaxCode				= TaxCode
+					invoked.ShipToTaxCodeDescription	= TaxCode.Description
+					
+					if (Requisition.DropshipAddress not entered)
+						invoked.ShipToAddress			= Requisition.FromCompanyLocation.FromLocation.PostalAddressForPurchaseOrder
+					else
+						invoked.ShipToAddress			= Requisition.DropshipAddress	
+
+					invoked.Description					= AddOnCharge.Description
+
+					if (TaxEntityRel.ThirdParty.VertexOSeries)
+						if (LandedAddOnCharge) 
+							if (RequisitionLine.ItemType.Inventoried)
+								LocalVertexDistributionAccount 		= RequisitionLine.ItemLocationRel.GeneralLedgerCategory.InventoryAccount 
+							else 
+								LocalVertexDistributionAccount    	= first RequisitionLineDistributionRel.DistributionAccount
+						else 
+							LocalVertexDistributionAccount 			= AddOnCharge.PostingAccount
+
+						if (TaxCode != "00")
+							invoked.ShipToTaxCode				= TaxCode									
+							invoked.ShipToTaxCodeDescription	= TaxCode.Description
+
+						invoked.CostCenter                     	= LocalVertexDistributionAccount.AccountingUnit    
+						invoked.GeneralLedgerAccount 			= LocalVertexDistributionAccount.GeneralLedgerChartAccount 
+
+						if  (AddOnCharge.UNSPSCCode entered)
+							invoked.CommodityCodeType      		= "UNSPSC"
+							invoked.CommodityCode				= AddOnCharge.UNSPSCCode.UNSPSCCodeDisplay 
+
+		CreateTaxLineItemUserFields
+			if (TaxEntityRel.ThirdParty.Sabrix)
+				initialize AttributeCounter
+				if (TaxAttributesRel exists)	
+					invoke Create TaxLineItemUserFields			 
+						for each TaxAttributesRel.OneSourceTaxAttributeByNumberRel
+							invoked.FinanceEnterpriseGroup					= Company.FinanceEnterpriseGroup
+							if (SingleCallToOneSource)
+								invoked.TaxLineItem.UniqueIdOfRelatedObject	= Requisition.UniqueID
+							else
+								invoked.TaxLineItem.UniqueIdOfRelatedObject	= UniqueID
+							invoked.TaxLineItem.Sequence					= TaxLineItemView.TaxLineItem.Sequence
+								
+							if (each.LoadDynamicField.ValueIs.TaxEntity)
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= TaxEntityRel.TaxEntity
+							else		
+							if (each.LoadDynamicField.ValueIs.Company)	
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName					
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Company
+							else		
+							if (each.LoadDynamicField.ValueIs.Vendor)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Vendor
+							else				
+							if (each.LoadDynamicField.ValueIs.PostingDate)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName									
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Requisition.CreationDate
+							else			
+							if (each.LoadDynamicField.ValueIs.TaxDate)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName										
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Requisition.CreationDate
+							else			
+							if (each.LoadDynamicField.ValueIs.GLAccount)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName								
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.GeneralLedgerChartAccount
+							else			
+							if (each.LoadDynamicField.ValueIs.Location)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Location
+							else			
+							if (each.LoadDynamicField.ValueIs.Currency)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Currency
+							else			
+							if (each.LoadDynamicField.ValueIs.AddOnCharge)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= AddOnCharge
+							else			
+							if (each.LoadDynamicField.ValueIs.UnitCost)						
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= EnteredUnitCost
+							else			
+							if (each.LoadDynamicField.ValueIs.WorkType)						
+								if (Account.Project.WorkType entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.Project.WorkType			
+							else			
+							if (each.LoadDynamicField.ValueIs.AccountSubType)						
+								if (Account.GeneralLedgerChartAccount.AccountSubType entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.GeneralLedgerChartAccount.AccountSubType
+							else			
+							if (each.LoadDynamicField.ValueIs.ServiceType)						
+								if (Account.Project.ServiceType entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.Project.ServiceType
+							else			
+							if (each.LoadDynamicField.ValueIs.UsageType)						
+								if (Account.Project.UsageType entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.Project.UsageType
+							else			
+							if (each.LoadDynamicField.ValueIs.CustomerType)						
+								if (Account.Project.Project.ProjectContract.ProjectFundingSourceRel.CustomerType entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.Project.Project.ProjectContract.ProjectFundingSourceRel.CustomerType
+							else			
+							if (each.LoadDynamicField.ValueIs.Project)						
+								if (Account.Project entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.Project
+							else
+							if (each.LoadDynamicField.ValueIs.CommodityCode)
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= AddOnCharge.DerivedCommodityCodeNoDash
+							else
+							if (each.LoadDynamicField.ValueIs.UNSPSC)
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= AddOnCharge.UNSPSCCode.UNSPSCCodeDisplay
+							else			
+							if (each.LoadDynamicField.ValueIs.ToAccountingEntity)						
+								if (Account.ToAccountingEntity entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.ToAccountingEntity
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension1)						
+								if (Account.FinanceDimension1 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension1
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension2)						
+								if (Account.FinanceDimension2 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension2
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension3)						
+								if (Account.FinanceDimension3 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension3
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension4)						
+								if (Account.FinanceDimension4 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension4
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension5)						
+								if (Account.FinanceDimension5 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension5
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension6)						
+								if (Account.FinanceDimension6 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension6
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension7)						
+								if (Account.FinanceDimension7 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension7
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension8)						
+								if (Account.FinanceDimension8 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension8
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension9)						
+								if (Account.FinanceDimension9 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension9
+							else			
+							if (each.LoadDynamicField.ValueIs.FinanceDimension10)						
+								if (Account.FinanceDimension10 entered)
+									AttributeCounter +=1	
+									invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+									invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+									invoked.UserElementGroup.UserElement[AttributeCounter].Value	= Account.FinanceDimension10
+							else	
+								AttributeCounter +=1	
+								invoked.UserElementGroup.UserElement[AttributeCounter].Number	= each.AttributeNumber
+								invoked.UserElementGroup.UserElement[AttributeCounter].Name		= each.UserAttributeName
+								invoked.UserElementGroup.UserElement[AttributeCounter].Value	= each.Value
+			else 
+			if (SingleCallToVertex)
+				if (LandedAddOnCharge) 
+					if (RequisitionLine.ItemType.Inventoried)
+						LocalVertexDistributionAccount 		= RequisitionLine.ItemLocationRel.GeneralLedgerCategory.InventoryAccount 
+					else 
+						LocalVertexDistributionAccount    	= first RequisitionLineDistributionRel.DistributionAccount
+				else 
+					LocalVertexDistributionAccount 			= AddOnCharge.PostingAccount
+
+				if (TaxAttributesRel.VertexFlexibleFieldExist)
+
+
+					Idx = 0
+
+					invoke Create TaxLineItemUserFields			 
+						invoked.FinanceEnterpriseGroup					= Company.FinanceEnterpriseGroup
+						if (SingleCallToVertex)
+							invoked.TaxLineItem.UniqueIdOfRelatedObject	= Requisition.UniqueID
+						else
+							invoked.TaxLineItem.UniqueIdOfRelatedObject	= UniqueID
+						invoked.TaxLineItem.Sequence					= TaxLineItemView.TaxLineItem.Sequence
+
+						for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleCodeRel
+
+
+							if (each.Code entered            
+							or  each.ExternalValue entered)
+								Idx +=1   
+								invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].FieldId = each.VertexFlexibleCode.FieldId
+								if (each.ExternalValue.ValueIs.TaxEntity)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Company.AccountingEntity
+								else    
+								if (each.ExternalValue.ValueIs.Company)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Company
+								else    
+								if (each.ExternalValue.ValueIs.Vendor)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Vendor
+								else    
+								if (each.ExternalValue.ValueIs.PostingDate)
+									if (RequisitionLine.RequestedDeliveryDate entered)	
+										invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code	= RequisitionLine.RequestedDeliveryDate
+									else
+										invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code	= Requisition.CreationDate
+								else    
+								if (each.ExternalValue.ValueIs.TaxDate)
+									if (RequisitionLine.RequestedDeliveryDate entered)	
+										invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code	= RequisitionLine.RequestedDeliveryDate
+									else
+										invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code	= Requisition.CreationDate
+								else    
+								if (each.ExternalValue.ValueIs.AccountingUnit)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.AccountingUnit 
+								else    
+								if (each.ExternalValue.ValueIs.GLAccount)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.GeneralLedgerChartAccount
+								else    
+								if (each.ExternalValue.ValueIs.Location)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Location 
+								else    
+								if (each.ExternalValue.ValueIs.Currency)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = DerivedCurrency
+								else    
+								if (each.ExternalValue.ValueIs.AddOnCharge)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = AddOnCharge
+								else    
+								if (each.ExternalValue.ValueIs.UnitCost)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = EnteredUnitCost
+								else    
+								if (each.ExternalValue.ValueIs.ContractType)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ProjectContract.ContractType
+								else    
+								if (each.ExternalValue.ValueIs.WorkType)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.WorkType
+								else    
+								if (each.ExternalValue.ValueIs.AccountSubType)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.GeneralLedgerChartAccount.AccountSubType
+								else    
+								if (each.ExternalValue.ValueIs.ServiceType)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ServiceType
+								else    
+								if (each.ExternalValue.ValueIs.UsageType)			
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.UsageType
+								else 
+								if (each.ExternalValue.ValueIs.CustomerType)			
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ProjectContract.ProjectFundingSourceRel.CustomerType
+								else 
+								if (each.ExternalValue.ValueIs.Project)				
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.Project
+								else 
+								if (each.ExternalValue.ValueIs.Longitude)				
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Location.PostalAddress.GeoLongitude
+								else 
+								if (each.ExternalValue.ValueIs.Latitude)			
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Location.PostalAddress.GeoLatitude
+								else 
+								if (each.ExternalValue.ValueIs.Altitude)									
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = Location.PostalAddress.GeoAltitude
+								else 
+								if (each.ExternalValue.ValueIs.ToAccountingEntity)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.ToAccountingEntity
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension1)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension1
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension2)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension2
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension3)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension3
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension4)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension4
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension5)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension5
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension6)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension6
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension7)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension7
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension8)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension8
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension9)
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension9
+								else    
+								if (each.ExternalValue.ValueIs.FinanceDimension10) 
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = LocalVertexDistributionAccount.FinanceDimension10
+								else    
+									invoked.FlexibleFields.FlexibleCodes.FlexibleCodeField[Idx].Code = each.Code  
+
+
+
+
+
+
+						Idx = 0
+						for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleNumericRel
+
+							if (each.NumericValue entered            
+							or  each.ExternalValue entered)
+								Idx +=1   
+								invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].FieldId = each.VertexFlexibleNumeric.FieldId 
+								if (each.ExternalValue.ValueIs.Company)
+									invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumericValue = Company
+								else    
+								if (each.ExternalValue.ValueIs.GLAccount)
+									invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumericValue = LocalVertexDistributionAccount.GeneralLedgerChartAccount
+								else    
+								if (each.ExternalValue.ValueIs.UnitCost)
+									if (IsLineAddOnCharge)
+										invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumericValue = EnteredUnitCost
+										invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumberOfDecimals = 8 
+									else 
+										invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumericValue = TotalAddOnChargeAmount
+										invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumberOfDecimals = 8 
+								else    
+									invoked.FlexibleFields.FlexibleNumbers.FlexibleNumericField[Idx].NumericValue = each.NumericValue  
+
+
+
+
+
+
+
+						Idx = 0
+						for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleDateRel
+
+							if (each.DateValue entered            
+							or  each.ExternalValue entered)
+								Idx +=1   
+								invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].FieldId = each.VertexFlexibleDate.FieldId 
+								if (each.ExternalValue.ValueIs.PostingDate)
+									if (RequisitionLine.RequestedDeliveryDate entered)	
+										invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].DateValue	= RequisitionLine.RequestedDeliveryDate
+									else
+										invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].DateValue	= Requisition.CreationDate
+								else    
+								if (each.ExternalValue.ValueIs.TaxDate)
+									if (RequisitionLine.RequestedDeliveryDate entered)	
+										invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].DateValue	= RequisitionLine.RequestedDeliveryDate
+									else
+										invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].DateValue	= Requisition.CreationDate
+
+								else    
+									invoked.FlexibleFields.FlexibleDates.FlexibleDateField[Idx].DateValue = each.DateValue  
+
+
+
+
+
+		LoadVertexOneCall
+			if (TaxEntityRel.ThirdParty.VertexOSeries)
+				CalculateTax.CallingModule				= "Requisitions"
+				CalculateTax.System						= "RQ"
+				CalculateTax.InFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				CalculateTax.TaxEntity					= Company.AccountingEntity
+				CalculateTax.InvoiceCompany				= Company
+				CalculateTax.ProcessLevel				= Requisition.RequestingLocation.ProcessLevel
+				CalculateTax.Invoice					= Requisition
+				if (Requisition.DropshipAddress not entered)
+					CalculateTax.PostalAddress			= Requisition.FromCompanyLocation.FromLocation.PostalAddressForPurchaseOrder	 	
+				else
+					CalculateTax.PostalAddress			= Requisition.DropshipAddress	
+				CalculateTax.Vendor						= Vendor
+
+				if (PurchaseFromLocation entered
+				and PurchaseFromLocation.CurrentAddressRelExists)
+					CalculateTax.POAAddress				= PurchaseFromLocation.VendorAddress	 	
+				else
+					CalculateTax.POAAddress				= Vendor.VendorAddress
+
+				if (PurchaseFromLocation entered
+				and PurchaseFromLocation.CurrentAddressRelExists)
+					CalculateTax.FromPostalAddress		= PurchaseFromLocation.VendorAddress 
+				else
+					CalculateTax.FromPostalAddress		= Vendor.VendorAddress		
+				CalculateTax.BypassEditing				= true
+
+		VertexFlexibleFields
+			if (TaxEntityRel.ThirdParty.VertexOSeries)
+
+				if (LandedAddOnCharge) 
+					if (RequisitionLine.ItemType.Inventoried)
+						LocalVertexDistributionAccount 		= RequisitionLine.ItemLocationRel.GeneralLedgerCategory.InventoryAccount 
+					else 
+						LocalVertexDistributionAccount    	= first RequisitionLineDistributionRel.DistributionAccount
+				else 
+					LocalVertexDistributionAccount 			= AddOnCharge.PostingAccount
+
+				if (Requisition.FromCompanyLocation.FromLocation.PostalAddress entered)
+					CalculateTax.POAAddress					= Requisition.FromCompanyLocation.FromLocation.PostalAddress	 	
+				else
+				if (Vendor entered)
+					CalculateTax.POAAddress					= Vendor.VendorAddress
+				else 
+					CalculateTax.POAAddress					= Requisition.FromCompanyLocation.FromLocation.PostalAddressForPurchaseOrder	 	
+
+				CalculateTax.CostCenter                     = LocalVertexDistributionAccount.AccountingUnit   
+
+   				if (IsLineAddOnCharge)
+   					if (RequisitionLine.RequestedDeliveryDate entered)	
+						CalculateTax.PostDate				= RequisitionLine.RequestedDeliveryDate
+					else
+						CalculateTax.PostDate				= Requisition.CreationDate
+				else
+					if (Requisition.RequestedDeliveryDate entered)	
+						CalculateTax.PostDate				= Requisition.RequestedDeliveryDate
+					else
+						CalculateTax.PostDate				= Requisition.CreationDate
+
+				CalculateTax.GeneralLedgerAccount 			= LocalVertexDistributionAccount.GeneralLedgerChartAccount 
+
+				if  (AddOnCharge.UNSPSCCode entered)
+					CalculateTax.CommodityCodeType      	= "UNSPSC"
+					CalculateTax.UNSPSCCode					= AddOnCharge.UNSPSCCode.UNSPSCCodeDisplay 
+					
+				if (TaxAttributesRel.VertexFlexibleFieldExist)
+
+
+
+					Idx = 0
+
+					for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleCodeRel
+
+						if (each.Code entered            
+						or  each.ExternalValue entered)
+							Idx +=1   
+							CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].FieldId = each.VertexFlexibleCode.FieldId
+							CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].ExternalValue = each.ExternalValue     
+							if (each.ExternalValue.ValueIs.TaxEntity)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Company.AccountingEntity
+							else    
+							if (each.ExternalValue.ValueIs.Company)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Company
+							else    
+							if (each.ExternalValue.ValueIs.Vendor)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Vendor
+							else    
+							if (each.ExternalValue.ValueIs.PostingDate)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = CalculateTax.PostDate
+							else    
+							if (each.ExternalValue.ValueIs.TaxDate)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = CalculateTax.PostDate
+							else    
+							if (each.ExternalValue.ValueIs.AccountingUnit)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.AccountingUnit 
+							else    
+							if (each.ExternalValue.ValueIs.GLAccount)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.GeneralLedgerChartAccount
+							else    
+							if (each.ExternalValue.ValueIs.Location)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Location 
+							else    
+							if (each.ExternalValue.ValueIs.Currency)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = DerivedCurrency
+							else    
+							if (each.ExternalValue.ValueIs.AddOnCharge)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = AddOnCharge
+							else    
+
+
+
+							if (each.ExternalValue.ValueIs.UnitCost)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = EnteredUnitCost
+							else    
+
+
+
+							if (each.ExternalValue.ValueIs.ContractType)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ProjectContract.ContractType
+							else    
+							if (each.ExternalValue.ValueIs.WorkType)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.WorkType
+							else    
+							if (each.ExternalValue.ValueIs.AccountSubType)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.GeneralLedgerChartAccount.AccountSubType
+							else    
+							if (each.ExternalValue.ValueIs.ServiceType)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ServiceType
+							else    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+							if (each.ExternalValue.ValueIs.UsageType)			
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.UsageType
+							else 
+							if (each.ExternalValue.ValueIs.CustomerType)			
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project.ProjectInEnterpriseStructureRel.ParentProject.ProjectContract.ProjectFundingSourceRel.CustomerType
+							else 
+							if (each.ExternalValue.ValueIs.Project)				
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.Project
+							else 
+							if (each.ExternalValue.ValueIs.Longitude)				
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Location.PostalAddress.GeoLongitude
+							else 
+							if (each.ExternalValue.ValueIs.Latitude)			
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Location.PostalAddress.GeoLatitude
+							else 
+							if (each.ExternalValue.ValueIs.Altitude)									
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = Location.PostalAddress.GeoAltitude
+							else 
+							if (each.ExternalValue.ValueIs.ToAccountingEntity)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.ToAccountingEntity
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension1)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension1
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension2)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension2
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension3)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension3
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension4)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension4
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension5)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension5
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension6)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension6
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension7)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension7
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension8)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension8
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension9)
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension9
+							else    
+							if (each.ExternalValue.ValueIs.FinanceDimension10) 
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = LocalVertexDistributionAccount.FinanceDimension10
+							else    
+								CalculateTax.VertexAttributes.VertexCodes.FlexibleCode[Idx].Code = each.Code  
+
+
+
+
+
+
+					Idx = 0
+					for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleNumericRel
+
+						if (each.NumericValue entered            
+						or  each.ExternalValue entered)
+							Idx +=1   
+							CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].FieldId = each.VertexFlexibleNumeric.FieldId 
+							CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].ExternalValue = each.ExternalValue     
+							if (each.ExternalValue.ValueIs.Company)
+								CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumericValue = Company
+							else    
+							if (each.ExternalValue.ValueIs.GLAccount)
+								CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumericValue = LocalVertexDistributionAccount.GeneralLedgerChartAccount
+							else    
+
+
+
+
+							if (each.ExternalValue.ValueIs.UnitCost)
+								if (IsLineAddOnCharge)
+									CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumericValue = EnteredUnitCost
+									CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumberOfDecimals = 5 
+								else 
+									CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumericValue = TotalAddOnChargeAmount
+									CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumberOfDecimals = 5 
+							else    
+								CalculateTax.VertexAttributes.VertexNumerics.FlexibleNumeric[Idx].NumericValue = each.NumericValue  
+
+
+
+
+
+
+
+					Idx = 0
+					for each TaxAttributesRel.VertexFlexibleFieldsRel.VertexFlexibleDateRel
+
+						if (each.DateValue entered            
+						or  each.ExternalValue entered)
+							Idx +=1   
+							CalculateTax.VertexAttributes.VertexDates.FlexibleDate[Idx].FieldId = each.VertexFlexibleDate.FieldId 
+							CalculateTax.VertexAttributes.VertexDates.FlexibleDate[Idx].ExternalValue = each.ExternalValue     
+							if (each.ExternalValue.ValueIs.PostingDate)
+								CalculateTax.VertexAttributes.VertexDates.FlexibleDate[Idx].DateValue = CalculateTax.PostDate
+							else    
+
+
+
+							if (each.ExternalValue.ValueIs.TaxDate)
+								CalculateTax.VertexAttributes.VertexDates.FlexibleDate[Idx].DateValue = CalculateTax.PostDate
+							else    
+								CalculateTax.VertexAttributes.VertexDates.FlexibleDate[Idx].DateValue = each.DateValue  
+
+
+
+
+
+		UpdateAOCTotals
+			invoke Delete RequisitionLineDistributionRel
+			LocalLandedUnitCost	= LandedUnitCost * -1
+			
+			if (IsLineAddOnCharge)
+				LocalTotalAOC		= (DerivedTotalWithTaxInLineCurrency * -1)
+			else
+				LocalTotalAOC		= ((TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount) * -1)
+		
+		UpdateRequisitionAndRequisitionLineAOCTotals
+			if (IsLineAddOnCharge)
+				invoke UpdateTotalsComputation RequisitionLine
+					invoked.PrmLandedUnitCost							= LocalLandedUnitCost
+					invoked.PrmLineAddOnChargeTotalAddOnChargeAmount	= LocalTotalAOC
+					invoked.PrmIsLandedAddOnCharge						= LandedAddOnCharge
+					invoked.PrmBypassComputeTotals						= LocalBypassComputeTotals
+					
+			else
+				if (not Requisition.BaseCurrencyCode = DerivedCurrency)
+					LocalFromCurrency									= DerivedCurrency 
+					CurrencyExchange.ToCurrency							= Requisition.BaseCurrencyCode
+					
+					LocalTransactionAmount								= LocalTotalAOC
+					LocalTotalAOC										= ConvertedCost
+					
+				invoke UpdateTotalsFromAOC Requisition
+					invoked.PrmHeaderAddOnChargeTotal					= LocalTotalAOC
+	
+		CalculateTaxAndLandedUnitCost
+			if ((TaxCode entered
+   			and  TotalAddOnChargeAmount entered)
+   			or   TaxCode changed
+			or 	(SingleCallToOneSource and ZeroCost))
+   				initialize CalculateTax
+   				CalculateTax.TaxEntity						= DerivedTaxEntity
+   				if (IsLineAddOnCharge)
+   					if (RequisitionLine.RequestedDeliveryDate entered)	
+						CalculateTax.TaxDate				= RequisitionLine.RequestedDeliveryDate
+					else
+						CalculateTax.TaxDate				= Requisition.CreationDate
+					if (RequisitionLine.PurchaseFromLocation.VendorLocation.TaxCode not entered)
+						CalculateTax.FromTaxCode				= Vendor.TaxCode
+					else
+						CalculateTax.FromTaxCode				= RequisitionLine.PurchaseFromLocation.VendorLocation.TaxCode
+				else
+					if (RequisitionLine.RequestedDeliveryDate entered)	
+						CalculateTax.TaxDate				= Requisition.RequestedDeliveryDate
+					else
+						CalculateTax.TaxDate				= Requisition.CreationDate
+   				CalculateTax.TaxableAmount					= TotalAddOnChargeAmount
+   				CalculateTax.TaxCode						= TaxCode
+				CalculateTax.Function						= "C"
+				if  (TaxEntityRel.ThirdParty.VertexOSeries
+				and  Requisition.DropshipAddress not entered)
+					CalculateTax.PostalAddress			= Requisition.FromCompanyLocation.FromLocation.PostalAddressForPurchaseOrder	 	
+				else
+				if (Requisition.DropshipAddress not entered)
+					CalculateTax.PostalAddress				= Requisition.RequestingLocation.PostalAddress
+				else
+					CalculateTax.PostalAddress				= Requisition.DropshipAddress	
+				CalculateTax.ThirdPartyFunction				= "I"
+				CalculateTax.System							= "RQ"
+				CalculateTax.CallingModule					= "Requisition"
+				if  (TaxEntityUsesThirdPartyTax)
+					CalculateTax.RelatedObjectReference			= reference to this instance
+					CalculateTax.LocalVertexEventType			= "P"
+					CalculateTax.InputVertexRequest				= "P"
+					CalculateTax.TransactionSource				= "I"
+					CalculateTax.InputReturnVertexTaxIn			= "D" 
+					CalculateTax.InvoiceCompany					= Company
+					CalculateTax.ProcessLevel					= Requisition.RequestingLocation.ProcessLevel
+					CalculateTax.Invoice						= Requisition
+					CalculateTax.InvoiceDate					= current corporate date
+					CalculateTax.Vendor							= Vendor
+					CalculateTax.VendorCustomerName				= Vendor.VendorName
+					CalculateTax.LineNumber						= RequisitionLine
+					CalculateTax.VATRegistrationCountry    	 	= TaxEntityRel.VATRegistrationCountry
+					CalculateTax.VATRegistrationNumber			= TaxEntityRel.VATRegistrationNumber
+					if (PurchaseFromLocation entered
+					and PurchaseFromLocation.CurrentAddressRelExists
+					and PurchaseFromLocation.VATRegistrationNumber entered)
+						CalculateTax.FromPostalAddress				= PurchaseFromLocation.VendorAddress
+						CalculateTax.FromVATRegistrationCountry 	= PurchaseFromLocation.VATRegistrationCountry
+						CalculateTax.FromVATRegistrationNumber		= PurchaseFromLocation.VATRegistrationNumber
+					else
+						CalculateTax.FromPostalAddress				= Vendor.VendorAddress
+						CalculateTax.FromVATRegistrationCountry 	= Vendor.VATRegistrationCountry
+						CalculateTax.FromVATRegistrationNumber		= Vendor.VATRegistrationNumber
+					CalculateTax.DefaultFilingCurrency 			= Company.Currency
+
+					CalculateTax.TransactionCurrency 			= DerivedCurrency
+					CalculateTax.BaseCurrency 					= Requisition.BaseCurrencyCode					
+					CalculateTax.UniqueIdOfRelatedObject		= UniqueID
+				
+				if (not SingleCallToOneSource
+				and not SingleCallToVertex)
+					include LoadOneSourceInputFields
+					include CreateTaxLineItem
+					include CreateTaxLineItemUserFields
+					include VertexFlexibleFields
+
+					LocalCalculateTaxExecuted					= CalculateTax.ExecuteCalculateTax
+
+					if (TaxCode = "00"
+					and TaxEntityRel.ThirdParty.VertexOSeries)
+						TaxCode = CalculateTax.TaxCode 
+
+					initialize AccruedTaxAmount
+					initialize InvoicedTaxAmount
+					for each CalculateTax.TaxTable.TaxTableOutput
+						if (not TaxEntityRel.ThirdParty.Sabrix
+						and not TaxEntityRel.ThirdParty.VertexOSeries)
+							constraint (not each.LandCostFlag
+							or          IsLineAddOnCharge)
+								"CannotUseLandedTaxOnMiscellaneousAddOnCharge"
+
+						if (each.AccrualFlag = "A")
+							AccruedTaxAmount += each.TaxAmount5DP
+						else
+							InvoicedTaxAmount += each.TaxAmount5DP
+							if (each.LandCostFlag)
+								LandedUnitCost += (each.TaxAmount5DP / Quantity)
+    
+	Derived Fields
+		DerivedTaxEntity	is a DerivedField
+			type is like AccountingEntity
+			restricted
+			if (RequisitionLine entered)
+				return RequisitionLine.FromCompanyLocationBin.FromCompany.AccountingEntity
+			else
+				return Requisition.FromCompanyLocation.FromCompany.AccountingEntity
+	
+		DerivedNumberOfDecimalsCost is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (IsLineAddOnCharge)
+				RequisitionLine.DerivedNumberOfDecimalsCost
+			else
+			if (InventoryCompanyRel exists) 
+				InventoryCompanyRel.NumberOfDecimalsCost
+			else
+				8
+				
+		DerivedNumberOfDecimalsQuantity is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (IsLineAddOnCharge)
+				RequisitionLine.DerivedNumberOfDecimalsQuantity
+			else
+			if (InventoryCompanyRel exists) 
+				InventoryCompanyRel.NumberOfDecimalsQuantity
+			else
+				4
+				
+		ConvertedCost is a DerivedField
+			type is like InternationalAmount
+			restricted
+			LocalExchangeDate				= current corporate date
+			CurrencyTable					= Requisition.CurrencyTable
+			return CurrencyExchange.OutputCurrencyAmount
+
+		DerivedLandedUnitCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			initialize LandedUnitCost
+			if (LandedAddOnCharge)
+				LandedUnitCost = EnteredUnitCost
+			if ((not TaxEntityRel.ThirdParty.Sabrix
+			or  DoOneSource)
+			and (not TaxEntityRel.ThirdParty.VertexOSeries 
+			or   TaxEntityRel.TaxAttributeCode not entered))
+				include CalculateTaxAndLandedUnitCost
+			return LandedUnitCost
+			
+		DerivedTotalWithTax is a DerivedField 
+			type is like InternationalCost
+			restricted
+			if (not RequisitionLine.TransactionCurrencyCode = Currency)
+				LocalFromCurrency				= Currency
+				CurrencyExchange.ToCurrency	 	= RequisitionLine.TransactionCurrencyCode
+				LocalTransactionAmount			= TotalAddOnChargeAmount
+				LocalTotalAddOnChargeAmount     = ConvertedCost
+				LocalTransactionAmount			= AccruedTaxAmount
+				LocalAccruedTaxAmount		    = ConvertedCost
+				LocalTransactionAmount			= InvoicedTaxAmount
+				LocalInvoicedTaxAmount     		= ConvertedCost
+				return LocalTotalAddOnChargeAmount + LocalAccruedTaxAmount + LocalInvoicedTaxAmount
+			else
+				return TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount
+
+		DerivedCurrency is a DerivedField
+			type is like Currency
+			restricted
+			if (Currency entered)
+				return Currency
+			else
+				return RequisitionLine.TransactionCurrencyCode
+
+		DerivedTotalWithTaxInLineCurrency is a DerivedField 
+			type is like InternationalCost
+			restricted
+			if (not RequisitionLine.TransactionCurrencyCode = DerivedCurrency)
+				initialize CurrencyExchange
+				LocalFromCurrency				= DerivedCurrency
+				CurrencyExchange.ToCurrency	 	= RequisitionLine.TransactionCurrencyCode
+				LocalTransactionAmount			= TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount
+				LocalExchangeDate				= current corporate date
+				CurrencyTable					= Requisition.CurrencyTable
+				return CurrencyExchange.OutputCurrencyAmount
+			else
+				return TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount
+		
+		DerivedOldTotalWithTaxInLineCurrency is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (old Currency entered)
+				initialize CurrencyExchange
+				LocalFromCurrency 				= old Currency
+				CurrencyExchange.ToCurrency		= RequisitionLine.DerivedOldTransactionCurrency
+				LocalTransactionAmount			= old TotalAddOnChargeAmount + old AccruedTaxAmount + old InvoicedTaxAmount
+				LocalExchangeDate				= current corporate date
+				CurrencyTable					= Requisition.CurrencyTable
+				return CurrencyExchange.OutputCurrencyAmount
+			else
+				return (old TotalAddOnChargeAmount + old AccruedTaxAmount + old InvoicedTaxAmount)
+
+		CurrentTimestamp is a DerivedField
+			type is Alpha 20
+			restricted
+			return current timestamp				
+
+		AddOnChargeContextField is a MessageField
+			restricted
+			"<AddOnCharge>_-_<AddOnCharge.Description>"
+		
+	Actions
+		ProcessOneSourceForRQAOC is a Set Action
+			restricted
+			valid when (SingleCallToOneSource)
+			Parameters
+				PrmCompany			is an InventoryCompany
+				PrmRequisition		is a Requisition
+
+			Local Fields
+				LocalLineItemNumber	is like DistributionSequence
+
+			Instance Selection
+				where (PrmCompany	= Company
+				and	   PrmRequisition = Requisition
+				and    Taxable)
+
+			Sort Order
+				Company
+				Requisition
+			Action Rules
+				Requisition Set Rules
+					Entrance Rules
+						LocalLineItemNumber = Requisition.DerivedNumberOfTaxableRQLines
+					Exit Rules
+						if (SingleCallToOneSource)
+							CalculateTax.SendMultLineItems					= true
+							CalculateTax.UpdateLineItems					= true
+							CalculateTax.UniqueIdOfRelatedObject			= Requisition.UniqueID
+							CalculateTax.UserElementLevel					= "L"
+
+							LocalCalculateTaxExecuted						= CalculateTax.ExecuteCalculateTax
+							
+							constraint (CalculateTax.OutputErrorNumber not entered)
+								"<CalculateTax.OutputErrorMessage>;ContactAdministrator"
+
+							invoke UpdateRQTaxAmounts TaxLineItem in foreground
+								invoked.PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+								invoked.PrmCompany					= Company
+								invoked.PrmInvoiceNumber			= Requisition
+								invoked.PrmUniqueIdOfRelatedObject 	= Requisition.UniqueID
+				Instance Rules
+					LocalLineItemNumber = LocalLineItemNumber + 1
+
+					include CalculateTaxAndLandedUnitCost
+					include LoadOneSourceInputFields
+					include CreateTaxLineItem
+					include CreateTaxLineItemUserFields
+
+		ProcessVertexOneCallForRQAOC is a Set Action
+			restricted
+			valid when (SingleCallToVertex)
+			Parameters
+				PrmCompany			is an InventoryCompany
+				PrmRequisition		is a Requisition
+
+			Local Fields
+				LocalLineItemNumber	is like DistributionSequence
+
+			Instance Selection
+				where (PrmCompany	= Company
+				and	   PrmRequisition = Requisition
+				and    Taxable)
+
+			Sort Order
+				Company
+				Requisition
+			Action Rules
+				Requisition Set Rules
+					Entrance Rules
+						LocalUniqueID = Requisition.UniqueID
+						LocalLineItemNumber = last TaxLineItemsRel.LineItemNumber
+					Exit Rules
+						if (SingleCallToVertex)
+							display "777VtxCalcTax(Aoc)"
+							display "777;Postal;<CalculateTax.PostalAddress>"
+							display "777;POA;<CalculateTax.POAAddress>"		 	
+							display "777;From;<CalculateTax.FromPostalAddress>"
+							CalculateTax.SendMultLineItems					= true
+							CalculateTax.UpdateLineItems					= true
+							CalculateTax.UniqueIdOfRelatedObject			= Requisition.UniqueID
+							CalculateTax.UserElementLevel					= "L"
+
+							LocalJurisdictionLookupKey						= "RQ:" + Requisition + ":" + CurrentTimestamp 
+							CalculateTax.AppendToJurisFile					= true					
+							CalculateTax.JurisdictionResultsKey				= LocalJurisdictionLookupKey
+							CalculateTax.RelatedObjectReference				= reference to Requisition   				 
+
+							LocalCalculateTaxExecuted						= CalculateTax.ExecuteCalculateTax
+
+							invoke UpdateRQTaxAmounts TaxLineItem
+								invoked.PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+								invoked.PrmCompany					= Company
+								invoked.PrmInvoiceNumber			= Requisition
+								invoked.PrmUniqueIdOfRelatedObject 	= Requisition.UniqueID
+				Instance Rules
+					LocalLineItemNumber = LocalLineItemNumber + 1
+
+					include CalculateTaxAndLandedUnitCost
+					include LoadVertexOneCall
+					include CreateTaxLineItem
+					include CreateTaxLineItemUserFields
+
+		UpdateFromTaxLineItem is an Instance Action
+			restricted
+			Parameters
+				PrmAccruedTaxAmount		is a CurrencyAmount
+				PrmInvoicedTaxAmount	is a CurrencyAmount
+				PrmLandedUnitCost		is an InternationalCost
+				PrmTaxCode 				is like TaxCode 
+			Entrance Rules
+			Action Rules
+				AccruedTaxAmount	 = PrmAccruedTaxAmount
+				InvoicedTaxAmount	 = PrmInvoicedTaxAmount
+				LandedUnitCost		+= PrmLandedUnitCost
+				if (TaxCode = "00"
+				and PrmTaxCode entered)
+					TaxCode = PrmTaxCode 
+			Exit Rules
+				invoke CalculateOneSourceLandedUnitCost
+		
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		ProcessVertexForRQAOC is a Set Action
+			restricted
+			valid when (VertexDelayTaxCall)
+			Parameters
+				PrmCompany			is an InventoryCompany
+				PrmRequisition		is a Requisition
+
+			Local Fields
+				LocalLineItemNumber	is like DistributionSequence
+
+			Instance Selection
+				where (PrmCompany	= Company
+				and	   PrmRequisition = Requisition
+				and    Taxable)
+
+			Sort Order
+				Company
+				Requisition
+			Action Rules
+				Requisition Set Rules
+					Entrance Rules
+						LocalLineItemNumber = Requisition.DerivedNumberOfTaxableRQLines
+
+				Instance Rules
+					LocalLineItemNumber = LocalLineItemNumber + 1
+
+					include CalculateTaxAndLandedUnitCost
+
+					initialize AccruedTaxAmount 
+					initialize InvoicedTaxAmount 
+					for each CalculateTax.TaxTable.TaxTableOutput
+						if (each.AccrualFlag = "A")
+							AccruedTaxAmount += each.TaxAmount5DP
+						else
+							InvoicedTaxAmount += each.TaxAmount5DP
+							if (each.LandCostFlag)
+								LandedUnitCost += (each.TaxAmount5DP / Quantity)
+
+					if (IsLineAddOnCharge)
+						LocalTotalAOC 	= DerivedTotalWithTaxInLineCurrency - DerivedOldTotalWithTaxInLineCurrency
+					else
+						LocalTotalAOC 	= TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount - (old TotalAddOnChargeAmount + old AccruedTaxAmount + old InvoicedTaxAmount)
+					include UpdateRequisitionAndRequisitionLineAOCTotals
+
+		Create is a Create Action
+			valid when (IsAddOnChargeAllowed)
+			completion message is "Add_On_ChargeCreated"
+			Action Rules 
+				LocalAccountingEntity    = Company.AccountingEntity
+				
+				if (not LocalBypassUpdateRequisition
+				and !IsLineAddOnCharge
+				and !Requisition.OneSourceDocumentToOnePO.Yes) 
+					invoke UpdateFromAddOnCharge Requisition
+				
+				constraint (not Requisition.RequisitionApprovalType.LineApproval 
+				or 			IsLineAddOnCharge)
+					"CannotAddMiscAOCToARequisitionThatApprovesByLine"
+					
+				if (RequisitionLine not entered)
+					constraint (AddOnCharge.SpreadMethod.NoSpread)
+						"MustUseAddOnChargeCodeWithNoSpreadForMiscellaneousAddOnCharge"
+					constraint	(not AddOnCharge.LandedAddOnCharge)
+						"MiscellaneousAddOnChargeCannotBeLanded"
+				
+				constraint (RequisitionLine not entered 
+				or			not RequisitionLine.ItemType.Inventoried
+				or			RequisitionLine.CreatePurchaseOrder)
+					"CannotHaveLineAOCForInventoriedTypeItemThatIsNotCreatePurchaseOrder"
+						
+				constraint (RequisitionLine not entered 
+				or			not RequisitionLine.ItemType.Inventoried
+				or			not Company.CostingMethod.StandardCosting)
+					"StandardCostCompany,InventoriedTypeItemsCannotHaveAddOnCosts"
+				
+				if (AddOnCharge.SpreadMethod.Rate
+				and EnteredUnitCost not entered 
+				and TotalAddOnChargeAmount not entered 
+				and AddOnChargePercent not entered
+				and not ZeroCost)
+					AddOnChargePercent = AddOnCharge.AddOnChargePercent
+				
+				if (not ZeroCost)
+					if (IsLineAddOnCharge)
+						constraint (EnteredUnitCost entered or TotalAddOnChargeAmount entered or AddOnChargePercent entered)
+							"MustEnterUnitCost,Rate,OrTotalAOC"
+					if (!IsLineAddOnCharge)
+						constraint (TotalAddOnChargeAmount entered or AddOnChargePercent entered)
+							"MustEnterRateOrTotalAOC"
+						
+								
+			Exit Rules
+				if (not LandedAddOnCharge)
+					invoke CreateRestricted RequisitionLineDistribution
+						fill in fields from this instance
+						invoked.Company							= Company
+						invoked.DistributionAccount				= Account
+						invoked.AddOnCharge						= AddOnCharge
+						invoked.DistributionPercent				= 100%
+						invoked.AssetInformation				= TransientAssetInformation
+				
+				LocalLandedUnitCost = LandedUnitCost
+				
+				if (IsLineAddOnCharge)
+					LocalTotalAOC = DerivedTotalWithTaxInLineCurrency
+				else
+					LocalTotalAOC = TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount
+				
+				include UpdateRequisitionAndRequisitionLineAOCTotals
+						
+		Update is an Update Action
+			valid when (Requisition.BudgetEditAndInterfaceNotInProcess)
+			completion message is "Add_On_ChargeUpdated"
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity
+				if (not ZeroCost)
+					if (IsLineAddOnCharge)
+						constraint (EnteredUnitCost entered or TotalAddOnChargeAmount entered or AddOnChargePercent entered)
+							"MustEnterUnitCost,Rate,OrTotalAOC"
+					if (!IsLineAddOnCharge)
+						constraint (TotalAddOnChargeAmount entered or AddOnChargePercent entered)
+							"MustEnterRateOrTotalAOC"
+				
+				constraint (Requisition.IsUnreleased)
+					"CannotChange,RequisitionHasBeenReleased"
+				if (not LandedAddOnCharge)
+					if (Account changed or TransientAssetInformation changed)
+						invoke Update RequisitionLineDistributionRel
+							invoked.DistributionAccount				= Account
+							invoked.AssetInformation				= TransientAssetInformation
+							
+				if (AddOnChargePercent changed or EnteredUnitCost changed or TotalAddOnChargeAmount changed or ZeroCost changed)
+					DerivedTotalWithTaxChanged = true
+					
+			Exit Rules
+				LocalLandedUnitCost = LandedUnitCost - old LandedUnitCost
+				
+				if (IsLineAddOnCharge)
+					LocalTotalAOC 	= DerivedTotalWithTaxInLineCurrency - DerivedOldTotalWithTaxInLineCurrency
+				else
+					LocalTotalAOC 	= TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount - (old TotalAddOnChargeAmount + old AccruedTaxAmount + old InvoicedTaxAmount)
+				include UpdateRequisitionAndRequisitionLineAOCTotals
+				
+				if (not LandedAddOnCharge)
+					if (DerivedTotalWithTaxChanged)
+						if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	            		or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)		
+							invoke UpdateGLCommitmentIndirect RequisitionLineDistributionRel
+								invoked.PerformBudgetEdit = true
+								
+													
+		Delete is a Delete Action
+			valid when (Requisition.BudgetEditAndInterfaceNotInProcess)
+			completion message is "Add_On_ChargeDeleted"
+			Entrance Rules
+				if (!FromSpread)
+					constraint (!FromContract)
+						"CannotDeleteAddOnChargeFromContract"
+					
+				include UpdateAOCTotals
+			Exit Rules
+				include UpdateRequisitionAndRequisitionLineAOCTotals	
+				
+		DeleteRequisitionAddOnCharge is a Delete Action
+			restricted
+			valid when (Requisition.BudgetEditAndInterfaceNotInProcess)
+			completion message is "Add_On_ChargeDeleted"
+			Entrance Rules
+				include UpdateAOCTotals
+			Exit Rules
+				include UpdateRequisitionAndRequisitionLineAOCTotals
+
+		AddSpreadDifference is an Instance Action
+			restricted
+			Parameters
+				PrmSpreadDifference			is an InternationalAmount
+			Action Rules
+				if (PrmSpreadDifference entered)
+					TotalAddOnChargeAmount	+= PrmSpreadDifference
+				invoke UpdateTotalsFromAOC Requisition
+					invoked.PrmHeaderAddOnChargeTotal = PrmSpreadDifference
+					
+		CancelAddOnChargeFromPO is an Instance Action 
+			restricted
+			
+			Action Rules
+				invoke UpdateGLCommitmentIndirect RequisitionLineDistributionRel
+					invoked.ApprovalReject = true
+		
+		CalculateOneSourceLandedUnitCost is an Instance Action
+			restricted
+			Action Rules
+				LocalCallOneSource = true
+				if (not SingleCallToOneSource
+				and not SingleCallToVertex)
+					LandedUnitCost = DerivedLandedUnitCost
+				
+				LocalLandedUnitCost = LandedUnitCost - old LandedUnitCost
+				
+				if (IsLineAddOnCharge)
+					LocalTotalAOC 	= DerivedTotalWithTaxInLineCurrency - DerivedOldTotalWithTaxInLineCurrency
+				else
+					LocalTotalAOC 	= TotalAddOnChargeAmount + AccruedTaxAmount + InvoicedTaxAmount - (old TotalAddOnChargeAmount + old AccruedTaxAmount + old InvoicedTaxAmount)
+				include UpdateRequisitionAndRequisitionLineAOCTotals
+				
+		RecalculateAOCLandedUnitCost is an Instance Action
+			restricted
+			Action Rules
+				LandedUnitCost = DerivedLandedUnitCost
+
+		Purge is a Purge Action
+			restricted
+			
+					

@@ -1,0 +1,1415 @@
+StockOnHandDetail is a BusinessClass
+    owned by ic
+    prefix is SDT
+    classic name is SOHDETAIL
+
+    Ontology
+        symbolic key is StockOnHandDetail
+            classic set name is SDTSET1
+            classic name for StockOnHandDetail.UnitOfMeasure is UOM
+            classic name for InventoryLocation is LOCATION
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+    Persistent Fields
+
+        StockOnHandQuantity        is a Quantity			
+            classic name is SOH-QTY
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        SecondaryQuantity          is a Quantity			
+            classic name is SECONDARY-QTY
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        BinType
+        AllocatedCatchWeightQuantity	is a Quantity		
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        AllocatedQuantity          is a Quantity			
+            classic name is ALLOC-QTY
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        InspectionHoldQuantity     is a Quantity 			
+            classic name is HOLD-QTY
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        InspectionHoldSecondaryQuantity	is a Quantity 		
+			precision is Item.NumberOfDecimalsQuantity
+			disable Auditing
+        FrozenForPhysicalInventory is Boolean
+            classic name is FREEZE-FL
+        FreezeDate                 is Date
+            classic name is FREEZE-DT
+        ItemLocation
+	
+	Local Fields
+	
+		NewInventoryTransaction				is an InventoryTransaction view
+		NewInventoryTransactionLine			is an InventoryTransactionLine view
+		TotalOpenQuantity					is like Quantity
+		TotalExternalCost					is an InternationalCost
+		UOMCalculation
+		LocationItemUOMConversion
+		LocalAlternateUOM					is a UnitOfMeasure
+		LocalSerial							is a ItemSerialNumber 
+		LocalRecallGroup					is AlphaUpper size 4
+		LocalRecallNotice					is a RecallNotice
+		LocalRecallProduct					is a RecallProduct
+		LocalInputQuantity					is like Quantity
+		LocalAllocatedQuantity				is like Quantity
+		LocalHoldQuantity					is like Quantity
+		LocalShipmentAllocatedQuantityTotal	is like Quantity
+		ActionThread
+		LocalSource							is Alpha size 50
+		Execute								is Boolean
+		AuditError							is Boolean
+		AuditErrMsg							is Alpha 150
+		LocalSupplementalComputed				is Boolean
+		LocalStockOnHandInSupplementalUOM		is like Quantity
+		LocalInspectionHoldInSupplementalUOM 	is like Quantity
+		LocalAllocatedInSupplementalUOM 		is like Quantity
+		LocalLocationStockComputed				is Boolean
+
+
+
+
+	Context Fields
+		InventoryTransaction
+		InventoryTransactionLine
+		TransactionSystemCode
+		WarehouseDemand
+		WarehouseDemandLine
+		PayablesInvoice
+		PayablesInvoiceDetail
+		
+	Rule Blocks
+				
+		CostCalculation
+			if (Company.CostingMethod.AverageCosting)
+				invoked.CurrentCost									= ItemLocation.AverageCost							
+			else
+			if (Company.CostingMethod.StandardCosting)
+				invoked.CurrentCost									= ItemLocation.StandardCost	
+			else
+			if (TotalOpenQuantity not entered)
+				initialize invoked.CurrentCost 
+			else
+				invoked.CurrentCost = TotalExternalCost / TotalOpenQuantity
+	
+		ConversionToSecondaryUOM
+			initialize UOMCalculation
+			UOMCalculation.InputUOM 	 = Item.StockUOM
+			UOMCalculation.InputToUOM    = Item.SecondaryUOM
+			UOMCalculation.InputQuantity = LocalInputQuantity
+			UOMCalculation.Method		 = UOMCalculation.Method.ConvertToAlternate
+
+		CreateStockOnHandDetailAudit
+			Execute = ActionThread.GetDetails
+	  		if (WarehouseDemandLine entered)
+	            Execute = WarehouseDemandLine.DerivedSetOriginatingTransaction		
+	 		invoke Create StockOnHandDetailAudit
+	 			resume on error
+					AuditError  = true
+					AuditErrMsg = error message
+	 			invoked.Company							= Company
+	 			invoked.InventoryLocation				= InventoryLocation
+	 			invoked.Item							= Item
+				invoked.StockOnHandDetail				= StockOnHandDetail
+				invoked.AfterStockOnHandQuantity  		= StockOnHandQuantity
+				invoked.AfterSecondaryQuantity			= SecondaryQuantity
+				invoked.AfterAllocatedQuantity			= AllocatedQuantity
+				invoked.AfterInspectionHoldQuantity		= InspectionHoldQuantity 
+				if (not action type.Create)
+					invoked.BeforeStockOnHandQuantity	= old StockOnHandQuantity
+					invoked.BeforeSecondaryQuantity		= old SecondaryQuantity
+					invoked.BeforeAllocatedQuantity		= old AllocatedQuantity
+				if (LocalSource entered)
+					invoked.RootBusinessClass 			= LocalSource
+				else
+					invoked.RootBusinessClass			= ActionThread.RootBusinessClass
+	            	invoked.RootAction					= ActionThread.RootAction
+					invoked.RootBusinessObjectReference	= ActionThread.RootBusObjectRef 
+	        	invoked.InvokingAction					= ActionThread.InvokingAction
+	        	invoked.ActionContext					= ActionThread.ActionContext
+	        	invoked.Actor							= actor
+	        	invoked.UpdateDate						= current timestamp
+				if (InventoryTransactionLine entered)
+					if (InventoryTransactionLine.OriginatingTransaction entered)
+						invoked.OriginatingTransaction	= InventoryTransactionLine.OriginatingTransaction
+					else 
+						invoked.OriginatingTransaction	= reference to InventoryTransactionLine
+				else
+				if (WarehouseDemandLine entered)
+	                invoked.OriginatingTransaction      = WarehouseDemandLine.TransientOriginatingTransaction
+				else
+				if (PayablesInvoiceDetail entered)
+					invoked.OriginatingTransaction		= reference to PayablesInvoiceDetail
+
+
+		SupplementalQuantityCalculation
+			LocalSupplementalComputed 					= true
+			if (StockOnHandDetail.UnitOfMeasure = ItemLocation.SupplementalUOM.UnitOfMeasure)
+				LocalStockOnHandInSupplementalUOM		= StockOnHandQuantity 
+				LocalInspectionHoldInSupplementalUOM	= InspectionHoldQuantity
+				LocalAllocatedInSupplementalUOM			= AllocatedQuantity
+			else
+				initialize UOMCalculation
+				UOMCalculation.InputUOM 	 			= StockOnHandDetail.UnitOfMeasure
+				UOMCalculation.InputToUOM    			= ItemLocation.SupplementalUOM.UnitOfMeasure
+				UOMCalculation.Method		 			= UOMCalculation.Method.ConvertToAlternate
+				UOMCalculation.InputQuantity 			= StockOnHandQuantity
+				LocalStockOnHandInSupplementalUOM		= UOMCalculation.OutputQuantity
+				UOMCalculation.InputQuantity 			= InspectionHoldQuantity
+				LocalInspectionHoldInSupplementalUOM	= UOMCalculation.OutputQuantity
+				UOMCalculation.InputQuantity 			= AllocatedQuantity
+				LocalAllocatedInSupplementalUOM			= UOMCalculation.OutputQuantity
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    Derived Fields
+		ContextMessageText is a MessageField
+			restricted
+			"StockOnHandDetail<StockOnHandDetail>"
+
+        AvailableQuantity            is a DerivedField    
+            type is like Quantity	
+            	precision is Item.NumberOfDecimalsQuantity	
+            classic name is AVAIL-QTY
+            if (Item.IsCatchWeightItem)
+            	return CatchWeightAvailableQuantity
+            else
+            	return (StockOnHandQuantity - AllocatedQuantity - InspectionHoldQuantity)
+
+        CatchWeightAvailableQuantity is a DerivedField	
+            type is like Quantity	
+            	precision is Item.NumberOfDecimalsQuantity	
+            classic name is CWT-AVAIL-QTY
+            restricted
+            return (StockOnHandQuantity - AllocatedCatchWeightQuantity - InspectionHoldQuantity)
+		
+		SecondaryAvailableQuantity   is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			return SecondaryQuantity - AllocatedQuantity- InspectionHoldQuantityInSecondaryUOM
+
+		DerivedAllocatedCatchWeightQuantity						is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			if (AllocatedCatchWeightQuantity entered)
+				return AllocatedCatchWeightQuantity
+			else
+			if (AllocatedQuantity entered)
+				initialize UOMCalculation
+				UOMCalculation.InputQuantity = AllocatedQuantity
+				UOMCalculation.InputUOM 	 = StockOnHandDetail.UnitOfMeasure
+				UOMCalculation.InputToUOM    = Item.StockUOM
+				UOMCalculation.Method		 = UOMCalculation.Method.ConvertToStock
+				return UOMCalculation.OutputQuantity
+			else
+				return 0
+
+		DerivedTransactionLineQuantityInStockUOM is a DerivedField 
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			if (HasBin entered)
+				if (StockOnHandDetail.UnitOfMeasure = Item.StockUOM)
+					return DerivedStockOnHandQuantityDisplay
+				else
+					initialize UOMCalculation
+					UOMCalculation.InputQuantity 		= StockOnHandQuantity
+					UOMCalculation.InputUOM 	 		= StockOnHandDetail.UnitOfMeasure 
+					UOMCalculation.Method				= UOMCalculation.Method.ConvertToStock
+					return UOMCalculation.OutputQuantity
+			else
+				return 0
+
+		AllocatedQuantityInSecondaryUOM							is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			return AllocatedQuantity
+
+		InspectionHoldQuantityInSecondaryUOM					is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			if (InspectionHoldSecondaryQuantity entered)
+				return InspectionHoldSecondaryQuantity
+			else
+			if (InspectionHoldQuantity entered)
+				LocalInputQuantity 	   	= InspectionHoldQuantity
+				include ConversionToSecondaryUOM
+				return UOMCalculation.OutputQuantity
+			else
+				return 0
+						
+        Available                    is a DerivedField	
+            type is like Quantity	
+            	precision is Item.NumberOfDecimalsQuantity	
+            classic name is AVAILABLE-QTY
+            restricted
+			if (HasItemLocationStockUOM)
+				return AvailableQuantity / DerivedLocationStockUOMMultiplier
+			else
+            if (CatchweightItem)
+                return CatchWeightAvailableQuantity
+            else
+                return AvailableQuantity
+                
+        NumberOfCharacters is a DerivedField
+			type is Numeric size 3
+			restricted
+			return StockOnHandDetail.Lot size 
+			
+		DerivedShipmentAllocatedQuantity	is a DerivedField
+			type is like Quantity
+			initialize LocalShipmentAllocatedQuantityTotal
+			for each WarehouseShipmentLineDetailRel
+				LocalShipmentAllocatedQuantityTotal += each.Quantity
+			return LocalShipmentAllocatedQuantityTotal
+		
+		DerivedCurrentCost	is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (Company.CostingMethod.AverageCosting)
+				return ItemLocation.DerivedItemAverageCost							
+			else
+			if (Company.CostingMethod.StandardCosting)
+				return ItemLocation.StandardCost	
+			else
+				for each InventoryCostHistoryRel
+					TotalOpenQuantity  +=  each.ReceivedQuantity - each.InspectionHoldQuantity - each.UsedQuantity
+					TotalExternalCost  +=  ((each.ReceivedQuantity - each.InspectionHoldQuantity - each.UsedQuantity)* each.UnitCost)
+				if (TotalOpenQuantity entered)	
+					return TotalExternalCost / TotalOpenQuantity
+				else
+					return 0
+               
+		MobileLotAndBinField	is a LabelField
+        	"Lot:<StockOnHandDetail.Lot>|Bin:<StockOnHandDetail.Bin>"
+
+		DerivedAuditCount is a DerivedField
+			type is Numeric 10
+			return instance count of StockOnHandDetailAuditPurgeRel
+
+
+		StockOnHandQuantityInSupplementalUOM							is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "SOHQuantity"
+			if (DisplaySupplementalQuantities)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalStockOnHandInSupplementalUOM
+
+		InspectionHoldQuantityInSupplementalUOM							is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "InspectionHoldQuantity"
+			if (DisplaySupplementalQuantities)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalInspectionHoldInSupplementalUOM
+
+		AllocatedQuantityInSupplementalUOM								is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "AllocatedQuantity"
+			if (DisplaySupplementalQuantities)
+				if (not LocalSupplementalComputed)
+					include SupplementalQuantityCalculation
+				return LocalAllocatedInSupplementalUOM
+
+        DerivedSupplementalUOM is a DerivedField
+        	type is like UnitOfMeasure
+        	return ItemLocation.SupplementalUOM.UnitOfMeasure
+
+
+		DerivedLocationStockUOM											is a DerivedField 
+			type is like UnitOfMeasure
+			return ItemLocation.ItemLocationStockUOM.UnitOfMeasure
+
+		DerivedLocationStockUOMMultiplier								is a DerivedField  
+			type is like UOMMultiplier
+			return ItemLocation.ItemLocationStockUOM.ItemUOM.UOMConversion
+
+		StockOnHandQuantityInLocationStockUOM							is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "SOHQuantity"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InQuantity   		= StockOnHandQuantity
+				LocationItemUOMConversion.InUOM		   		= StockOnHandDetail.UnitOfMeasure
+				return LocationItemUOMConversion.OutputQuantity
+
+		InspectionHoldQuantityInLocationStockUOM						is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "InspectionHoldQuantity"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InQuantity   		= InspectionHoldQuantity
+				LocationItemUOMConversion.InUOM		   		= StockOnHandDetail.UnitOfMeasure
+				return LocationItemUOMConversion.OutputQuantity
+
+		AllocatedQuantityInLocationStockUOM								is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			default label is "AllocatedQuantity"
+			if (HasItemLocationStockUOM)
+				initialize LocationItemUOMConversion
+				LocationItemUOMConversion.InQuantity   		= AllocatedQuantity
+				LocationItemUOMConversion.InUOM		   		= StockOnHandDetail.UnitOfMeasure
+				return LocationItemUOMConversion.OutputQuantity
+
+		DerivedUOM														is a DerivedField
+			type is like UnitOfMeasure
+			if (HasItemLocationStockUOM)
+				return DerivedLocationStockUOM
+			else
+				return StockOnHandDetail.UnitOfMeasure
+
+		DerivedStockOnHandQuantityDisplay								is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				return StockOnHandQuantityInLocationStockUOM
+			else
+				return StockOnHandQuantity 
+
+		AvailableQuantityInLocationStockUOM								is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				return AvailableQuantity / DerivedLocationStockUOMMultiplier
+            else
+                return AvailableQuantity
+
+        DerivedStockOnHandDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "OnHand"
+			if (HasItemLocationStockUOM)
+            	return StockOnHandQuantityInLocationStockUOM + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return StockOnHandQuantity + " " + StockOnHandDetail.UnitOfMeasure
+            else
+            if (DisplayWithCatchWeight)
+            	return StockOnHandQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + SecondaryQuantity + " " + Item.SecondaryUOM
+			else 
+            	return StockOnHandQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + StockOnHandQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+
+        DerivedAllocatedDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "Allocated"
+			if (HasItemLocationStockUOM)
+            	return AllocatedQuantityInLocationStockUOM + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return AllocatedQuantity + " " + StockOnHandDetail.UnitOfMeasure
+            else
+            if (DisplayWithCatchWeight)
+	            return DerivedAllocatedCatchWeightQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + AllocatedQuantity + " " + Item.SecondaryUOM
+			else 
+            	return AllocatedQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + AllocatedQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+ 
+        DerivedInspectionHoldDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "InspectionOnHold"
+			if (HasItemLocationStockUOM)
+            	return InspectionHoldQuantityInLocationStockUOM + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return InspectionHoldQuantity + " " + StockOnHandDetail.UnitOfMeasure
+            else
+            if (DisplayWithCatchWeight)
+            	return InspectionHoldQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + InspectionHoldQuantityInSecondaryUOM + " " + Item.SecondaryUOM
+            else 
+            	return InspectionHoldQuantity + " " + StockOnHandDetail.UnitOfMeasure + "\u000a" + InspectionHoldQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+
+        DerivedBackorderedDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "Backordered"
+			if (HasItemLocationStockUOM)
+            	return LocationItemUOMConversion.BackorderedQuantity + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return ItemLocation.BackorderedQuantity + " " + Item.StockUOM
+            else
+            if (DisplayWithCatchWeight)
+            	return ItemLocation.BackorderedQuantityInStockUOM + " " + Item.StockUOM + "\u000a" + ItemLocation.BackorderedQuantity + " " + Item.SecondaryUOM
+			else 
+            	return ItemLocation.BackorderedQuantity + " " + Item.StockUOM + "\u000a" + ItemLocation.BackorderedQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+ 
+        DerivedUnallocatedDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "Unallocated"
+			if (HasItemLocationStockUOM)
+            	return LocationItemUOMConversion.UnallocatedQuantity + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return ItemLocation.UnallocatedQuantity + " " + Item.StockUOM
+            else
+            if (DisplayWithCatchWeight)
+            	return ItemLocation.UnallocatedQuantityInStockUOM + " " + Item.StockUOM + "\u000a" + ItemLocation.UnallocatedQuantity + " " + Item.SecondaryUOM
+			else 
+           		return ItemLocation.UnallocatedQuantity + " " + Item.StockUOM + "\u000a" + ItemLocation.UnallocatedQuantityInSupplementalUOM + " " + DerivedSupplementalUOM
+ 
+        DerivedInProcessDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "InProcess"
+			if (HasItemLocationStockUOM)
+            	return LocationItemUOMConversion.InProcessQuantity + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return ItemLocation.InProcessQuantity + " " + Item.StockUOM
+            else
+            if (DisplayWithCatchWeight)
+            	return ItemLocation.InProcessQuantityInStockUOM + " " + Item.StockUOM + "\u000a" + ItemLocation.InProcessQuantity + " " + Item.SecondaryUOM
+			else 
+            	return ItemLocation.InProcessQuantity + " " + Item.StockUOM + "\u000a" + ItemLocation.InProcessQuantityInSupplementalUOM + " " + DerivedSupplementalUOM 
+
+        DerivedIntransitDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "Intransit"
+			if (HasItemLocationStockUOM)
+            	return LocationItemUOMConversion.IntransitQuantity + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return ItemLocation.IntransitQuantity + " " + Item.StockUOM
+            else
+            if (DisplayWithCatchWeight)
+            	return ItemLocation.IntransitQuantityInStockUOM + " " + Item.StockUOM + "\u000a" + ItemLocation.IntransitQuantity + " " + Item.SecondaryUOM
+			else 
+            	return ItemLocation.IntransitQuantity + " " + Item.StockUOM + "\u000a" + ItemLocation.IntransitQuantityInSupplementalUOM + " " + DerivedSupplementalUOM 
+ 
+        DerivedWorkInProcessDisplay is a DerivedField
+            type is Alpha size up to 50
+            default label is "WorkInProcess"
+			if (HasItemLocationStockUOM)
+            	return LocationItemUOMConversion.WorkInProgressQuantity + " " + DerivedLocationStockUOM
+			else
+            if (DisplayStockOnly)
+            	return ItemLocation.WorkInProgressQuantity + " " + Item.StockUOM
+            else
+            if (DisplayWithCatchWeight)
+            	return ItemLocation.WorkInProgressQuantityInStockUOM + " " + Item.StockUOM + "\u000a" + ItemLocation.WorkInProgressQuantity + " " + Item.SecondaryUOM
+			else 
+            	return ItemLocation.WorkInProgressQuantity + " " + Item.StockUOM + "\u000a" + ItemLocation.WorkInProgressQuantityInSupplementalUOM + " " + DerivedSupplementalUOM 
+
+		TransactionUOMMultiplier 							is a DerivedField
+			type is like UOMConversion
+    		restricted
+			return ItemUOMRel.UOMConversion
+
+		StockOnHandQuantityInStockUOM						is a DerivedField
+			type is like Quantity
+			return StockOnHandQuantity 		* TransactionUOMMultiplier
+
+		AllocatedQuantityInStockUOM							is a DerivedField
+			type is like Quantity
+			return AllocatedQuantity 		* TransactionUOMMultiplier
+
+		InspectionHoldQuantityInStockUOM					is a DerivedField
+			type is like Quantity
+			return InspectionHoldQuantity	* TransactionUOMMultiplier
+
+		DerivedWarehouseStorageLocation is a DerivedField
+			type is like WarehouseStorageLocation
+			return StockOnHandDetail.Bin.WarehouseStorageLocation
+
+        DerivedWarningDate is a DerivedField
+            type is Date
+			if (ItemStorageLocationRel exists)
+				return (StockOnHandDetail.Lot.LotExpirationDate - ItemStorageLocationRel.ExpirationWarning)
+
+		DerivedRemainingShelfLife is a DerivedField
+			type is Numeric 4
+			default label is "Remaining_Shelf_Life"
+			if (BinHasWarehouseStorageLocation
+			and StockOnHandDetail.Lot.LotExpirationDate >= current corporate date)
+				return StockOnHandDetail.Lot.LotExpirationDate - current corporate date
+			else
+				return 0
+
+		DerivedShelfLife is a DerivedField
+			type is like ShelfLife
+			default label is "ShelfLife"
+			if (BinHasWarehouseStorageLocation)
+				return ItemLotRel.ShelfLife
+			else
+				return blank
+
+		DerivedManufacturingDate is a DerivedField
+			type is like ManufacturingDate
+			default label is "ManufacturingDate"
+			if (BinHasWarehouseStorageLocation)
+				return ItemLotRel.ManufacturingDate
+			else
+				return blank
+
+		DerivedExpirationDateSource is a DerivedField
+			type is like ExpirationDateSource
+			default label is "ExpirationDateSource"
+			return ItemLotRel.ExpirationDateSource
+
+    Conditions
+
+        CatchweightItem
+        	restricted
+            when (not Item.CatchWeightCode.NotCatchWeight)
+
+        HasBin
+            when (StockOnHandDetail.Bin entered)
+
+        HasBinType
+        	restricted
+            when (BinType entered)
+            
+		IsSerialTracked
+			restricted
+			when (ItemLocation.IsSerialTracked)
+			
+		IsLotTracked
+			restricted
+			when (ItemLocation.IsLotTracked)
+
+		NotSerialTracked
+			restricted
+			when (ItemLocation.SerialTracked.NotSerialTracked)
+				
+		LotBinTracked
+			restricted
+			when (ItemLocation.LotTracked.LotRequiredAtReceipt
+			or 	ItemLocation.LotTracked.LotRequiredAtIssue
+			and ItemLocation.BinTracked)
+		
+		IsOnlyBinTracked
+			restricted
+			when (ItemLocation.BinTracked
+			and  !ItemLocation.IsLotTracked
+			and  !ItemLocation.IsSerialTracked)
+		
+		IsLotBinTracked
+			restricted
+			when (LotBinTracked
+			or 	  IsOnlyBinTracked)
+					
+		IsItemLotNotOnHold
+			restricted
+			when (!ItemLotRel.LotOnHold)
+			
+		IsDetailTransfer
+			restricted
+			when (Item.CatchWeightCode.NotCatchWeight
+			and   ItemLocation.BinTracked)	
+		
+		ValidForDetailTransfer
+			restricted
+			when (not ItemLocation.IsSerialTracked
+			and ((Item.TrackedAlternateUOMRel exist and not HasItemLocationStockUOM) 
+			or    ItemLocation.BinTracked
+			or   (ItemLocation.LotTracked entered and ItemLocation.IsLotTracked)))
+		
+		HasSecondaryQuantity
+			restricted
+			when (SecondaryQuantity > 0)
+			
+		HasShipmentLineDetail
+			restricted
+			when (WarehouseShipmentLineDetailRel exists)
+					
+		TrackedInAlternateUnitsOfMeasure
+			restricted
+			when (Item.IsTrackedInAlternateUOM)
+			
+		BinOnlyEntered
+			restricted
+			when (StockOnHandDetail.Bin entered
+			and StockOnHandDetail.Lot not entered)
+			
+		LotOnlyEntered
+			restricted
+			when (StockOnHandDetail.Lot entered
+			and StockOnHandDetail.Bin not entered)
+			
+		LotAndBinEntered
+			restricted
+			when (StockOnHandDetail.Lot entered
+			and StockOnHandDetail.Bin entered)
+
+		IsExpiredLot
+			restricted
+			when (StockOnHandDetail.Lot entered
+			and   StockOnHandDetail.Lot.ExpiredItems)
+			
+		IsExpiringLot
+			restricted
+			when (StockOnHandDetail.Lot entered
+			and   StockOnHandDetail.Lot.ItemsAboutToExpire)
+
+
+		HasSupplementalUOM
+			when (ItemLocation.SupplementalUOM.UnitOfMeasure entered)
+
+		DisplayStockOnly
+			when (not Item.IsCatchWeightItem
+			and   not HasSupplementalUOM
+			and   not HasItemLocationStockUOM)
+
+		DisplayWithCatchWeight
+			when (Item.IsCatchWeightItem)
+
+		DisplaySupplementalQuantities
+			when (HasSupplementalUOM
+			and   not Item.IsCatchWeightItem)
+
+		HasItemLocationStockUOM
+			when (ItemLocation.HasItemLocationStockUOM)
+
+		DisplayLocationStockValues
+			when (HasItemLocationStockUOM
+			and   not Item.IsCatchWeightItem)
+
+		HasRecipe
+			restricted
+			when (Item.Recipe)
+
+		IsAWarehouseLocationItem
+			restricted
+			when (ItemLocation.IsAWarehouseLocationItem)
+
+		WarningDateNotification
+			restricted
+			when (not DerivedExpirationDateSource.NoExpiration 
+			and  current corporate date <= DerivedWarningDate)
+
+		BinHasWarehouseStorageLocation
+			restricted
+			when (StockOnHandDetail.Bin.WarehouseStorageLocation entered)
+
+
+    Relations
+
+   		ItemRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup	= Company.ItemGroup
+				related.Item		= Item
+
+
+        ItemLotRel
+            one-to-one relation to ItemLot
+            Field Mapping uses symbolic key
+                related.Company           							= Company
+                related.InventoryLocation				 			= InventoryLocation
+                related.Item              							= Item
+                related.ItemLot           							= StockOnHandDetail.Lot
+                
+        InventoryCostHistoryRel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set3
+				related.Company 									= Company
+				related.InventoryLocation							= InventoryLocation
+				related.Item										= Item
+
+		ItemAlternateUnitMeasureRel
+			one-to-many relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup			  						= Company.ItemGroup
+				related.Item				  						= Item
+			Instance Selection
+				where (related.UnitOfMeasure  						= LocalAlternateUOM) 
+		
+		TrackedAlternateUOMRel
+			one-to-many relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup			  						= Company.ItemGroup
+				related.Item				  						= Item
+			Instance Selection
+				where (related.UnitOfMeasure  						= LocalAlternateUOM
+				and	   related.TrackedIn							= true) 
+
+		ItemUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup     								= Company.ItemGroup
+				related.Item          								= Item
+				related.UnitOfMeasure 								= StockOnHandDetail.UnitOfMeasure
+
+		ItemSerialSOHRel
+			one-to-one relation to ItemSerialNumber
+			Field Mapping uses symbolic key	
+				related.Company										= ItemLocation.Company
+				related.Item										= ItemLocation.Item
+				related.ItemSerialNumber							= LocalSerial 
+				
+		RecallProductLotRel
+			one-to-many relation to RecallProductLot
+   			Field Mapping uses symbolic key
+   				related.RecallGroup			= LocalRecallGroup
+   				related.RecallNotice		= LocalRecallNotice
+   				related.RecallProduct		= LocalRecallProduct
+   				related.RecallProductLot	= StockOnHandDetail.Lot
+   			Instance Selection
+   				where (related.ThruLot		= blank)
+				
+		RecallProductLotRangeRel
+			one-to-many relation to RecallProductLot
+   			Field Mapping uses symbolic key
+   				related.RecallGroup			= LocalRecallGroup
+   				related.RecallNotice		= LocalRecallNotice
+   				related.RecallProduct		= LocalRecallProduct
+   			Instance Selection
+   				where (related.ThruLot			!= blank
+   				and    related.NumberOfCharacters = NumberOfCharacters
+   				and    related.RecallProductLot <= StockOnHandDetail.Lot
+   				and    related.ThruLot          >= StockOnHandDetail.Lot)
+   				
+		WarehouseShipmentLineDetailRel
+			one-to-many relation to WarehouseShipmentLineDetail
+			Field Mapping uses SOHSet
+				related.Company										= Company
+				related.InventoryLocation							= InventoryLocation
+				related.WarehouseShipmentLineDetail.UnitOfMeasure	= StockOnHandDetail.UnitOfMeasure
+				related.WarehouseShipmentLineDetail.Bin				= StockOnHandDetail.Bin
+                related.WarehouseShipmentLineDetail.Lot				= StockOnHandDetail.Lot
+                related.WarehouseShipmentLineDetail.Sublot			= StockOnHandDetail.Sublot
+            Instance Selection
+            	where (related.WarehouseShipmentLine.Item			= Item
+            	and    related.WarehouseShipment.IsOpen)
+
+        StockOnHandDetailAuditRel
+            one-to-many relation to StockOnHandDetailAudit
+            Field Mapping uses symbolic key
+                related.Company              			= Company
+                related.InventoryLocation    			= InventoryLocation
+                related.Item                 			= Item
+				related.StockOnHandDetail.UnitOfMeasure	= StockOnHandDetail.UnitOfMeasure
+                related.StockOnHandDetail.Lot			= StockOnHandDetail.Lot
+                related.StockOnHandDetail.Sublot        = StockOnHandDetail.Sublot                
+				related.StockOnHandDetail.Bin			= StockOnHandDetail.Bin
+
+		StockOnHandDetailAuditPurgeRel
+			one-to-many relation to StockOnHandDetailAudit
+			Field Mapping uses symbolic key
+                related.Company              			= Company
+                related.InventoryLocation    			= InventoryLocation
+                related.Item                 			= Item
+				related.StockOnHandDetail.UnitOfMeasure	= StockOnHandDetail.UnitOfMeasure
+                related.StockOnHandDetail.Lot			= StockOnHandDetail.Lot
+                related.StockOnHandDetail.Sublot        = StockOnHandDetail.Sublot                
+				related.StockOnHandDetail.Bin			= StockOnHandDetail.Bin
+			Instance Selection
+				include deleted records
+
+		ItemStorageLocationRel
+			one-to-one relation to ItemStorageLocation
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.InventoryLocation				= InventoryLocation
+				related.Item							= Item
+				related.WarehouseStorageLocation		= DerivedWarehouseStorageLocation
+
+		BinReorderPolicyRel
+			one-to-one relation to BinReorderPolicy
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.Item                            = Item
+                related.Bin                             = StockOnHandDetail.Bin
+                related.UnitOfMeasure                   = StockOnHandDetail.UnitOfMeasure
+
+		WarehouseStorageLocationRel
+			one-to-one relation to WarehouseStorageLocation
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.InventoryLocation			= InventoryLocation
+				related.WarehouseStorageLocation 	= DerivedWarehouseStorageLocation
+
+		BinsRel is a Bin set
+			Instance Selection
+				where (InventoryLocation.UseAsWarehouseLocation)
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                InventoryLocation
+                StockOnHandDetail.Bin
+                Item
+                StockOnHandDetail.UnitOfMeasure
+                StockOnHandDetail.Lot
+                StockOnHandDetail.Sublot
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                StockOnHandDetail.Bin
+                StockOnHandDetail.UnitOfMeasure
+                StockOnHandDetail.Lot
+                StockOnHandDetail.Sublot
+
+        Set4
+            indexed
+            Instance Selection
+                where (HasBinType)
+            Sort Order
+                Company
+                InventoryLocation
+                BinType
+                Item
+                StockOnHandDetail.Bin
+                StockOnHandDetail.UnitOfMeasure
+                StockOnHandDetail.Lot
+                StockOnHandDetail.Sublot
+                
+	Field Rules
+		BinType
+			force default to StockOnHandDetail.Bin.BinType
+			
+	Actions
+		Create is a Create Action
+			restricted		
+		Update is an Update Action
+			restricted		
+		Delete is a Delete Action
+			restricted
+			Entrance Rules
+				include CreateStockOnHandDetailAudit			
+					
+		DetailTransfer is an Instance Action
+			valid when (ValidForDetailTransfer)
+
+
+
+
+
+			Parameters
+	       		PrmToBin 				is a Bin
+	       			default label is "ToBin"
+	       		PrmToUOM				is a UnitOfMeasure
+	       			default label is "ToUOM"
+				PrmQuantity 			is a Quantity	
+					default label is "Quantity"
+	       			precision is Item.NumberOfDecimalsQuantity
+	       			
+			Parameter Rules
+				PrmQuantity
+					required
+						"TransferQuantityMustBeEntered"
+
+
+
+					
+					constraint (PrmQuantity <= AvailableQuantity)
+						"InsufficientStockOnHand"
+						
+				PrmToBin
+
+
+
+					if (ItemLocation.BinTracked)
+						required
+							"ToBinMustBeEntered"
+
+						if (HasItemLocationStockUOM)
+							constraint (PrmToBin not = StockOnHandDetail.Bin)
+								"ItemHasLocationStockUOM,FromAndToBinCannotBeTheSame"
+						else	
+							if (PrmToBin = StockOnHandDetail.Bin)
+								constraint (not ItemLocation.IsSerialTracked)
+									"ItemIsSerialTracked,FromAndToBinCannotBeTheSame"
+								constraint (PrmToUOM != StockOnHandDetail.UnitOfMeasure)
+									"ToAndFromUOM\sMustBeDifferentWhenFromAndToBinsAreTheSame"						
+								
+					else
+						cannot be entered
+							"ItemDoesNotHaveBinTracking"										
+				
+				PrmToUOM
+					if (HasItemLocationStockUOM)
+						default to DerivedLocationStockUOM
+					else		
+						default to StockOnHandDetail.UnitOfMeasure
+							
+						LocalAlternateUOM = PrmToUOM
+						constraint (TrackedAlternateUOMRel exists)
+							"ToUOMIsNotAnAlternateTrackingUOM"   				  				
+
+						if (PrmToBin not entered)
+							constraint (PrmToUOM != StockOnHandDetail.UnitOfMeasure)
+								"UOMCannotBeTheSameOnUOMTransfer"
+							
+			Action Rules
+							
+				constraint (Item.CatchWeightCode.NotCatchWeight)
+					"MustUseBinTransferForCatchweightItem"									
+				constraint (not ItemLocation.IsSerialTracked)
+					"UseSerialTransferForSerialTrackedItems"
+				
+				invoke Unreleased.CreateBinTransfer InventoryTransaction
+					assign result to NewInventoryTransaction
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+				
+				invoke Unreleased.Create InventoryTransactionLine
+					assign result to NewInventoryTransactionLine
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+					invoked.InventoryTransaction						= NewInventoryTransaction.InventoryTransaction
+					invoked.TransactionSystemCode						= InventoryTransactionLine.TransactionSystemCode.InventoryControl
+					invoked.Item										= Item
+					invoked.Bin											= StockOnHandDetail.Bin
+					invoked.StockUOM									= Item.StockUOM
+					invoked.StockOnHandQuantity							= ItemLocation.StockOnHandQuantity
+					invoked.FromToCompanyLocationBin.FromToCompany		= Company
+					invoked.FromToCompanyLocationBin.FromToLocation		= InventoryLocation
+					invoked.FromToCompanyLocationBin.FromToBin			= PrmToBin
+					if (HasItemLocationStockUOM)
+						invoked.TransactionUOM 							= DerivedLocationStockUOM
+					else
+						invoked.TransactionUOM 							= StockOnHandDetail.UnitOfMeasure
+					invoked.ToUOM										= PrmToUOM
+					invoked.Quantity									= PrmQuantity       
+					invoked.CurrentCost									= DerivedCurrentCost
+					invoked.TransientLot								= StockOnHandDetail.Lot
+					invoked.TransientSublot								= StockOnHandDetail.Sublot
+					invoked.TransientDetailTransfer						= true
+				
+				invoke QuickCreate InventoryTransactionLineDetail
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+					invoked.InventoryTransaction						= NewInventoryTransaction.InventoryTransaction
+					invoked.InventoryTransactionLine					= NewInventoryTransactionLine.InventoryTransactionLine
+					invoked.TransactionSystemCode						= InventoryTransactionLineDetail.TransactionSystemCode.InventoryControl
+					invoked.Item										= Item
+					invoked.Bin											= StockOnHandDetail.Bin
+					if (HasItemLocationStockUOM)
+						invoked.UnitOfMeasure 							= DerivedLocationStockUOM
+					else
+						invoked.UnitOfMeasure							= StockOnHandDetail.UnitOfMeasure
+					invoked.Quantity									= PrmQuantity
+					invoked.Lot											= StockOnHandDetail.Lot
+					invoked.Sublot										= StockOnHandDetail.Sublot
+					if (PrmToBin.WarehouseStorageLocation entered
+					and	DerivedShelfLife entered)
+						invoked.ShelfLife								= DerivedShelfLife
+						invoked.ManufacturingDate						= DerivedManufacturingDate
+				
+				invoke Unreleased.Transfer NewInventoryTransaction.InventoryTransaction
+				
+		RecallLotNumberQuery is a Set Action
+			restricted
+			Parameters
+				PrmRecallGroup		is a RecallGroup
+				PrmRecallNotice		is a RecallNotice
+				PrmRecallProduct	is a RecallProduct
+				PrmItem				is an Item
+				PrmQueryPriority	is Numeric size 2
+					States
+		   				High			value is 1
+		   				Medium			value is 2
+		   				Low				value is 3
+				PrmQueryDueDate		is TimeStamp
+				PrmCreateTasks      is Boolean
+				
+			Sort Order
+				ItemLocation.Item
+				Company
+				StockOnHandDetail.Lot
+				InventoryLocation
+				StockOnHandDetail.UnitOfMeasure
+				StockOnHandDetail.Sublot
+				StockOnHandDetail.Bin
+			
+			Instance Selection
+				where (Item 				= PrmItem
+    			and	   Company.ItemGroup 	= PrmRecallGroup)
+				
+			Action Rules
+				Instance Rules
+					LocalRecallGroup = PrmRecallGroup
+					LocalRecallNotice = PrmRecallNotice
+					LocalRecallProduct = PrmRecallProduct
+					
+					if (!PrmRecallProduct.HasEnteredLotNumbers
+					or   RecallProductLotRel exists
+					or   RecallProductLotRangeRel exists)
+						invoke Create RecallProductTransaction
+							invoked.RecallGroup									= PrmRecallGroup
+							invoked.RecallNotice								= PrmRecallNotice
+							invoked.RecallProduct								= PrmRecallProduct
+							invoked.ActivityType								= 11 
+							invoked.InventoryLocationGroup.InventoryCompany		= Company
+							invoked.InventoryLocationGroup.InventoryLocation	= InventoryLocation
+							invoked.StockOnHandDetailGroup.InventoryCompany		= Company
+							invoked.StockOnHandDetailGroup.Location				= InventoryLocation
+							invoked.StockOnHandDetailGroup.Item					= Item
+							invoked.StockOnHandDetailGroup.StockOnHandDetail.Lot	= StockOnHandDetail.Lot
+							invoked.StockOnHandDetailGroup.StockOnHandDetail.Sublot = StockOnHandDetail.Sublot
+							invoked.StockOnHandDetailGroup.StockOnHandDetail.Bin    = StockOnHandDetail.Bin
+							invoked.StockOnHandDetailGroup.StockOnHandDetail.UnitOfMeasure    = StockOnHandDetail.UnitOfMeasure
+							invoked.LocalPriority								= PrmQueryPriority
+							invoked.LocalDueDate								= PrmQueryDueDate	
+							invoked.LocalCreateTasks                            = PrmCreateTasks
+		
+		UpdateBinType is a Set Action
+			restricted
+			Parameters
+				PrmCompany 	     is a Company
+					default label is "Company"
+				PrmAllCompanies  is Boolean
+					default label is "AllCompanies"
+			Parameter Rules
+				PrmCompany
+					if (PrmAllCompanies)
+						initialize PrmCompany
+			Instance Selection
+				where ((Company = PrmCompany
+				or      PrmCompany not entered)
+				and     StockOnHandDetail.Bin entered
+                and     BinType not entered)
+			Action Rules
+				Instance Rules
+					BinType = StockOnHandDetail.Bin.BinType
+		
+		UpdateFromTransaction is an Instance Action
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmStockOnHandQuantity 		is like Quantity
+				PrmSecondaryQuantity   		is like Quantity
+				PrmInspectionHoldQuantity	is like Quantity
+				PrmInspectionHoldSecondaryQuantity	is like Quantity
+				
+			Action Rules
+				StockOnHandQuantity 	+= PrmStockOnHandQuantity
+				SecondaryQuantity   	+= PrmSecondaryQuantity
+				InspectionHoldQuantity	+= PrmInspectionHoldQuantity
+				InspectionHoldSecondaryQuantity	+= PrmInspectionHoldSecondaryQuantity
+
+			Exit Rules
+				if (StockOnHandQuantity				= 0
+				and SecondaryQuantity				= 0
+				and AllocatedQuantity				= 0
+				and AllocatedCatchWeightQuantity	= 0
+				and InspectionHoldQuantity			= 0
+				and InspectionHoldSecondaryQuantity = 0)
+					invoke Delete
+							
+		UpdateStockOnHandDetailByWarehouseDemandLineDetail is an Instance Action
+			restricted
+			Parameters
+				PrmAllocatedQuantity is a Quantity
+				
+			Action Rules
+				AllocatedQuantity += PrmAllocatedQuantity
+					
+		UpdateFromWarehouse is an Instance Action
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmAllocatedQuantity 				is like Quantity
+				PrmAllocatedCatchWeightQuantity		is like Quantity
+			
+			Action Rules
+				AllocatedQuantity 				+= PrmAllocatedQuantity
+				AllocatedCatchWeightQuantity	+= PrmAllocatedCatchWeightQuantity
+
+		UpdateFromWorkOrderDetail is an Instance Action
+			restricted
+			Parameters
+				PrmAllocatedQuantity 		is a Quantity
+			
+			Action Rules
+				AllocatedQuantity += PrmAllocatedQuantity
+				
+		UpdateFromPhysicalInventoryFreeze is an Instance Action
+			restricted
+			Parameters
+				PrmFrozenForPhysicalInventory is Boolean
+					
+			Action Rules
+				FrozenForPhysicalInventory	= PrmFrozenForPhysicalInventory
+				if (PrmFrozenForPhysicalInventory)
+					FreezeDate				= current corporate date
+				
+		UpdateFromVendorReturn is an Instance Action
+			restricted
+			Parameters
+				PrmInspectionHoldQuantity 			is like Quantity
+				PrmInspectionHoldSecondaryQuantity	is like Quantity
+				
+			Action Rules
+				InspectionHoldQuantity 			+= PrmInspectionHoldQuantity
+				InspectionHoldSecondaryQuantity	+= PrmInspectionHoldSecondaryQuantity
+				
+		FixAllocatedQuantityForLocation is an Instance Action
+			restricted
+			Action Rules
+				if (AllocatedQuantity not = DerivedShipmentAllocatedQuantity)
+					AllocatedQuantity = DerivedShipmentAllocatedQuantity
+					
+		CreateAudit is an Instance Action
+			restricted
+			Parameters
+				PrmSource	is Alpha size 50
+			Action Rules
+				LocalSource = PrmSource
+
+		StockOnHandDetailAuditPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is an InventoryCompany
+				PrmInventoryLocation		is an InventoryLocation
+			Instance Selection
+				include deleted records
+				where (Company 	 			= PrmCompany
+				and    InventoryLocation	= PrmInventoryLocation)
+			Action Rules
+				Instance Rules
+					invoke Purge StockOnHandDetailAuditPurgeRel
+
+		FreezeStockOnHandDetail is a Set Action
+			restricted
+			completion message is "CreationOfStockOnHandDetailFreezeRecordsForLocation<PrmLocation>AndItem<PrmItem>OrBin<PrmBin>IsComplete."
+			Parameters
+				PrmCompany				is an InventoryCompany
+				PrmSelectId				is a PhysicalInventorySelect
+				PrmLocation				is an InventoryLocation
+				PrmItem					is an Item
+				PrmBinGroup				is a BinGroup
+				PrmBin					is a Bin
+				PrmFreezePageNumber		is Numeric size 4
+				PrmItemLocation			is an ItemLocation
+				PrmSkipConstraints		is Boolean
+				
+			Local Fields
+				LocalSkipStockOnHandDetail 		is Boolean
+   				LocalCreateFreezeErrorMessage	is Alpha size 100
+				LocalItemReceiptSerialTracked	is Boolean
+				LocalItemLocation				is an ItemLocation
+			
+			Accumulators
+				AccumulatorCreateFreezeCount
+									
+			Instance Selection
+				where (PrmCompany			= Company
+				and    PrmLocation			= InventoryLocation
+				and   ((PrmBin				= StockOnHandDetail.Bin
+				and     PrmBin entered)
+				or     (!PrmBin entered))
+				and   ((PrmItem				= Item
+				and     PrmItem entered)
+				or     (!PrmItem entered)))
+				
+			Sort Order 
+				Company
+				InventoryLocation
+				StockOnHandDetail.Bin
+				Item
+				
+			Action Rules
+				Empty Set Rules
+
+					if (PrmItem entered)
+						if (PrmSelectId.FreezeZeroStockOnHand)
+							LocalItemLocation				= PrmItemLocation
+							initialize LocalCreateFreezeErrorMessage
+							invoke Create PhysicalInventoryFreezeLineWork
+								resume on error
+									LocalCreateFreezeErrorMessage	= error message
+									display "FreezeStockOnHandDetailOnErrorEmptySetRules:<LocalCreateFreezeErrorMessage>" 
+								invoked.InventoryCompany						= PrmCompany
+								invoked.PhysicalInventorySelect					= PrmSelectId
+								invoked.InventoryLocation						= PrmLocation
+								invoked.BinGroup								= PrmBinGroup
+								if (PrmBin entered)
+									invoked.Bin									= PrmBin
+								else
+									invoked.Bin									= PrmItemLocation.PreferredBin
+								invoked.Item									= PrmItem
+								if (HasItemLocationStockUOM)
+									invoked.UnitOfMeasure						= DerivedLocationStockUOM
+								else
+									invoked.UnitOfMeasure						= PrmItem.StockUOM
+								initialize invoked.EnteredUOM
+								initialize invoked.FreezeQuantity
+								initialize invoked.CountQuantity
+						        initialize invoked.UnitCost
+						        initialize invoked.SecondaryQuantity
+						        initialize invoked.SecondaryCountQuantity
+						        invoked.SecondaryUOM							= PrmItem.SecondaryUOM
+						        invoked.SecondaryUOMMultiplier					= PrmItem.SecondaryUOMConversion
+						        initialize invoked.InventoryReasonCode
+						        invoked.MovementClassX							= PrmItemLocation.MovementClass
+						        initialize invoked.CountEntered
+						        invoked.OperatorID								= actor
+						        initialize invoked.ItemLot
+						        initialize invoked.Sublot
+						        initialize invoked.ItemSerialNumber
+						        invoked.ItemLocation							= PrmItemLocation
+		
+				Item Set Rules
+					Entrance Rules
+
+						LocalItemLocation				= ItemLocation
+						if (ItemLocation.SerialTracked 	= "R"
+						and StockOnHandQuantity			entered)
+							LocalItemReceiptSerialTracked		= true
+						else
+							initialize LocalItemReceiptSerialTracked
+						
+					Exit Rules
+
+						if (AccumulatorCreateFreezeCount		> 10)
+							commit transaction
+																	
+				Instance Rules
+
+					initialize LocalSkipStockOnHandDetail
+					
+					if (!PrmSkipConstraints)
+						if (!Item.Active
+						or  !ItemLocation.Active)
+
+							LocalSkipStockOnHandDetail		= true
+						else
+						if (!StockOnHandQuantity			entered
+						and !PrmSelectId.FreezeZeroStockOnHand)				
+
+							LocalSkipStockOnHandDetail		= true
+						
+						if (PrmSelectId.ConsignmentItemOption.NoConsignmentItems
+						and ItemLocation.Consignment)
+
+							LocalSkipStockOnHandDetail		= true
+							
+						if (PrmSelectId.ConsignmentItemOption.OnlyConsignmentItems
+						and !ItemLocation.Consignment)
+
+							LocalSkipStockOnHandDetail		= true
+							
+
+						if (PrmSelectId.PhysicalInventoryMajorMinorClassArray.InventoryMajorMinorClass.MajorInventoryClass[1] entered)
+							LocalSkipStockOnHandDetail		= true
+							if (Item.MajorInventoryClass entered)
+								for each PrmSelectId.PhysicalInventoryMajorMinorClassArray.InventoryMajorMinorClass
+									if (!each.MajorInventoryClass entered)
+										end for each
+										
+									if (Item.MajorInventoryClass		= each.MajorInventoryClass)
+										if (!each.MinorInventoryClass entered)
+											LocalSkipStockOnHandDetail	= false
+										else
+										if (Item.MinorInventoryClass	= each.MinorInventoryClass)
+											LocalSkipStockOnHandDetail	= false
+
+
+					if (!LocalSkipStockOnHandDetail)
+
+						if (ItemLocation.SerialTracked = "R"
+						and StockOnHandQuantity			entered)
+							invoke FreezeSerialNumbers ItemSerialNumber in foreground
+								invoked.PrmCompany				= Company
+								invoked.PrmSelectId				= PrmSelectId
+								invoked.PrmBinGroup				= PrmBinGroup
+								invoked.PrmLocation				= InventoryLocation
+								invoked.PrmItem					= Item
+								invoked.PrmStockOnHandDetail	= StockOnHandDetail
+						else
+							initialize LocalCreateFreezeErrorMessage
+
+							invoke Create PhysicalInventoryFreezeLineWork
+								resume on error
+									LocalCreateFreezeErrorMessage	= error message
+									display "StockOnHandDetail_CreateFreezeLineOnError:<LocalCreateFreezeErrorMessage>" 
+								invoked.InventoryCompany						= PrmCompany
+								invoked.PhysicalInventorySelect					= PrmSelectId
+								invoked.InventoryLocation						= InventoryLocation
+								invoked.BinGroup								= PrmBinGroup
+								if (PrmBin entered)
+									invoked.Bin									= PrmBin
+								else
+									invoked.Bin									= StockOnHandDetail.Bin
+								invoked.Item									= Item
+								if (HasItemLocationStockUOM)
+									invoked.UnitOfMeasure						= DerivedLocationStockUOM
+									invoked.FreezeQuantity						= StockOnHandQuantityInLocationStockUOM
+								else
+									invoked.UnitOfMeasure						= StockOnHandDetail.UnitOfMeasure
+									invoked.FreezeQuantity						= StockOnHandDetail.StockOnHandQuantity
+								if (TrackedInAlternateUnitsOfMeasure
+								and not HasItemLocationStockUOM)
+									invoked.EnteredUOM							= StockOnHandDetail.UnitOfMeasure
+								else
+									initialize invoked.EnteredUOM
+								initialize invoked.CountQuantity
+						        initialize invoked.UnitCost
+						        invoked.SecondaryQuantity						= StockOnHandDetail.SecondaryQuantity
+						        initialize invoked.SecondaryCountQuantity
+						        invoked.SecondaryUOM							= Item.SecondaryUOM
+						        invoked.SecondaryUOMMultiplier					= Item.SecondaryUOMConversion
+						        initialize invoked.InventoryReasonCode
+						        invoked.MovementClassX							= ItemLocation.MovementClass
+						        initialize invoked.CountEntered
+						        invoked.OperatorID								= actor
+						        invoked.ItemLot									= StockOnHandDetail.Lot
+						        invoked.Sublot									= StockOnHandDetail.Sublot
+						        initialize invoked.ItemSerialNumber
+						        invoked.ItemLocation							= ItemLocation
+
+						    if (!LocalCreateFreezeErrorMessage entered)
+								AccumulatorCreateFreezeCount	+= 1
+
+	Action Exit Rules
+	
+
+		initialize AuditError
+		initialize AuditErrMsg
+		if (StockOnHandDetail exists
+		and not action type.Delete)
+			include CreateStockOnHandDetailAudit
+
+
+
+		if (AuditError)
+			invoke CreateError StockOnHandDetailAudit
+				resume on error
+	 			invoked.Company							= Company
+	 			invoked.InventoryLocation				= InventoryLocation
+	 			invoked.Item							= Item
+				invoked.StockOnHandDetail				= StockOnHandDetail
+				invoked.ActionContext					= AuditErrMsg 
+	        	invoked.Actor							= actor
+	        	invoked.UpdateDate						= current timestamp
+
+
+		

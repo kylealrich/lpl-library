@@ -1,0 +1,145 @@
+SupplierCommodityCode is a BusinessClass
+    owned by procurement
+    prefix is SCD
+
+    Ontology
+        part of SupplierSourceId
+        	relative key is CommodityCode 
+    
+    Persistent Fields
+    	Approved	is Boolean
+    	
+	Conditions
+		CanCreateCertification
+			restricted
+			when (SupplierGroup.AllowCommodityCodeCertification)
+	
+		SupplierCertificationsExist
+			restricted
+			when (SupplierCertificationRel exists)
+	
+	Relations
+		SupplierCommodityCodeRel 
+        	one-to-many relation to SupplierCommodityCode 
+            Field Mapping uses part of key
+            	related.SupplierGroup 	 = SupplierGroup
+            	related.Supplier		 = Supplier
+            	related.SupplierSourceId = SupplierSourceId
+            Instance Selection
+            	where (related.UniqueID != UniqueID)
+            	
+      	SupplierCertificationRel
+      		one-to-many relation to SupplierCertification
+      		Field Mapping uses symbolic key
+            	related.SupplierGroup 	 = SupplierGroup
+            	related.Supplier		 = Supplier
+            	related.SupplierSourceId = SupplierSourceId
+            	related.CommodityCode    = CommodityCode
+      	
+      	SupplierGroupExtensionRel
+			one-to-one relation to SupplierGroupExtension
+			Field Mapping uses symbolic key
+				related.SupplierGroup   = SupplierGroup
+	
+	Derived Fields		
+		ApprovedMessage is a MessageField
+			"Approved"
+			
+		NotApprovedMessage is a MessageField
+			"Not_Approved"
+				
+		ApprovedTag is a DerivedField
+			type is Alpha 30
+			if (Approved)
+				return ApprovedMessage
+			else
+				return NotApprovedMessage
+            	
+	Rule Blocks
+		UpdateValidationEmail
+			send email
+				to SupplierGroup.NotificationEmailAddress
+				from SupplierGroup.AdminEmailAddress
+				cc SupplierSourceId.EmailAddress
+				subject "<SupplierGroupExtensionRel.FinalUpdatedValidationEmailSubject>"
+				Contents
+					"<SupplierGroupExtensionRel.FinalUpdatedValidationEmailContent>"
+					"CommodityCodeInformationWasModifiedOn<update stamp>"
+											
+	Sets
+	
+		ByCommodityCode
+			Sort Order
+				SupplierGroup
+				Supplier
+				SupplierSourceId
+				CommodityCode
+				
+	Actions
+		Create is a Create Action
+			Field Rules
+				CommodityCode
+					constraint (!CommodityCode within all SupplierSourceId.SupplierCommodityCode set.CommodityCode)
+						"AlreadyRegisteredForTheSameOrAHigherLevelCommodityCodeWithinSameStructure"
+					constraint (!all SupplierCommodityCodeRel.CommodityCode within CommodityCode)
+						"CannotSelectAHigherLevelCommodityCodeWhenALowerLevelCommodityCodeIsAlreadySelected;MustDeleteLowerLevelCommodityCodeBeforeAdding"
+			
+			Exit Rules
+				if (SupplierGroup.RequireUpdatedSupplierValidation
+				and Supplier.SupplierStatus.Validated)
+					invoke StatusUpdate Supplier
+ 					
+ 					include UpdateValidationEmail
+		
+		Update is an Update Action
+			Exit Rules
+				if (SupplierGroup.RequireUpdatedSupplierValidation
+				and	Supplier.SupplierStatus.Validated)
+					invoke StatusUpdate Supplier
+ 					
+ 					include UpdateValidationEmail
+							
+		Delete is a Delete Action
+			Exit Rules
+				if (SupplierGroup.RequireUpdatedSupplierValidation
+				and	Supplier.SupplierStatus.Validated)
+					invoke StatusUpdate Supplier
+ 					
+ 					include UpdateValidationEmail
+ 					
+ 		CreateCertification is an Instance Action
+ 			valid when (CanCreateCertification)
+ 			Parameters
+ 				ParmSupplierGroup				is a SupplierGroup
+ 				ParmSupplier                    is a Supplier
+ 				ParmSupplierSourceId            is a SupplierSourceId
+ 				ParmCommodityCode               is a CommodityCode
+ 				ParmPayablesCertificationCode   is a PayablesCertificationCode
+ 				ParmCertificationEffectiveDate  is Date
+ 				ParmCertificationExpirationDate is Date
+ 				ParmAttachment		            is an Attachment
+ 					
+ 			Parameter Rules
+ 				
+ 				ParmSupplierGroup      
+ 					initial value is SupplierGroup
+ 				ParmSupplier           
+ 					initial value is Supplier
+ 				ParmSupplierSourceId   
+ 					initial value is SupplierSourceId
+ 				ParmCommodityCode      
+ 					initial value is CommodityCode
+				ParmCertificationExpirationDate
+					constraint (ParmCertificationExpirationDate > ParmCertificationEffectiveDate)
+						"CertificationExpirationDateMustBeGreaterThanTheCertificationEffectiveDate" 			
+ 			
+ 			Action Rules
+ 				invoke Create SupplierCertification
+ 					invoked.SupplierGroup 										= ParmSupplierGroup
+ 					invoked.Supplier      										= ParmSupplier
+ 					invoked.SupplierSourceId 									= SupplierSourceId
+ 					invoked.CommodityCode    									= CommodityCode
+ 					invoked.SupplierCertification.PayablesCertificationCode 	= ParmPayablesCertificationCode
+ 					invoked.SupplierCertification.CertificationEffectiveDate 	= ParmCertificationEffectiveDate
+ 					invoked.CertificationExpirationDate                      	= ParmCertificationExpirationDate
+ 					invoked.Attachment                                       	= ParmAttachment

@@ -1,0 +1,895 @@
+Sublease is a BusinessClass
+	owned by lm
+	prefix is SLSE
+
+	Ontology
+		symbolic key is Sublease
+
+	Patterns
+		disable AuditIndex
+		implements Archivable
+
+	Persistent Fields
+		CompanyAndCustomer
+		Description
+		Status								is Numeric size 1
+			States
+				Unreleased				value is 0
+				Released				value is 1
+				Closed					value is 2
+				Modify					value is 5
+					default label is "ModificationInProgress"
+				Impairment				value is 7
+					default label is "ImpairmentInProgress"
+				Deactivated				value is 8
+				Terminated				value is 9
+		SubleaseClassification
+			default label is "Classification"
+		TerminationOption					is Boolean
+		TerminationFee						is an InternationalAmount
+		EarlyTerminationDate				is Date
+		TerminationNonLeaseComponent		is an ExecutoryCostCode
+		TerminationGainLossAccount			is a FinanceCodeBlockFull
+		TerminationDate						is Date
+		ExtensionOption						is Boolean
+			default label is "RenewalOption"
+		LengthOfExtension					is Numeric size 5 
+			default label is "RenewalTerm"
+		ExtensionOptionDate					is Date
+			default label is "RenewalNotification"
+		ExerciseExtension					is Boolean
+			default label is "ReasonablyCertain"
+		LastDateReviewed					is Date
+		LeaseType
+			default label is "Type"
+		BeginDate							is an ExchangeDate
+		EndDate								is Date
+		Currency							is a FromCurrency
+		CurrencyNumberOfDecimals
+		BaseCurrency						is a ToCurrency
+		BaseCurrencyRate
+			default label is "ExchangeRate"
+		BaseNumberOfDecimals
+		LandAndBuilding						is Numeric 1
+			States
+				Neither					value is 0
+				LandOnly				value is 1
+				LandAndBuildingLease	value is 2
+		LandValue							is a CurrencyExchangeGroup
+		BuildingValue						is a CurrencyExchangeGroup
+		Term
+		PaymentsPerYear
+		AccruedRentAccount             		is a FinanceCodeBlockFull
+		LeaseRevenueAccount					is a FinanceCodeBlockFull
+		LeaseExpenseAccount					is a FinanceCodeBlockFull
+		DeferredAssetIDCAccount				is a FinanceCodeBlockFull
+		DeferredAssetIncentiveAccount		is a FinanceCodeBlockFull
+			default label is "DeferredAssetIncentiveCostAccount"
+		ClearingAccount						is a FinanceCodeBlockFull
+		LeaseAllocationCode
+			default label is "LeaseRevenueAllocationCode"
+		LeaseExpenseAllocationCode			is a LeaseAllocationCode
+		DownPayment							is a CurrencyExchangeGroup
+		IncentiveAmount						is a CurrencyExchangeGroup
+			default label is "IncentiveCost"
+		InitialDirectCost					is a CurrencyExchangeGroup
+		InitialDirectCostVendor				is a Vendor
+		InvoicePrefix						is AlphaUpper size 2 
+		InvoiceIdentifier					is AlphaUpper size 25
+		Printer								is an IDMPrinter
+			
+	Local Fields
+		LocalCurrencyExchange 				is a CurrencyExchange
+		LocalCurrencyAmount					is a CurrencyAmount
+		LocalTerm							is Numeric size 3
+		LocalNumberOfYears					is Numeric size 3
+		LocalMonthsToAdd					is Numeric size 3
+		LocalBeginMonth						is Numeric size 2
+		LocalBeginYear						is Numeric size 4
+		LocalEndMonth						is Numeric size 2
+		LocalEndYear						is Numeric size 4
+		LocalNumberOfPayments				is Numeric size 3
+		LocalNumberPaymentsOfTerm			is Numeric size 3
+		LocalNumberOfYearsTerm				is Decimal 5.2
+		LocalWorkAmount						is an InternationalAmount
+		LocalModificationDate				is Date
+		LocalTerminationDate				is Date
+		LocalAccount 						is a FinanceCodeBlockFull
+		LocalTransactionAmount				is an InternationalAmount
+		LocalThruDate						is Date
+		LocalSubleaseTransactionType		is a SubleaseTransactionType
+		LocalSubleaseTransactionProcess		is a SubleaseTransactionProcess
+							
+	Derived Fields
+		TotalLeaseTerm is a DerivedField
+			type is Numeric size 5
+			restricted
+			if (ExerciseExtension)
+				return (Term + LengthOfExtension)
+			else
+				return Term
+
+		DerivedTotalPayments is a DerivedField
+			type is like InternationalAmount
+			restricted
+			LocalWorkAmount = DownPayment.TransactionAmount
+			if (Status.Modify)
+				for each SubleaseBillingScheduleDetailAfterModificationDateRel
+					if  (each.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered
+					and (each.SubleaseCompute.ComputeStatement not entered
+					or   each.PaymentAmount entered))
+						LocalWorkAmount += each.PaymentAmount
+						LocalWorkAmount += each.BaseLandTax
+			else
+				for each SubleaseBillingScheduleDetailRel
+					if  (each.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered
+					and (each.SubleaseCompute.ComputeStatement not entered
+					or   each.PaymentAmount entered))
+						LocalWorkAmount += each.PaymentAmount
+						LocalWorkAmount += each.BaseLandTax
+			return LocalWorkAmount
+
+		TotalIDCIncentiveAmount is a DerivedField
+			type is like InternationalAmount
+				precision is CurrencyNumberOfDecimals
+			restricted
+			return (InitialDirectCost.TransactionAmount + IncentiveAmount.TransactionAmount) 
+
+		CurrentModificationDate is a DerivedField
+			type is Date
+			if (Status.Modify)
+				return first ModificationInProgressRel.ModificationDate
+
+		DerivedTerm is a DerivedField
+			type is Numeric 3
+			default label is "Term"
+			if (BeginDate entered
+			and	EndDate entered)
+				return (((EndDate year - BeginDate year) * 12) + (EndDate month - BeginDate month) + 1)
+				
+		DerivedFormTitle is a DerivedField
+			type is MessageField
+			restricted
+			if (SubleaseExists)
+				return SubleaseCardViewDisplay
+			else
+				return CreateMessage
+				
+		CreateMessage is a LabelField
+			restricted
+			"Create_NewSublease"
+		
+		SubleaseCardViewDisplay	is a LabelField
+			"Sublease_-<Sublease>"
+			
+		SubleaseRepresentativeText is a StringField
+			type is Text
+			default label is "Sublease"
+			Sublease " - " Description
+		
+		IDMTemplateWarningMessage is a MessageField
+            "NoAssignedDocumentTemplateIn_Billing_Schedule"
+		
+	Relations
+		SubleaseBillingScheduleDetailRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company									= Company
+				related.Lease									= Lease
+				related.Sublease								= Sublease
+				related.CompanyAndCustomer.Company				= CompanyAndCustomer.Company
+				related.CompanyAndCustomer.Customer				= CompanyAndCustomer.Customer
+				
+		SubleaseBillingScheduleDetailByInvoiceDateRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses ByInvoiceDate
+				related.Company						= Company
+				related.Lease						= Lease
+				related.Sublease					= Sublease
+				related.CompanyAndCustomer.Company	= CompanyAndCustomer.Company
+				related.CompanyAndCustomer.Customer	= CompanyAndCustomer.Customer
+
+		SubleaseExecutoryCostCodeRel is a SubleaseExecutoryCostCode set
+
+		SubleaseBillingScheduleDetailAfterModificationDateRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses ByInvoiceDate
+				related.Company									= Company
+				related.Lease									= Lease
+				related.Sublease								= Sublease
+				related.CompanyAndCustomer.Company				= CompanyAndCustomer.Company
+				related.CompanyAndCustomer.Customer				= CompanyAndCustomer.Customer
+				related.InvoiceDate							   >= LocalModificationDate
+			Instance Selection
+				where (related.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered)
+
+		CustomerBillingScheduleDetailsRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company									= Company
+				related.Lease									= Lease
+				related.Sublease								= Sublease
+				related.CompanyAndCustomer.Company				= CompanyAndCustomer.Company
+				related.CompanyAndCustomer.Customer				= CompanyAndCustomer.Customer
+			Instance Selection
+				where (related.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered)
+
+		SubleaseBillingScheduleRel is a SubleaseBillingSchedule set
+
+		ModificationInProgressRel
+			one-to-many relation to SubleaseModification
+			Field Mapping uses symbolic key
+				related.Company									= Company
+				related.Lease									= Lease
+				related.Sublease								= Sublease
+			Instance Selection
+				where (related.Status.Unreleased)
+
+		SubleaseBillingInvoiceRel
+			one-to-many relation to SubleaseBillingInvoice
+			Field Mapping uses BySublease
+				related.SubleaseGroup.PayablesCompany	= Company
+				related.SubleaseGroup.Lease				= Lease
+				related.SubleaseGroup.Sublease			= Sublease
+		
+		UnreleasedSubleaseBillingScheduleDetailRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+			Instance Selection
+				where (!related.Released)
+		
+		NextSubleaseBillingScheduleDetailRel
+            one-to-many relation to SubleaseBillingScheduleDetail
+            Field Mapping uses symbolic key
+                related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+            Instance Selection
+                where (related.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered
+                and    !related.Released
+				and    related.PaymentAmount != 0)
+		
+		LocalUnreleasedSubleaseBillingScheduleDetailRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+			Instance Selection
+				where (related.InvoiceDate <= LocalThruDate
+				and	  !related.Released)
+		
+		UnprocessedSubleaseBillingScheduleDetailRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+			Instance Selection
+				where (!related.PeriodProcessed
+				and    related.HasIDCOrIncentives
+				and	   !related.SubleaseBillingScheduleDetail.ExecutoryCostCode entered)
+				
+		UnpostedSubleaseTransactionRel
+			one-to-many relation to SubleaseTransaction
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+			Instance Selection
+				where (!related.Status.Posted)
+				
+		SubleaseInvoiceIdentifierRel
+			one-to-many relation to Sublease
+			Field Mapping uses ByInvoiceIdentifier
+				related.InvoiceIdentifier	= InvoiceIdentifier
+				related.Company				= Company
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+		
+		SubleaseTransactionByDateRel
+			one-to-many relation to SubleaseTransaction
+			Field Mapping uses ByTransactionDate
+				related.Company				= Company
+				related.Lease				= Lease
+				related.Sublease			= Sublease
+		
+		UnreleasedSubleaseBillingInvoiceRel
+			one-to-many relation to SubleaseBillingInvoice
+			Field Mapping uses BySublease
+				related.SubleaseGroup.PayablesCompany	= Company
+				related.SubleaseGroup.Lease				= Lease
+				related.SubleaseGroup.Sublease			= Sublease
+			Instance Selection
+				where (!related.Status.Released)
+            	
+		PurgeSubleaseBillingInvoiceRel is a SubleaseBillingInvoice set            	
+			Instance Selection
+				include deleted records
+
+		PurgeSubleaseTransactionRel is a SubleaseTransaction set            	
+			Instance Selection
+				include deleted records
+				
+		UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor	= actor
+				            	
+	Field Rules
+		CompanyAndCustomer
+			constraint (CompanyAndCustomer.Company entered)
+				"ReceivableCompanyIsRequired"
+			constraint (CompanyAndCustomer.Customer entered)
+				"SublesseeIsRequired"
+			constraint (CompanyAndCustomer.Company.SLBillingInvoicePrefix entered)
+				"NavigateToReceivableCompanyAndCreateSubleaseBillingInvoicePrefixForThisCompany:<CompanyAndCustomer.Company>"
+			constraint (CompanyAndCustomer.Company.SLBillingDefaultProcessLevel entered)
+				"NavigateToReceivableCompanyAndEnterSubleaseBillingDefaultProcessLevelForThisCompany:<CompanyAndCustomer.Company>"
+				
+		Description
+			required
+
+		SubleaseClassification
+			initial value is SubleaseClassification.Operating
+			default to SubleaseClassification.Operating
+			
+		BeginDate
+			required
+			constraint (BeginDate >= Lease.BeginDate)	
+				"BeginDateCannotPrecedeHeadLeaseBeginDateOf<Lease.BeginDate>"
+			constraint (BeginDate <= Lease.EndDate)		
+				"BeginDateCannotBeAfterHeadLeaseEndDateOf<Lease.EndDate>"
+
+		EndDate
+			required
+			constraint (EndDate >= BeginDate)			
+				"EndDateCannotPrecedeBeginDate"
+			constraint (EndDate >= Lease.BeginDate)		
+				"EndDateCannotPrecedeHeadLeaseBeginDateOf<Lease.BeginDate>"
+			constraint (EndDate <= Lease.EndDate)		
+				"EndDateCannotBeAfterHeadLeaseEndDateOf<Lease.EndDate>"
+			constraint (EndDate != BeginDate)
+				"EndDateAndBeginDateCannotBeEqual"
+
+		Term
+			force default to DerivedTerm
+		
+		Currency
+			initial value is Lease.Currency
+			default to Lease.Currency
+
+			if (CompanyAndCustomer entered)
+				if (!CompanyAndCustomer.Company.TransactionCurrencyOverride)
+					constraint (Currency = CompanyAndCustomer.CompanyCustomerRel.Currency)
+						"CurrencyDoesNotEqualCustomerDefaultTransactionCurrency,ReceivableCompanyCurrencyOverrideIsFalse"
+				
+				if (!CompanyAndCustomer.Company.MultiCurrencyProcessing)
+					constraint (Currency = CompanyAndCustomer.Company.Currency)
+						"CurrencyMustBeCompanyCurrency;ReceivableCompanyIsNotSetForMultiCurrencyProcessing"
+			
+		CurrencyNumberOfDecimals
+			default to Currency.NumberOfDecimals
+
+		BaseCurrency
+			force default to Company.Currency
+
+		BaseNumberOfDecimals
+			default to Company.Currency.NumberOfDecimals
+		
+		DownPayment
+			constraint (DownPayment.TransactionAmount >= 0)
+				"DownPaymentCannotBeANegativeAmount"
+				
+		IncentiveAmount
+			constraint (IncentiveAmount.TransactionAmount >= 0)
+				"IncentiveCostCannotBeANegativeAmount"
+				
+		InitialDirectCost
+			constraint (InitialDirectCost.TransactionAmount >= 0)
+				"InitialDirectCostCannotBeANegativeAmount"
+				
+		InitialDirectCostVendor
+			if (InitialDirectCost.TransactionAmount entered)
+				required
+					"InitialDirectCostVendorRequiredWhenInitialDirectCostEntered"
+			else
+				cannot be entered
+					"InitialDirectCostVendorCannotBeEnteredWhenInitialDirectCostIsNotEntered"
+					
+		LeaseAllocationCode
+			constraint (!LeaseRevenueAccount entered)
+				"CanEnterEitherALeaseRevenueAccountOrAllocationCode"
+		
+		LeaseExpenseAllocationCode
+			constraint (!LeaseExpenseAccount entered)
+				"CanEnterEitherALeaseExpenseAccountOrAllocationCode"
+				
+		InvoiceIdentifier
+			default to Sublease
+			constraint (!SubleaseInvoiceIdentifierRel exists)
+				"InvoiceIdentifierMustBeUnique"
+				
+		Printer
+			default to UserDefaultPrinterRel.IDMPrinter
+								
+	SubType IsReleased Field Rules
+		Currency
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+		BaseCurrencyRate
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+		SubleaseClassification
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+		DownPayment
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+		IncentiveAmount
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+		
+		InitialDirectCost
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+					
+		Term
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+		BeginDate
+			cannot be changed
+				"CannotChange;SubleaseIsReleased"
+
+	Conditions
+		ValidIDMTemplateWarningMessage
+			restricted
+			when (SubleaseBillingScheduleRel.SubleaseBillingInvoiceIDMTemplate not entered
+			and   CompanyAndCustomer.Company.UseIDM)
+
+		SubleaseExists
+			restricted
+		  	when (Sublease exists)
+		  	
+		IsReleased
+			restricted
+			when (Status.Released)
+
+		IsUnreleased
+			restricted
+			when (Status.Unreleased)
+
+		IsModificationInProgress
+			restricted
+			when (Status.Modify)
+
+		IsNotModificationInProgress
+			restricted
+			when (!Status.Modify)
+
+		IsMonthToMonthRenewal
+			restricted
+			when (Lease.OriginalLease entered
+			and   Term not entered)
+
+		HasBillingDetail
+			restricted
+			when (SubleaseBillingScheduleDetailRel exists)
+
+		IsARenewal
+			restricted
+			when (Sublease.OriginalSublease entered)
+
+		EitherUnreleasedOrReleased
+			restricted
+			when (Status.Unreleased
+			or    Status.Released)
+
+		HasInvoices
+			restricted
+			when (SubleaseBillingInvoiceRel exists)
+		
+		HasSubleaseTransactions
+			restricted
+			when (SubleaseTransaction set exists)
+		
+		HasIDCOrIncentives
+			restricted
+			when (InitialDirectCost.TransactionAmount entered
+			or	  IncentiveAmount.TransactionAmount entered)
+			
+		IsSameCurrencyAndDownPaymentEntered
+			restricted 
+			when (Currency != BaseCurrency
+			and    DownPayment.TransactionAmount entered)
+			
+		IsSameCurrencyAndIncentiveEntered
+			restricted 
+			when (Currency != BaseCurrency	
+			and    IncentiveAmount.TransactionAmount entered)
+	
+		IsSameCurrencyAndInitialDirectCostEntered
+			restricted 
+			when (Currency != BaseCurrency		
+			and    InitialDirectCost.TransactionAmount entered)
+			
+		IsValidForActorContext
+			restricted
+			when (Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			
+		IsValidForUpdatePrinter
+			restricted
+			when (CompanyAndCustomer.Company.UseIDM)
+
+		EndDateAlert	
+			restricted
+			when (current corporate date + 30 >= EndDate
+			and   Sublease.Status.Released)
+			
+	Sets
+		ByInvoiceIdentifier
+			Sort Order
+				InvoiceIdentifier
+				Company
+				Lease
+				Sublease
+
+		ByBeginDate
+			Sort Order
+				BeginDate
+				Company
+				Sublease
+				Lease	
+
+		ByEndDate
+			Sort Order
+				EndDate
+				Company
+				Sublease
+				Lease					
+	Rule Blocks
+		CheckAmounts
+			CurrencyNumberOfDecimals 	= Currency.NumberOfDecimals
+			BaseNumberOfDecimals		= Company.Currency.NumberOfDecimals
+
+			if (BaseCurrencyRate not entered
+			or  Currency changed)
+				initialize LocalCurrencyExchange
+				LocalCurrencyAmount = 1
+				LocalCurrencyExchange.ToCurrency = Company.Currency
+				BaseCurrencyRate = LocalCurrencyExchange.OutputCurrencyRate
+
+			if (Currency entered
+			or  BaseCurrencyRate entered)
+				if (DownPayment.TransactionAmount entered)
+					DownPayment.BaseAmount.EnteredCurrencyAmount			= 0
+					DownPayment.BaseAmount.EnteredCurrencyRate				= BaseCurrencyRate
+				else
+					initialize DownPayment.BaseAmount.ToCurrency
+					initialize DownPayment.BaseAmount.EnteredCurrencyRate
+					initialize DownPayment.BaseAmount.EnteredCurrencyAmount
+					
+				if (IncentiveAmount.TransactionAmount entered)
+					IncentiveAmount.BaseAmount.EnteredCurrencyAmount		= 0
+					IncentiveAmount.BaseAmount.EnteredCurrencyRate			= BaseCurrencyRate
+				else
+					initialize IncentiveAmount.BaseAmount.ToCurrency
+					initialize IncentiveAmount.BaseAmount.EnteredCurrencyRate
+					initialize IncentiveAmount.BaseAmount.EnteredCurrencyAmount
+					
+				if (InitialDirectCost.TransactionAmount entered)
+					InitialDirectCost.BaseAmount.EnteredCurrencyAmount		= 0
+					InitialDirectCost.BaseAmount.EnteredCurrencyRate		= BaseCurrencyRate
+				else
+					initialize InitialDirectCost.BaseAmount.ToCurrency
+					initialize InitialDirectCost.BaseAmount.EnteredCurrencyRate
+					initialize InitialDirectCost.BaseAmount.EnteredCurrencyAmount
+					
+				if (LandValue.TransactionAmount entered)
+					LandValue.BaseAmount.EnteredCurrencyAmount				= 0
+					LandValue.BaseAmount.EnteredCurrencyRate				= BaseCurrencyRate
+				else
+					initialize LandValue.BaseAmount.ToCurrency
+					initialize LandValue.BaseAmount.EnteredCurrencyRate
+					initialize LandValue.BaseAmount.EnteredCurrencyAmount
+					
+				if (BuildingValue.TransactionAmount entered)
+					BuildingValue.BaseAmount.EnteredCurrencyAmount			= 0
+					BuildingValue.BaseAmount.EnteredCurrencyRate			= BaseCurrencyRate
+				else
+					initialize BuildingValue.BaseAmount.ToCurrency
+					initialize BuildingValue.BaseAmount.EnteredCurrencyRate
+					initialize BuildingValue.BaseAmount.EnteredCurrencyAmount
+						
+		CalculateLeaseTerm
+			initialize LocalTerm
+			initialize LocalNumberOfYears
+			initialize LocalMonthsToAdd
+			LocalBeginMonth						= BeginDate month
+			LocalBeginYear						= BeginDate year
+			LocalEndMonth						= EndDate month
+			LocalEndYear						= EndDate year
+			if (LocalEndYear > LocalBeginYear)
+				LocalTerm						= 12 - LocalBeginMonth
+				LocalTerm						+= 1
+				LocalNumberOfYears				= LocalEndYear - LocalBeginYear
+				if (LocalNumberOfYears = 1)
+					LocalTerm					= LocalTerm + LocalEndMonth
+				else
+					LocalNumberOfYears			= LocalNumberOfYears - 1
+					LocalMonthsToAdd			= LocalNumberOfYears * 12
+					LocalTerm					= LocalTerm + LocalMonthsToAdd
+					LocalTerm					= LocalTerm + LocalEndMonth
+			else
+				LocalTerm						= LocalEndMonth - LocalBeginMonth
+				LocalTerm						+= 1
+			
+			if (SubleaseBillingScheduleDetailRel exists)
+				initialize LocalNumberOfPayments
+				initialize LocalNumberPaymentsOfTerm
+				initialize LocalNumberOfYearsTerm
+				LocalNumberOfYearsTerm = Term / 12
+				LocalNumberPaymentsOfTerm = LocalNumberOfYearsTerm * PaymentsPerYear
+				LocalNumberOfPayments = instance count of SubleaseBillingScheduleDetailRel
+				if (LocalNumberOfPayments != LocalNumberPaymentsOfTerm)
+					confirmation required
+						"NumberOfLeasePayments<LocalNumberOfPayments>AreNotEqualToLeasePaymentsForTerm<LocalNumberPaymentsOfTerm>;IsThisCorrect?"
+
+		CreateSubleaseTransaction
+			invoke Create SubleaseTransaction
+				invoked.Company												= Company	
+				invoked.Lease												= Lease
+				invoked.Sublease											= Sublease
+				invoked.CompanyAndCustomer.Company							= CompanyAndCustomer.Company
+				invoked.CompanyAndCustomer.Customer							= CompanyAndCustomer.Customer
+				invoked.GLFinanceCodeBlock									= LocalAccount
+				invoked.TransactionAccount									= LocalAccount
+				invoked.GLTransactionAmount									= LocalTransactionAmount
+				invoked.TransactionAmount.TransactionAmount					= LocalTransactionAmount
+				invoked.TransactionAmount.BaseAmount.ToCurrency				= BaseCurrency
+				invoked.TransactionAmount.BaseAmount.EnteredCurrencyRate	= BaseCurrencyRate
+				invoked.Description											= Description
+				invoked.SubleaseTransactionType								= LocalSubleaseTransactionType
+				invoked.SubleaseTransactionProcess							= LocalSubleaseTransactionProcess
+				invoked.TransactionDate										= BeginDate
+				invoked.PostingDate											= BeginDate
+				invoked.Reference											= Sublease
+				invoked.OriginatingTransaction								= reference to this instance
+			
+	Actions
+		UpdatePrinter is an Instance Action
+			valid when (IsValidForUpdatePrinter)
+			Parameters
+				NewPrinter is an IDMPrinter
+
+			Action Rules
+				Printer = NewPrinter
+		Purge is a Purge Action
+			restricted
+
+			Entrance Rules
+				invoke Purge PurgeSubleaseTransactionRel
+				invoke Purge PurgeSubleaseBillingInvoiceRel
+
+	StateCycles
+		SubleaseCycle is a StateCycle
+			state field is Status
+
+			Unreleased is a State
+				Create is a Create Action
+					Action Rules
+						PaymentsPerYear = 12
+						include CheckAmounts
+
+					Exit Rules
+						include CalculateLeaseTerm
+						
+						invoke Create SubleaseBillingSchedule 
+							invoked.Company						= Company	
+							invoked.Lease						= Lease
+							invoked.Sublease					= Sublease
+							invoked.CompanyAndCustomer.Company	= CompanyAndCustomer.Company
+  							invoked.CompanyAndCustomer.Customer	= CompanyAndCustomer.Customer
+  
+				Update is an Update Action
+					Action Rules
+						include CheckAmounts
+						
+						if (CompanyAndCustomer.Company changed
+						or	CompanyAndCustomer.Customer changed)
+							constraint (!HasBillingDetail)
+								"CannotChange;BillingScheduleDetailsExist"
+							
+							invoke Update SubleaseBillingScheduleRel
+								invoked.CompanyAndCustomer.Company	= CompanyAndCustomer.Company
+	  							invoked.CompanyAndCustomer.Customer	= CompanyAndCustomer.Customer
+			  							
+						if (Currency changed
+						or  BaseCurrencyRate changed)
+							invoke UpdateBaseAmounts SubleaseBillingScheduleDetailRel
+								
+
+				Delete is a Delete Action
+
+
+				Release is an Instance Action
+					Action Rules
+						constraint (SubleaseClassification entered)
+							"MustRunTestActionBeforeReleasingSublease"
+						
+						constraint (HasBillingDetail)
+							"BillingScheduleDetailsAreRequired"
+				
+						if (SubleaseClassification.Operating)
+							if (InitialDirectCost.TransactionAmount entered)
+								constraint (DeferredAssetIDCAccount entered)
+									"DeferredAssetIDCAccountIsRequiredWhenInitialDirectCostsAreEntered"
+							
+							if (IncentiveAmount.TransactionAmount entered)
+								constraint (DeferredAssetIncentiveAccount entered)
+									"DeferredAssetIncentiveAccountIsRequiredWhenIncentivesAreEntered"
+							
+							if (InitialDirectCost.TransactionAmount entered
+							or  IncentiveAmount.TransactionAmount entered)
+								constraint (ClearingAccount entered)
+									"ClearingAccountIsRequiredForOperatingSubleases"
+									
+							if (InitialDirectCost.TransactionAmount entered)
+								constraint (LeaseExpenseAccount entered
+								or			LeaseExpenseAllocationCode entered)
+									"LeaseExpenseAccountOrAllocationCodeIsRequiredForOperatingSubleases"
+								
+							constraint (LeaseRevenueAccount entered
+							or			LeaseAllocationCode entered)
+								"LeaseRevenueAccountOrAllocationCodeIsRequiredForOperatingSubleases"
+							
+							constraint (AccruedRentAccount entered)
+								"AccruedRentAccountIsRequiredForOperatingSubleases"
+								
+
+							if (InitialDirectCost.TransactionAmount entered)
+								LocalAccount = DeferredAssetIDCAccount 
+								LocalTransactionAmount = InitialDirectCost.TransactionAmount
+								LocalSubleaseTransactionType = 4 
+								LocalSubleaseTransactionProcess = 1 
+								include CreateSubleaseTransaction
+							
+
+							if (IncentiveAmount.TransactionAmount entered)
+								LocalAccount = DeferredAssetIncentiveAccount 
+								LocalTransactionAmount = IncentiveAmount.TransactionAmount
+								LocalSubleaseTransactionType = 5 
+								LocalSubleaseTransactionProcess = 1 
+								include CreateSubleaseTransaction
+							
+
+							if (InitialDirectCost.TransactionAmount entered
+							or	IncentiveAmount.TransactionAmount entered)
+								LocalAccount = ClearingAccount 
+								LocalTransactionAmount = TotalIDCIncentiveAmount * -1 
+								LocalSubleaseTransactionType = 3 
+								LocalSubleaseTransactionProcess = 1 
+								include CreateSubleaseTransaction
+								
+						make transition to Released
+
+			Released is a State
+				Unrelease is an Instance Action
+					valid when (!HasInvoices)
+					Action Rules
+						if (SubleaseClassification.Operating)
+
+							if (InitialDirectCost.TransactionAmount entered)
+								LocalAccount = DeferredAssetIDCAccount 
+								LocalTransactionAmount = InitialDirectCost.TransactionAmount * -1
+								include CreateSubleaseTransaction
+							
+
+							if (IncentiveAmount.TransactionAmount entered)
+								LocalAccount = DeferredAssetIncentiveAccount 
+								LocalTransactionAmount = IncentiveAmount.TransactionAmount * -1
+								include CreateSubleaseTransaction
+							
+
+							if (InitialDirectCost.TransactionAmount entered
+							or	IncentiveAmount.TransactionAmount entered)
+								LocalAccount = ClearingAccount 
+								LocalTransactionAmount = TotalIDCIncentiveAmount
+								include CreateSubleaseTransaction
+								
+						make transition to Unreleased
+
+				CreateInvoices is an Instance Action
+					Parameters
+						InvoiceDateRange	is a ProjectDateRange
+						
+					Parameter Rules
+						InvoiceDateRange
+							required
+								"InvoiceDateRangeIsRequired"
+							constraint (InvoiceDateRange.BeginDate >= BeginDate)
+								"InvoiceDateRangeMustBeAfterTheSubleaseBeginDate"
+							constraint (InvoiceDateRange.EndDate <= EndDate)
+								"InvoiceDateRangeMustBeBeforeTheSubleaseEndDate"
+								
+					Action Rules
+						if (CompanyAndCustomer.Company.UseIDM)
+							constraint (SubleaseBillingScheduleRel.SubleaseBillingInvoiceIDMTemplate entered)
+								"SubleaseBillingInvoiceIDMTemplateIsRequiredOnTheBillingSchedule"
+						else
+							constraint (SubleaseBillingScheduleRel.SubleaseBillingInvoiceTemplate entered)
+								"SubleaseBillingInvoiceTemplateIsRequiredOnTheBillingSchedule"
+							
+						invoke CreateSubleaseInvoices SubleaseBillingScheduleDetail
+							invoked.PrmCompany 				= Company
+							invoked.PrmLease 				= Lease
+							invoked.PrmSublease 			= Sublease
+							invoked.PrmInvoiceDateRange		= InvoiceDateRange
+				
+				ProcessPeriod is an Instance Action
+					valid when (HasIDCOrIncentives)
+					Parameters
+						ProcessThruDate		is Date
+						
+					Parameter Rules
+						ProcessThruDate
+							required
+								"ProcessThruDateIsRequired"
+							LocalThruDate = ProcessThruDate
+							constraint (!LocalUnreleasedSubleaseBillingScheduleDetailRel exists)
+								"AllInvoicesMustBeCreatedUpToTheProcessThruDateOf<LocalThruDate>"
+								
+					Action Rules
+						invoke SubleasePeriodProcessing SubleaseBillingScheduleDetail
+							invoked.PrmCompany 				= Company
+							invoked.PrmLease 				= Lease
+							invoked.PrmSublease 			= Sublease
+							invoked.PrmProcessThruDate		= ProcessThruDate
+				
+				Close is an Instance Action
+					Parameters
+						PrmCloseDate is Date
+							default label is "CloseDate"
+
+					Parameter Rules
+						PrmCloseDate
+							required 
+								"MustEnterCloseDateWhenClosingASublease"	
+
+							constraint (PrmCloseDate >= EndDate)
+								"YouCanNotCloseASubleaseBeforeItsScheduledEndDate"
+
+					Action Rules
+						TerminationDate = PrmCloseDate
+
+						constraint (!UnreleasedSubleaseBillingScheduleDetailRel exists)
+							"UnreleasedBillingScheduleDetailsExist;MustCreateInvoicesBeforeYouCanCloseTheSublease"	
+						
+						constraint (!UnreleasedSubleaseBillingInvoiceRel exists) 
+							"UnreleasedInvoicesExist;MustReleaseThemBeforeYouCanCloseTheSublease" 				
+			
+						constraint (!UnpostedSubleaseTransactionRel exists)
+							"UnpostedSubleaseTransactionsExist;MustJournalizeThemBeforeYouCanCloseTheSublease"
+								
+						constraint (!UnprocessedSubleaseBillingScheduleDetailRel exists)
+							"UnprocessedBillingScheduleDetailsExist;MustProcessPeriodsBeforeYouCanCloseTheSublease"		
+
+						make transition to Closed
+												
+			Closed is a State
+
+			Deactivated is a State
+
+			Terminated is a State
+
+			Modify is a State
+
+			Impairment is a State

@@ -1,0 +1,429 @@
+KitchenOrderLine is a BusinessClass
+	owned by recipe
+	
+	prefix is KTCL
+	
+	Ontology
+		symbolic key is KitchenOrderLine
+	
+	Patterns
+		disable AuditIndex
+	
+	Persistent Fields
+		Sequence
+			disable Auditing
+		IngredientItem				is an Item
+			default label is "Item"
+		IngredientType
+		Description
+
+		QuantityInRecipeUOM			is like UnsignedQuantity
+			precision is IngredientItem.DerivedNumberOfDecimalsRecipe
+		RecipeUnitOfMeasure
+			default label is "RecipeUOM"
+		RecipeUOMConversion			is a UOMConversion
+			protected
+		PlanQuantityInRecipeUOM		is like UnsignedQuantity
+			precision is IngredientItem.DerivedNumberOfDecimalsRecipe
+			default label is "PlanQuantity"
+			protected
+
+		StockUOM					is a UnitOfMeasure
+			protected
+		QuantityInStockUOM			is like UnsignedQuantity
+			protected
+		PlanQuantityInStockUOM		is like UnsignedQuantity
+			protected
+			precision is IngredientItem.NumberOfDecimalsQuantity
+		InventoryCost				is an UnsignedUnitCost
+			precision is IngredientItem.NumberOfDecimalsCost
+
+		EstimatedLineAmount			is an InternationalAmount
+			protected
+
+		ActualQuantityInRecipeUOM	is like UnsignedQuantity
+			precision is IngredientItem.DerivedNumberOfDecimalsRecipe
+		ActualQuantityInStockUOM	is like UnsignedQuantity
+			precision is IngredientItem.NumberOfDecimalsQuantity
+			protected
+		ActualLineAmount			is an InternationalAmount
+			protected
+
+		WasteQuantity				is like UnsignedQuantity
+			precision is IngredientItem.DerivedNumberOfDecimalsRecipe
+		WasteAmount					is an InternationalAmount
+			protected
+
+	Local Fields
+		LocalRequestingCompany		is like InventoryCompany
+		LocalRequisition			is like Requisition
+		InventoryCostDefault
+		RoundedValue
+		LocalInputQuantity			is like UnsignedQuantity
+		RoundToRecipeDecimals		is Boolean
+		LocalRoundedQuantity		is an UnsignedQuantity
+		CreatedManually				is Boolean
+		ProcurementCostDefault
+		Execute						is Boolean
+		DoDebug						is Boolean
+		LocalContractUOM			is like RecipeUnitOfMeasure
+		LocalContractGroup			is like ContractGroup
+		LocalContract				is like Contract
+		LocalContractCost			is like UnsignedUnitCost
+		UOMCalculation
+
+	Relations
+		RequisitionLineRel
+			one-to-many relation to RequisitionLine
+			Field Mapping uses ByInventoryItem
+				related.Company				= LocalRequestingCompany
+				related.Requisition			= LocalRequisition
+				related.Item				= IngredientItem
+	
+		RecipeLineRel
+			one-to-one relation to RecipeLine
+			Field Mapping uses ByIngredient
+				related.ItemGroup			= Company.ItemGroup
+				related.Item				= KitchenOrder.Item
+				related.IngredientItem		= IngredientItem
+
+		ItemRecipeUOMRel
+			one-to-one relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup				= Company.ItemGroup
+				related.Item					= IngredientItem
+				related.RecipeUnitOfMeasure		= RecipeUnitOfMeasure
+			
+		ItemRecipeInContractUOMRel
+			one-to-one relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup				= Company.ItemGroup
+				related.Item					= IngredientItem
+				related.RecipeUnitOfMeasure		= LocalContractUOM
+	
+		DefaultItemRecipeUOMRel
+			one-to-many relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup				= IngredientItem.ItemGroup
+				related.Item					= IngredientItem
+			Instance Selection
+				where (related.ValidForRecipe.Default)
+		
+		ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.Item              = IngredientItem
+		
+		PurchasingCompanyRel
+			one-to-one relation to PurchasingCompany
+			required
+			Field Mapping uses symbolic key
+				related.Company = KitchenOrder.Company
+		
+		ContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup		= LocalContractGroup
+				related.Contract			= LocalContract
+				
+	Rule Blocks
+		CalculateLineAmounts
+			if (PlanQuantityInRecipeUOM changed or InventoryCost changed)
+				EstimatedLineAmount 		= DerivedUnitCostInRecipeUOM * PlanQuantityInRecipeUOM
+			if (ActualQuantityInRecipeUOM changed or InventoryCost changed)
+				ActualLineAmount			= DerivedUnitCostInRecipeUOM * ActualQuantityInRecipeUOM
+			if (WasteQuantity changed or InventoryCost changed)
+				WasteAmount					= DerivedUnitCostInRecipeUOM * WasteQuantity
+		
+		UpdateHeaderAmounts
+			invoke CalculateHeaderTotals KitchenOrder
+				if (IngredientType.Ingredient)
+					invoked.PrmEstimatedIngredientTotal		= DerivedDeltaEstimatedLineAmount
+					invoked.PrmActualIngredientTotal		= DerivedDeltaActualLineAmount
+					invoked.PrmWasteIngredientTotal			= DerivedDeltaWasteAmount
+				if (IngredientType.Packaging)
+					invoked.PrmEstimatedPackagingTotal		= DerivedDeltaEstimatedLineAmount
+					invoked.PrmActualPackagingTotal			= DerivedDeltaActualLineAmount
+					invoked.PrmWastePackagingTotal			= DerivedDeltaWasteAmount
+				if (IngredientType.Component)
+					invoked.PrmEstimatedComponentTotal		= DerivedDeltaEstimatedLineAmount
+					invoked.PrmActualComponentTotal			= DerivedDeltaActualLineAmount
+					invoked.PrmWasteComponentTotal			= DerivedDeltaWasteAmount
+				invoked.PrmRecalculateBurdenCost			= true
+				
+		RoundQuantity
+			initialize RoundedValue
+			RoundedValue.RoundInput = LocalInputQuantity
+			if (RoundToRecipeDecimals)
+				RoundedValue.RoundTo = (1/10^IngredientItem.DerivedNumberOfDecimalsRecipe)
+			else
+				RoundedValue.RoundTo = (1/10^IngredientItem.NumberOfDecimalsQuantity)
+			RoundedValue.RoundingType = RoundingType.Normal
+			
+			LocalRoundedQuantity = RoundedValue.RoundResult
+	
+	Field Rules
+		Sequence
+			required
+			
+		IngredientItem
+			required
+			
+		IngredientType
+			required
+			initial value is IngredientType.Ingredient
+			
+		Description
+			required
+			default to IngredientItem.Description
+		
+		QuantityInRecipeUOM
+			required
+			if (QuantityInRecipeUOM changed)
+				initialize PlanQuantityInRecipeUOM
+				initialize QuantityInStockUOM
+				initialize PlanQuantityInStockUOM
+				initialize EstimatedLineAmount
+				
+			if (action type.Create and CreatedManually)
+				constraint (QuantityInRecipeUOM decimals <= IngredientItem.DerivedNumberOfDecimalsRecipe)
+					"TooManyDecimalDigitsEnteredForQuantity:MaxForItem<IngredientItem>Is<IngredientItem.DerivedNumberOfDecimalsRecipe>"
+			else
+				LocalInputQuantity = QuantityInRecipeUOM
+				RoundToRecipeDecimals = true
+				include RoundQuantity
+				QuantityInRecipeUOM = LocalRoundedQuantity
+		
+		RecipeUnitOfMeasure
+			required
+			initial value is DefaultItemRecipeUOMRel.RecipeUnitOfMeasure
+			default to DefaultItemRecipeUOMRel.RecipeUnitOfMeasure
+		
+		RecipeUOMConversion
+			required
+			force default to ItemRecipeUOMRel.UnitsPerStock
+		
+		PlanQuantityInRecipeUOM
+			required
+			LocalInputQuantity = (QuantityInRecipeUOM * KitchenOrder.BatchQuantity)
+			RoundToRecipeDecimals = true
+			include RoundQuantity
+			PlanQuantityInRecipeUOM = LocalRoundedQuantity
+			
+		StockUOM
+			required
+			default to IngredientItem.StockUOM
+			cannot be changed
+			
+		QuantityInStockUOM
+			force default to DerivedQuantityInStockUOM
+			
+		PlanQuantityInStockUOM
+			required
+			LocalInputQuantity = (QuantityInStockUOM * KitchenOrder.BatchQuantity)
+			RoundToRecipeDecimals = false
+			include RoundQuantity
+			PlanQuantityInStockUOM = LocalRoundedQuantity
+			
+		InventoryCost
+			if (DefaultItemType.Inventoried)
+
+				initialize InventoryCostDefault
+				InventoryCostDefault.InCompany				= Company
+				InventoryCostDefault.InInventoryLocation	= InventoryLocation
+				InventoryCostDefault.InItem					= IngredientItem
+				InventoryCostDefault.InQuantity				= PlanQuantityInStockUOM
+				default to InventoryCostDefault.DefaultInventoryCost
+			else
+				ProcurementCostDefault.InCompany					= Company
+				ProcurementCostDefault.InItem						= IngredientItem
+				ProcurementCostDefault.InQuantity					= PlanQuantityInStockUOM
+				ProcurementCostDefault.InItemType					= DefaultItemType
+				ProcurementCostDefault.InQuantityUOM				= StockUOM
+				ProcurementCostDefault.InDate						= current corporate date
+				ProcurementCostDefault.InLocation					= InventoryLocation
+				ProcurementCostDefault.InDescription				= Description
+				ProcurementCostDefault.InProcurementGroup			= PurchasingCompanyRel.ProcurementGroup
+				ProcurementCostDefault.InDoUpdates					= true
+				ProcurementCostDefault.InIgnoreStockless			= true
+				ProcurementCostDefault.InDoDebug					= DoDebug
+				ProcurementCostDefault.InCurrencyCode				= Company.Currency
+				if (KitchenOrder.RequestingCompanyAndLocation entered)
+					ProcurementCostDefault.InRequestingCompany		= KitchenOrder.RequestingCompanyAndLocation.RequestingCompany
+					ProcurementCostDefault.InRequestingLocation		= KitchenOrder.RequestingCompanyAndLocation.RequestingLocation
+
+				Execute	= ProcurementCostDefault.DefaultUnitCost
+
+				if (ProcurementCostDefault.OutputContract not entered
+				or  ProcurementCostDefault.OutputCostUOM = StockUOM)
+					default to ProcurementCostDefault.OutputUnitCost
+			
+		EstimatedLineAmount
+
+			force default to (DerivedUnitCostInRecipeUOM * PlanQuantityInRecipeUOM)
+			
+	Conditions
+		ExistsInRequisition
+			restricted
+			when (RequisitionLineRel exists)
+		
+		IngredientItemExists
+            restricted
+            when (IngredientItem exists)
+		
+		ZeroCostLine
+			when (InventoryCost not entered) 
+	
+	Derived Fields
+		DefaultItemType is a DerivedField
+			type is like ItemType
+			restricted
+			if (ItemLocationRel exists and ItemLocationRel.InventoryTracked)
+			    return ItemType.Inventoried
+			else
+				if (IngredientItemExists)
+				    return ItemType.NonStock
+
+		DerivedUnitCostInRecipeUOM is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (RecipeUOMConversion entered)
+				return (InventoryCost / RecipeUOMConversion)
+			return 0
+	
+		DerivedDeltaEstimatedLineAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (action type.Create)
+				return EstimatedLineAmount
+			else
+				if (action type.Delete)
+					return (EstimatedLineAmount *-1)
+				else
+					if (EstimatedLineAmount changed)
+						return (EstimatedLineAmount - old EstimatedLineAmount)
+		
+		DerivedDeltaActualLineAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (action type.Create)
+				return ActualLineAmount
+			else
+				if (action type.Delete)
+					return (ActualLineAmount *-1)
+				else
+					if (ActualLineAmount changed)
+						return (ActualLineAmount - old ActualLineAmount)
+						
+		DerivedDeltaWasteAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (WasteAmount changed)
+				return (WasteAmount - old WasteAmount)
+				
+		DerivedQuantityInStockUOM is a DerivedField
+			type is like UnsignedQuantity
+			restricted
+			LocalInputQuantity = (QuantityInRecipeUOM / RecipeUOMConversion)
+            RoundToRecipeDecimals = false
+            include RoundQuantity
+            constraint (LocalRoundedQuantity > 0)
+            	"MaxDecimalDigitsForIngredientItem<IngredientItem>InStockIs<IngredientItem.NumberOfDecimalsQuantity>;ConversionOf<RecipeUnitOfMeasure>To<StockUOM>RoundsTo0"
+            return LocalRoundedQuantity
+		
+	Sets
+		BySequence
+			duplicates
+			Sort Order
+				Company
+				InventoryLocation
+				KitchenOrder
+				Sequence
+		
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				include UpdateHeaderAmounts
+		
+		AddIngredient is a Create Action
+			valid when (KitchenOrder.Status.Open)
+			Action Rules
+				CreatedManually = true
+				constraint (IngredientItem.Ingredient)
+					"Item<IngredientItem>MustBeSetupAsIngredientItem"
+			Exit Rules
+				include UpdateHeaderAmounts
+		
+		Update is an Update Action
+			valid when (not KitchenOrder.Status.Completed)
+			Action Rules
+				LocalInputQuantity = ActualQuantityInRecipeUOM
+				RoundToRecipeDecimals = true
+				include RoundQuantity
+				ActualQuantityInRecipeUOM = LocalRoundedQuantity
+				
+				LocalInputQuantity = WasteQuantity
+				RoundToRecipeDecimals = true
+				include RoundQuantity
+				WasteQuantity = LocalRoundedQuantity
+			Exit Rules
+				include CalculateLineAmounts
+				include UpdateHeaderAmounts
+		
+		RecalculateAmounts is an Instance Action
+			restricted
+			Action Rules
+				if (KitchenOrder.IsOpen)
+					PlanQuantityInRecipeUOM	= (QuantityInRecipeUOM * KitchenOrder.BatchQuantity)
+				else
+					if (KitchenOrder.IsPreparing)
+						ActualQuantityInRecipeUOM = (QuantityInRecipeUOM * KitchenOrder.ActualBatchQuantity)
+					
+				include CalculateLineAmounts
+				
+		Delete is a Delete Action
+			valid when (KitchenOrder.Status.Open)
+			Entrance Rules
+				include UpdateHeaderAmounts
+
+				invoke SystemUpdate KitchenOrder
+					invoked.LineCount						-= 1
+		
+		SystemUpdate is an Update Action
+			restricted
+			bypass field rules
+				
+		Complete is an Instance Action
+			restricted
+			Local Fields
+			Parameters
+				PrmInventoryTransaction				is an InventoryTransaction
+			Action Rules
+				constraint (ActualQuantityInRecipeUOM entered)
+					"MustEnterActualQuantityProducedForLine<KitchenOrderLine>ToCompleteKitchenOrder"
+					
+
+		AddToRequisition is an Instance Action
+			restricted
+			Parameters
+				PrmCompany			is a Company
+				PrmRequisition		is a Requisition
+			Action Rules
+				LocalRequestingCompany	= PrmCompany
+				LocalRequisition		= PrmRequisition
+				
+				if (RequisitionLineRel exists)
+					invoke Unreleased.Update first RequisitionLineRel
+						invoked.Quantity		+= 1
+				else
+					invoke Create RequisitionLine
+						invoked.Company			= LocalRequestingCompany
+						invoked.Requisition		= LocalRequisition
+						invoked.Item			= IngredientItem
+						invoked.Quantity		= 1
+						invoked.EnteredUOM		= IngredientItem.StockUOM
+		
+

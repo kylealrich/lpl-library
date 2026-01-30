@@ -1,0 +1,1559 @@
+ContractVersion is a BusinessClass
+    owned by po
+    prefix is CVER
+
+    Ontology
+    	symbolic key is ContractVersion
+
+    Persistent Fields
+    	VersionOpenStamp			is TimeStamp
+    	VersionCloseStamp			is TimeStamp
+    	ContractVersionsExist    	is Boolean
+    	AddendumDocumentTemplate
+
+		PreviousActivatedTermVersion	is a ContractTermVersion
+		CurrentActivatedTermVersion		is a ContractTermVersion
+
+		ChangeOrderStatus           is Numeric 1
+			States
+				Created					value is 1
+				Submitted				value is 2
+				Completed               value is 3	
+				Rejected                value is 4
+				EditingBudget           value is 5
+		ChangeOrderNumber           is Alpha 20
+			default label is "Number"
+		ChangeOrderDocument         is an AlternateAttachment
+			default label is "Document"
+		ChangeOrderTitle            is a CommentName
+			default label is "Title"
+		ChangeOrderDescription      is Text
+			default label is "Description"
+		ChangeOrderRequester        is a Requester
+			default label is "CreatedBy"          
+		ChangeOrderSupplier         is a Supplier
+			default label is "Supplier"
+		ChangeOrderSupplierContact  is a SupplierSourceId
+			default label is "SupplierContact"
+		ChangeOrderDate             is Date
+			default label is "Date"
+		ChangeOrderSubcontractor    is a ContractSubcontractor
+			default label is "Subcontractor"
+		ChangeOrderCommitAllowance  is Boolean
+			default label is "CommitAllowance"
+		AddendumDocumentIDMTemplate	is an IDMTemplate
+			default label is "AddendumDocumentTemplate"
+		IDMJob						is like IDMJob
+			protected
+		IDMDocumentSequence			is Numeric size 3
+			restricted
+			protected
+		AddendumIDMXMLFile			is an Attachment
+		
+	Local Fields
+		LocalContractLine 							is like ContractLine
+		IDMItem
+		IDMAttributes
+		LocalToEmail 								is an EmailAddressMulti 
+			holds pii
+		LocalFromEmail 								is an EmailAddress 
+			holds pii
+		LocalCcEmail 								is an EmailAddressMulti 
+			holds pii
+		LocalBccEmail 								is an EmailAddressMulti 
+			holds pii
+		LocalSubject 	   							is Text
+		LocalEmailContents  						is Text
+		LocalCreatedContractNotificationEmailView 	is a ContractNotificationEmail view
+		FromSupplierChangeOrder 					is Boolean
+		LocalIDMDocument 							is an IDMAttachment
+		LocalGenerateXMLFile						is Boolean
+		IDMXMLDefinition
+		LocalContract								is like Contract
+		LocalAttributeCtr   						is Numeric 2
+
+	Rule Blocks
+		SendEmailUsingIDM
+			initialize IDMItem
+			IDMItem.IDMXMLDefinition.Busclass		= reference to this instance
+			IDMItem.IDMXMLDefinition.ListName		= "AddendumDocumentForIDM"
+			IDMItem.IDMXMLDefinition.DocumentName	= "AddendumDetails"
+			IDMItem.DocumentType					= "FSM_ContractDocument"
+			IDMItem.IDMUniqueId						= LatestAddendumRevisionRel.IDMUniqueID
+			constraint (IDMItem.GetItemDetails)
+				"DocumentDoesNotExistInIDM"
+
+			IDMItem.IDMPID    			= IDMItem.IDMItemDetails.PID	
+			IDMItem.IDMEmail.From		= LocalFromEmail
+			IDMItem.IDMEmail.To			= LocalToEmail
+			IDMItem.IDMEmail.Cc			= LocalCcEmail
+			IDMItem.IDMEmail.Bc			= LocalBccEmail
+			IDMItem.IDMEmail.Subject	= LocalSubject
+			IDMItem.IDMEmail.Body		= LocalEmailContents
+
+			invoke SendToEmail IDMJob
+				invoked.Description	 = DerivedEmailMessageForContractAddendum
+				invoked.FileName	 = IDMItem.IDMItemDetails.FileName
+				invoked.IDMItem		 = IDMItem
+		
+		SendEmailUsingEmailClient
+			if (LatestAddendumRevisionRel.IDMUniqueID entered) 
+				IDMItem.IDMUniqueId				= LatestAddendumRevisionRel.IDMUniqueID
+				IDMItem.DocumentType			= "FSM_ContractDocument"
+
+				constraint(IDMItem.RetrieveResource)
+					"DocumentDoesNotExistInIDM"
+				
+				LocalIDMDocument	 = IDMItem.RetrievedAttachment
+
+			send email
+				to LocalToEmail
+				cc LocalCcEmail
+				bcc LocalBccEmail
+				from LocalFromEmail
+				subject "<LocalSubject>"
+				Contents
+					"<LocalEmailContents>"
+				Attachments
+					if (LatestAddendumRevisionRel.IDMUniqueID entered)
+						attachment LocalIDMDocument.File
+							name is LocalIDMDocument.Title
+							mime type is LocalIDMDocument.MimeType
+					else
+						attachment LatestAddendumRevisionRel.Attachment.File
+							name is LatestAddendumRevisionRel.Attachment.Title
+							mime type is LatestAddendumRevisionRel.Attachment.MimeType
+
+		CreateContractNotificationEmail
+			invoke Create ContractNotificationEmail
+				assign result to LocalCreatedContractNotificationEmailView
+				invoked.ContractGroup					= ContractGroup
+				invoked.Contract						= Contract
+				initialize invoked.ContractDeliverable
+				initialize invoked.ContractMilestone
+				initialize invoked.SentToMilestoneContact
+				initialize invoked.SentToDeliverableContact
+				invoked.SentToEmailAddress				= LocalToEmail
+				invoked.SentToCc                        = LocalCcEmail
+				invoked.SentToBcc                       = LocalBccEmail
+				invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+				invoked.SentFromEmailAddress			= LocalFromEmail
+				invoked.EmailSubjectLine				= LocalSubject
+				invoked.EmailContent					= LocalEmailContents
+				invoked.NotificationType				= 4
+				invoked.IncludeAttachments				= true
+
+			invoke Create ContractNotificationEmailAttachment
+				invoked.ContractGroup					= ContractGroup
+				invoked.Contract						= Contract
+				if (LatestAddendumRevisionRel.IDMUniqueID entered)
+					invoked.IDMUniqueId					= LatestAddendumRevisionRel.IDMUniqueID
+				invoked.ContractDocument            	= LatestAddendumRevisionRel.ContractDocument
+				invoked.ContractNotificationEmail       = LocalCreatedContractNotificationEmailView.ContractNotificationEmail
+		
+		SetIDMXMLDefinition
+			initialize IDMXMLDefinition
+			IDMXMLDefinition.Busclass													= reference to this instance
+			IDMXMLDefinition.ListName													= "AddendumDocumentForIDM"
+			IDMXMLDefinition.DocumentName												= "AddendumDetails"
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName 				= "ChangedContractArticles"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName 					= "ContractArticlesForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag						= "Articles"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag						= "Article"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1 				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].RelationName 				= "ChangedContractLines"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListName 					= "ContractLinesForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListTag						= "Lines"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ItemTag						= "Line"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection1 				= 2
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].RelationName 				= "LineCommentPrintOnContractRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].ListName 					= "ContractLineCommentsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].ListTag						= "LineComment"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].ItemTag						= "Comment"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].LevelSection1 				= 2
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[3].LevelSection2 				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[4].RelationName 				= "ContractCommentPrintOnContractRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[4].ListName 					= "ContractCommentsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[4].ListTag						= "Comments"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[4].ItemTag						= "CommentDetail"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[4].LevelSection1 				= 3
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].RelationName 				= "Level1ContractTermsByDisplayRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].ListName 					= "ContractTermsAndConditionsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].ListTag						= "TermsAndConditionsDetails"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].ItemTag						= "TermsAndConditionsDetail"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].LevelSection1 				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[5].LevelSection2				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].RelationName 				= "Level2ContractTermsByDisplayRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].ListName 					= "ContractTermsAndConditionsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].ListTag						= "TermsAndConditionsLevel2"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].ItemTag						= "TermsAndConditionsLevel2Detail"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].LevelSection1 				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].LevelSection2				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[6].LevelSection3				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].RelationName 				= "Level3ContractTermsByDisplayRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].ListName 					= "ContractTermsAndConditionsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].ListTag						= "TermsAndConditionsLevel3"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].ItemTag						= "TermsAndConditionsLevel3Detail"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].LevelSection1 				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].LevelSection2				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].LevelSection3				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[7].LevelSection4				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].RelationName 				= "Level4ContractTermsByDisplayRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].ListName 					= "ContractTermsAndConditionsForIDM"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].ListTag						= "TermsAndConditionsLevel4"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].ItemTag						= "TermsAndConditionsLevel4Detail"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].LevelSection1 				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].LevelSection2				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].LevelSection3				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].LevelSection4				= 1
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[8].LevelSection5				= 1
+
+			if (LocalGenerateXMLFile)
+				IDMXMLDefinition.OutputFileName	= "ContractGroup_" + ContractGroup + "_Addendum_" + Contract + "_" + ContractVersion + "_" + Contract.DerivedCurrentTimestamp + ".xml"
+
+    Derived Fields
+    	VersionCount is a MessageField
+    		restricted
+    		"View"
+    		
+ 		RequesterName		is a DerivedField
+			type is Alpha up to 230
+			return ChangeOrderRequester.Employee.Name.PreferredFirstAndLastName 
+
+		CreatedByName       is a DerivedField
+			type is Alpha up to 230
+			default label is "CreatedBy"
+			if (ChangeOrderRequester entered)
+				return RequesterName
+			else
+			if (ChangeOrderSupplier entered)
+				return ChangeOrderSupplierContact.MainContact.FirstAndLastName
+			else
+				return blank
+
+		DerivedIDMDocumentVersion is a DerivedField
+			type is Alpha size 2083
+			IDMItem.DocumentType = "FSM_ContractDocument"
+			if (Contract.IDMDocumentPID entered)
+				IDMItem.IDMUniqueId	= Contract.IDMDocumentPID		
+
+			else
+			if (Contract.IDMJob.MDSID entered)
+				IDMItem.IDMUniqueId = Contract.IDMJob.MDSID
+
+			IDMItem.Version      = ContractVersion + 1
+			return IDMItem.GetVersionLink
+		
+		
+		DerivedAddendumFileName is a StringField
+			type is Alpha 100
+			restricted
+			"Addendum"
+			" "
+			"ContractGroup"
+			" "
+			Contract.ContractGroup
+			" "
+			"Contract"
+			" "
+			Contract
+			" "
+			"Version"
+			" "
+			ContractVersion
+			"-"
+			IDMDocumentSequence
+			AddendumDocumentIDMTemplate.DerivedOutputFormat
+		
+		DerivedGenerationMessage is a MessageField
+			restricted
+			"Create_Addendum_Document"
+			
+		DerivedNoIDMTemplateWarningMessage is a MessageField
+			"NoAssignedIDMTemplate"
+			
+		DerivedEmailMessageForContractAddendum is a MessageField
+			restricted
+			"Email_Addendum_Document"
+			
+		DerivedContractLine is a DerivedField
+            type is Alpha size 10
+            if (first ContractChangeOrderRel.ContractLine entered)
+                return first ContractChangeOrderRel.ContractLine
+            else
+            	return blank
+
+		DerivedIDMXMLListNoDataMessage is a MessageField
+			restricted
+			"ThereAreNo_Addendum_XMLFilesYet"
+		
+		DerivedIDMXMLListNoDataDescriptionMessage is a MessageField
+			restricted
+			"GenerateOneThroughTheButtonBelow."
+		
+		DerivedOverwriteIDMXMLConfirmationMessage is a MessageField
+			restricted
+			"CurrentXML_FileWillBeOverwritten."
+		
+		DerivedCreateIDMXMLCompletionMessage is a MessageField
+			restricted
+			"Generated_XMLFileFor_Contract_AddendumOf_Contract<LocalContract>"
+		
+		DerivedDeleteIDMXMLCompletionMessage is a MessageField
+			restricted
+			"Deleted_XMLFileFor_Contract_AddendumOf_Contract<Contract>"
+
+    Conditions
+    	VersionsExist
+    		restricted
+			when (ContractVersion > 0)
+		AmendedArticles
+			restricted
+			when (ChangedContractArticles exist)
+		AmendedTerms
+			restricted
+			when (ChangedContractTermsAndConditions exist)	
+		NonRedliningAmendedTerms
+			restricted
+			when (ChangedContractTermsAndConditions exist)
+		NonRedliningAmendedArticlesOrTerms
+			restricted
+			when (AmendedArticles
+			or	  NonRedliningAmendedTerms)
+		PrintValid
+			restricted
+			when ((NonRedliningAmendedArticlesOrTerms
+			or    AmendedLines
+			or    AmendedLineMembers)
+			and   VersionClosed)
+		AmendedArticlesOrAmendedTerms
+			restricted
+			when (AmendedArticles
+			or	  AmendedTerms) 
+		NonRedliningAmendedTermsValid
+			restricted
+			when (VersionClosed
+			and	  AmendedArticlesOrAmendedTerms)
+		ViewAmendedTerms
+			restricted
+			when (ContractVersionsExist)
+		AmendedLines
+			restricted
+			when (ChangedContractLines exist)
+		AmendedLineMembers
+			restricted
+			when (ChangedContractLineMember exist)
+		VersionClosed
+			restricted
+			when (VersionCloseStamp > 0)
+		DisplayCompareNavigation
+			restricted
+			when (Contract.UsingAddendumRedlining
+			and	  AmendedArticlesOrAmendedTerms)
+		DisplayAmendedContractPreview
+			restricted
+			when (VersionClosed
+			and	  !Contract.UsingAddendumRedlining
+			and	  NonRedliningAmendedArticlesOrTerms)
+		PrintRedliningValid
+			restricted
+			when ((AmendedArticlesOrAmendedTerms
+			or    AmendedLines
+			or    AmendedLineMembers)
+			and	  VersionClosed)
+		AmendedTermsValid
+			restricted
+			when (AmendedArticlesOrAmendedTerms
+			and	  VersionClosed)
+		HasDocument
+			restricted
+			when (ChangeOrderDocument entered)
+		VersionIsChangeOrder
+			restricted
+			when (ChangeOrderStatus > 0)
+		ChangeOrderCreated
+			restricted
+			when (ChangeOrderStatus =1)
+		ChangeOrderSubmitted
+			restricted
+			when (ChangeOrderStatus =2)
+		ChangeOrderCompleted
+			restricted
+			when (ChangeOrderStatus = 3)
+		ChangeOrderCreatedOrSubmitted
+			restricted
+			when (ChangeOrderCreated
+			or    ChangeOrderSubmitted)
+		CanCreateChangeOrder
+			restricted
+			when (Contract.AllowChangeOrder
+			and  (Contract.ContractStatus.Addendum
+			or    Contract.ContractStatus.Amendment)
+			and  !VersionIsChangeOrder
+			and  !VersionClosed)  
+		EnteredByRequester
+			restricted
+			when (ChangeOrderRequester entered)
+		EnteredBySupplier
+			restricted
+			when (ChangeOrderSupplier entered)
+		ChangeOrdersByRequester
+			restricted
+			when (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.HROrganization = actor.agent(Employee).Employee.HROrganization
+			and   ChangeOrderRequester = actor.agent(Employee).Employee)
+		ChangeOrdersBySupplier
+			restricted
+			when (ContractGroup					= actor.agent(SupplierSourceId).SupplierGroup
+			and   ChangeOrderSupplier			= actor.agent(SupplierSourceId).Supplier
+			and   ChangeOrderSupplierContact	= actor.agent(SupplierSourceId).SupplierSourceId)
+		IsSupplier
+			restricted
+			when (SupplierRel exists)
+		IsRequester
+			restricted
+			when (RequesterRel exists)
+		ChangeOrdersByContractOwner
+			restricted
+			when (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.HROrganization = actor.agent(Employee).Employee.HROrganization
+			and   Contract.PrimaryContactRel.Contact = actor.agent(Employee).Employee)
+		ChangeOrderNumberEntered
+			restricted
+			when (ChangeOrderNumber entered)
+		ChangeOrderDateEntered
+			restricted
+			when (ChangeOrderDate entered)
+		ChangeOrderDescriptionEntered
+			restricted
+			when (ChangeOrderDescription entered)
+		SubcontractorEntered
+			restricted
+			when (ChangeOrderSubcontractor entered)
+		CanUpdate
+			restricted
+			when  (ChangeOrderStatus = 0
+			or    (ChangeOrderStatus = 1
+			and   (ChangeOrdersByRequester
+			or     ChangeOrdersBySupplier
+			or    !IsSupplier))
+			or    (ChangeOrderStatus = 2
+			and    !ChangeOrdersBySupplier
+			and   (!ChangeOrdersByRequester
+			or     ChangeOrdersByContractOwner)))
+		CanDelete
+			restricted
+			when (ChangeOrderStatus = 1)
+		CanSubmit
+			restricted
+			when (ChangeOrderStatus = 1)
+		HasNewLines
+			restricted
+			when (NewLinesRel exists)
+		FullContractForThisVersionExists
+			restricted
+			when (ContractChangeOrderDocumentRel exists)
+		IDMDocumentExists
+			restricted
+			when (DerivedIDMDocumentVersion entered)
+		ChangeOrderHasDocument
+			restricted
+			when (ContractChangeOrderAttachmentRel exists)
+		CanDisplayBudgetWarningMessages
+			restricted
+			when (WarningBudgetEditErrorRel exists
+			and  (ChangeOrderStatus = 1
+			or   (ChangeOrderStatus = 2
+			and   EnteredBySupplier)))
+		ContractLinesNeedToBeCreated
+			when (ContractChangeOrderNewLineNeededRel exists)
+		HasBudgetWarnings
+			when (WarningBudgetEditErrorRel exists)
+		HasAlertConditions
+			restricted
+			when ((HasBudgetWarnings
+			or     ChangeOrderCreatedOrSubmitted
+			or     ContractLinesNeedToBeCreated)
+			and   (ChangeOrderSubmitted
+			or     ChangeOrderCreated))
+		ShowCommitAllowance
+			restricted
+			when (ContractHasCommitments
+			and  !ChangeOrdersBySupplier)
+		ContractHasCommitments
+			restricted
+			when (Contract.UseCommitments)
+		ContractHasSubcontractor
+			restricted
+			when (ContractSubcontractorRel exists)
+		ShowCreateAddendumDocument
+			restricted
+			when (VersionClosed
+			and ((Contract.IsUsingIDMTemplate
+			and   AddendumDocumentIDMTemplate entered)
+			or    not Contract.IsUsingIDMTemplate))
+		IDMAndNoAddendumTemplate
+			restricted
+			when  (Contract.IsUsingIDMTemplate
+			and    AddendumDocumentIDMTemplate not entered)
+		IDMArticlesWithValidAttachments 
+			restricted
+			when (Contract.IsUsingIDMTemplate
+			and   not ChangedContractArticlesWithNonDocxAttachmentRel exists)
+
+		ValidForAddendumEmail
+			restricted
+			when (LatestAddendumRevisionRel exists
+			and   ContractVersion = LatestAddendumRevisionRel.AddendumVersion)
+		IDMAndNonIDMAddendumExists
+			restricted
+			when  (Contract.IsUsingIDMTemplate
+			and    NonIDMAddendumDocumentRel exists)
+		
+		HasLatestAddendumDocument
+			restricted
+			when (LatestAddendumDocumentRel exists)
+			
+		IsOlderThanLatestAddendum
+			restricted
+			when (ContractVersion < Contract.DerivedContractVersionWithLatestAddendumDocument)
+			
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+		 	and   ContractGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+			
+		MyContract
+			default label is "MyContracts"
+			when (PrimaryContactRel.Contact = actor.agent(Employee).Employee)
+
+		DisplayLineSection
+			when (ChangedContractLines exists)
+
+    Relations
+    	ChangedContractArticles 
+    		one-to-many relation to ContractArticle
+    		as of VersionCloseStamp
+    		Field Mapping uses ByDisplayOrder 
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    		Instance Selection
+    			where ((related.HeaderText 	changed between VersionOpenStamp and VersionCloseStamp
+    			or      related.TermChanged  changed between VersionOpenStamp and VersionCloseStamp)
+    			and	   !related.Deleted)
+    			  
+    	ChangedContractTermsAndConditions  
+			one-to-many relation to ContractTermAndCondition
+			as of VersionCloseStamp
+			Field Mapping uses ByDisplayOrder
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+    		Instance Selection 
+    			where (related.HeaderText        changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.Description  	 changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.Article 			 changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.AttachmentChanged changed between VersionOpenStamp and VersionCloseStamp)  
+    			 
+    	ChangedContractTermAttachments
+    		one-to-many relation to ContractTermAndConditionAttachment
+			as of VersionCloseStamp
+			Field Mapping uses ByDisplayOrder
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+    		Instance Selection 
+    			where (related.Attachment              changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.AttachmentReference     changed between VersionOpenStamp and VersionCloseStamp)
+    	
+    	ChangedContractLines 
+    		one-to-many relation to ContractLine
+    		as of VersionCloseStamp
+    		Field Mapping uses symbolic key
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    		Instance Selection
+    			where (related.BaseCost                changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.Quantity                changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.UOM                     changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.CommodityCode           changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.FutureCost              changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.ExpirationDate          changed between VersionOpenStamp and VersionCloseStamp
+    			or     related.EffectiveDate           changed between VersionOpenStamp and VersionCloseStamp)
+    			
+		ContractLineRel                 
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    		Instance Selection
+    			where (related.LineNotClosed)
+
+    	LocalContractLineRel
+			one-to-one relation to ContractLine
+			Field Mapping uses symbolic key
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    			related.ContractLine  = LocalContractLine
+    	
+    	NewLinesRel
+    		one-to-many relation to ContractChangeOrder
+    		Field Mapping uses symbolic key
+    			related.ContractGroup 	= ContractGroup
+    			related.Contract      	= Contract
+    			related.ContractVersion	= ContractVersion
+    		Instance Selection
+    			where (related.CreateNewLine = true
+    			and    related.ContractLine entered)    		
+    	
+		NewAllowancesRel
+    		one-to-many relation to ContractChangeOrder
+    		Field Mapping uses symbolic key
+    			related.ContractGroup 	= ContractGroup
+    			related.Contract      	= Contract
+    			related.ContractVersion	= ContractVersion
+    		Instance Selection
+    			where (related.AllowanceOptions = 3)
+
+		ContractChangeOrderNewLineNeededRel
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses symbolic key
+				related.ContractGroup 	= ContractGroup
+				related.Contract	  	= Contract
+				related.ContractVersion	= ContractVersion
+    		Instance Selection
+    			where (related.CreateNewLine = true
+    			and    related.ContractLine !entered) 
+						
+		ContractChangeOrderAmountRel 
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses symbolic key
+				related.ContractGroup 	= ContractGroup
+				related.Contract	  	= Contract
+				related.ContractVersion	= ContractVersion
+			Instance Selection
+				where (related.Quantity entered
+				or     related.BaseCost entered
+				or     related.AllowanceAmount entered
+				or     related.AllowanceQuantity entered)
+
+		ContractChangeOrderAmountLineRel 
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses symbolic key
+				related.ContractGroup 	= ContractGroup
+				related.Contract	  	= Contract
+				related.ContractVersion	= ContractVersion
+			Instance Selection
+				where ((related.Quantity entered
+				or      related.BaseCost entered)
+				and     related.ContractLine entered)
+
+		ContractChangeOrderAttachmentRel 
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses symbolic key
+				related.ContractGroup 	= ContractGroup
+				related.Contract	  	= Contract
+				related.ContractVersion	= ContractVersion
+			Instance Selection
+				where (related.HasAttachment)
+
+    	ChangedContractLineMember 
+    		one-to-many relation to ContractLineMember
+    		as of VersionCloseStamp
+    		Field Mapping uses symbolic key
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    		Instance Selection 
+    			where (related.NetCostOverride           	 changed between VersionOpenStamp and VersionCloseStamp
+    			or 	   related.CurrentNetCost                changed between VersionOpenStamp and VersionCloseStamp)
+ 
+		LatestAddendumRevisionRel
+			one-to-one relation to ContractDocument
+			Field Mapping uses ByLatestAddendumRevision
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+		 
+		ContractChangeOrderDocumentRel is a ContractDocument set
+			Instance Selection 
+				where (related.FullVersion = ContractVersion)
+
+		ContractDocumentRel is a ContractDocument set
+			Instance Selection 
+				where (related.AddendumVersion = ContractVersion)
+
+		CurrentActivatedContractTermVersionRel
+			one-to-many relation to ContractTermVersion
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where (related.ContractTermVersion	= CurrentActivatedTermVersion)
+
+		ContractDocumentTemplateRel
+			one-to-one relation to ContractDocumentTemplate
+			Field Mapping uses symbolic key
+				related.ContractGroup       		= ContractGroup
+				related.ContractDocumentTemplate	= Contract.ContractDocumentTemplate
+
+		ContractLineDistributionRel
+			one-to-many relation to ContractLineDistribution
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+
+		ContractSpreadRel 
+			one-to-many relation to ContractSpread
+			Field Mapping uses part of key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract			
+
+		SupplierRel
+			one-to-one relation to Supplier
+			Field Mapping uses symbolic key
+				related.SupplierGroup			= actor.agent(SupplierSourceId).SupplierGroup
+				related.Supplier				= actor.agent(SupplierSourceId).Supplier
+
+		RequesterRel
+			one-to-one relation to Requester
+			Field Mapping uses symbolic key
+				related.HROrganization = actor.agent(Employee).Employee.HROrganization
+				related.Requester      = actor.agent(Employee).Employee				
+
+		ContractLineDistSpreadRel
+			one-to-many relation to ContractLineDistributionSpread
+			Field Mapping uses part of key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract			
+
+		ContractSubcontractorRel
+			one-to-many relation to ContractSubcontractor
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract			
+
+		VersionInBudgetEditRel
+			one-to-many relation to ContractVersion
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection
+				where (related.ChangeOrderStatus = 5)
+
+		WarningBudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup			= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup	= Contract.UniqueID
+		
+		ContractCommentWordDocRel is a ContractComment set
+		
+		IDMJobRel
+			one-to-one relation to IDMJob
+			Field Mapping uses symbolic key
+				related.IDMJob = IDMJob
+		
+		ChangedContractArticlesWithNonDocxAttachmentRel
+    		one-to-many relation to ContractArticle
+    		as of VersionCloseStamp
+    		Field Mapping uses ByDisplayOrder 
+    			related.ContractGroup = ContractGroup
+    			related.Contract      = Contract
+    		Instance Selection
+    			where ((related.HeaderText 	changed between VersionOpenStamp and VersionCloseStamp
+    			or  related.TermChanged  changed between VersionOpenStamp and VersionCloseStamp)
+    			and	not related.Deleted
+    			and related.HasTermsWithInvalidAttachment)
+    	
+		NonIDMAddendumDocumentRel is a ContractDocument set
+			Instance Selection 
+				where (related.AddendumVersion = ContractVersion
+				and    related.IDMUniqueID not entered)
+				
+		LatestAddendumDocumentRel is a ContractDocument set
+			Instance Selection
+				where (related.AddendumVersion = ContractVersion
+				and    related.LatestAddendum = true)
+				
+		PrimaryContactRel
+			one-to-one relation to ContractAttachedContact
+			Field Mapping uses ByPrimary
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+		
+		ContractChangeOrderRel is a ContractChangeOrder set
+
+		ContractCommentPrintOnContractRel
+			one-to-many relation to ContractComment
+			Field Mapping uses BySequenceNumber
+				related.ContractGroup = ContractGroup
+				related.Contract 	  = Contract
+			Instance Selection
+				where (related.PrintOnContract = true)
+		
+	Field Rules
+		VersionOpenStamp
+    		default to current timestamp
+    		
+    	ContractVersionsExist
+    		default to true
+    	
+    	AddendumDocumentTemplate
+			if (Contract.ContractSubclassification entered)
+				default to Contract.ContractSubclassification.AddendumDocumentTemplate
+			else
+				default to Contract.ContractClassification.AddendumDocumentTemplate
+		
+		AddendumDocumentIDMTemplate
+			if (Contract.IsUsingIDMTemplate
+			or  Contract.UseIDM)
+				if (AddendumDocumentIDMTemplate entered)
+					constraint (AddendumDocumentIDMTemplate.IDMDocumentType.AddendumDocument)
+						"InvalidTemplate"
+			else
+				initialize
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with ChangeOrderDocument
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with ChangeOrderDocument
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with ChangeOrderDocument
+
+	Sets
+		ByContractVersion
+			Sort Order
+				ContractGroup
+				Contract
+				ContractVersion
+				
+		ByVersionDescending
+			Sort Order
+				ContractGroup
+				Contract
+				ContractVersion descending
+
+    Actions
+   		Create is a Create Action
+   			restricted
+   			
+			Action Rules 
+
+			Exit Rules
+				if (!ChangeOrderSupplier entered
+				and !FromSupplierChangeOrder
+				and AddendumDocumentIDMTemplate !entered)
+					if (Contract.ContractSubclassification entered)
+						AddendumDocumentIDMTemplate = Contract.ContractSubclassification.AddendumDocumentIDMTemplate
+					else
+						AddendumDocumentIDMTemplate = Contract.ContractClassification.AddendumDocumentIDMTemplate	
+
+   				if (Contract.AllowChangeOrder
+   				and ChangeOrderTitle entered)
+	   				if (!ChangeOrdersByContractOwner)
+						ChangeOrderStatus       = 1
+					else
+						ChangeOrderStatus       = 2	
+   			
+   		CreateAddendumContractDocument is an Instance Action
+   			valid when (ShowCreateAddendumDocument)
+
+			Action Rules
+				if (Contract.IsUsingIDMTemplate)
+					increment IDMDocumentSequence by 1
+				
+
+					invoke CreateAndSendAddendumDocToIDM
+				
+				else
+					constraint (AddendumDocumentTemplate != blank)
+						"AddendumDocumentTemplateIsRequired"
+		
+					invoke Create ContractDocument
+						invoked.ContractGroup 		   = ContractGroup
+						invoked.Contract	  		   = Contract
+						invoked.Attachment.File        = AddendumDocumentTemplate.AddendumDocumentTemplateGroup.File document	
+						invoked.AddendumVersion 	   = ContractVersion
+						if (IsOlderThanLatestAddendum)
+							invoked.LatestAddendum	   = false
+						else
+							invoked.LatestAddendum	   = true
+						invoked.LocalContractMain      = false
+		
+		CreateAndSendAddendumDocToIDM is an Instance Action
+			default label is untranslatable
+			restricted
+			Local Fields
+				IDMGenerateDocument
+   				IDMJobView					is an IDMJob view
+				LocalMergeDocIndex			is Numeric size 3
+				LocalColSequence			is Numeric size 3
+			Action Rules
+				initialize IDMAttributes
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName  	= "Name"
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue  	= Contract.Name
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName  	= "ContractType"
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue  	= Contract.ContractType
+				IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeName  	= "ContractSubtype"
+				IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeValue  	= Contract.ContractSubtype
+				IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeName  	= "ContractClassification"
+				IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeValue  	= Contract.ContractClassification
+				IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeName  	= "ContractSubclassification"
+				IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeValue  	= Contract.ContractSubclassification
+				IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeName  	= "Supplier"
+				IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeValue  	= Contract.Supplier
+				IDMAttributes.SingleValue.IDMAttribute[7].IDMAttributeName  	= "SupplierName"
+				IDMAttributes.SingleValue.IDMAttribute[7].IDMAttributeValue  	= Contract.Supplier.SupplierName
+				IDMAttributes.SingleValue.IDMAttribute[8].IDMAttributeName  	= "Addendum"
+				IDMAttributes.SingleValue.IDMAttribute[8].IDMAttributeValue  	= true
+				IDMAttributes.SingleValue.IDMAttribute[9].IDMAttributeName  	= "ContractVersion"
+				IDMAttributes.SingleValue.IDMAttribute[9].IDMAttributeValue  	= ContractVersion
+				IDMAttributes.SingleValue.IDMAttribute[10].IDMAttributeName		= "Contract"
+				IDMAttributes.SingleValue.IDMAttribute[10].IDMAttributeValue	= Contract
+				IDMAttributes.SingleValue.IDMAttribute[11].IDMAttributeName		= "ContractGroup"
+				IDMAttributes.SingleValue.IDMAttribute[11].IDMAttributeValue    = Contract.ContractGroup
+	
+				initialize LocalColSequence
+				for each distinct ContractCommodityCode in Contract.ContractLineRel
+					if (LocalColSequence < 100)
+						LocalColSequence = LocalColSequence + 1
+						IDMAttributes.MultiValue1.IDMAttributeValueOccurs.IDMAttributeValue[LocalColSequence] = each.CommodityCode
+					else
+						end for each
+				IDMAttributes.MultiValue1.IDMAttributeName = "CommodityCode"
+	
+				initialize LocalColSequence
+				for each distinct ContractContact in Contract.ContractInternalContactsRel
+					if (LocalColSequence < 100)
+						LocalColSequence = LocalColSequence + 1
+						IDMAttributes.MultiValue2.IDMAttributeValueOccurs.IDMAttributeValue[LocalColSequence] = each.Contact.FirstLastName
+					else
+						end for each
+				IDMAttributes.MultiValue2.IDMAttributeName = "InternalContact"
+	
+				initialize LocalColSequence
+				for each distinct ContractName in Contract.ContractExternalContactsRel
+					if (LocalColSequence < 100)
+						LocalColSequence = LocalColSequence + 1
+						IDMAttributes.MultiValue3.IDMAttributeValueOccurs.IDMAttributeValue[LocalColSequence] = each.Name.FirstAndLastName
+					else
+						end for each
+				IDMAttributes.MultiValue3.IDMAttributeName = "ExternalContact"
+	
+				initialize LocalColSequence
+				for each distinct DistributionAccount.Project in Contract.ContractLineDistributionRel
+					if (LocalColSequence < 100)
+						LocalColSequence = LocalColSequence + 1
+						IDMAttributes.MultiValue4.IDMAttributeValueOccurs.IDMAttributeValue[LocalColSequence] = each.DistributionAccount.Project
+					else
+						end for each
+				IDMAttributes.MultiValue4.IDMAttributeName = "Project"
+	
+				initialize LocalColSequence
+				for each distinct DistributionAccount.AccountingUnit in Contract.ContractLineDistributionRel
+					if (LocalColSequence < 100)
+						LocalColSequence = LocalColSequence + 1
+						IDMAttributes.MultiValue5.IDMAttributeValueOccurs.IDMAttributeValue[LocalColSequence] = each.DistributionAccount.AccountingUnit
+					else
+						end for each
+				IDMAttributes.MultiValue5.IDMAttributeName = "AccountingUnit"
+
+				initialize IDMGenerateDocument
+				include SetIDMXMLDefinition
+				IDMGenerateDocument.IDMXMLDefinition = IDMXMLDefinition
+
+				IDMGenerateDocument.IDMAttributes									= IDMAttributes
+				IDMGenerateDocument.TemplateUniqueId 								= AddendumDocumentIDMTemplate.IDMUniqueId
+				
+				IDMGenerateDocument.DocumentType									= "FSM_ContractDocument"
+				
+				IDMGenerateDocument.FileName										= DerivedAddendumFileName
+				IDMGenerateDocument.IDMAccessControlList 							= "CSFDefined"
+
+				for each ChangedContractArticles
+					for each each.NonDeletedContractTermsByDisplayRel
+						for each each.MergeContractTermsAttachmentByDisplayRel
+							LocalMergeDocIndex += 1
+							IDMGenerateDocument.MergeAttachments.IDMAttachment[LocalMergeDocIndex]		= each.Attachment
+
+				if (AddendumDocumentIDMTemplate.UseRichText)
+					IDMGenerateDocument.DocumentTemplateType = IDMDocumentTemplate.ContractAddendum
+					include IDM.CheckRichTextIDMOption
+
+				invoke CreateFromGenerateDocument IDMJob
+					assign result to IDMJobView
+					invoked.Actor				= actor
+					invoked.Description			= DerivedGenerationMessage
+					invoked.IDMGenerateDocument = IDMGenerateDocument
+
+				IDMJob = IDMJobView.IDMJob
+				
+				invoke UpdateIDMDocumentPID in background
+					run after IDMJobView.AsyncId
+   		
+   		UpdateIDMDocumentPID is an Instance Action
+			run in background
+			default label is untranslatable
+			restricted
+			Action Rules
+				if (IDMJobRel.GenerationStatus.Finished
+				and IDMJobRel.MDSID entered)
+					invoke Create ContractDocument
+						invoked.ContractGroup			= ContractGroup
+						invoked.Contract				= Contract
+						invoked.AddendumVersion			= ContractVersion
+						if (IsOlderThanLatestAddendum)
+							invoked.LatestAddendum		= false
+						else
+							invoked.LatestAddendum		= true
+						invoked.LocalContractMain		= false
+						invoked.IDMUniqueID				= IDMJobRel.MDSID
+
+		CreateIDMXML is a Set Action
+			completion message is "<DerivedCreateIDMXMLCompletionMessage>"
+			default label is "Generate_XMLFile"
+			run in foreground
+			Parameters
+				PrmContractGroup is a ContractGroup
+					default label is "ContractGroup"
+				PrmContract is a Contract
+					default label is "Contract"
+
+			Parameter Rules
+				PrmContractGroup
+					required
+				
+				PrmContract
+					required
+					constraint (PrmContract.ContractStatus.Addendum)
+						"ContractIsNotInAddendumStatus."
+
+			Local Fields
+				LocalExecute is Boolean
+
+			Instance Selection
+				where (ContractGroup = PrmContractGroup
+				and    Contract = PrmContract
+				and	   ContractVersion = first PrmContract.ContractVersionDescendingRel.ContractVersion)
+				
+			Action Rules
+				Set Rules
+					Exit Rules
+						LocalContract = PrmContract
+						
+				Instance Rules
+					LocalGenerateXMLFile = true
+					include SetIDMXMLDefinition
+
+					LocalExecute = IDMXMLDefinition.GenerateXML
+					
+					AddendumIDMXMLFile = IDMXMLDefinition.OutputAttachment
+
+		DeleteIDMXML is an Instance Action
+			valid when (AddendumIDMXMLFile entered)
+			completion message is "<DerivedDeleteIDMXMLCompletionMessage>"
+			confirmation required
+			default label is "Delete_XMLFile"
+			Action Rules
+				initialize AddendumIDMXMLFile
+						
+		EmailAddendumToSupplier is an Instance Action
+			valid when (ValidForAddendumEmail)
+			Parameters
+				PrmToEmail 								is an EmailAddressMulti 
+					holds pii
+				PrmFromEmail 							is an EmailAddress 
+					holds pii
+				PrmCcEmail 								is an EmailAddressMulti 
+					holds pii
+				PrmBccEmail 							is an EmailAddressMulti 
+					holds pii
+				PrmSubject 	   							is Alpha size 255
+				PrmEmailContents   						is RichText
+
+			Parameter Rules
+				PrmToEmail
+					required
+					initial value is Contract.SupplierSourceId.EmailAddress
+				PrmFromEmail
+					required
+					initial value is Contract.PrimaryContactRel.DerivedEmail
+				PrmCcEmail
+					initial value is Contract.DerivedProxyEmailAddressList
+				PrmBccEmail
+					initial value is Contract.PrimaryAndSecondaryEmailList
+				PrmSubject
+					required
+					initial value is Contract.ContractGroupEmailTemplateRel.FinalAddendumNotifySupplierEmailSubject
+				PrmEmailContents
+					required
+					initial value is Contract.ContractGroupEmailTemplateRel.FinalAddendumNotifySupplierEmailContent
+
+			Action Rules
+				LocalToEmail 		= PrmToEmail
+				LocalFromEmail 		= PrmFromEmail
+				LocalCcEmail 		= PrmCcEmail
+				LocalBccEmail 		= PrmBccEmail
+				LocalSubject 	   	= PrmSubject
+				LocalEmailContents	= PrmEmailContents
+				
+				include SendEmailUsingEmailClient
+		
+				include CreateContractNotificationEmail
+				
+		EmailAddendum is an Instance Action
+			valid when (ValidForAddendumEmail)
+			Parameters
+				PrmToEmail 								is an EmailAddressMulti 
+					holds pii
+				PrmFromEmail 							is an EmailAddress 
+					holds pii
+				PrmCcEmail 								is an EmailAddressMulti 
+					holds pii
+				PrmBccEmail 							is an EmailAddressMulti 
+					holds pii
+				PrmSubject 	   							is Alpha size 255
+				PrmEmailContents   						is RichText
+
+			Parameter Rules
+				PrmToEmail
+					required
+				PrmFromEmail
+					required
+					initial value is Contract.PrimaryContactRel.DerivedEmail
+				PrmCcEmail
+					initial value is Contract.DerivedSecondaryContactEmailAddressList
+				PrmSubject
+					required
+				PrmEmailContents
+					required
+
+			Action Rules
+				LocalToEmail 		= PrmToEmail
+				LocalFromEmail 		= PrmFromEmail
+				LocalCcEmail 		= PrmCcEmail
+				LocalBccEmail 		= PrmBccEmail
+				LocalSubject 	   	= PrmSubject
+				LocalEmailContents	= PrmEmailContents
+				
+
+
+						
+
+				include SendEmailUsingEmailClient
+		
+				include CreateContractNotificationEmail
+   		
+   		Update is an Update Action
+   			valid when (CanUpdate)
+   		
+   			Action Rules
+   			
+   				if (ChangeOrderTitle changed)
+   					constraint (ChangeOrderTitle entered)
+   						"TitleIsRequired"
+   			
+   		CreateChangeOrder is an Instance Action
+   			restricted
+			Parameters
+				ParmNumber             is Alpha 20
+					default label is "Number"
+				ParmTitle              is a CommentName
+					default label is "Title"
+				ParmDescription        is Text
+					default label is "Description"
+				ParmDocument           is an Attachment
+					default label is "Document" 
+				ParmDate               is Date
+					default label is "Date"
+				ParmRequester          is a Requester 
+				ParmSupplier           is a Supplier
+				ParmSupplierContact    is a SupplierSourceId
+				ParmSubcontractor      is a ContractSubcontractor
+					default label is "Subcontractor"
+				ParmCommitAllowance    is Boolean
+					default label is "CommitAnyNewAllowances"					 			   			
+			Parameter Rules
+				ParmTitle
+					required
+			
+			Action Rules
+				ChangeOrderTitle						= ParmTitle
+				ChangeOrderNumber           			= ParmNumber
+				ChangeOrderDescription					= ParmDescription
+				ChangeOrderDate             			= ParmDate
+				ChangeOrderDocument.File 				= ParmDocument.File
+				ChangeOrderDocument.MimeType 			= ParmDocument.MimeType
+				ChangeOrderDocument.Title 				= ParmDocument.Title
+				ChangeOrderDocument.ExecuteUploadToIDM 	= true			
+				ChangeOrderRequester        			= ParmRequester
+				ChangeOrderSupplier         			= ParmSupplier
+				ChangeOrderSupplierContact  			= ParmSupplierContact
+				ChangeOrderSubcontractor    			= ParmSubcontractor
+				ChangeOrderCommitAllowance  			= ParmCommitAllowance
+				if (!ChangeOrdersByContractOwner)
+					ChangeOrderStatus       = 1
+				else
+					ChangeOrderStatus       = 2			   			
+   		
+		SubmitChangeOrder is an Instance Action
+        	valid when (CanSubmit)		
+			default label is "Submit"
+
+			Action Rules
+
+				constraint (VersionInBudgetEditRel !exists)
+					"CannotSubmitAtThisTime;AnotherChangeOrderForThisContractIsInBudgetEditing"
+					
+				if (!ChangeOrdersBySupplier
+				and EnteredBySupplier)
+					confirmation required
+						"YouAreSubmittingAChangeOrderCreatedByASupplier;DoYouWishToContinue?"
+						
+				for each ContractChangeOrderAmountLineRel
+					if (each.AllowanceOptions = 0
+					and !ChangeOrdersBySupplier)
+						if (each.BaseCost < 0)
+							constraint (each.ContractLine.BaseCost + each.BaseCost >= 0)
+								"CannotReduceContractLineValueToLessThanZero"
+					
+							if (each.ContractLine.AmountTypeServiceItem)
+								constraint (each.ContractLine.BaseCost + each.BaseCost >= each.ContractLine.AmountOrdered)
+									"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"	
+							else
+							if (each.ContractLine.QuantityServiceItem)
+								constraint (each.ContractLine.BaseCost * each.ContractLine.LifetimeMaximumQuantity + each.CommittedLineAmount >= each.ContractLine.AmountOrdered)				
+									"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"					
+
+						if (each.Quantity < 0)
+							constraint (each.ContractLine.LifetimeMaximumQuantity + each.Quantity >= 0)
+								"CannotReduceContractLineLifetimeMaximumQuantityToLessThanZero" 
+				
+				if (Contract.UseCommitments
+				and Contract.ChangeOrderEditBudgets)
+					invoke Delete Contract.WarningBudgetEditErrorRel
+					invoke Delete Contract.BudgetEditErrorRel
+					for each ContractChangeOrderAmountRel
+						if (each.CreateNewLine)
+							constraint (each.ContractLine entered)
+								"MustEnterDataToCreateAContractLineForEachCreateNewLineChangeOrderDetail"					
+						if ((each.AllowanceAmount entered
+						or  each.AllowanceQuantity entered)
+						and ChangeOrderCommitAllowance)
+							if (Contract.UseHeaderCommitments)
+								invoke FastUpdateWithoutEdits Contract
+									invoked.UpdateForChangeOrderCommit = true
+									invoked.MaxAmountAdjustment        = each.CommittedAllowanceAmount
+							if (Contract.UseLineCommitments)
+								if (each.ContractLine entered)
+									LocalContractLine = each.ContractLine										
+									invoke FastUpdateWithoutEdits LocalContractLineRel
+										invoked.UpdateForChangeOrderCommit     = true
+										invoked.BaseCostAdjustment             = each.CommittedAllowanceAmount
+						
+						if (each.BaseCost entered
+						or  each.Quantity entered)
+							
+							LocalContractLine = each.ContractLine
+							if (Contract.UseHeaderCommitments)
+								invoke FastUpdateWithoutEdits Contract
+									invoked.UpdateForChangeOrderCommit 	   = true
+									invoked.MaxAmountAdjustment            = each.CommittedLineAmount
+							if (Contract.UseLineCommitments)
+								invoke FastUpdateWithoutEdits LocalContractLineRel
+									invoked.UpdateForChangeOrderCommit     = true
+									invoked.BaseCostAdjustment             = each.CommittedLineAmount
+
+					ChangeOrderStatus = 5
+					
+					invoke EditTotalsRoute BudgetTemplateGroupTotal
+						invoked.PrmFinanceEnterpriseGroup    											= ContractGroup.FinanceEnterpriseGroup
+						invoked.PrmBudgetEditGroup           											= Contract.UniqueID
+						invoked.PrmMode			                                                        = BudgetEditMode.Test
+						invoked.PrmTotalsProcessing                                                     = BudgetEditTotalsProcessing.DoNothing
+						invoked.PrmBudgetEditCallBack.BudgetEditCallBackContract.ContractGroup			= ContractGroup
+						invoked.PrmBudgetEditCallBack.BudgetEditCallBackContract.Contract				= Contract
+						invoked.PrmBusinessClassName                									= "Contract"
+						invoked.PrmEditContext                      									= "SubmitChangeOrder"	
+							
+
+			Exit Rules
+			
+				if (!Contract.UseCommitments
+				or  !Contract.ChangeOrderEditBudgets)
+
+					invoke FinishSubmit
+
+		FinishSubmit is an Instance Action
+			restricted
+			Action Rules
+
+
+				if (Contract.UseCommitments
+				and Contract.ChangeOrderEditBudgets)
+					for each ContractChangeOrderAmountRel					
+
+						if (each.AllowanceAmount entered
+						or  each.AllowanceQuantity entered
+						and ChangeOrderCommitAllowance)
+							if (Contract.UseHeaderCommitments)
+								invoke FastUpdateWithoutEdits Contract
+									invoked.UpdateForChangeOrderCommit = true
+									invoked.MaxAmountAdjustment        = (each.CommittedAllowanceAmount * -1)
+							if (Contract.UseLineCommitments)
+								if (each.ContractLine entered)
+									LocalContractLine = each.ContractLine										
+									invoke FastUpdateWithoutEdits LocalContractLineRel
+										invoked.UpdateForChangeOrderCommit     = true
+										invoked.BaseCostAdjustment             = (each.CommittedAllowanceAmount * -1)
+						
+						if (each.BaseCost entered
+						or  each.Quantity entered)
+							LocalContractLine = each.ContractLine
+							if (Contract.UseHeaderCommitments)
+								invoke FastUpdateWithoutEdits Contract
+									invoked.UpdateForChangeOrderCommit = true
+									invoked.MaxAmountAdjustment        = (each.CommittedLineAmount * -1)	
+							if (Contract.UseLineCommitments)
+								invoke FastUpdateWithoutEdits LocalContractLineRel
+									invoked.UpdateForChangeOrderCommit     = true
+									invoked.BaseCostAdjustment             = (each.CommittedLineAmount * -1)
+
+				if (WarningBudgetEditErrorRel !exists)
+
+					if (!ChangeOrdersByContractOwner)
+						if (!EnteredBySupplier)
+							send email
+								to Contract.PrimaryContactRel.DerivedEmail
+								from config.DefaultFromEmailAddress
+								subject "ChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>"
+								Contents
+									"AChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>"	
+						else
+						if (EnteredBySupplier)
+							send email
+								to Contract.PrimaryContactRel.DerivedEmail
+								from config.DefaultFromEmailAddress
+								subject "ChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>ByTheSupplier"
+								Contents
+									"AChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>ByTheSupplier"											
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				if (WarningBudgetEditErrorRel exists
+				and !ChangeOrdersByContractOwner)
+					if (EnteredBySupplier)
+						send email
+							to Contract.PrimaryContactRel.DerivedEmail
+							from config.DefaultFromEmailAddress
+							subject "ChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>"
+							Contents
+								"AChangeOrderHasBeenSubmittedForContract<Contract.RepresentativeText>ByTheSupplier"
+								"TheChangeOrderWillCauseBudgetErrors;ViewTheBudgetErrorsInAlerts"						
+						
+					else 
+					if (!EnteredBySupplier)
+						send email
+							to Contract.PrimaryContactRel.DerivedEmail
+							from config.DefaultFromEmailAddress
+							subject "ChangeOrderSubmissionAttemptedForContract<Contract.RepresentativeText>"
+							Contents
+								"AChangeOrderSubmissionHasBeenAttemptedForContract<Contract.RepresentativeText>"					
+								"TheSubmissionWasNotAllowedBecauseTheChangeOrderWillCauseBudgetErrors"
+								"ViewTheBudgetErrorsInAlerts"
+					
+				if (WarningBudgetEditErrorRel !exists
+				or (WarningBudgetEditErrorRel exists
+				and EnteredBySupplier))
+					ChangeOrderStatus = 2
+				else
+					ChangeOrderStatus = 1	
+										
+		UnsubmitChangeOrder is an Instance Action
+			valid when (ChangeOrderSubmitted)
+			action comment required
+			default label is "Unsubmit"
+			Action Rules
+			
+				ChangeOrderStatus = 1
+				if (EnteredByRequester
+				and !ChangeOrdersByRequester)
+					send email
+						to ChangeOrderRequester.EmailAddress
+						from Contract.PrimaryContactRel.DerivedEmail
+						subject "YourChangeOrderHasBeenUnsubmittedForContract<Contract.RepresentativeText>"
+						Contents
+							"YourChangeOrderHasBeenUnsubmittedForContract<Contract.RepresentativeText>"
+							"Reason:<action comment>"	
+				else
+				if (EnteredBySupplier)
+					send email
+						to ChangeOrderSupplierContact.EmailAddress
+						from Contract.PrimaryContactRel.DerivedEmail
+						subject "YourChangeOrderHasBeenUnsubmittedForContract<Contract.RepresentativeText>"
+						Contents
+							"YourChangeOrderHasBeenUnsubmittedForContract<Contract.RepresentativeText>"
+							"Reason:<action comment>"							
+									
+		RejectChangeOrder is an Instance Action
+			valid when (ChangeOrderSubmitted)
+			action comment required
+			default label is "Reject"
+			Action Rules
+
+				invoke Delete Contract.WarningBudgetEditErrorRel				
+				if (HasNewLines)
+					for each NewLinesRel
+						invoke DeleteLineFromReject each
+				ChangeOrderStatus = 4
+				if (EnteredByRequester
+				and !ChangeOrdersByRequester)
+					send email
+						to ChangeOrderRequester.EmailAddress
+						from Contract.PrimaryContactRel.DerivedEmail
+						subject "YourChangeOrderHasBeenRejectedForContract<Contract.RepresentativeText>"
+						Contents
+							"YourChangeOrderHasBeenRejectedForContract<Contract.RepresentativeText>"
+							"Reason:<action comment>"
+				else
+				if (EnteredBySupplier)
+					send email
+						to ChangeOrderSupplierContact.EmailAddress
+						from Contract.PrimaryContactRel.DerivedEmail
+						subject "YourChangeOrderHasBeenRejectedForContract<Contract.RepresentativeText>"
+						Contents
+							"YourChangeOrderHasBeenRejectedForContract<Contract.RepresentativeText>"
+							"Reason:<action comment>"		
+		
+		CompleteChangeOrder is an Instance Action
+			valid when (ChangeOrderSubmitted) 
+			default label is "Complete"
+
+			Action Rules
+				for each ContractChangeOrderNewLineNeededRel
+					constraint (each.ContractLine entered)
+						"MustEnterDataToCreateAContractLineForEachCreateNewLineChangeOrderDetail"
+					
+				for each ContractChangeOrderAmountLineRel
+					if (each.AllowanceOptions = 0)
+						if (each.BaseCost < 0)
+							constraint (each.ContractLine.BaseCost + each.BaseCost >= 0)
+								"CannotReduceContractLineValueToLessThanZero"
+					
+							if (each.ContractLine.AmountTypeServiceItem)
+								constraint (each.ContractLine.BaseCost + each.BaseCost >= each.ContractLine.AmountOrdered)
+									"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"	
+							else
+							if (each.ContractLine.QuantityServiceItem)
+								constraint (each.ContractLine.BaseCost * each.ContractLine.LifetimeMaximumQuantity + each.CommittedLineAmount >= each.ContractLine.AmountOrdered)				
+									"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"
+						if (each.Quantity < 0)
+							constraint (each.ContractLine.LifetimeMaximumQuantity + each.Quantity >= 0)
+								"CannotReduceContractLineLifetimeMaximumQuantityToLessThanZero" 
+				
+						if (each.BaseCost     < 0
+						or  each.Quantity     < 0)
+							constraint (each.UnreleasedPayablesInvoiceDetailRel !exists)
+								"CannotCompleteChangeOrder;UnmatchedInvoiceDetailsExistAndChangeOrderContainsReductionsInLineAmountForLine<each.ContractLine>;MustReleaseRelatedInvoiceBeforeCompletingChangeOrder"
+								
+					if (each.AllowanceOptions = 1
+					or  each.AllowanceOptions = 2)
+						if (each.AllowanceAmount < 0)
+							constraint (each.ForAllowance.Amount + each.AllowanceAmount >= 0)
+								"CannotReduceAllowanceAmountToLessThanZeroForAllowance<each.ForAllowance>"
+													 
+						if (each.AllowanceQuantity < 0)
+							constraint (each.ForAllowance.Quantity + each.AllowanceQuantity >= 0)
+								"CannotReduceAllowanceAmountToLessThanZeroForAllowance<each.ForAllowance>"
+				
+				for each ContractChangeOrderAmountRel
+					invoke UpdateLines each 
+					
+				invoke CalculateTotalLineMaximumAmount Contract				
+				
+				ChangeOrderStatus = 3
+
+				if (Contract.ChangeOrderCreateDocument)
+					if (Contract.UseIDM
+					or  Contract.IsUsingIDMTemplate)
+						invoke CreateAndSendContractDocToIDM Contract
+					else
+						invoke CreateContractDocumentFromVersion Contract
+
+   		DeleteChangeOrder is an Instance Action
+   			valid when (CanDelete)
+   			default label is "Delete"
+   			
+   			Action Rules
+   			
+   				initialize ChangeOrderDocument
+   				initialize ChangeOrderTitle
+   				initialize ChangeOrderDescription
+   				initialize ChangeOrderRequester
+   				initialize ChangeOrderSubcontractor
+   				initialize ChangeOrderDate
+   				initialize ChangeOrderSupplier
+   				initialize ChangeOrderSupplierContact
+   				initialize ChangeOrderNumber
+   				ChangeOrderStatus = 0
+   	
+				invoke Delete ContractChangeOrder set   			
+   		
+   		Delete is a Delete Action
+   			restricted
+	
+		UploadToIDM is an Instance Action  
+			valid when (ChangeOrderDocument.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with ChangeOrderDocument
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (ChangeOrderDocument.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with ChangeOrderDocument			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

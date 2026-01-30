@@ -1,0 +1,369 @@
+AsyncSchedulingForecast is a BusinessClass
+	owned by async
+    prefix is ASF
+    stored in environment
+	
+	Ontology
+		symbolic key is AsyncSchedulingForecast
+
+	Patterns
+        disable EffectiveDated
+        disable AsOfDateProcessing
+		
+	Persistent Fields
+		Description 			is a AsyncForecastDescription
+		LastForecastTime		is TimeStamp
+		TimeSliceSize 			is an AsyncForecastTimeSliceSize
+		StartTimeOffset     	is an AsyncForecastOffsetOption		
+		StartTime 				is TimeStamp 
+		StartTimeMultiplier		is Numeric size 3
+		DurationOption			is an AsyncForecastOffsetOption		
+		DurationLength			is Numeric size 3
+		EndTime					is TimeStamp	
+		TimeZone 
+		SliceDataFormat			is a AsyncSliceDateFormat
+			default label is "SliceDateFormat"
+		RequestsToInclude		is Numeric size 1
+			States
+				RecurringOnly 		value is 0
+				OneTimeOnly			value is 1
+				All					value is 2	
+		ExcludeSystemRequests 	is Boolean
+			
+	Rule Blocks
+		RecordChangedBlock
+			if (AsyncForecastSlice set exists)
+				confirmation required 
+					"PreviousForecastExistsAndMayNotMatchNewValues.Continue?"
+	
+	Field Rules
+		StartTime
+			constraint (not StartTime entered or StartTimeOffset.Specify)
+				"AFixedStartTimeIsOnlyValidWithTheSpecifyOption"
+				
+			if (StartTime changed)
+				include RecordChangedBlock
+				
+		EndTime
+			if (DurationOption.Specify)
+				required
+					"SpecifOptionRequiresAnEndTimeValue"
+					
+			constraint (not EndTime entered or DurationOption.Specify)
+				"AFixedEndTimeIsOnlyValidWithTheSpecifyOption"
+			
+			constraint(not StartTime entered or not EndTime entered or EndTime > StartTime)
+				"EndTimeCannotBePriorToStartTime"
+				
+			if (EndTime changed)
+				include RecordChangedBlock
+				
+		StartTimeOffset
+			initial value is 1 
+			if (StartTimeOffset.Minutes and StartTimeMultiplier < 2)
+				confirmation required
+					"WhenSpecifyingAnOffsetOfMinutes,TheMinimumMultiplerIs2.ContinueAndChangeTo2?"
+				
+				StartTimeMultiplier = 2
+			
+			if (StartTimeOffset changed)
+				include RecordChangedBlock
+
+		StartTimeMultiplier
+			initial value is 2
+			
+			if (not StartTimeOffset.Specify)
+				required	
+			
+			if (StartTimeMultiplier changed)
+				include RecordChangedBlock
+		
+		DurationOption
+			initial value is 3 
+			if (DurationOption changed)
+				include RecordChangedBlock	
+		
+		DurationLength	
+			initial value is 1
+			
+			if (not DurationOption.Specify)
+				required	
+			
+			if (DurationLength changed)
+				include RecordChangedBlock
+				
+		TimeZone
+			initial value is ContextTimeZone
+			default to ContextTimeZone
+		
+		TimeSliceSize
+			initial value is 4 
+			if (TimeSliceSize changed)
+				include RecordChangedBlock
+				
+		SliceDataFormat
+			initial value is 3 
+			
+		RequestsToInclude
+			if (RequestsToInclude changed)
+				include RecordChangedBlock
+	
+	Transient Fields
+		TransContextTimeZone is a TimeZone // Had to do this because ui "time zone is" mustr reference a type of TimeZone and can't type a derived field as such
+			default label is "ContextTimeZone"
+			derive value from ContextTimeZone
+		
+		TransTempTimeStamp is TimeStamp
+			default label is "StartTime"
+		
+	Local Fields
+		LocStartTime is TimeStamp
+		LocEndTime is TimeStamp
+		LocSeconds is Numeric size 2
+		
+	Conditions
+		DerTimeZoneMatch
+			default label is "TimeZonesMatch"
+			when (TimeZone = ContextTimeZone)
+		
+		ForecastExists
+			when (AsyncForecastSlice set exists)
+			
+		ForecastBuildInProgress
+			when (ActiveForecastAsyncRequests exists or FailedForecastAsyncRequests exists)
+		
+		ActiveForecastBuildExists
+			when (ActiveForecastAsyncRequests exists)
+		
+		FailedForecastBuildExists 
+			when (FailedForecastAsyncRequests exists)
+				
+	Derived Fields
+		DerivedCurrentTimeToUse is a DerivedField
+			type is TimeStamp
+			restricted
+			default label is untranslatable:"CurrentTimeToUse"
+			
+			if (TransTempTimeStamp entered) 
+				return TransTempTimeStamp
+				
+			if (LastForecastTime entered) 
+				return LastForecastTime
+				
+			return system current timestamp
+			
+		DerAltStartTime is a DerivedField 
+			type is TimeStamp
+			default label is "StartTime"
+			return StartTime
+		
+		DerAltEndTime is a DerivedField 
+			type is TimeStamp
+			default label is "EndTime"
+			return EndTime
+		
+		DerivedStartTime is a DerivedField 
+			type is TimeStamp
+			default label is "StartTime"
+			
+			if (StartTimeOffset.Specify)
+				return StartTime
+			
+			return blank
+			
+		DerivedEndTime is a DerivedField 
+			type is TimeStamp
+			default label is "EndTime"
+			
+			if (DurationOption.Specify)
+				return EndTime
+			
+			return blank
+			
+		ExecutionStartTime is a DerivedField
+			type is TimeStamp
+			
+
+			if (not LocStartTime entered)
+				if (StartTimeOffset.Specify)
+					if (StartTime entered)
+						LocStartTime = StartTime
+						LocSeconds = LocStartTime using "%tS"
+						LocStartTime = LocStartTime - LocSeconds
+					else
+						LocStartTime = DerivedCurrentTimeToUse
+						LocSeconds = LocStartTime using "%tS"
+						LocStartTime = LocStartTime - LocSeconds
+						LocSeconds = LocSeconds + 120 
+				else
+					LocStartTime = DerivedCurrentTimeToUse
+					LocSeconds = LocStartTime using "%tS"
+					LocStartTime = LocStartTime - LocSeconds
+					
+					if (StartTimeOffset.Hours)
+						LocStartTime = (LocStartTime + (3600 * StartTimeMultiplier))
+					else
+					if (StartTimeOffset.Days)
+						LocStartTime = (LocStartTime + (86400 * StartTimeMultiplier))
+					else
+					if (StartTimeOffset.Months)
+						LocStartTime = (LocStartTime + (StartTimeMultiplier as months))
+					else
+
+						if (StartTimeMultiplier = 1)
+							LocStartTime = (LocStartTime + 120)
+						else
+							LocStartTime = (LocStartTime + (60 * StartTimeMultiplier))
+							
+			if ((LocStartTime - DerivedCurrentTimeToUse) < 60)
+				LocStartTime = LocStartTime + 60
+				
+			return LocStartTime
+			
+		ExecutionEndTime is a DerivedField
+			type is TimeStamp
+			
+			if (not LocEndTime entered)
+				if (DurationOption.Specify)
+					if (EndTime entered)
+						LocEndTime = EndTime
+						LocSeconds = LocEndTime using "%tS"
+						LocEndTime = LocEndTime - LocSeconds
+					else
+						LocEndTime = ExecutionStartTime + 60
+				else
+					LocEndTime = ExecutionStartTime
+					
+					if (DurationOption.Hours)
+						LocEndTime = (LocEndTime + (3600 * DurationLength))
+					else
+					if (DurationOption.Days)
+						LocEndTime = (LocEndTime + (86400 * DurationLength))
+					else
+					if (DurationOption.Months)
+						LocEndTime = (LocEndTime + (DurationLength as months))
+					else
+
+						LocEndTime = (LocEndTime + (60 * DurationLength))
+							
+			if (LocEndTime <= ExecutionStartTime)
+				LocEndTime = ExecutionStartTime + 60
+				
+			return LocEndTime
+	
+		ContextTimeZone is a NativeField
+			type is Alpha size 30	
+			
+		DurationMessage is a MessageField
+			"<ExecutionStartTime>-<ExecutionEndTime>,<TimeSliceSize>Slices"
+			
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+		Purge is a Purge Action
+		ClearPreviousForecast is an Instance Action
+			valid when (ForecastExists)
+			Action Rules
+				invoke Delete AsyncForecastSlice set
+		
+		CopyForecast is an Instance Action
+			Parameters
+				NewForecast 		is like AsyncSchedulingForecast
+				NewDescription 		is Alpha 100
+			
+			Local Fields
+				LocCopyStartTime 			is TimeStamp
+				LocCopyStartTimeOffset  	is an AsyncForecastOffsetOption		
+				LocCopyStartTimeMultiplier 	is Numeric size 3
+				LocCopyEndTime				is TimeStamp	
+				LocCopyDurationOption		is an AsyncForecastOffsetOption		
+				LocCopyDurationLength		is Numeric size 3
+			
+			Parameter Rules
+				NewForecast
+					required
+			
+			Entrance Rules
+				if (StartTime entered and (StartTime < (system current timestamp + 60)))
+					confirmation required
+						"StartTimeIsInThePast.NewForeastWillDefaultToCurrentTimePlusTwoMinutes.Continue?"
+					initialize LocCopyStartTime 
+					LocCopyStartTimeOffset 		= StartTimeOffset.Minutes
+					LocCopyStartTimeMultiplier 	= 2
+				else
+					LocCopyStartTime 			= StartTime
+					LocCopyStartTimeOffset 		= StartTimeOffset
+					LocCopyStartTimeMultiplier 	= StartTimeMultiplier
+					
+				if (EndTime entered and not LocCopyStartTime entered)
+					confirmation required
+						"AreYouSureYouWantAFixedEndTimeWithADynamicStartTime?"  
+				   
+				if (EndTime entered and ((LocCopyStartTime entered and EndTime <= LocCopyStartTime) or (LocCopyStartTime not entered and EndTime <= system current timestamp)))
+					confirmation required
+						"EndTimeIsLessThatStartOrTooCloseToCurrent.NewForeastWillDefaultToADurationOfOneDay.Continue?"
+						
+					initialize LocCopyEndTime
+					LocCopyDurationOption = DurationOption.Days	
+					LocCopyDurationLength = 1
+				else
+					LocCopyEndTime			= EndTime	
+					LocCopyDurationOption	= DurationOption	
+					LocCopyDurationLength	= DurationLength
+				
+			Action Rules
+				invoke Create AsyncSchedulingForecast
+					invoked.AsyncSchedulingForecast 	= NewForecast
+					invoked.Description				 	= NewDescription
+					invoked.TimeSliceSize				= TimeSliceSize
+					invoked.StartTimeOffset 			= LocCopyStartTimeOffset 
+					invoked.StartTime					= LocCopyStartTime
+					invoked.StartTimeMultiplier			= LocCopyStartTimeMultiplier
+					invoked.DurationOption				= LocCopyDurationOption
+					invoked.EndTime						= LocCopyEndTime
+					invoked.DurationLength			 	= LocCopyDurationLength
+					invoked.TimeZone					= TimeZone
+
+		SetTransTempTimeStamp is an Instance Action 
+			restricted
+			manual update
+			default label is untranslatable:"SetTransTempTimeStamp"
+			
+			Parameters
+				TempTimeStamp is TimeStamp
+					default label is untranslatable:"TempTimeStamp"
+				
+			Action Rules
+				TransTempTimeStamp = TempTimeStamp
+				
+		BuildScheduleForecast is an Instance Action
+			default label is "BuildForecast"
+			run in background
+			Action Rules
+				invoke BuildScheduleForecast AsyncActionRequest
+					invoked.ParamSchedulingForecast = AsyncSchedulingForecast
+					
+	Form Invokes 
+    	BuildForecast
+			invoke BuildScheduleForecast AsyncActionRequest  			 
+				invoked.ParamSchedulingForecast = AsyncSchedulingForecast
+
+	Relations
+		ForecastAsyncRequests
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+				related.ImplementingClass = "AsyncActionRequest"
+				related.AsyncAction = "BuildScheduleForecast"
+			Instance Selection
+				where (related.MappingField1 = AsyncSchedulingForecast)
+		
+		ActiveForecastAsyncRequests
+			one-to-many relation using ForecastAsyncRequests		
+			Instance Selection
+				where (related.InProgress)
+		
+		FailedForecastAsyncRequests
+			one-to-many relation using ForecastAsyncRequests		
+			Instance Selection
+				where (related.FailedTriggersExist)

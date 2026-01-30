@@ -1,0 +1,1243 @@
+UserAction is a BusinessClass
+    owned by repository
+    prefix is usac
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+
+    Ontology
+        symbolic key is UserAction
+
+    Persistent Fields
+    	BusinessClass
+    	ActionName			is LPLName
+    	Type				is Numeric size 1
+    		States
+    			ActionRequest	value is 0
+    			ActionExtension	value is 1
+    			Configuration	value is 2
+    			Action			value is 3
+		Status 				is a UserObjectStatus
+    	LPL                 is LPL
+    	Description         is a ConfigDescription
+    	UserEditorType
+    	ErrorText			is Text
+
+	Transient Fields
+		ProcessSecurity		 is Boolean
+		SecurityClassExisted is Boolean
+		BaseForm		 	 is a BusinessForm
+
+	Field Rules
+		BusinessClass
+			required
+			cannot be changed
+
+			constraint (BusinessClass.Configurable)
+				"<BusinessClass>isNotConfigurable"
+
+			constraint (not BusinessClass.IsUserClass)
+				"<BusinessClass>IsAUserBusinessClass.MustConfigureTheUserBusinessClassItself."
+
+    	ActionName
+    		required
+    		cannot be changed
+
+    		if (Type.ActionRequest
+    		or  Type.ActionExtension
+    		or  Type.Action)
+    			constraint (not BusinessActionRel exists
+    			or          BusinessActionRel.IsConfiguration) 
+    				"<BusinessClass>.<ActionName>AlreadyDefined."
+    		else
+    		if (Type.Configuration)
+    			constraint (BusinessActionRel exists)
+    				"<BusinessClass>.<ActionName>DoesNotExist."
+
+				constraint (not BusinessActionRel.IsConfiguration)
+					"<BusinessClass>.<ActionName>IsAConfiguration.MustConfigureTheUserActionItself."
+
+		LPL
+			required
+
+				if (Status.Active)
+					LocParseText = ParseText
+					
+				constraint (not action type.Update or LocParseActionName not entered or LocParseActionName = ActionName)
+					"ChangesResultInADifferentFullActionName.ChangingTheFullActionNameOfAnExistingActionIsNotAllowed."
+
+				if (not LocParseText = blank)
+
+
+
+
+					confirmation required
+						"<LocParseText>:_User_ActionIsInvalid.__DoYouWantToSaveAnyway?"
+
+					Status = Status.Invalid
+					ErrorText = LocParseText
+
+		UserEditorType
+			default to UserEditorType.LPL
+
+		Status
+			if (Status.Active)
+				initialize ErrorText
+
+    Derived Fields
+    	SecClassName is a DerivedField
+    		type is Alpha size 100
+    		default label is "SecurityClassName"
+    		return "UA_" + BusinessClass + "_" + ActionName
+
+    	SecClassLPL is a NativeField
+    		type is Text
+    		default label is "SecurityClassLPL"
+
+		FormName is a DerivedField
+			type is LPLName
+			return "UA" + ActionName
+		
+		ImplicitFormName is a DerivedField
+			type is LPLName
+			restricted
+			return ActionName + "_implicit_action_form"
+			
+		ConfigActor is a DerivedField
+			type is Actor
+			default label is "Actor"
+			return blank
+
+		ParseText is a NativeField
+			type is Text
+
+		FormLpl is a NativeField
+			type is Text
+
+		ConvertedLabelsLPL is a NativeField
+			type is Text
+			restricted
+
+		IsCreateActionRequest is a NativeField
+			type is Boolean
+			restricted
+
+		CfgEntryType is a DerivedField
+			type is LPLName
+			default label is "ConfigurationEntryType"
+			if (Type.ActionRequest)		
+				return "ACTION"
+			if (Type.ActionExtension)	
+				return "ACTION_EXTENSION"
+			if (Type.Configuration)		
+				return "ACTIONCONFIGURATION"
+			if (Type.Action)			
+				return "USER_ACTION"
+				
+		DeactivateMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>Deactivated"
+			
+		DeactivateFormMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>AndForm<FormName>Deactivated"		
+			 
+		DeactivateSecClassMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>AndSecurityClass<SecClassName>Deactivated"	
+			
+		DeactivateFormAndSecClassMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>,Form<FormName>AndSecurityClass<SecClassName>Deactivated"		
+			
+		DeactivatedCompletionMessage is a DerivedField
+			type is MessageField
+			restricted
+			
+			if (LocRelatedStatus.Form)
+				return DeactivateFormMessage
+			else	
+			if (LocRelatedStatus.SecurityClass)
+				return DeactivateSecClassMessage
+			else	
+			if (LocRelatedStatus.Both)
+				return DeactivateFormAndSecClassMessage
+			
+			return DeactivateMessage
+			
+		ActivateMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>Activated"
+			
+		ActivateFormMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>AndForm<FormName>Activated"		
+			 
+		ActivateSecClassMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>AndSecurityClass<SecClassName>Activated"	
+			
+		ActivateFormAndSecClassMessage is a MessageField
+			restricted
+			"<BusinessClass>_<ActionName>,Form<FormName>AndSecurityClass<SecClassName>Activated"		
+			
+		ActivatedCompletionMessage is a DerivedField
+			type is MessageField
+			restricted
+			
+			if (LocRelatedStatus.Form)
+				return ActivateFormMessage
+			else	
+			if (LocRelatedStatus.SecurityClass)
+				return ActivateSecClassMessage
+			else	
+			if (LocRelatedStatus.Both)
+				return ActivateFormAndSecClassMessage
+			
+			return ActivateMessage
+
+    Conditions
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when (true)
+
+        SecClassExists
+        	default label is "SecurityClassExists"
+        	when (SecClassRel exists)
+
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+		
+		ProcessRelatedFormsAndSecClasses
+			default label is "ProcessRelatedUserFormsAndSecurityClasses"
+			restricted // For "Action" type we only control the specific cases below. We won't know if they manually created a UserForm and added "use for action" or "action is".
+			when (not Type.Configuration and (not Type.Action or (Type.Action and (BusinessActionRel.ActionType.Function and  BusinessActionRel.IsParameterized))))
+			
+		HasActiveUserForm
+			default label is "ActiveUserFormExists"
+			when (ActiveAllUserFormRel exists or ActiveImplicitUserFormRel exists)
+			
+		DisplayRelatedOptionButton
+			when (ProcessRelatedFormsAndSecClasses and HasActiveUserForm)
+
+	Local Fields
+		Role
+		LocParseText is Text
+		LocParsed is Boolean 
+		LocRelatedStatus is Numeric size 1
+			States
+				None 			value is 0
+				Form 			value is 1
+				SecurityClass 	value is 2
+				Both 			value is 3
+		LocParseActionName is LPLName
+        LocBusinessView             is LPLName
+        LocName                     is LPLName
+				
+	Rule Blocks
+	
+		DeactivateConfirmations
+			if (not Type.Configuration
+			and  OpenActionRequestRel exists)
+    			confirmation required
+    				"OpenActionRequestsExistAndWillBeOrphaned.AreYouSureYouWantToDeactivate?"
+    				
+			initialize LocRelatedStatus
+    			
+			if (ActiveAllUserFormRel exists or ActiveImplicitUserFormRel exists) 
+				if (SecClassRel exists and not SecClassRel.InActive)
+					confirmation required
+    					"RelatedFormsAndSecurityClass<SecClassName>WillAlsoBeDeactivated.Continue?"
+    			else
+    				confirmation required
+    					"RelatedFormsWillAlsoBeDeactivated.Continue?"
+			else
+			if (SecClassRel exists and not SecClassRel.InActive)
+				confirmation required
+    				"RelatedSecurityClass<SecClassName>WillAlsoBeDeactivated.Continue?"
+    				
+		DeactivateRelatedItems
+			if (ActiveAllUserFormRel exists)
+				for each ActiveAllUserFormRel
+					LocalError = false
+					invoke Deactivate each
+						resume on error
+							LocalError = true
+						
+					if (not LocalError)
+						LocRelatedStatus = LocRelatedStatus.Form
+			
+			if (ActiveImplicitUserFormRel exists)
+				for each ActiveImplicitUserFormRel
+					LocalError = false
+					invoke Deactivate each
+						resume on error
+							LocalError = true
+							
+					if (not LocalError)
+						LocRelatedStatus = LocRelatedStatus.Form
+			
+			if (SecClassRel exists and not SecClassRel.InActive)	
+				LocalError = false
+				invoke Deactivate SecClassRel
+					resume on error
+						LocalError = true
+				
+				if (not LocalError)
+					if (LocRelatedStatus.Form)
+						LocRelatedStatus = LocRelatedStatus.Both
+					else
+						LocRelatedStatus = LocRelatedStatus.SecurityClass
+			
+
+			
+		ActivateRelatedItems
+			initialize LocRelatedStatus
+   				
+
+			if (InactiveAllUserFormRel exists)
+				for each InactiveAllUserFormRel
+					LocalError = false
+					invoke Activate each
+						resume on error
+							LocalError = true
+					
+					if (not LocalError)
+						LocRelatedStatus = LocRelatedStatus.Form
+						
+			if (InactiveImplicitUserFormRel exists)
+				for each InactiveImplicitUserFormRel
+					LocalError = false
+					invoke Activate each
+						resume on error
+							LocalError = true
+					
+					if (not LocalError)
+						LocRelatedStatus = LocRelatedStatus.Form
+				
+			if (SecClassRel exists and SecClassRel.InActive)	
+				LocalError = false
+				invoke Activate SecClassRel
+					resume on error
+						LocalError = true
+				
+				if (not LocalError)
+    				if (LocRelatedStatus.Form)
+    					LocRelatedStatus = LocRelatedStatus.Both
+    				else
+    					LocRelatedStatus = LocRelatedStatus.SecurityClass			
+		
+    Relations
+    	RoleSecClassesRel
+    		one-to-many relation to RoleSecurityClass
+			Field Mapping uses BySecurityClassDataArea
+				related.SecurityClass = SecClassName
+				related.DataArea = parentcontext.dataarea
+
+		RoleSecClassRel
+    		one-to-one relation to RoleSecurityClass
+			Field Mapping uses BySecurityClassDataArea
+				related.SecurityClass = SecClassName
+				related.DataArea = parentcontext.dataarea
+				related.Role = Role
+
+		SecClassRel
+    		one-to-one relation to SecurityClass
+			Field Mapping uses symbolic key
+				related.SecurityClass = SecClassName
+
+		OpenActionRequestRel
+   			one-to-many relation to ActionRequest
+   			Field Mapping uses ByBusClass
+   				related.BusinessClass = BusinessClass
+   				related.BusinessAction = ActionName
+   			Instance Selection
+				where (related.Status = 1
+				or     related.Status = 2)
+
+		ConfigUserFormRel
+			one-to-one relation to UserForm
+			Field Mapping uses GlobalSet
+				related.BusinessView = BusinessClass
+				related.BusinessForm = FormName
+				
+		AllUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = FormName
+				
+		AllConfigUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses GlobalSet
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = FormName
+		
+		ActiveAllUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = FormName
+			Instance Selection
+				where (related.Status.Active)
+		
+		InactiveAllUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = FormName
+			Instance Selection
+				where (related.Status.Inactive)
+			
+		AllImplicitUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = ImplicitFormName
+				
+		AllConfigImplicitUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses GlobalSet
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = ImplicitFormName
+				
+		ActiveImplicitUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = ImplicitFormName
+			Instance Selection
+				where (related.Status.Active)
+				
+		InactiveImplicitUserFormRel
+			one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessClass	
+				related.BusinessForm = ImplicitFormName
+			Instance Selection
+				where (related.Status.Inactive)
+				
+		BusinessActionRel
+    		one-to-one relation to BusinessAction
+			Field Mapping uses symbolic key
+				related.BusinessView 	= BusinessClass
+				related.BusinessAction 	= ActionName
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses symbolic key
+                related.ConfigEntity = UserAction
+
+		LocalDuplicateRel
+    		one-to-many relation to UserAction
+			Field Mapping uses ByClassAction
+				related.BusinessClass   = LocBusinessView
+				related.ActionName       = LocName
+
+   	Actions
+    	Create is a Create Action
+    		Exit Rules
+    			invoke FireEvent
+
+    			if  (Type.ActionExtension
+    			and  Status.Active
+    			and  BaseForm entered)
+    				invoke CreateForm
+
+
+
+
+
+
+
+
+
+
+		CreateFromSnapshot is a Create Action
+			restricted
+			bypass field rules
+
+			
+		Update is an Update Action
+			Local Fields
+				LocalError is Boolean
+				OldStatus is a UserObjectStatus
+				
+			Entrance Rules
+				OldStatus = old Status
+				
+				if (Status.Inactive and OldStatus.Active)
+					include DeactivateConfirmations
+				
+			Action Rules
+				if (Status.Inactive and OldStatus.Active)
+					include DeactivateRelatedItems
+		
+			Exit Rules
+				invoke FireEvent
+
+				if (Status.Active)
+					if (OldStatus.Inactive)
+						include ActivateRelatedItems
+					
+					if  (Type.ActionExtension
+	    			and  BaseForm entered
+	    			and  not ConfigUserFormRel exists)
+	    				invoke CreateForm
+    				
+		UpdateFromSnapshot is an Update Action
+			restricted
+			bypass field rules
+
+			
+    	UpdateWithRoles is an Update Action
+    		restricted
+    		
+    		Local Fields
+    			LocalError is Boolean
+				OldStatus is a UserObjectStatus
+				
+    		Entrance Rules
+    			OldStatus = old Status
+    			
+    			if (ProcessSecurity)
+    				invoke Delete RoleSecClassesRel
+
+				
+				if (Status.Inactive and OldStatus.Active)
+					include DeactivateConfirmations
+			
+			Action Rules
+				if (Status.Inactive and OldStatus.Active)
+					include DeactivateRelatedItems
+
+    		Exit Rules
+    			invoke FireEvent
+
+				if (Status.Active)
+					if (OldStatus.Inactive)
+						include ActivateRelatedItems
+						
+	    			if  (Type.ActionExtension
+	    			and  BaseForm entered
+	    			and  not ConfigUserFormRel exists)
+	    				invoke CreateForm
+
+    	Delete is a Delete Action
+    		Action Rules
+    			constraint (Type.Configuration
+    			or          not OpenActionRequestRel exists)
+    				"CannotDeleteWhileOpenActionRequestsExist"
+
+    			invoke Delete RoleSecClassesRel
+    			invoke Delete SecClassRel
+    			invoke Delete AllUserFormRel
+    			invoke Delete AllImplicitUserFormRel
+			Exit Rules
+				invoke FireEvent
+    			
+    	DeleteFromSnapshot is a Delete Action 
+    		restricted
+    		bypass relational integrity rules
+
+    			
+    		Action Rules
+    			constraint (Type.Configuration
+    			or          not OpenActionRequestRel exists)
+    				"CannotDeleteWhileOpenActionRequestsExist"
+
+    			invoke Delete RoleSecClassesRel
+    			invoke DeleteFromSnapshot SecClassRel
+    			invoke DeleteFromSnapshot AllUserFormRel
+    			invoke DeleteFromSnapshot AllImplicitUserFormRel
+    		
+    	AssignRole is an Instance Action
+    		Parameters
+    			ParamRole is a Role
+    				default label is "Role"
+
+    		Action Rules
+    			Role = ParamRole
+
+    			if (not RoleSecClassRel exists)
+    				invoke Create RoleSecurityClass 
+    					invoked.Role = ParamRole
+    					invoked.SecurityClass = SecClassName
+    					invoked.DataArea = parentcontext.dataarea
+
+		RemoveRole is an Instance Action
+    		Parameters
+    			ParamRole is a Role
+    				default label is "Role"
+
+    		Action Rules
+    			Role = ParamRole
+    			invoke Delete RoleSecClassRel
+
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		completion message is "<ActivatedCompletionMessage>"
+    		
+    		Local Fields
+    			LocalError is Boolean
+    			
+    		Action Rules
+    			LocParseText = ParseText
+
+				if (not LocParseText = blank)
+
+
+
+
+					constraint(LocParseText = blank)
+						"<LocParseText>:_User_ActionIsInvalid._Cannot_Activate."
+
+   				Status = Status.Active
+   				initialize ErrorText
+
+			Exit Rules
+    			invoke FireEvent
+    			
+    			include ActivateRelatedItems
+    			
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		completion message is "<DeactivatedCompletionMessage>"
+    		
+    		Local Fields
+    			LocalError is Boolean
+    		
+    		Entrance Rules
+				include DeactivateConfirmations
+	    				
+    		Action Rules
+    			Status = Status.Inactive
+    			include DeactivateRelatedItems
+
+			Exit Rules
+    			invoke FireEvent
+
+		Invalidate is an Instance Action
+			valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+
+			Exit Rules
+    			invoke FireEvent
+
+		CreateSecurityClass is an Instance Action
+			restricted
+			Action Rules
+				if (not SecClassExists) 
+					invoke Create SecurityClass
+    					invoked.SecurityClass = SecClassName
+    					invoked.Description = "AutomaticallyGenerated"
+    					invoked.LPL = SecClassLPL
+				else
+					SecurityClassExisted = true
+
+		FireEvent is an Instance Action
+			restricted
+
+
+
+		ConvertParameterNames is an Instance Action
+			restricted
+			Action Rules
+				if (Type.ActionRequest)
+					LPL = ConvertedLabelsLPL
+
+
+		CreateForm is an Instance Action
+			restricted
+
+			Local Fields
+				LocFormLpl is Text
+
+			Action Rules
+				LocFormLpl = FormLpl
+
+				if (LocFormLpl entered)
+					if (ConfigUserFormRel exists) 
+						invoke Update ConfigUserFormRel
+							invoked.Actor		 = blank
+		    				invoked.UserFolder   = blank
+					    	invoked.Status       = 0
+							invoked.LPL          = FormLpl
+		    				invoked.Independent	 = true
+		    				invoked.UserEditorType = 2 
+		    				invoked.UserAction   = ActionName
+					else
+						invoke Create UserForm
+							invoked.BusinessView = BusinessClass
+		    				invoked.BusinessForm = FormName
+		    				invoked.Actor		 = blank
+		    				invoked.UserFolder   = blank
+					    	invoked.Status       = 0
+							invoked.LPL          = FormLpl
+		    				invoked.Independent	 = true
+		    				invoked.UserEditorType = 2 
+		    				invoked.UserAction   = ActionName
+		    				
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+				ParamTagRelated is Boolean
+					default label is "TagKnownRelatedConfiguredFormsAndSecurityClasses"
+					
+			Parameter Rules
+				ParamTagRelated
+					initial value is DisplayRelatedOptionButton
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserActionIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserActionIsInvalid,TagAnyway?"
+					
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance
+				
+				if (ParamTagRelated and ProcessRelatedFormsAndSecClasses)
+					if (AllConfigUserFormRel exists) 
+						invoke TagItem AllConfigUserFormRel
+							resume on error 
+							invoked.ParamConfigurationTag = ParamConfigurationTag
+							
+					if (AllConfigImplicitUserFormRel exists) 
+						invoke TagItem AllConfigImplicitUserFormRel
+							resume on error 
+							invoked.ParamConfigurationTag = ParamConfigurationTag
+					
+					if (SecClassRel exists)
+						invoke TagItem SecClassRel
+							resume on error 
+							invoked.ParamConfigurationTag = ParamConfigurationTag
+	
+		ConvertCreateActionRequestParameterLabels is a Set Action
+
+			Local Fields
+				LastAction is a UserAction
+
+			Instance Selection
+				where (Type.ActionRequest)
+
+			Sort Order
+				Type
+				BusinessClass
+				ActionName
+
+			Action Rules
+				Set Rules
+					Exit Rules
+						if (LastAction entered)
+							invoke FireEvent LastAction 
+
+				Instance Rules
+					if (IsCreateActionRequest)
+						LastAction = UserAction
+						invoke ConvertParameterNames
+
+		CreateConfiguration is a Create Action
+            Parameters
+                BusinessClassParam              				is a BusinessClass
+                    default label is "BusinessClass"
+
+                ActionParam                       				is a BusinessAction
+                	default label is "Action"
+
+				HasExplicitLabelParam							is Boolean
+					default label is "ExplicitLabelExists"
+
+				ExplicitLabelParam								is Alpha 300
+					default label is "ExplicitLabel"
+
+				EffectiveDateRequiredParam						is Boolean
+					default label is "EffectiveDateRequired"
+
+				ReasonCodeRequiredParam							is Boolean
+					default label is "ReasonCodeRequired"
+
+				ActionCommentRequiredParam						is Boolean
+					default label is "ActionCommentRequired"
+
+				EntranceRulesParam								is LPL
+					default label is "EntranceRules"
+
+				ExitRulesParam									is LPL
+					default label is "ExitRules"
+
+			Parameter Rules
+				BusinessClassParam
+					required
+
+    				constraint (!BusinessClassParam.IsUserClass)
+        				"ConfigurationNotAllowedInAUserDefinedBusinessClass.UpdateTheConfigurationOnTheUserBusinessClass"
+
+			    ActionParam
+			        required
+
+					constraint (!ActionParam.IsConfiguration and !ActionParam.HasActionConfiguration and !ActionParam.IsActionExtension)
+						"ActionCannotBeAConfiguration"
+
+					constraint (!ActionParam.IsAuditCorrection and !ActionParam.IsAuditAction)
+						"ActionCannotBeAudit"
+
+				EffectiveDateRequiredParam
+					initial value is ActionParam.EffectiveDateRequired
+
+				 	constraint (EffectiveDateRequiredParam and BusinessClassParam.ImplementsEffectiveDated)
+						"BusinessClassMustImplementEffectiveDate"
+
+				ReasonCodeRequiredParam
+					initial value is ActionParam.ReasonCodeRequired
+
+					constraint (ReasonCodeRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				ActionCommentRequiredParam
+					initial value is ActionParam.ActionCommentRequired
+
+					constraint (ActionCommentRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+			Local Fields
+				LocalLPLParam 			is LPL
+
+            Entrance Rules
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                LocName = ActionParam
+                constraint (!LocalDuplicateRel exists)
+                    "ActionNameInUse_'<LocName>'"
+
+                invoke Create this instance
+                    invoked.BusinessClass       = BusinessClassParam
+                    invoked.ActionName          = ActionParam
+                    invoked.Type                = 2  
+                    invoked.LPL 				= LocalLPLParam
+
+		CreateActionExtension is a Create Action
+            Parameters
+                BusinessClassParam              				is a BusinessClass
+                    default label is "BusinessClass"
+
+                BaseActionParam                       			is a BusinessAction
+                	default label is "BaseAction"
+
+                ActionNameParam                       			is LPLName
+                	default label is "Action"
+
+				HasExplicitLabelParam							is Boolean
+					default label is "ExplicitLabelExists"
+
+				ExplicitLabelParam								is Alpha 300
+					default label is "ExplicitLabel"
+
+				SubjectParam									is a BusinessSubject
+					default label is "Subject"
+
+				ProcessFlowParam								is a PfiServiceDefinition
+					default label is "ProcessFlowService"
+
+				WebAppParam										is a WebApp
+					default label is "WebApp"
+
+				EffectiveDateRequiredParam						is Boolean
+					default label is "EffectiveDateRequired"
+
+				ReasonCodeRequiredParam							is Boolean
+					default label is "ReasonCodeRequired"
+
+				ActionCommentRequiredParam						is Boolean
+					default label is "ActionCommentRequired"
+
+
+			Parameter Rules
+				BusinessClassParam
+					required
+
+    				constraint (!BusinessClassParam.IsUserClass)
+        				"ConfigurationNotAllowedInAUserDefinedBusinessClass.UpdateTheConfigurationOnTheUserBusinessClass"
+
+			    BaseActionParam
+			        required
+
+					constraint (!BaseActionParam.IsActionExtension)
+						"ActionCannotBeAnActionExtension"
+
+					constraint (!BaseActionParam.IsAuditCorrection and !BaseActionParam.IsAuditAction)
+						"ActionCannotBeAudit"
+
+				ActionNameParam
+					required
+
+				EffectiveDateRequiredParam
+					initial value is BaseActionParam.EffectiveDateRequired
+
+					constraint (EffectiveDateRequiredParam and BusinessClassParam.ImplementsEffectiveDated)
+						"BusinessClassMustImplementEffectiveDate"
+
+				ReasonCodeRequiredParam
+					initial value is BaseActionParam.ReasonCodeRequired
+
+					constraint (ReasonCodeRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				ActionCommentRequiredParam
+					initial value is BaseActionParam.ActionCommentRequired
+
+					constraint (ActionCommentRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				SubjectParam
+					if (ReasonCodeRequiredParam)
+						required
+
+			Local Fields
+				LocalLPLParam 			is LPL
+				LocalFullActionName		is LPLName
+
+            Entrance Rules
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                LocName = ActionNameParam
+                constraint (!LocalDuplicateRel exists)
+                    "ActionNameInUse_'<LocName>'"
+
+            	if (LocalFullActionName = blank)
+            		LocalFullActionName = ActionNameParam
+            		
+                invoke Create this instance
+                    invoked.BusinessClass       = BusinessClassParam
+                    invoked.ActionName          = LocalFullActionName
+                    invoked.Type                = 1  
+                    invoked.LPL 				= LocalLPLParam
+
+            Exit Rules
+    			invoke CreateSecurityClass
+
+		CreateNewRequestAction is a Create Action
+            Parameters
+                BusinessClassParam              				is a BusinessClass
+                    default label is "BusinessClass"
+
+                ActionNameParam                       			is LPLName
+                	default label is "Action"
+
+				HasExplicitLabelParam							is Boolean
+					default label is "ExplicitLabelExists"
+
+				ExplicitLabelParam								is Alpha 300
+					default label is "ExplicitLabel"
+
+				ActionTypeParam									is Numeric size 1
+					default label is "ActionType"
+    				States
+    					Create value is 1
+    					Update value is 2
+
+				InvokeCreateActionParam							is a BusinessAction
+					default label is "InvokeCreateAction"
+
+				SubjectParam									is a BusinessSubject
+					default label is "Subject"
+
+				ProcessFlowParam								is a PfiServiceDefinition
+					default label is "ProcessFlowService"
+
+				WebAppParam										is a WebApp
+					default label is "WebApp"
+
+				EffectiveDateRequiredParam						is Boolean
+					default label is "EffectiveDateRequired"
+
+				ReasonCodeRequiredParam							is Boolean
+					default label is "ReasonCodeRequired"
+
+				ActionCommentRequiredParam						is Boolean
+					default label is "ActionCommentRequired"
+
+				ValidWhenParam									is a BusinessField
+					default label is "ValidWhen"
+
+				ValidWhenNegatedParam							is Boolean
+					default label is "ValidWhenNegated"
+					
+				StateParam										is a BusinessState
+					default label is "InState"
+
+                IncludeAllFieldsParam		                    is Boolean
+                    default label is "IncludeAllFields"
+
+
+
+			Parameter Rules
+				BusinessClassParam
+					required
+
+    				constraint (!BusinessClassParam.IsUserClass)
+        				"ConfigurationNotAllowedInAUserDefinedBusinessClass.UpdateTheConfigurationOnTheUserBusinessClass"
+
+				ActionNameParam
+					required
+
+				ActionTypeParam
+					required
+
+				InvokeCreateActionParam
+					if (ActionTypeParam.Create)
+						required
+
+				 	constraint (InvokeCreateActionParam.ActionType = 1 or InvokeCreateActionParam.ActionType = 11)
+						"MustBeACreateOrImportAction"
+
+				ValidWhenParam
+				 	constraint (ValidWhenParam.Type.Condition and not ValidWhenParam.IsHiddenFrameworkField)
+						"MustBeACondition"
+
+				ProcessFlowParam
+					required
+
+				SubjectParam
+					if (ReasonCodeRequiredParam)
+						required
+
+				EffectiveDateRequiredParam
+					constraint (EffectiveDateRequiredParam and BusinessClassParam.ImplementsEffectiveDated)
+						"BusinessClassMustImplementEffectiveDate"
+
+				ReasonCodeRequiredParam
+					constraint (ReasonCodeRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				ActionCommentRequiredParam
+					constraint (ActionCommentRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+			Local Fields
+				LocalLPLParam 			is LPL
+				LocalFullActionName		is LPLName
+
+            Entrance Rules
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                LocName = ActionNameParam
+                constraint (!LocalDuplicateRel exists)
+                    "ActionNameInUse_'<LocName>'"
+
+            	if (LocalFullActionName = blank)
+            		LocalFullActionName = ActionNameParam
+            		
+                invoke Create this instance
+                    invoked.BusinessClass       = BusinessClassParam
+                    invoked.ActionName          = LocalFullActionName
+                    invoked.Type                = 0  
+                    invoked.LPL 				= LocalLPLParam
+
+            Exit Rules
+    			invoke CreateSecurityClass
+
+		CreateNewAction is a Create Action
+            Parameters
+                BusinessClassParam              				is a BusinessClass
+                    default label is "BusinessClass"
+
+                ActionNameParam                       			is LPLName
+                	default label is "Action"
+
+				HasExplicitLabelParam							is Boolean
+					default label is "ExplicitLabelExists"
+
+				ExplicitLabelParam								is Alpha 300
+					default label is "ExplicitLabel"
+
+				ActionTypeParam									is Numeric size 2
+					default label is "ActionType"
+					States
+						Create				value is 1
+						Update				value is 2
+						Function			value is 3
+						    default label is "Instance"
+						Delete				value is 4
+						Purge				value is 5
+						Set					value is 6
+						Import				value is 11
+
+				ValidWhenParam									is a BusinessField
+					default label is "ValidWhen"
+
+				ValidWhenNegatedParam							is Boolean
+					default label is "Negate"
+
+				SubjectParam									is a BusinessSubject
+					default label is "Subject"
+
+				EffectiveDateRequiredParam						is Boolean
+					default label is "EffectiveDateRequired"
+
+				ReasonCodeRequiredParam							is Boolean
+					default label is "ReasonCodeRequired"
+
+				ActionCommentRequiredParam						is Boolean
+					default label is "ActionCommentRequired"
+					
+				StateParam										is a BusinessState
+					default label is "InState"
+
+			Parameter Rules
+				BusinessClassParam
+					required
+
+    				constraint (!BusinessClassParam.IsUserClass)
+        				"ConfigurationNotAllowedInAUserDefinedBusinessClass.UpdateTheConfigurationOnTheUserBusinessClass"
+
+				ActionNameParam
+					required
+
+				ActionTypeParam
+					required
+
+				ValidWhenParam
+				 	constraint (ValidWhenParam.Type.Condition and not ValidWhenParam.IsHiddenFrameworkField)
+						"MustBeACondition"
+
+				EffectiveDateRequiredParam
+   					constraint (EffectiveDateRequiredParam and BusinessClassParam.ImplementsEffectiveDated)
+						"BusinessClassMustImplementEffectiveDate"
+
+				ReasonCodeRequiredParam
+					constraint (ReasonCodeRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				ActionCommentRequiredParam
+					constraint (ActionCommentRequiredParam and BusinessClassParam.ImplementsAuditing)
+						"BusinessClassMustImplementAuditing"
+
+				SubjectParam
+					if (ReasonCodeRequiredParam)
+						required
+
+			Local Fields
+				LocalLPLParam 			is LPL
+				LocalFullActionName		is LPLName
+
+            Entrance Rules
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                LocName = ActionNameParam
+                constraint (!LocalDuplicateRel exists)
+                    "ActionNameInUse_'<LocName>'"
+
+            	if (LocalFullActionName = blank)
+            		LocalFullActionName = ActionNameParam
+            		
+                invoke Create this instance
+                    invoked.BusinessClass       = BusinessClassParam
+                    invoked.ActionName          = LocalFullActionName
+                    invoked.Type                = 3  
+                    invoked.LPL 				= LocalLPLParam
+
+            Exit Rules
+    			invoke CreateSecurityClass
+
+		CopyNewAction is a Create Action
+            Parameters
+                BusinessClassParam              				is a BusinessClass
+                    default label is "BusinessClass"
+
+                ActionNameParam                       			is LPLName
+                	default label is "Action"
+
+                BaseActionParam                       			is a BusinessAction
+                	default label is "BasedOn"
+
+				HasExplicitLabelParam							is Boolean
+					default label is "ExplicitLabelExists"
+
+				ExplicitLabelParam								is Alpha 300
+					default label is "ExplicitLabel"
+				
+				StateParam										is a BusinessState
+					default label is "InState"
+
+			Parameter Rules
+				BusinessClassParam
+					required
+
+    				constraint (!BusinessClassParam.IsUserClass)
+        				"ConfigurationNotAllowedInAUserDefinedBusinessClass.UpdateTheConfigurationOnTheUserBusinessClass"
+
+				BaseActionParam
+					constraint (!BaseActionParam.IsRequestAction)
+						"ActionCannotBeRequestAction"
+
+					constraint (!BaseActionParam.IsActionExtension)
+						"ActionCannotBeActionExtension"
+
+					constraint (BaseActionParam.DefinedVia.Explicit)
+						"ActionCannotBeImplicitlyDefined"
+
+				ActionNameParam
+					required
+
+				StateParam
+					initial value is BaseActionParam.StateName
+				
+			Local Fields
+				LocalLPLParam 			is LPL
+				LocalFullActionName		is LPLName
+
+            Entrance Rules
+
+            Action Rules
+                LocBusinessView = BusinessClassParam
+                LocName = ActionNameParam
+                constraint (!LocalDuplicateRel exists)
+                    "ActionNameInUse_'<LocName>'"
+
+            	if (LocalFullActionName = blank)
+            		LocalFullActionName = ActionNameParam
+            		
+                invoke Create this instance
+                    invoked.BusinessClass       = BusinessClassParam
+                    invoked.ActionName          = LocalFullActionName
+                    invoked.Type                = 3  
+                    invoked.LPL 				= LocalLPLParam
+
+            Exit Rules
+    			invoke CreateSecurityClass
+
+
+    Sets
+    	ByClassAction
+    		indexed
+    		Sort Order
+    			BusinessClass
+    			ActionName
+
+		ByTypeClassAction
+    		indexed
+    		Sort Order
+    			Type
+    			BusinessClass
+    			ActionName
+ 

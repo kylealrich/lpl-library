@@ -1,0 +1,394 @@
+ProjectEffortPeriod is a BusinessClass
+    owned by Projects
+    prefix is PJEPD
+	representative text is "EffortCertification"
+	Ontology
+		symbolic key is ProjectEffortPeriod
+        		
+	Persistent Fields
+		DateRange
+		Status			is Numeric size 1
+			States
+				Open	value is 0
+				Closed	value is 1
+ 	Context Fields
+ 		ProjectEmployee
+ 
+ 	Derived Fields
+		LaborPeriodCount is a DerivedField
+			type is Numeric size 4
+			if (EmployeeInContext)
+				return (instance count of ProjectSchedulePeriodRel)
+			 	
+		TotalAverageActualPercent is a DerivedField
+			type is Percent size 7.3
+			restricted
+			if (EmployeeInContext)
+				TotalAverageActualPercent = (sum ProjectAssignmentEffortRel.AverageActualPercent)
+				round TotalAverageActualPercent to nearest .001
+				return TotalAverageActualPercent
+
+		TotalEffortPercent is a DerivedField
+			type is Percent size 7.3
+			if (EmployeeInContext)
+				return (sum ProjectAssignmentEffortRel.EffortPercent)
+
+		CertifiedMF is a MessageField
+			restricted
+			"CERTIFIED"
+			
+
+		EmployeeID is a DerivedField
+			type is Numeric size 13
+			restricted
+			return "ID:<ProjectEmployee>"
+		
+		MobileCertifiedMF is a MessageField
+			restricted
+			"Certified"
+			
+		UnCertifiedMF is a MessageField
+			restricted
+			"Uncertified"
+			
+		MobileStatusMessage is a ConditionalField
+			type is Alpha size 25
+			if (Certified)
+				MobileCertifiedMF
+			else
+				UnCertifiedMF
+		
+		DerivedActor is a DerivedField
+			type is Alpha size 20
+			if(ProjectAssignmentEffortRel exists)
+				for each ProjectAssignmentEffortRel.CertifyingActor split on ","
+					DerivedActor += each
+				return DerivedActor
+			else
+				return ""
+		
+		DerivedTotalEffortPercent is a DerivedField
+			type is Percent size 7
+			return TotalEffortPercent
+
+		NeedsCertificationMF is a MessageField
+			restricted
+			"NEEDS_CERTIFICATION"
+
+		StatusMessage is a ConditionalField
+			type is Alpha size 25
+			if (Certified)
+				CertifiedMF
+			else
+				NeedsCertificationMF
+
+		DerivedFromEmail is a DerivedField
+			type is Alpha up to 100
+			return actor.agent(Employee).EmployeeWorkEmailAddress
+
+	Field Rules
+		DateRange
+			cannot be changed
+
+		Status
+			if (Status changed
+			and old Status.Open)
+				constraint (OpenProjectSchedulePeriodRel not exist)
+					"CannotClosePeriod;_OpenLaborPeriodsExist"
+				if (UncertifiedEffortRecordsExist)
+					confirmation required
+						"UncertifiedEffortRecordsExist;_ClosePeriodAnyway?"
+			
+	Sets
+
+	Conditions
+		ProjectAssignmentEffortExists
+			restricted
+			when (ProjectAssignmentEffortRel exists)
+		EmployeeInContext
+			restricted
+			when (ProjectEmployee in context
+			and   !ProjectEmployee.ExcludeFromCertification)
+		ActualLessThan100
+			restricted
+			when (EmployeeInContext
+			and   TotalAverageActualPercent < 1
+			and   TotalAverageActualPercent > 0)
+		CertifierEffortExists
+			restricted
+			when (CertifierEffortRel exists)
+		ProjectAssignmentEffortPeriodExists
+			restricted
+			when (ProjectAssignmentEffortPeriodRel exists)
+		UncertifiedEffortRecordsExist
+			restricted
+			when (UncertifiedAssignmentEffortRel exists)
+		Certified
+			when (CertifiedAssignmentEffortRel exists)
+		ProcessedProjectSchedulePeriodRelExists  
+			restricted
+			when (ProcessedProjectSchedulePeriodRel exists)
+		ProcessedProjectEmployeeLaborPeriodRelExists
+			restricted
+			when (ProcessedProjectEmployeeLaborPeriodRel exists)
+		NeedsCertificationEmail
+			restricted
+			when (EmailOpenNotCertProjectEmployeeEffortPeriodRel exists)
+		NeedsCertifierCertificationEmail
+			restricted
+			when (CertifierEmailOpenNotCertProjectEmployeeEffortPeriodRel exists)
+
+	Relations
+		ProjectSchedulePeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectLaborSchedule	= ProjectEmployee.ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange)
+
+		ProcessedProjectSchedulePeriodRel  
+			one-to-many relation using ProjectSchedulePeriodRel
+			Instance Selection
+				where (related.ProcessedProjectAssignmentLaborExists)
+
+		ProcessedProjectEmployeeLaborPeriodRel
+			one-to-many relation to ProjectEmployeeLaborPeriod
+			Field Mapping uses ByEmployeeAndStatus
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Employee				= ProjectEmployee
+				related.Status					= 3
+    			related.ProjectLaborSchedule	= ProjectEmployee.ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange)
+				
+		ProjectAssignmentEffortRel
+			one-to-many relation to ProjectAssignmentEffort
+			Field Mapping uses ByEmployeeAndPeriod
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Employee				= ProjectEmployee
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+				related.ProjectEffortPeriod		= ProjectEffortPeriod
+				
+		CertifiedAssignmentEffortRel
+			one-to-many relation using ProjectAssignmentEffortRel
+			Instance Selection
+				where (related.Certified)
+
+		ProjectAssignmentEffortPeriodRel
+    		one-to-many relation to ProjectAssignmentEffort
+    		Field Mapping uses ByPeriodAndEmployee
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectEffortSchedule	= ProjectEffortSchedule
+    			related.ProjectEffortPeriod		= ProjectEffortPeriod
+
+		MyProjectAssignmentEffortPeriodRel
+    		one-to-many relation to ProjectAssignmentEffort
+    		Field Mapping uses ByPeriodAndEmployee
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectEffortSchedule	= ProjectEffortSchedule
+    			related.ProjectEffortPeriod		= ProjectEffortPeriod
+    		Instance Selection
+    			where (related.Employee.Certifier = actor.agent(Employee).Employee)
+
+		UncertifiedAssignmentEffortRel
+			one-to-many relation using ProjectAssignmentEffortPeriodRel
+			Instance Selection
+				where (!related.Certified)
+
+    	CertifierEffortRel
+    		one-to-many relation using ProjectAssignmentEffortPeriodRel
+    		Instance Selection
+    			where (related.Employee.Certifier = actor.agent(Employee).Employee)
+
+    	AccountantProjectEmployeeEffortRel
+    		one-to-many relation to ProjectEmployee
+    		Field Mapping uses ByProjectEffortSchedule
+    			related.HROrganization 			= FinanceEnterpriseGroup.HROrganization
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+    		Instance Selection
+    			where (!related.ExcludeFromCertification
+    			and    related.ProjectAssignmentEffortForPeriodExists)
+
+		OpenProjectEmployeeEffortPeriodRel is a ProjectEmployeeEffortPeriod set
+			Instance Selection
+				where (related.NotExcludedFromCertification)
+
+		EmailOpenNotCertProjectEmployeeEffortPeriodRel is a ProjectEmployeeEffortPeriod set
+			Instance Selection
+				where (related.CertificationRequired
+				and    related.Uncertified)
+
+		CertifierEmailOpenNotCertProjectEmployeeEffortPeriodRel is a ProjectEmployeeEffortPeriod set
+			Instance Selection
+				where (related.CertificationRequired
+				and    related.Uncertified
+				and    related.Employee.Certifier = actor.agent(Employee).Employee)
+
+		MyOpenProjectEmployeeEffortPeriodRel is a ProjectEmployeeEffortPeriod set
+			Instance Selection
+				where (related.NotExcludedFromCertification
+				and   related.Employee.Certifier = actor.agent(Employee).Employee)
+
+		VarianceProjectEmployeeEffortPeriodRel is a ProjectEmployeeEffortPeriod set
+			Instance Selection
+				where (related.VarianceExists)
+
+    	VarianceProjectEmployeeRel
+    		one-to-many relation to ProjectEmployee
+    		Field Mapping uses ByProjectEffortSchedule
+    			related.HROrganization 			= FinanceEnterpriseGroup.HROrganization
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+    		Instance Selection
+    			where (related.VariancePeriodExists)
+
+    	CertifierVarianceProjectEmployeeRel
+    		one-to-many relation to ProjectEmployee
+    		Field Mapping uses ByEffortScheduleAndCertifier
+    			related.HROrganization 			= FinanceEnterpriseGroup.HROrganization
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+    			related.Certifier				= actor.agent(Employee).Employee
+    		Instance Selection
+    			where (related.VariancePeriodExists)
+
+    	CertifierProjectEmployeeRel
+    		one-to-many relation to ProjectEmployee
+    		Field Mapping uses ByEffortScheduleAndCertifier
+    			related.HROrganization 			= FinanceEnterpriseGroup.HROrganization
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+    			related.Certifier				= actor.agent(Employee).Employee
+    		Instance Selection
+    			where (!related.ExcludeFromCertification
+    			and    related.ProjectAssignmentEffortForPeriodExists)
+
+		OpenProjectSchedulePeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectLaborSchedule	= ProjectEffortSchedule.ProjectLaborSchedule set.ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange
+				and    related.Status.Open)
+		
+
+		MobileProjectEffortPeriodRel
+			one-to-many relation to ProjectEffortPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectEffortSchedule	= ProjectEffortSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange)
+		
+
+		
+	Actions
+		Create is an Action
+			restricted
+		Update is an Action
+		Delete is an Action
+			restricted
+			
+		ClosePeriod is an Instance Action
+			valid when (Status.Open)
+			Action Rules
+				constraint (OpenProjectSchedulePeriodRel not exist)
+					"CannotClosePeriod;_OpenLaborPeriodsExist"
+				if (UncertifiedEffortRecordsExist)
+					confirmation required
+						"UncertifiedEffortRecordsExist;_ClosePeriodAnyway?"
+				Status = Status.Closed
+					
+		OpenPeriod is an Instance Action
+			valid when (Status.Closed)
+			Action Rules
+				Status = Status.Open
+				
+		CertificationEmail is an Instance Action
+			valid when (NeedsCertificationEmail)
+			Parameters
+				FromEmail					   is EmailAddressField with multiple addresses			
+				CCEmail						   is EmailAddressField with multiple addresses
+				PrmSubject					   is Alpha 100
+					default label is "Subject"
+				PrmComment					   is Text
+					default label is "Comment"		
+				PrmAttachment				   is an Attachment	
+					default label is "Attachment"
+
+			Parameter Rules
+				FromEmail 
+					required
+					initial value is DerivedFromEmail
+					default to DerivedFromEmail
+				PrmSubject
+					required
+					initial value is "Effort certification required"
+					default to "Effort certification required"
+				PrmComment
+					required
+			Action Rules
+				for each EmailOpenNotCertProjectEmployeeEffortPeriodRel
+					send email
+						to each.Employee.EmployeeWorkEmailAddress
+						from FromEmail
+
+						cc CCEmail
+						subject "<PrmSubject>"
+						Contents
+								"Employee:<each.Employee>_<each.Employee.PresentationNameSnapshot>"
+								"<actor.context.FinanceEnterpriseGroup.ProjectLabel>EffortPeriod:<DateRange.Begin>_-_<DateRange.End>"
+								"Comment:<PrmComment>"
+						Attachments		
+							if (PrmAttachment entered)
+								attachment PrmAttachment.File
+									name is PrmAttachment.Title
+									mime type is PrmAttachment.MimeType
+					invoke Update each
+						invoked.CertificationEmailDate = current timestamp
+			
+
+		MyEmployeeCertificationEmail is an Instance Action
+			default label is "CertificationEmail"
+			valid when (NeedsCertifierCertificationEmail)
+			Parameters
+				FromEmail					   is EmailAddressField with multiple addresses			
+				CCEmail						   is EmailAddressField with multiple addresses
+				PrmSubject					   is Alpha 100
+					default label is "Subject"
+				PrmComment					   is Text
+					default label is "Comment"		
+				PrmAttachment				   is an Attachment	
+					default label is "Attachment"
+
+			Parameter Rules
+				FromEmail 
+					required
+					initial value is DerivedFromEmail
+					default to DerivedFromEmail
+				PrmSubject
+					required
+					initial value is "Effort certification required"
+					default to "Effort certification required"
+				PrmComment
+					required
+			Action Rules
+				for each CertifierEmailOpenNotCertProjectEmployeeEffortPeriodRel
+					send email
+						to each.Employee.EmployeeWorkEmailAddress
+						from FromEmail			
+
+						cc CCEmail
+						subject "<PrmSubject>"
+						Contents
+								"Employee:<each.Employee>_<each.Employee.PresentationNameSnapshot>"
+								"<actor.context.FinanceEnterpriseGroup.ProjectLabel>EffortPeriod:<DateRange.Begin>_-_<DateRange.End>"
+								"Comment:<PrmComment>"
+						Attachments		
+							if (PrmAttachment entered)
+								attachment PrmAttachment.File
+									name is PrmAttachment.Title
+									mime type is PrmAttachment.MimeType
+					invoke Update each
+						invoked.CertificationEmailDate = current timestamp
+
+								

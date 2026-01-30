@@ -1,0 +1,292 @@
+MatchWorkInvoice is a BusinessClass
+    owned by ma
+    prefix is MWAPI
+
+    Ontology
+        symbolic key is MatchWorkInvoice
+
+    Patterns
+
+        disable AuditIndex
+        disable Auditing
+        disable EffectiveDated
+      	disable DataTranslations
+
+
+    Persistent Fields
+
+		Vendor
+		PurchaseOrder
+		Location
+		Selected					is Boolean
+		MatchAmount					is an InternationalAmount
+        MatchedAddOnChargeAmount    is an InternationalAmount
+		InvoicePercent				is Percent size 8.5
+		TermsCode					is like TermsCode
+
+		RevisedDueDate				is Date
+		DiscountDate				is Date
+		DiscountPercent				is like Percent
+		DiscountAmount				is an InternationalAmount
+		
+		Chargeback					is Boolean			
+		ChargebackReason			is a ProcurementReasonCode  
+		HoldCode					is like PayablesHoldCode
+		Approved					is Boolean
+
+        TaxableAmount       			is an InternationalAmount
+        TaxAmount       				is an InternationalAmount
+        TotalTaxAmount       			is an InternationalAmount
+		InvoiceAmount                 	is an InternationalAmount
+        AddOnChargeAmount             is an InternationalAmount
+
+		MatchStatus					is Numeric size 1
+		MatchObjectID				is an ObjId								
+
+		MatchReconQueueSet						is like MatchReconQueueSet
+        Invoice									is a snapshot of PayablesInvoice.Invoice
+        DueDate									is a snapshot of PayablesInvoice.DueDate
+        LastDistribution              is a DistributionSequence
+
+		TotalAddOnChargeDistributionAmount		is an InternationalAmount	
+		TotalMatchDistributionAmount			is an InternationalAmount	
+
+		TotalRetainageTranAmount		is an InternationalAmount
+
+	Local Fields
+		LocalQuantity				is like Quantity
+						
+	Context Fields
+		FinanceResource
+		
+	Field Rules
+		RevisedDueDate
+			default to PayablesInvoice.DueDate
+		DiscountDate
+			default to PayablesInvoice.DiscountDate
+		DiscountAmount
+			default to PayablesInvoice.DiscountAmount.CurrencyAmount
+
+	Derived Fields
+		DerivedQuantity is a DerivedField
+			type is like Quantity
+			initialize LocalQuantity
+			for each ReconQueueInvoiceDetailRel
+			    if (each.IsCatchWeight)
+			        LocalQuantity += each.BuyUOMMatchedQuantity
+			    else
+			    	LocalQuantity += each.MatchedQuantity
+			    	
+			return LocalQuantity
+			
+
+
+		DerivedExtendedAmount is a DerivedField
+			type is like InternationalAmount
+			if (!ReconQueueInvoiceDetailRel exists)
+				return MatchAmount
+			else
+				return sum ReconQueueInvoiceDetailRel.DerivedExtendedMatchAmount
+
+		ChargebackYesOrNo is a DerivedField
+			type is Alpha 10
+			restricted
+			if (Chargeback)
+				return "Yes"
+			else
+				return "No"
+
+		TotalAOCAmount is a DerivedField
+			type is like InternationalAmount
+	            precision is PayablesInvoice.InvoiceCurrency.NumberOfDecimals
+			restricted
+			return (sum PayablesInvoice.PayablesInvoiceAddOnChargeRel.DerivedDistributionAmount)
+
+		SingleSpace is a StringField
+			type is Alpha 1
+			restricted
+			" "
+			
+	Conditions
+		HasDetails
+			restricted
+			when (MatchWorkInvoiceDetailRel exists)
+			
+		HasAOC
+			restricted
+			when (PayablesInvoice.PayablesInvoiceAddOnChargeRel exists)
+						
+		Pending
+			restricted
+			when (Selected
+			and   MatchReconQueueSet not entered)
+
+		IncludeInView
+			restricted
+			when ((!Vendor.RequireMatchReference
+			and   (MatchWork.PurchaseOrder not entered  
+			or     MatchWork.PurchaseOrder	= PurchaseOrder))
+			or    (Vendor.RequireMatchReference
+			and    PayablesInvoice.MatchReferenceNumber = MatchWork.PayablesInvoice.MatchReferenceNumber))			
+			
+	Relations
+        MatchCompanyRel
+            classic name is MACOMPANY
+            one-to-one relation to MatchCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+
+
+		SelectedReceiptLineRel
+			one-to-many relation to MatchWorkReceiptLine
+			Field Mapping uses ByVendorMatchDetailKey
+				related.MatchWork					= MatchWork
+				related.Company						= Company
+				related.Vendor						= Vendor
+			Instance Selection
+				where (related.Selected)
+
+		MatchWorkInvoiceDetailRel
+			one-to-many relation to MatchWorkInvoiceDetail
+			Field Mapping uses symbolic key
+                related.Company                 	= Company
+				related.MatchWork					= MatchWork
+				related.PayablesInvoice				= PayablesInvoice
+
+		MatchWorkReceiptLineRel
+			one-to-many relation to MatchWorkReceiptLine
+			Field Mapping uses ByVendorMatchDetailKey
+				related.MatchWork					= MatchWork
+				related.Company						= Company
+				related.Vendor						= Vendor
+
+        PayablesInvoiceDistributionAccrualAccountRel
+            one-to-many relation to PayablesInvoiceDistribution
+            Field Mapping uses Set9		
+				related.Company					= Company
+				related.Vendor					= Vendor
+				related.PayablesInvoice			= PayablesInvoice
+			Instance Selection
+				where (related.DistributionAccount	= PayablesInvoice.ProcessLevel.ReceiptAccrualAccount
+				or     related.DistributionAccount	= Company.ReceiptAccrualAccount)
+
+        ReconQueueInvoiceDetailRel
+            one-to-many relation to PayablesInvoiceDetail
+            Field Mapping uses symbolic key
+                related.Company                 						= Company
+                related.PayablesInvoice            						= PayablesInvoice
+
+		MatchWorkInvoiceAddOnChargeRel
+			one-to-many relation to MatchWorkInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+                related.Company                 	= Company
+				related.MatchWork					= MatchWork
+				related.PayablesInvoice				= PayablesInvoice
+
+		InvoiceAOCsRel
+			one-to-many relation to MatchWorkInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+                related.Company                 	= Company
+				related.MatchWork					= MatchWork
+				related.PayablesInvoice				= PayablesInvoice
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLine			= blank
+
+		ReceiptAOCsRel
+			one-to-many relation to MatchWorkReceiptLineAOC
+			Field Mapping uses symbolic key
+                related.Company                 	= Company
+				related.MatchWork					= MatchWork
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLine			= blank
+			
+	Sets
+		ByInvoice
+			indexed
+			Sort Order
+				Invoice
+				Company
+				PayablesInvoice
+				MatchWork
+				            
+		ByDueDate
+			indexed
+			Sort Order
+				DueDate
+				Company
+				PayablesInvoice
+				MatchWork
+	
+		ByPurchaseOrder
+			indexed
+			Sort Order
+				MatchWork
+				Company
+				PurchaseOrder
+				PayablesInvoice
+
+	Actions
+	
+		Create is a Create Action
+			restricted
+			Action Rules
+				TaxAmount = PayablesInvoice.TaxAmount
+				TaxableAmount = PayablesInvoice.TaxableAmount
+				DiscountAmount = PayablesInvoice.DiscountAmount.CurrencyAmount
+				
+			Exit Rules
+
+
+		Update is an Update Action
+			restricted
+		FastUpdate is an Update Action
+			restricted
+			Exit Rules
+
+
+
+		Delete is a Delete Action
+			restricted
+		PurgeDetail is an Instance Action
+			restricted
+			Action Rules
+				invoke Purge MatchWorkInvoiceAddOnChargeRel
+				invoke Purge MatchWorkInvoiceDetailRel
+			
+		Purge is a Purge Action
+			restricted
+			
+		SetChargeback is an Instance Action
+			valid when (!FinanceResource.RestrictChargebacks) 
+			Parameters
+				PrmChargeback			is Boolean
+				PrmChargebackReason		is a ProcurementReasonCode
+			Parameter Rules
+				PrmChargeback
+					initial value is Chargeback
+				PrmChargebackReason
+					initial value is ChargebackReason
+					if (PrmChargeback)
+						required
+			Action Rules
+				Chargeback = PrmChargeback
+				ChargebackReason = PrmChargebackReason
+				if (PrmChargeback = false)
+					initialize ChargebackReason
+
+		UpdateSnapshotFields is an Instance Action
+			restricted
+			Action Rules
+				Invoice				= PayablesInvoice.Invoice
+				DueDate				= PayablesInvoice.DueDate
+							
+		SelectRecordForRecon is an Instance Action
+			valid when (!Selected)
+			Action Rules
+				Selected = true
+		
+		UnselectRecordForRecon is an Instance Action
+			valid when (Selected)
+			Action Rules
+				initialize MatchReconQueueSet
+				Selected = false				

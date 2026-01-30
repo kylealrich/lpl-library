@@ -1,0 +1,191 @@
+ActorGroupMemberShadow is a BusinessClass
+    owned by person
+    prefix is AGMSH
+	stored in environment
+    default label is "ActorGroupMemberShadow"
+
+    Ontology
+    	symbolic key is ActorGroupMemberShadow
+
+	Patterns
+        disable AsOfDateProcessing
+        disable EffectiveDated
+        disable Auditing
+
+    Persistent Fields
+    	ResidenceGroup	is an ActorGroup
+    		delete ignored
+
+	Derived Fields
+	
+	Local Fields
+		LocActorGroup is an ActorGroup
+
+	Sets
+        ByActorGroupResidenceGroupActor
+        	indexed
+        	no duplicates
+            Sort Order
+        		ActorGroup
+        		ResidenceGroup
+         		Actor
+
+        ByResidenceGroupActorActorGroup
+        	indexed
+        	no duplicates
+            Sort Order
+        		ResidenceGroup
+        		Actor
+         		ActorGroup
+		
+        ByActorActorGroupResidenceGroup
+        	indexed
+        	no duplicates
+            Sort Order
+            	Actor
+         		ActorGroup
+        		ResidenceGroup
+
+	Relations
+			
+		ResidenceGroupActorGroupMemberShipRel	
+			one-to-many relation to ActorGroupMemberShadow
+            Field Mapping uses ByResidenceGroupActorActorGroup
+         		related.ResidenceGroup	= ResidenceGroup
+	       		related.Actor 			= Actor
+			
+		LocFieldActorGroupMemberShadowRel
+			one-to-one relation to ActorGroupMemberShadow
+            Field Mapping uses ByActorGroupResidenceGroupActor
+        		related.ActorGroup		= LocActorGroup
+        		related.ResidenceGroup	= ResidenceGroup
+         		related.Actor			= Actor
+
+ 		AllActorGroupMembersRel
+			one-to-many relation to ActorGroupMember
+            Field Mapping uses ActorGroup part of key
+            Instance Selection
+            	where (related.ActorGroup entered)
+
+
+	Rule Blocks
+
+		CreateParentEntry	
+			if (ActorGroup.ParentActorGroup entered)
+	        	invoke Create ActorGroupMemberShadow
+	        		invoked.ActorGroup = ActorGroup.ParentActorGroup
+	        		invoked.Actor = Actor
+	        		invoked.ResidenceGroup = ResidenceGroup
+	        		
+	        		 
+	Conditions
+
+
+	Actions
+        Create is a Create Action
+        	restricted
+        	
+        	Exit Rules
+	        	include CreateParentEntry
+        	
+		Delete is a Delete Action
+        	restricted
+
+		DeleteActorMembershipInResidenceGroup is a Delete Action
+        	restricted
+        	
+        	Action Rules
+        		invoke Delete ResidenceGroupActorGroupMemberShipRel
+
+
+        ReparentGroupMembers is a Set Action
+			restricted
+			run in foreground
+            Parameters
+				PrmOldParentActorGroup	is an ActorGroup
+					default label is "OldParentActorGroup"
+				PrmReParentedActorGroup	is an ActorGroup
+					default label is "ReparentedActorGroup"
+				                            
+			Instance Selection
+				where (ActorGroup = PrmReParentedActorGroup)
+					
+            Action Rules
+            
+                Set Rules
+                	Exit Rules
+						if (PrmReParentedActorGroup.ParentActorGroup entered)
+		        			invoke AddReparentedActorGroupActorsToParentActorGroups
+				        		invoked.PrmReParentedActorGroup = PrmReParentedActorGroup
+
+				Instance Rules
+					if (PrmOldParentActorGroup.ParentActorGroup entered)
+			        	invoke DeleteResidenceGroupActorFromParentActorGroup
+			        		invoked.PrmActorGroup = PrmOldParentActorGroup
+			        		
+
+					LocActorGroup = PrmOldParentActorGroup
+	        		invoke Delete LocFieldActorGroupMemberShadowRel
+
+		DeleteResidenceGroupActorFromParentActorGroup is an Instance Action
+			restricted
+			Parameters
+				PrmActorGroup is an ActorGroup
+					default label is "ActorGroup"
+        		
+			Action Rules
+			
+				if (PrmActorGroup.ParentActorGroup entered)
+		        	invoke DeleteResidenceGroupActorFromParentActorGroup
+		        		invoked.PrmActorGroup = PrmActorGroup.ParentActorGroup
+		        		
+				LocActorGroup = PrmActorGroup
+
+	    		invoke Delete LocFieldActorGroupMemberShadowRel
+	    		
+        AddReparentedActorGroupActorsToParentActorGroups is a Set Action
+			restricted
+			run in foreground
+            Parameters
+				PrmReParentedActorGroup	is an ActorGroup
+					default label is "ReparentedActorGroup"
+				                            
+			Instance Selection
+				where (ActorGroup = PrmReParentedActorGroup)
+					
+            Action Rules
+				Instance Rules
+        			invoke Create
+		        		invoked.ActorGroup = PrmReParentedActorGroup.ParentActorGroup
+		        		invoked.Actor = Actor
+		        		invoked.ResidenceGroup = ResidenceGroup
+
+
+        RebuildGroupMembers is a Set Action
+			confirmation required
+				"ThisActionRebuildsGroupMembershipInformationForAllActorGroupsAndShouldBeRunWhenThereAreNoUpdatesBeingMadeToActorGroups.ThisActionMayRunForALongTime.UntilItCompletes,GroupMembershipInformationWillBeIncomplete.DoYouWishToProceed?" 
+
+            Parameters
+            
+            Rule Blocks
+            	CreateAllActorGroupMembers
+	                for each AllActorGroupMembersRel
+			            invoke Create
+			                invoked.ActorGroup = each.ActorGroup
+			                invoked.Actor = each.Actor
+			                invoked.ResidenceGroup = each.ActorGroup
+				                            
+			Instance Selection
+				where (ActorGroup entered)
+
+            Action Rules
+            
+                Empty Set Rules
+                	include CreateAllActorGroupMembers
+
+				Set Rules                
+	            	Exit Rules
+	                	include CreateAllActorGroupMembers
+	            	
+				Instance Rules
+					invoke Delete

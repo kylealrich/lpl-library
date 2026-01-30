@@ -1,0 +1,155 @@
+CashAccountCorrespondence is a BusinessClass
+	owned by cashmgmt
+	prefix is CAC
+	
+	Ontology
+		symbolic key is CashAccountCorrespondence
+	
+	Persistent Fields
+		To								is Numeric 2
+			States
+				InternalContact		value is 1
+				InstitutionContact	value is 2
+				Email				value is 3
+		FinancialInstitution			is a snapshot of CashManagementAccount.FinancialInstitution
+		FinancialInstitutionBranch		is a snapshot of CashManagementAccount.FinancialInstitutionBranch
+		ToCorrespondenceEmail
+		FromEmail 						is an EmailAddress 
+			holds pii
+			default label is "From"
+		Subject 	   					is Alpha size up to 250
+		Content							is Text
+		Attachment						is an AlternateAttachment
+		SentTimeStamp					is TimeStamp
+			default label is "Sent"
+		Resolved						is Boolean
+		Comment							is Text
+	
+	Local Fields
+		LocalAttributeCtr   is Numeric 2
+		
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 50
+			restricted
+			"InforCashAccountCorrespondence"
+
+		ContextMessageText is a MessageField
+			restricted
+			"CashAccountCorrespondence<CashAccountCorrespondence>"	
+
+		DerivedToEmail is a DerivedField 
+			type is EmailAddressField with multiple addresses 
+			holds pii
+			default label is "To"
+			if (ToCorrespondenceEmail.ToFinanceResource entered)
+				return ToCorrespondenceEmail.ToFinanceResource.EmailAddress
+			else
+			if (ToCorrespondenceEmail.ToInstitutionContact entered)
+				return ToCorrespondenceEmail.ToInstitutionContact.ContactInformation.ContactInfo.EmailAddress
+			else
+				return ToCorrespondenceEmail.ToEmail
+	
+	Field Rules				
+		ToCorrespondenceEmail
+			required
+				"ToEmailAddressIsRequired"
+		
+		FromEmail
+			initial value is actor.agent(Employee).EmployeeWorkEmailAddress
+			required
+				"EmployeeWorkEmailAddressMustBeDefined"
+			cannot be changed
+			
+		Subject
+			required
+				"EmailSubjectIsRequired"
+				
+		Content
+			required
+				"EmailContentIsRequired"
+		
+		SentTimeStamp
+			default to current timestamp
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+		
+	Conditions
+		HasAttachment
+			restricted
+			when (Attachment entered)
+	
+	Sets
+		BySentTimeStamp
+			Sort Order
+				CashManagementGroup
+				CashManagementAccount
+				SentTimeStamp	descending
+				CashAccountCorrespondence
+
+	Actions
+		SendCorrespondence is a Create Action			
+			Exit Rules
+				if (ToCorrespondenceEmail.ToFinanceResource entered)
+					constraint (ToCorrespondenceEmail.ToFinanceResource.EmailAddress entered)		
+						"EmailAddressMustBeDefinedForSelectedInternalContact"
+				else
+				if (ToCorrespondenceEmail.ToInstitutionContact entered)
+					constraint (ToCorrespondenceEmail.ToInstitutionContact.ContactInformation.ContactInfo.EmailAddress entered)		
+						"EmailAddressMustBeDefinedForSelectedInstitutionContact"
+				else
+					constraint (ToCorrespondenceEmail.ToEmail entered)		
+						"EmailAddressMustBeDefined"
+				
+				send email
+					to DerivedToEmail
+					from FromEmail
+					subject "<Subject>"
+					Attachments
+						if (Attachment entered)
+							attachment Attachment.File
+								name is Attachment.Title
+								mime type is Attachment.MimeType
+					Contents 
+						"<Content>"
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

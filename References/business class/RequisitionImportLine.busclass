@@ -1,0 +1,203 @@
+RequisitionImportLine is a BusinessClass
+	owned by rq
+	prefix is RIL1
+	
+	Ontology
+        symbolic key is RequisitionImportLine
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+	
+	Persistent Fields
+        Item                    
+        ItemType
+        ServiceCode
+        Quantity 
+        RequisitionLineExists   is Boolean
+        CostOption              
+        CreatePurchaseOrder     is Boolean
+        VendorItem				
+        FromCompanyLocationBin
+        EnteredUOM				is a UnitOfMeasure             
+        MajorPurchasingClass    
+        MinorPurchasingClass    
+        LateDeliveryDate        is Date
+        DistributionBy          
+        DistributionCode        is a PayablesDistributionCode
+        Description				
+        POCode                                 
+        CertificationRequired   is Boolean
+        InspectionRequired      is Boolean
+        Manufacturer            
+        ManufacturerNumber
+        NewRequisition          is Boolean
+        FillOrKill
+        RequisitionInterfaceInformation
+        TransactionUnitCost     is an UnsignedUnitCost
+        OverrideCost            is Boolean
+        Contract				
+        ContractLine            
+        SourcingEventRequired   is Boolean
+        CommodityCode           is a CommCodes
+        ItemGTIN                
+        ConsignCode             
+        GlobalLineType 
+        PurchaseTaxCode         is a TaxCode
+        PurchaseTaxable         is Boolean
+		Vendor                  
+		PurchaseFromLocation    
+		Buyer                   
+		RequestedDeliveryDate   is Date
+		AllocationPriority      
+		DeliverTo 
+		TransactionCurrencyCode is a Currency
+		LocationRule            is a WarehouseLocationRule
+		PatientProcedure          
+		EAMWorkOrder
+		EAMWorkOrderActivity
+		EAMProjectID
+		EAMProjectType
+		EAMProjectTaxCode
+		EAMManufacturing
+    	EAMTrade
+    	EAMCommodityCode
+    	EAMLineType
+    	Chemical					is Boolean
+    	RebuildRepair				is Boolean
+    	TestRequired				is Boolean
+    	EAMTool						is a EAMToolField  
+		HSNSACCode
+
+	Local Fields
+		LocalErrorMessage			is Alpha 150
+		LocalErrorOccurred			is Boolean
+	
+	Conditions
+			
+		IsHSNSACCodeEnabled
+			restricted
+			when (Company.GeneralLedgerCompany.RequireHSNSACCode)
+
+		DistributionExists
+			restricted
+			when (RequisitionImportLineDistributionsRel exists)
+
+        DetailsExist
+            restricted
+            when (RequisitionImportLineDistributionsRel exists
+            or    RequisitionImportCommentsRel exists
+            or    RequisitionImportAddOnChargesRel exists)
+            
+        ReqImportLineExists
+        	restricted
+        	when (RequisitionImportLine exists)
+			
+	Relations
+		
+		RequisitionImportLineDistributionsRel
+            one-to-many relation to RequisitionImportLineDistribution
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= Company
+                related.RequisitionImport  			= RequisitionImport
+                related.RequisitionImportLine       = RequisitionImportLine
+                
+        RequisitionImportCommentsRel
+            one-to-many relation to RequisitionImportComment
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= Company
+                related.RequisitionImport  			= RequisitionImport
+                related.RequisitionImportLine       = RequisitionImportLine
+                
+        RequisitionImportAddOnChargesRel
+            one-to-many relation to RequisitionImportAddOnCharge
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= Company
+                related.RequisitionImport  			= RequisitionImport
+                related.RequisitionImportLine       = RequisitionImportLine
+                
+        RequisitionLineRel
+        	one-to-one relation to RequisitionLine
+        	Field Mapping uses symbolic key
+        		related.Company                     = Company
+        		related.Requisition                 = RequisitionImport.RequisitionNumber
+				related.RequisitionLine             = RequisitionImportLine
+				
+    Actions
+    
+    	Create is a Create Action
+    	
+    	CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+    	
+    	Update is an Update Action
+			valid when (!RequisitionLineExists)
+    	
+    	Delete is a Delete Action
+    		Entrance Rules
+    			if (RequisitionLineExists)
+    				invoke Delete RequisitionLineRel  
+    	
+    	FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+	
+
+		InterfaceRequisitionsLines is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRunGroup							is a RunGroup
+				PrmInterfaceResult					is a RequisitionInterfaceResult
+			Instance Selection			
+				where (PrmRunGroup					= RequisitionImport.RunGroup
+				and    PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup)
+			Sort Order
+				Company
+				RequisitionImport
+				RequisitionImportLine
+			Action Rules
+				Empty Set Rules
+					invoke InterfaceRequisitionLineDistributions RequisitionImportLineDistribution
+						invoked.PrmFinanceEnterpriseGroup		= PrmFinanceEnterpriseGroup
+						invoked.PrmRunGroup						= PrmRunGroup
+						invoked.PrmInterfaceResult				= PrmInterfaceResult
+
+				Set Rules
+					Exit Rules
+						invoke InterfaceRequisitionLineDistributions RequisitionImportLineDistribution
+							invoked.PrmFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup					= PrmRunGroup
+							invoked.PrmInterfaceResult			= PrmInterfaceResult
+							
+				Instance Rules
+					if (not RequisitionImport.RecordInError)
+						if (not RequisitionLineExists) 
+							invoke Create RequisitionLine
+								resume on error
+									LocalErrorOccurred			= true
+									LocalErrorMessage 			= error message
+								fill in fields from this instance
+								invoked.Requisition				= RequisitionImport.DerivedRequisition
+								invoked.RequisitionLine			= RequisitionImportLine
+								invoked.FromInterfaceImport		= true
+								invoked.RequisitionSource		= RqSource.RequisitionInterface
+								if (DistributionExists)
+									invoked.DistributionFromInterfaceImport = true
+							
+							if (LocalErrorOccurred)
+								invoke SetError RequisitionImport
+									invoked.PrmErrorMessage		= LocalErrorMessage
+									invoked.PrmErrorLevel		= RequisitionImport.ErrorLevel.Line
+							else
+                                if (DetailsExist) 
+                                    RequisitionLineExists 		= true 
+                                else
+                                    invoke FastDelete
+
+

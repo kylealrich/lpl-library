@@ -1,0 +1,711 @@
+ContractLineImportDistributor is a BusinessClass
+	owned by po
+	
+	prefix is CLID
+	
+	Ontology
+		symbolic key is ContractLineImportDistributor
+	
+	Patterns
+	
+	Persistent Fields
+		DistributorSupplier     is like Supplier
+		VendorItem              is like VendorItem
+		ContractVendorItem      is like VendorItem
+		VendorItemChanged       is Boolean 
+		GPOSupplier             is a GPOSupplierID
+		DistributorCost			is an ContractUnitCost	
+			precision is DerivedNumberOfDecimalsCost		
+		LineChanged             is Boolean
+	
+	Derived Fields
+		ImportDerivedToContract is a DerivedField
+			type is like Contract
+			return ContractImport.DerivedToContract 		
+
+		CalculatedMessage is a MessageField 
+			"Calculated"
+		
+		NoMarkupMessage is a MessageField 
+			"NoDistributorMarkup"
+
+		MarkupMessage is a MessageField 
+			"UseDistributorMarkup"
+		
+		DerivedDistributorCost is a DerivedField
+			type is Alpha size 40
+			if (DistributorCost > 0)
+				return NoMarkupMessage
+			else
+				return MarkupMessage
+
+		DerivedNumberOfDecimalsCost is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ContractLineImport.ItemNumber exists)
+				ContractLineImport.ItemNumber.NumberOfDecimalsCost
+			else
+			if (ContractLineImport.ItemNumber !exists)
+				ItemGroupRel.DefaultNumberOfDecimalsCost
+			else
+				8
+
+	Local Fields
+		LocalContractGroup                is like ContractGroup
+		LocalDistributorContract          is like Contract
+		LocalManufacturerCode             is like ManufacturerCode
+		LocalManufacturerDivision         is like ManufacturerDivision
+		LocalManufacturerNumber           is like ManufacturerNumber
+		LocalGPOContractNumber            is like GPOContractNumber
+		LocalManufacturerPart             is like ManufacturerNumber
+		LocalSupplier                     is like Supplier
+		LocalDistributorSupplier          is like GPOSupplierID
+		LocalUOM                          is like UnitOfMeasure
+		LocalItem                         is like Item 
+		LocalVendorItem                   is like VendorItem 
+
+	Conditions
+	
+		LineExists
+			restricted
+			when (ContractLineRel exists)
+	
+		OpenLineExists
+			restricted
+			when (ContractLineRel exists
+			and   first ContractLineRel.LineNotClosed)
+		
+		MissingDistributorContractLine 
+			restricted 
+			when (ContractLineImport.ContractLineExistsAndNotClosed
+			and   ContractVendorItem !entered)
+		
+		CanAddMissingLines 
+			restricted 
+			when (ContractImportDistributorRel.DistributorContractHasManufacturerContract
+			and   MissingDistributorContractLine)
+		
+		UpdatedOrMismatchedVendorItem
+			restricted
+			when (VendorItemChanged
+			and   VendorItem != ContractVendorItem
+			and   ContractVendorItem entered)
+
+		CanReplaceAndInactivateVendorItem
+			restricted
+			when (UpdatedOrMismatchedVendorItem
+			and   VendorItemRel exists)
+			
+		CanUpdateVendorItemOnContract
+			restricted
+			when (UpdatedOrMismatchedVendorItem
+			and   VendorItemRel !exists)
+
+		ContractLineImportDistributorRelExists
+			restricted
+			when (ContractLineImportDistributorRel exists)
+		
+		ReplenishmentExists
+			restricted
+			when (ItemReplenishmentRel exists)
+			
+		HasGPOItem
+			restricted
+			when (ContractGPONewItemRel exists)
+		
+		MayDefaultItemNumber
+			restricted
+			when (SupplierRel.Vendor entered
+			and   ContractLineImport.ItemType = 3)
+
+		DistributorContractEntered 
+			restricted
+			when (ContractImportDistributorRel.DistributorContractNumber entered)
+
+		HasVendorItemUpdateFromAttributeUpdate 
+			restricted 
+			when (LineExists
+			and   ContractLineRel.HasVendorItemUpdatesFromAttributes)			
+
+	Relations
+	
+		ContractImportDistributorRel
+			one-to-one relation to ContractImportDistributor
+			Field Mapping uses symbolic key
+				related.ContractGroup       		= ContractGroup
+				related.ContractImport      		= ContractImport
+				related.ContractImportDistributor 	= DistributorSupplier
+
+		ContractLineImportDistributorRel
+			one-to-many relation to ContractLineImportDistributor
+			Field Mapping uses symbolic key
+				related.ContractGroup               = ContractGroup
+				related.ContractImport              = ContractImport
+				related.ContractLineImport          = ContractLineImport
+			Instance Selection
+				where (related.DistributorSupplier != DistributorSupplier
+				and    related.ContractVendorItem !entered
+				and    related.ContractImportDistributorRel.ParticipantsExist
+				and   !related.ContractImportDistributorRel.DoNotCreateDistributorContract)
+
+		VendorItemForItemRel 
+			one-to-many relation to VendorItem 
+			Field Mapping uses Set4 
+				related.ProcurementGroup          	= ContractGroup
+				related.Vendor                      = SupplierRel.Vendor
+				related.Item                        = ContractLineImport.ItemNumber	
+			Instance Selection 
+				where (related.Active
+				and    related.Manufacturer         = ContractLineImport.ManufacturerInformation.Manufacturer
+				and    related.ManufacturerNumber   = ContractLineImport.ManufacturerInformation.ManufacturerNumber
+				and   (related.VendorBuyUOM.UnitOfMeasure !entered
+				or     related.VendorBuyUOM.UnitOfMeasure = ContractLineImport.UOM))
+		
+		DefaultVendorItemRel
+			one-to-many relation to VendorItem
+			Field Mapping uses Set3
+				related.ProcurementGroup          	= ContractGroup
+				related.Vendor                      = SupplierRel.Vendor
+				related.VendorItem                  = VendorItem	
+			Instance Selection 
+				where (related.Active)
+
+		DefaultInactiveVendorItemRel
+			one-to-many relation to VendorItem
+			Field Mapping uses Set3
+				related.ProcurementGroup          	= ContractGroup
+				related.Vendor                      = SupplierRel.Vendor
+				related.VendorItem                  = VendorItem	
+			Instance Selection 
+				where (!related.Active)						
+		
+        ItemGroupRel
+        	one-to-one relation to ItemGroup
+        	Field Mapping uses symbolic key
+        		related.ItemGroup  = ContractGroup
+
+		SupplierRel
+			one-to-one relation to Supplier
+			Field Mapping uses symbolic key
+				related.SupplierGroup               = ContractGroup
+				related.Supplier                    = DistributorSupplier
+		
+		VendorItemRel
+			one-to-one relation to VendorItem
+			Field Mapping uses symbolic key
+				related.ProcurementGroup          	= ContractGroup
+				related.Item						= ContractLineImport.ItemNumber
+				related.Vendor                      = ContractImportDistributorRel.DistributorContractNumber.Vendor
+				related.VendorItem                  = ContractVendorItem
+	
+		ContractGPOItemRel
+			one-to-many relation to ContractGPOItem
+			Field Mapping uses ByManufacturerPartForSupplier
+				related.GPOContractNumber           = LocalGPOContractNumber
+				related.ManufacturerPart            = LocalManufacturerPart 
+				related.ItemSupplier                = LocalSupplier 
+				
+		ContractGPONewItemRel
+			one-to-many relation to ContractGPOItem
+			Field Mapping uses ByManufacturerPartForSupplier
+				related.GPOContractNumber           = ContractImport.GPOContractNumber
+				related.ManufacturerPart            = ContractLineImport.ManufacturerInformation.ManufacturerNumber 
+				related.ItemSupplier                = GPOSupplier 
+
+		ContractImportGPOSupplierRel
+			one-to-many relation to ContractImportGPOSupplier
+			Field Mapping uses ByContractSupplier
+				related.SupplierGroup               = LocalContractGroup
+				related.ContractSupplier            = LocalDistributorSupplier
+
+		DistributorContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = LocalContractGroup
+				related.Contract                       = LocalDistributorContract
+
+		ManufacturerContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = ImportDerivedToContract			
+
+		ContractImportTierMemberRel
+			one-to-many relation to ContractImportTierMember
+			Field Mapping uses symbolic key
+				related.ContractGroup               = ContractGroup
+				related.ContractImport              = ContractImport
+		
+		ItemReplenishmentRel
+			one-to-many relation to ItemReplenishmentSource
+			Field Mapping uses ByVendorAndItem
+				related.Vendor           = ContractImport.Vendor
+				related.Item             = ContractLineImport.ItemNumber
+			Instance Selection
+				where (ContractLineImport.ItemMasterItem
+				and    related.Company   			= any ContractImportTierMemberRel.ContractImportTierMember.Company
+				and    related.InventoryLocation  	= any ContractImportTierMemberRel.ContractImportTierMember.Location)
+
+		ContractLineManufacturerRel           
+			one-to-many relation to ContractLine
+			Field Mapping uses ByMfgInfoFromImport
+				related.ContractGroup              			= LocalContractGroup
+				related.Contract                   			= LocalDistributorContract
+				related.Manufacturer.ManufacturerCode 		= LocalManufacturerCode
+				related.Manufacturer.ManufacturerDivision   = LocalManufacturerDivision
+				related.ManufacturerNumber                  = LocalManufacturerNumber
+				related.UOM                                 = LocalUOM	
+						
+		ContractLineRel
+			one-to-many relation to ContractLine
+			Field Mapping uses ByVendorItemVendor
+				related.ContractGroup               		= ContractGroup
+				related.VendorItem                  		= ContractVendorItem 
+				related.UOM                                 = ContractLineImport.UOM
+				related.Contract                    		= ContractImportDistributorRel.DistributorContractNumber				
+			Instance Selection
+				where (related.LineNotClosed)
+
+		RelinkContractLineRel        
+			one-to-many relation to ContractLine
+			Field Mapping uses ByVenItemMfgInfo
+				related.ContractGroup               		= ContractGroup
+				related.Contract                    		= ContractImportDistributorRel.DistributorContractNumber
+				related.VendorItem                  		= VendorItem 
+				related.Manufacturer.ManufacturerCode 		= ContractLineImport.ManufacturerInformation.Manufacturer.ManufacturerCode
+				related.Manufacturer.ManufacturerDivision   = ContractLineImport.ManufacturerInformation.Manufacturer.ManufacturerDivision
+				related.ManufacturerNumber                  = ContractLineImport.ManufacturerInformation.ManufacturerNumber
+				related.UOM                                 = ContractLineImport.UOM
+			Instance Selection
+				where (related.LineNotClosed)				
+
+	Sets
+		
+		ByVendorItemSupplier
+			Sort Order
+				ContractGroup
+				ContractImport
+				VendorItem
+				DistributorSupplier
+				ContractLineImport
+				ContractLineImportDistributor
+
+		BySupplier
+			Sort Order
+				ContractGroup
+				ContractImport
+				DistributorSupplier
+				ContractVendorItem
+				ContractLineImport
+				ContractLineImportDistributor
+	
+	Field Rules
+	
+	Actions 
+	
+		Create is a Create Action
+			restricted
+			
+			Action Rules
+			
+				if (MayDefaultItemNumber)
+				 	if (DefaultVendorItemRel exists)
+				 		LocalItem = first DefaultVendorItemRel.Item 
+					if (LocalItem !entered
+					and DefaultInactiveVendorItemRel exists)
+						LocalItem = first DefaultInactiveVendorItemRel.Item
+					
+					if (LocalItem entered)
+						invoke FastUpdateWithoutEdits ContractLineImport
+				 			invoked.NewItem = LocalItem
+			
+		
+		Update is an Update Action
+			restricted
+			
+		UpdateFast is an Update Action
+			restricted 
+			bypass field rules
+		
+		Delete is a Delete Action
+			restricted
+	
+		CreateDistributorContractLines is a Set Action
+			restricted
+			Parameters
+				ParmContractGroup          			is a ContractGroup
+				ParmContractImport         			is a ContractImport
+				ParmDistributorSupplier    			is like Supplier
+				DistributorContractNumber  			is a Contract
+				ManufacturerContractNumber 			is a Contract
+				ParmPriority               			is Numeric size 1
+				FromContractCreation       			is Boolean
+				ParmAccountToDistContract       	is Boolean
+				ParmSpecialItemsAccountDefaultOnly  is Boolean
+				UnreleasedMembersToStart            is Boolean
+				MultipleContracts                   is Boolean
+				ProcessItemMasterOnly               is Boolean
+
+			Instance Selection
+				where (ParmContractGroup       = ContractGroup
+				and    ParmContractImport      = ContractImport
+				and    ParmDistributorSupplier = DistributorSupplier
+				and   (ContractLineImport.ItemType.Itemmast
+				or     ProcessItemMasterOnly = false)				
+				and   !ContractLineImport.ErrorsExistForContract
+				and   (FromContractCreation
+				or     ContractLineImport.UpdateFunction.Create)
+				and   !OpenLineExists)
+			
+			Sort Order
+				ContractGroup
+				ContractImport
+				ContractLineImport
+				DistributorSupplier
+				
+			Action Rules
+			
+				ContractImport Set Rules
+				
+					Exit Rules
+					
+						if (ManufacturerContractRel.CanReleaseMembers
+						and !UnreleasedMembersToStart
+						and !FromContractCreation
+						and ContractImport.VendorEntered)
+							invoke ExternalReleaseMembers ManufacturerContractRel 										
+								if (ContractImport.IsManufacturerContract
+								and MultipleContracts = false)
+									invoked.ReleaseDistributorMembers = true
+									
+				Empty Set Rules
+				
+					if (ManufacturerContractNumber.CanReleaseMembers
+					and !UnreleasedMembersToStart
+					and !FromContractCreation
+					and  ContractImport.VendorEntered)
+						invoke ExternalReleaseMembers ManufacturerContractNumber 										
+
+
+				DistributorSupplier Set Rules
+				
+					Exit Rules
+					
+						LocalContractGroup     		= ParmContractGroup
+						LocalDistributorContract 	= DistributorContractNumber
+
+				Instance Rules
+				
+					invoke Create ContractLine
+						fill in fields from ContractLineImport
+							except invoked.UNSPSCCode
+						invoked.ContractGroup   		 		= ParmContractGroup
+						invoked.Contract      		     		= DistributorContractNumber
+						if (ParmPriority entered)
+							invoked.Priority				 	= ParmPriority
+						invoked.Taxable                         = false
+						invoked.TaxCode					 		= blank 
+						if (ParmAccountToDistContract)
+							if (ContractLineImport.ItemType.Special)
+								invoked.TransientAccount        	= ContractImport.DefaultAccount
+								invoked.PayablesDistributionCode 	= ContractImport.PayablesDistributionCode
+							if (ContractLineImport.ItemType.Itemmast
+							and ParmSpecialItemsAccountDefaultOnly = false)
+								invoked.TransientAccount        	= ContractImport.DefaultAccount
+								invoked.PayablesDistributionCode 	= ContractImport.PayablesDistributionCode
+						if (ContractLineImport.ItemType.Special
+						and ContractGroup.UseUNSPSCCode)
+							invoked.UNSPSCCode.UNSPSCSegment 	= ContractLineImport.UNSPSCCode[1:2]
+							invoked.UNSPSCCode.UNSPSCFamily  	= ContractLineImport.UNSPSCCode[3:4]
+							invoked.UNSPSCCode.UNSPSCClass   	= ContractLineImport.UNSPSCCode[5:6]
+							invoked.UNSPSCCode.UNSPSCCommodity	= ContractLineImport.UNSPSCCode[7:8]
+						invoked.Retainage			 	 		= 0     
+						invoked.RetainagePercent1	 	 		= 0     
+						invoked.RetainageUpToPercent 	 		= 0     
+						invoked.RetainagePercent2	 	 		= 0     
+						invoked.RetainageOverridePercent 		= 0     
+						invoked.HoldManufacturerLineOnly        = false
+						invoked.CreateDistributorContractLine	= false								
+						invoked.ErrorsExist                     = false
+						invoked.HasBeenActivated                = false
+						if (ContractLineImport.ItemType = 1
+						and	VendorItem = ContractLineImport.ManufacturerInformation.ManufacturerNumber
+						and VendorItemForItemRel exists)
+							invoked.VendorItem                  = first VendorItemForItemRel.VendorItem 
+							LocalVendorItem                     = first VendorItemForItemRel.VendorItem 
+						else 
+							invoked.VendorItem                  = VendorItem
+							LocalVendorItem                     = VendorItem
+						invoked.Manufacturer              		= ContractLineImport.ManufacturerInformation.Manufacturer
+						invoked.ManufacturerNumber        		= ContractLineImport.ManufacturerInformation.ManufacturerNumber								
+						invoked.ManufacturerContract            = ManufacturerContractNumber								
+						if (DistributorContractNumber.EffectiveDate	> ContractLineImport.EffectiveDate)
+							invoked.EffectiveDate		        = DistributorContractNumber.EffectiveDate
+						else
+							invoked.EffectiveDate		        = ContractLineImport.EffectiveDate
+						if (DistributorContractNumber.ExpirationDate	< ContractLineImport.ExpirationDate)
+							invoked.ExpirationDate		        = DistributorContractNumber.ExpirationDate
+						else
+							invoked.ExpirationDate		        = ContractLineImport.ExpirationDate
+						invoked.ManufacturerContractLine        = ContractLineImport.DerivedManufacturerContractLine
+						invoked.CanUseForCostDefaulting         = true	
+						if (DistributorCost > 0)
+							invoked.DistributorFixedCost        = true				
+						invoked.FromNewImportLine               = true
+					ContractVendorItem                          = LocalVendorItem
+					
+
+
+
+					if (!FromContractCreation)
+						if (ContractLineImportDistributorRel !exists)
+							invoke FastUpdate ContractLineImport
+								invoked.UpdateFunction = blank		
+
+		AddMissingDistributorContractLine is an Instance Action
+			valid when (CanAddMissingLines) 
+			default label is "AddMissingLine"
+
+			Action Rules 
+				invoke AddMissingDistributorContractLines 
+					invoked.ParmContractGroup 					= ContractGroup 
+					invoked.ParmContractImport                  = ContractImport 
+					invoked.ParmContractImportDistributor		= DistributorSupplier 
+					invoked.ParmContractLineImport	        	= ContractLineImport
+
+		AddMissingDistributorContractLines is a Set Action 
+			restricted 
+			Parameters 
+				ParmContractGroup          			is a ContractGroup 
+				ParmContractImport                  is a ContractImport 
+				ParmContractImportDistributor 		is a ContractImportDistributor
+				ParmContractLineImport				is a ContractLineImport
+
+			Instance Selection 
+				where (ParmContractGroup 					= ContractGroup
+				and    ParmContractImport                   = ContractImport 
+				and    ParmContractImportDistributor		= DistributorSupplier 
+				and   (ParmContractLineImport !entered
+				or    (ParmContractLineImport entered
+				and    ParmContractLineImport				= ContractLineImport))
+				and    ContractLineImport.ContractLineExistsAndNotClosed
+				and    ContractVendorItem !entered) 
+
+			Action Rules 
+
+				Instance Rules 
+
+					if (RelinkContractLineRel !exists)
+						invoke Create ContractLine
+							fill in fields from ContractLineImport
+								except invoked.UNSPSCCode
+								except invoked.Priority 
+							invoked.ContractGroup   		 		= ParmContractGroup
+							invoked.Contract      		     		= ContractImportDistributorRel.DistributorContractNumber
+							invoked.Priority                        = ContractImportDistributorRel.Priority
+							invoked.Taxable                         = false
+							invoked.TaxCode					 		= blank 
+							if (ContractLineImport.ItemType.Special
+							and ContractGroup.UseUNSPSCCode)
+								invoked.UNSPSCCode.UNSPSCSegment 	= ContractLineImport.UNSPSCCode[1:2]
+								invoked.UNSPSCCode.UNSPSCFamily  	= ContractLineImport.UNSPSCCode[3:4]
+								invoked.UNSPSCCode.UNSPSCClass   	= ContractLineImport.UNSPSCCode[5:6]
+								invoked.UNSPSCCode.UNSPSCCommodity	= ContractLineImport.UNSPSCCode[7:8]
+							invoked.Retainage			 	 		= 0     
+							invoked.RetainagePercent1	 	 		= 0     
+							invoked.RetainageUpToPercent 	 		= 0     
+							invoked.RetainagePercent2	 	 		= 0     
+							invoked.RetainageOverridePercent 		= 0     
+							invoked.HoldManufacturerLineOnly        = false
+							invoked.CreateDistributorContractLine	= false								
+							invoked.ErrorsExist                     = false
+							invoked.HasBeenActivated                = false
+							if (ContractLineImport.ItemType = 1
+							and	VendorItem = ContractLineImport.ManufacturerInformation.ManufacturerNumber
+							and VendorItemForItemRel exists)
+								invoked.VendorItem                  = first VendorItemForItemRel.VendorItem 
+							else 
+								invoked.VendorItem                  = VendorItem
+							invoked.Manufacturer              		= ContractLineImport.ManufacturerInformation.Manufacturer
+							invoked.ManufacturerNumber        		= ContractLineImport.ManufacturerInformation.ManufacturerNumber								
+							invoked.ManufacturerContract            = ImportDerivedToContract								
+							if (ContractImportDistributorRel.DistributorContractNumber.EffectiveDate	> ContractLineImport.EffectiveDate)
+								invoked.EffectiveDate		        = ContractImportDistributorRel.DistributorContractNumber.EffectiveDate
+							else
+								invoked.EffectiveDate		        = ContractLineImport.EffectiveDate
+							if (ContractImportDistributorRel.DistributorContractNumber.ExpirationDate	< ContractLineImport.ExpirationDate)
+								invoked.ExpirationDate		        = ContractImportDistributorRel.DistributorContractNumber.ExpirationDate
+							else
+								invoked.ExpirationDate		        = ContractLineImport.ExpirationDate
+							invoked.ManufacturerContractLine        = ContractLineImport.DerivedManufacturerContractLine
+							invoked.CanUseForCostDefaulting         = true	
+							if (DistributorCost > 0)
+								invoked.DistributorFixedCost        = true				
+							invoked.FromNewImportLine               = true
+					ContractVendorItem                              = VendorItem
+
+        FindVendorItemChanges is a Set Action
+        	restricted
+        	Parameters
+        		ParmContractGroup    		is a ContractGroup
+        		ParmGPOContractNumber       is a GPOContractNumber
+        		ParmContractImport          is a ContractImport
+				AutoUpdateContracts         is Boolean
+				ProcessOnlyUpdatedRecords   is Boolean 
+        	Instance Selection
+        		where (ContractImport.GPOContractNumber	= ParmGPOContractNumber)
+        		
+        	Sort Order
+        	
+        		ContractGroup
+        		ContractImport
+        		ContractLineImport
+        		ContractLineImportDistributor
+        	
+        	Action Rules
+        	
+        		ContractImport Set Rules
+        		
+        			Exit Rules
+        			
+        				if (AutoUpdateContracts)
+							if (ContractImport.VendorItemsToUpdate)
+								invoke UpdateVendorItemsOnContract ContractImport
+									        		
+        		Instance Rules
+        		
+        			LocalGPOContractNumber = ParmGPOContractNumber
+        			LocalSupplier          = GPOSupplier
+        			LocalManufacturerPart  = ContractLineImport.ManufacturerInformation.ManufacturerNumber
+        			if (ContractGPOItemRel exists)
+        				if (ProcessOnlyUpdatedRecords = false
+						or (ProcessOnlyUpdatedRecords = true
+						and first ContractGPOItemRel.OperationFlagEntered))
+							if (first ContractGPOItemRel.VendorPart != VendorItem)
+        						VendorItem = first ContractGPOItemRel.VendorPart
+								VendorItemChanged = true	
+        				 
+        ReplaceAndInactivateVendorItem is an Instance Action
+        	valid when (CanReplaceAndInactivateVendorItem)
+        	
+        	Action Rules
+        	
+        		invoke ReplaceAndInactivate VendorItemRel
+   					invoked.PrmProcurementGroup		            = ContractGroup			
+    				invoked.PrmReplacementVendorItem			= VendorItem
+    				invoked.ReplaceWithNewOrExistingItem        = 1
+
+				ContractVendorItem = VendorItem
+				VendorItemChanged  = false 
+
+		UnlinkFromDistributorContract is a Set Action 
+			restricted 
+			Parameters 
+				ParmContractGroup           is like ContractGroup
+				ParmContractImport          is like ContractImport
+
+			Instance Selection
+				where (ParmContractGroup    = ContractGroup
+				and    ParmContractImport   = ContractImport)
+
+			Action Rules 
+				Instance Rules 
+					ContractVendorItem = blank				
+
+		LinkToDistributorContractVendorItem is a Set Action   
+			restricted
+			Parameters
+				ParmContractGroup           is like ContractGroup
+				ParmContractImport          is like ContractImport
+				DistributorContractNumber   is like Contract
+				ParmGPOSupplier             is like Supplier
+				
+			Instance Selection
+				where (ParmContractGroup    = ContractGroup
+				and    ParmContractImport   = ContractImport
+				and    ParmGPOSupplier      = GPOSupplier)
+				
+			Action Rules
+			
+				Instance Rules
+					
+					LocalContractGroup  		= ContractGroup
+					LocalDistributorContract	= ContractImportDistributorRel.DistributorContractNumber
+					LocalManufacturerCode 		= ContractLineImport.ManufacturerInformation.Manufacturer.ManufacturerCode
+					LocalManufacturerDivision 	= ContractLineImport.ManufacturerInformation.Manufacturer.ManufacturerDivision
+					LocalManufacturerNumber   	= ContractLineImport.ManufacturerInformation.ManufacturerNumber
+					LocalUOM                  	= ContractLineImport.UOM
+					if (ContractLineManufacturerRel exists)
+						ContractVendorItem = first ContractLineManufacturerRel.VendorItem
+
+        UpdateVendorItemOnContract is an Instance Action
+        	valid when (CanUpdateVendorItemOnContract)
+        	
+        	Action Rules
+        	
+    			if (HasVendorItemUpdateFromAttributeUpdate)
+					confirmation required 
+						"VendorItemHasAlreadyBeenUpdatedByAttributeUpdate;DoYouWantToContinue?"
+
+   				invoke FastUpdateWithoutEdits ContractLineRel
+   					invoked.UpdateVendorItem                                = true
+   					invoked.NewVendorItem                          			= VendorItem
+					invoked.FromImport                                      = true
+        		
+        		ContractVendorItem = VendorItem
+				VendorItemChanged  = false 
+
+		UpdateGPOSupplier is a Set Action
+			restricted
+			Parameters
+				ParmContractGroup          is a ContractGroup 
+				ParmContractImport         is a ContractImport
+				ParmDistributorSupplier    is like Supplier
+				NewGPOSupplier             is like Supplier
+
+			Instance Selection
+				where (ParmContractGroup    	= ContractGroup
+				and    ParmContractImport   	= ContractImport
+				and    ParmDistributorSupplier  = DistributorSupplier)			
+			
+			Action Rules
+			
+				Instance Rules
+
+					GPOSupplier = NewGPOSupplier														
+		
+		UpdateDistributorSupplier is a Set Action
+			restricted
+			Parameters
+				ParmContractGroup          is a ContractGroup 
+				ParmContractImport         is a ContractImport
+				NewDistributorSupplier     is like Supplier
+				CurrentDistributorSupplier is like Supplier
+
+			Instance Selection
+				where (ParmContractGroup    	   = ContractGroup
+				and    ParmContractImport   	   = ContractImport
+				and    CurrentDistributorSupplier  = DistributorSupplier)			
+			
+			Action Rules
+			
+				Instance Rules
+
+					DistributorSupplier = NewDistributorSupplier	
+
+		UpdateCost is an Instance Action 
+			restricted
+
+		LoadContractLineImportDistributorFields is a Set Action
+			restricted		
+			Action Rules
+			
+				Instance Rules
+					
+					LocalContractGroup  		= ContractGroup
+					LocalDistributorSupplier 	= DistributorSupplier
+					ContractVendorItem  		= VendorItem
+					GPOSupplier         		= first ContractImportGPOSupplierRel.ContractImportGPOSupplier
+
+
+		

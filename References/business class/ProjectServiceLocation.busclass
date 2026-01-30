@@ -1,0 +1,281 @@
+ProjectServiceLocation is a BusinessClass
+	owned by Projects
+	
+	prefix is psl
+	
+	Ontology
+    	symbolic key is ProjectServiceLocation
+    		
+	Patterns
+	
+	Persistent Fields
+		Description
+		AddressCode		
+        TaxExempt			is Boolean
+#ifdef module tx
+		TaxCode
+#endif
+#ifndef module tx
+		TaxCode 			is AlphaUpper size 15
+#endif
+		Active
+
+	Transient Fields
+		ObjectReference 	is BusinessObjectReference
+			derive value from reference to this instance
+
+	Local Fields
+		LocalFinanceEnterpriseGroup	is like FinanceEnterpriseGroup
+#ifdef module tx
+		CalculateTax
+    	MultipleTaxCodes 			is Boolean	
+    	WebServiceError     		is Boolean
+    	WebServiceErrorMessage 		is Text	
+		LocalLookupKey 				is Alpha 100
+        LocalResponseBusclassKey 	is like LastSequence	 
+        LocalSequence 				is like Sequence
+        OldTaxCode					is like TaxCode 
+		NewTaxCode					is like TaxCode
+		CalculateTaxOutputMessage 	is Alpha 200
+#endif
+	Derived Fields
+#ifdef module tx
+		CompletionMessage	is a DerivedField
+   			type is MessageField
+   			restricted
+   			if (MultipleTaxCodes)
+   				return VertexMultTaxCodesMessage
+   			else
+   				return VertexCompletionMessage	 
+		VertexMultTaxCodesMessage	is a MessageField
+			restricted
+			"TaxCodeNotUpdated.MultipleTaxCodesExistForAddress"
+		VertexCompletionMessage	is a MessageField
+			restricted
+			"UpdateTaxCodesComplete"
+		OldTaxCodeMsg				is a MessageField
+			restricted
+			"OldTaxCode:<OldTaxCode>"
+		VertexNoChangeMessage				is a LabelField
+			"NoChangeNecessary,Correct\Tax\Area\IdExists"
+		DerivedLookupMessage				is a DerivedField
+			type is MessageField
+			restricted
+			if (NewTaxCode = OldTaxCode)
+				return VertexNoChangeMessage
+			else
+				return CalculateTaxOutputMessage 
+		TaxCodeMessage				is a DerivedField
+			type is MessageField
+			restricted
+			if (NewTaxCode = OldTaxCode)
+				return blank
+			else
+				return OldTaxCodeMsg
+#endif	
+		InactiveMF is a MessageField
+			restricted
+			"INACTIVE"
+
+		ActiveMF is a MessageField
+			restricted
+			"ACTIVE"
+						
+		StatusMessage is a ConditionalField
+			type is Alpha size 20
+			if (Active)
+				ActiveMF//""
+			else
+				InactiveMF
+		
+	Conditions
+#ifdef module tx
+		VertexResultsExist	
+			restricted
+			when (VertexTaxAreaIdResultsRel exist
+			and  !VertexTaxAreaIdResultsRel.WebServiceError)
+#endif
+
+	Relations
+#ifdef module tx
+  		VertexConfigRel
+        	one-to-one relation to VertexConfig
+        	Field Mapping uses symbolic key
+				related.VertexConfig 			= LocalFinanceEnterpriseGroup 		
+
+    	VertexTaxAreaIdResultsRel
+			one-to-many relation to VertexTaxAreaIdResults
+			Field Mapping uses ByRelatedObjectReference	 
+				related.VertexConfig			= FinanceEnterpriseGroup 
+				related.RelatedObjectReference	= reference to this instance
+
+		VertexLookupResultsRel
+			one-to-many relation to VertexLookupResults
+			Field Mapping uses ByRelatedObjectReference	 
+				related.VertexConfig			= FinanceEnterpriseGroup 
+				related.RelatedObjectReference	= reference to this instance
+#endif
+	Attach Rules
+		constraint (Active)
+			"ProjectTaxLocation<ProjectServiceLocation>IsInactive"
+
+	Field Rules
+		Description
+			required
+			
+		AddressCode
+			required
+ 
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+
+#ifdef module tx		
+
+		UpdateTaxCodeUsingVertex is an Instance Action		 
+
+			run in background
+			completion message is "<CompletionMessage>" 
+
+			Local Fields
+				LocalTaxCode			 is a TaxCode 
+          
+			Action Rules								
+				initialize CalculateTax
+				CalculateTax.RelatedObjectReference         	= reference to this instance
+				CalculateTax.System								= "PS"
+				CalculateTax.CallingModule						= "ProjectServiceLocation"			
+				CalculateTax.VertexQuantumOption				= "G"
+				CalculateTax.TaxEntity							= blank
+				CalculateTax.InFinanceEnterpriseGroup       	= FinanceEnterpriseGroup
+				CalculateTax.PostalAddress						= AddressCode.PostalAddress
+				LocalTaxCode									= CalculateTax.ReturnedGeoCode
+				MultipleTaxCodes								= CalculateTax.MultipleTaxAreaIds
+				WebServiceError									= CalculateTax.WebServiceError 
+				WebServiceErrorMessage							= CalculateTax.WebServiceErrorMessage
+				
+				if (LocalTaxCode entered)
+					TaxCode = LocalTaxCode
+				if (LocalTaxCode entered
+				and !MultipleTaxCodes				
+				and CalculateTax.OutputErrorNumber not entered)					
+					if (AddressCode.PostalAddress.PostalCode not entered)
+						invoke Update AddressCode
+							invoked.PostalAddress.PostalCode 	= CalculateTax.OutputMultipleGeoCodes.GeoCodeTable[1].PostalCode
+							invoked.PostalAddress.County 		= CalculateTax.OutputMultipleGeoCodes.GeoCodeTable[1].County
+
+
+					if (VertexLookupResultsRel exist)
+						for each VertexLookupResultsRel
+							invoke Update each
+								invoked.Status = 1		
+
+
+		BatchUpdateTaxCodeUsingVertex is a Set Action		
+
+			completion message is "<VertexCompletionMessage>" 
+
+
+			Parameters
+				PrmEnterpriseGroup			is a VertexConfig				 
+					default label is "FinanceEnterpriseGroup"
+				PrmProcessGroup				is Alpha 50
+					default label is "ProcessGroup"
+			Parameter Rules
+				PrmEnterpriseGroup
+					required
+					LocalFinanceEnterpriseGroup = PrmEnterpriseGroup
+					constraint (VertexConfigRel exist)
+						"VertexConfigurationNotSetUp;CheckIfTaxEntitySetUpToUseVertex"
+
+			Local Fields
+				LocalTaxCode			is like TaxCode 
+				CompletionMessage		is Alpha 150
+				RecordCount				is Numeric 10
+				
+			Instance Selection
+				where (PrmEnterpriseGroup = FinanceEnterpriseGroup)
+							
+			Action Rules								
+				Empty Set Rules
+					CompletionMessage = "<CompletionMessage>"
+				Instance Rules
+					increment RecordCount
+					initialize CalculateTax
+					CalculateTax.RelatedObjectReference         	= reference to this instance
+					CalculateTax.System								= "PS"
+					CalculateTax.CallingModule						= "ProjectServiceLocation"			
+					CalculateTax.VertexQuantumOption				= "G"
+					CalculateTax.TaxEntity							= blank
+					CalculateTax.InFinanceEnterpriseGroup       	= FinanceEnterpriseGroup	 
+					CalculateTax.PostalAddress						= AddressCode.PostalAddress
+					LocalTaxCode									= CalculateTax.ReturnedGeoCode
+					MultipleTaxCodes								= CalculateTax.MultipleTaxAreaIds
+					WebServiceError									= CalculateTax.WebServiceError 
+					WebServiceErrorMessage							= CalculateTax.WebServiceErrorMessage
+					CalculateTaxOutputMessage						= CalculateTax.OutputErrorMessage
+					
+					NewTaxCode = LocalTaxCode	
+					OldTaxCode = TaxCode	
+					if (LocalTaxCode entered
+					and !WebServiceError)
+						TaxCode = LocalTaxCode
+						
+					if (!MultipleTaxCodes
+					and !WebServiceError
+					and LocalTaxCode entered)
+						if (AddressCode.PostalAddress.PostalCode not entered)
+							invoke Update AddressCode
+								invoked.PostalAddress.PostalCode 	= CalculateTax.OutputMultipleGeoCodes.GeoCodeTable[1].PostalCode
+								invoked.PostalAddress.County 		= CalculateTax.OutputMultipleGeoCodes.GeoCodeTable[1].County
+						
+					LocalLookupKey 	= CalculateTax.ResultsLookupKey
+					LocalSequence	= CalculateTax.ResultsLookupKeySequence	
+					if (VertexLookupResultsRel exist)
+						invoke Delete VertexLookupResultsRel
+						
+					invoke Create VertexLookupResults
+						invoked.VertexConfig			   		= FinanceEnterpriseGroup
+						invoked.VertexLookupResults.LookupKey 	= LocalLookupKey
+						invoked.VertexLookupResults.Sequence	= LocalSequence 
+						invoked.RelatedObjectReference			= reference to this instance
+						invoked.LookupProcessGroup				= PrmProcessGroup
+						invoked.ReturnedHighesTaxAreaId			= LocalTaxCode
+						invoked.NumberOfTaxAreaIdsReturned		= CalculateTax.NumberOfTaxCodes	 
+						invoked.LookupPostalAddress 			= AddressCode.PostalAddress
+						invoked.ErrorNumber						= CalculateTax.OutputErrorNumber
+						invoked.ErrorMessage					= DerivedLookupMessage		
+						invoked.LookupDescription				= TaxCodeMessage			
+						invoked.WebServiceError 				= CalculateTax.WebServiceError 
+						invoked.WebServiceErrorMessage 			= CalculateTax.WebServiceErrorMessage 
+						if (MultipleTaxCodes
+						or  WebServiceError
+						or  CalculateTax.OutputErrorNumber entered)								
+							invoked.Status = 0
+						else
+						if (LocalTaxCode not = OldTaxCode)
+							invoked.Status = 1
+						else
+							invoked.Status = 2			
+
+
+		UpdateTaxCodeAndAddress is an Instance Action
+
+			restricted
+			Parameters
+				PrmTaxCode		is like TaxCode
+				PrmZip			is a PostalCode
+				PrmCounty		is a County
+			Parameter Rules
+			Action Rules
+
+				if (PrmTaxCode entered)
+					TaxCode = PrmTaxCode
+				if (PrmZip entered)
+					invoke Update AddressCode	        				
+						invoked.PostalAddress.PostalCode 	= PrmZip
+						invoked.PostalAddress.County 		= PrmCounty
+
+
+#endif		

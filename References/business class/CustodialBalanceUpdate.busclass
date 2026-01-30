@@ -1,0 +1,188 @@
+CustodialBalanceUpdate is a BusinessClass
+	owned by cam
+
+	prefix is CamBu
+
+	Ontology
+		symbolic key is CustodialBalanceUpdate
+
+	Persistent Fields
+		CustodialSummary		is a FinanceDimension10
+			default label is "<FinanceEnterpriseGroup.FinanceDimension10Label>"
+		CustodialPosting		is a FinanceDimension10
+			default label is "<FinanceEnterpriseGroup.FinanceDimension10Label>Detail"
+		AccountingEntity
+		BeginBalance			is an InternationalAmount
+		Deposits				is an InternationalAmount
+		Disbursements			is an InternationalAmount
+		Transfers				is an InternationalAmount
+		Interest				is an InternationalAmount
+		Reserve					is an InternationalAmount
+		CommittedAmount			is an InternationalAmount
+		Status					is Numeric 1
+			States
+				Unprocessed				value is 0
+				Processed				value is 1
+				Failed					value is 2
+		ErrorMessage			is Alpha 150
+
+	Field Rules
+		AccountingEntity
+			required
+			
+		CustodialSummary
+			required
+			constraint (CustodialBalanceUpdateDupCheckRel not exists)
+				"RecordAlreadyExistsFor<AccountingEntity>:<CustodialSummary>:<CustodialPosting>"
+		
+		CustodialPosting
+			required
+		
+	Derived Fields
+		ErrorMessage1 is a MessageField
+			restricted
+			"DetailRecordNotFound"
+			
+		ErrorMessage2 is a MessageField
+			restricted
+			"<FinanceEnterpriseGroup.FinanceDimension10Label>NotFound"
+
+	Conditions
+    	IsUnprocessed
+			restricted
+			when (Status.Unprocessed)
+			
+		IsProcessed
+			restricted
+			when (Status.Processed)
+			
+		IsFailed
+			restricted
+			when (Status.Failed)
+
+	Relations	
+		CustodialDetailAmountRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses ByCustodialPosting
+				related.FinanceEnterpriseGroup  		= FinanceEnterpriseGroup
+				related.CustodialPosting          		= CustodialPosting
+			Instance Selection
+				where (related.CustodialAccountManagement.AccountingEntity	= AccountingEntity
+				and related.CustodialAccountManagement.CustodialSummary	= CustodialSummary)
+				
+		CustodialBalanceUpdateDupCheckRel
+        	one-to-many relation to CustodialBalanceUpdate
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+            Instance Selection
+            	where (related.UniqueID != UniqueID
+            	and related.AccountingEntity = AccountingEntity
+            	and related.CustodialSummary = CustodialSummary
+            	and related.CustodialPosting = CustodialPosting
+            	and related.Status.Unprocessed)
+            	
+		CustodialAccountManagementRel
+			one-to-many relation to CustodialAccountManagement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.CustodialSummary = CustodialSummary)
+   
+	Actions
+		Purge is a Purge Action
+			restricted
+	
+		PurgeProcessedRecords is a Set Action
+			completion message is "PurgeOfProcessedRecordsCompleted"
+			Instance Selection
+				where (FinanceEnterpriseGroup = FinanceEnterpriseGroup
+	    		and		Status.Processed)
+			Action Rules
+				Instance Rules
+					invoke Purge
+							
+		PurgeFailedRecords is a Set Action
+			completion message is "PurgeOfFailedRecordsCompleted"
+			Instance Selection
+				where (FinanceEnterpriseGroup = FinanceEnterpriseGroup
+	    		and		Status.Failed)
+			Action Rules
+				Instance Rules
+					invoke Purge
+							
+		ResetValidationErrors is a Set Action
+			completion message is "ResetValidationErrorsCompleted"
+			Instance Selection
+				where (FinanceEnterpriseGroup = FinanceEnterpriseGroup
+        		and		Status.Failed)
+			Action Rules
+				Instance Rules
+					Status = Status.Unprocessed
+					ErrorMessage = blank
+        				
+	StateCycles
+		BalanceUpdateLifeCycle is a StateCycle
+			state field is Status
+			
+			Unprocessed	is a State
+		 		Create is a Create Action
+		
+				Update is an Update Action
+				
+				Delete is a Delete Action
+				
+				UpdateCustodialBalances is a Set Action
+					completion message is "<ProcessedRecordCount>RecordsProcessedWithoutErrors;<ErrorRecordCount>RecordsSkippedWithErrors"
+					Local Fields
+						ErrorFound				is Boolean
+						ErrorRecordCount		is Numeric size 15
+						ProcessedRecordCount	is Numeric size 15
+						LocalErrorMessage		is Alpha 150
+					Instance Selection
+		        		where (FinanceEnterpriseGroup = FinanceEnterpriseGroup
+		        		and		Status.Unprocessed)
+		        	Action Rules
+		        		Instance Rules
+		        			initialize LocalErrorMessage
+		        			ErrorFound = false
+		        			
+		        			if (CustodialDetailAmountRel not exists)
+		        				ErrorFound 		  = true
+		        				LocalErrorMessage = ErrorMessage1
+		        			if (CustodialAccountManagementRel not exists)
+		        				ErrorFound 		  = true
+		        				LocalErrorMessage = ErrorMessage2
+		        			
+		        			invoke Update CustodialDetailAmountRel
+		        				resume on error
+									ErrorFound 		  = true
+									LocalErrorMessage = error message
+								invoked.Deposits 		= Deposits
+								invoked.Disbursements	= Disbursements
+								invoked.Transfers		= Transfers
+								invoked.Interest		= Interest
+								invoked.Reserve			= Reserve
+								invoked.CommittedAmount	= CommittedAmount
+								invoked.BeginBalance	= BeginBalance
+		        			if (ErrorFound)
+		        				ErrorRecordCount +=1
+		        				ErrorMessage = LocalErrorMessage
+		        				Status = Status.Failed
+		        			else
+		        				ProcessedRecordCount +=1
+		        				Status = Status.Processed
+		 		
+		 	Processed is a State
+		 	
+		 		Delete is a Delete Action
+		 		
+		 		Purge is a Purge Action
+		 			restricted
+		 			
+		 	Failed is a State
+		 	
+		 		Delete is a Delete Action
+		 		
+		 		Purge is a Purge Action
+		 			restricted
+		 			

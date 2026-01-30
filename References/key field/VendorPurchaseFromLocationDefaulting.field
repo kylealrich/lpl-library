@@ -1,0 +1,390 @@
+VendorPurchaseFromLocationDefaulting is a Field
+
+    Representation
+        Group Fields
+			InRequestingCompany				is like InventoryCompany
+        	InCompany						is a PurchasingCompany
+            InDefaultType 					is Numeric size 1
+            	States
+            		DefaultVendor					value is 6
+            		DefaultPurchaseFromLocation		value is 7
+            		DefaultAllVendorInformation     value is 8
+            InSystem						is AlphaUpper size 2
+            	States
+            		Requisition						value is "RQ"
+            		InventoryControl				value is "IC"
+            		PurchaseOrder					value is "PO"
+            InFromLocation					is a InventoryLocation
+            InVendor						is a Vendor
+		    InRequestingLocation			is a RequestingLocation
+			InServiceCode					is a ServiceCode
+			InContractGroup					is like ContractGroup
+			InContract						is like Contract
+	        InContractLine					is like ContractLine
+			InDoDebug						is Boolean
+        	
+	Patterns
+		disable StaticTranslations
+
+	Context Fields
+		InItem							is an Item
+    	InItemType						is an ItemType
+    	InShipToLocation				is a InventoryLocation
+    	InCostUOM						is a UnitOfMeasure
+    	InVendorItem					is a VendorItem
+    	InRequisition					is a Requisition
+		
+	Local Fields
+		Perform								is Boolean
+		DefaultingOrderRQArray
+		DefaultingOrderICArray
+		LocalForVendor						is Boolean
+		LocalForPurchaseFromLocation		is Boolean
+		LocalItemSourceVendor				is Boolean
+		LocalFromIC142						is Boolean
+		
+		LocalContractPurchaseFromLocation	is a PurchaseFromLocation
+		LocalItemSourcePurchaseFromLocation is a PurchaseFromLocation
+		LocalReplenishmentLocation			is an InventoryLocation
+		ProcurementCostDefault
+		
+		LocalContractVendor					is Boolean
+		LocalCurrentOrderLevel				is Numeric size 1
+		
+		LocalVendorDefaultingOrderRQ				is a VendorDefaultingOrderRQ
+		LocalVendorDefaultingOrderIC				is a VendorDefaultingOrderIC
+		LocalPurchaseFromLocationDefaultingOrderRQ	is a PurchaseFromLocationDefaultingOrderRQ
+		LocalPurchaseFromLocationDefaultingOrderIC	is a PurchaseFromLocationDefaultingOrderIC
+		Excecute							is Boolean
+		LocalVendorLocationFromContract		is Boolean
+		
+	Transient Fields
+		OutVendor									is like Vendor
+		OutPurchaseFromLocation						is like PurchaseFromLocation
+		
+	Conditions
+		FromRequisition
+			when (InSystem.Requisition)
+			
+		FromInventoryControl
+			when (InSystem.InventoryControl)
+			
+		FromPurchaseOrder
+			when (InSystem.PurchaseOrder)
+	
+	Relations
+		ItemReplenishmentSourcesRel
+			one-to-many relation to ItemReplenishmentSource
+			Field Mapping uses symbolic key
+				related.Company				= InCompany
+				related.InventoryLocation	= LocalReplenishmentLocation
+				related.Item				= InItem
+		RequesterRel
+            one-to-one relation to Requester
+            Field Mapping uses symbolic key
+            	related.HROrganization = actor.agent(Employee).HROrganization
+                related.Requester = actor.agent(Employee).Employee.Requester.Requester
+                
+        RequisitionRel
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company				= RequesterRel.CurrentCompanyForRQC
+				related.Requisition			= RequesterRel.CurrentRequisitionForRQC
+
+		RequisitionHeaderRel
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company				= InRequestingCompany
+				related.Requisition			= InRequisition
+					
+	Derived Fields
+		InitializeDefaultOrder	is a DerivedField
+			type is Boolean
+
+			if (InDoDebug)
+				display "----------------------------------------"
+				display "VendorPurchaseFromLocationDefaulting:InitializeDefaultOrder"
+				display "----------------------------------------"
+				display "InRequestingCompany:_<InRequestingCompany>"
+				display "InCompany:_<InCompany>"
+				display "InDefaultType:_<InDefaultType>"
+				display "InSystem:_<InSystem>"
+				display "InFromLocation:_<InFromLocation>"
+				display "InVendor:_<InVendor>"
+				display "InRequestingLocation:_<InRequestingLocation>"
+				display "InServiceCode:_<InServiceCode>"
+				display "InContractGroup:_<InContractGroup>"
+				display "InContract:_<InContract>"
+				display "InContractLine:_<InContractLine>"
+				display "InDoDebug:_<InDoDebug>"
+
+			LocalVendorDefaultingOrderRQ 				= InCompany.VendorDefaultingOrderRQ
+			LocalPurchaseFromLocationDefaultingOrderRQ 	= InCompany.PurchaseFromLocationDefaultingOrderRQ
+			LocalVendorDefaultingOrderIC				= InCompany.VendorDefaultingOrderIC
+			LocalPurchaseFromLocationDefaultingOrderIC	= InCompany.PurchaseFromLocationDefaultingOrderIC
+			Perform = DoEdits
+				
+		DoEdits	is a DerivedField
+			type is Boolean		
+			if (InDefaultType.DefaultVendor
+			or  InDefaultType.DefaultAllVendorInformation)
+				initialize LocalItemSourceVendor
+				initialize LocalContractVendor
+				if (InVendor entered)
+					OutVendor = InVendor
+				else
+					Perform = DoDefaultVendor
+				Perform = DoDefaultPurchaseFromLocation
+
+				
+		DoDefaultVendor is a DerivedField
+			type is Boolean
+			initialize LocalForVendor
+			LocalForVendor = true
+			if (FromPurchaseOrder)
+				return false
+			else
+				if (FromInventoryControl)
+					initialize LocalCurrentOrderLevel
+					for each DefaultingOrderICArray.Sequence
+						if (OutVendor not entered)
+							LocalCurrentOrderLevel += 1
+							if (LocalCurrentOrderLevel = LocalVendorDefaultingOrderIC.Contract)
+								Perform = DoContract
+							else
+								if (LocalCurrentOrderLevel = LocalVendorDefaultingOrderIC.ItemReplenishmentSource)
+									Perform = DoItemSource
+						else
+							end for each
+				else
+					if (FromRequisition)
+						initialize LocalCurrentOrderLevel
+						for each DefaultingOrderRQArray.Sequence
+							if (OutVendor not entered)
+								LocalCurrentOrderLevel += 1
+								if (LocalCurrentOrderLevel = LocalVendorDefaultingOrderRQ.Contract)
+									Perform = DoContract
+								else
+									if (LocalCurrentOrderLevel = LocalVendorDefaultingOrderRQ.ItemReplenishmentSource)
+										Perform = DoItemSource
+									else
+										if (LocalCurrentOrderLevel = LocalVendorDefaultingOrderRQ.Requisition)
+											Perform = DoHeader
+							else
+								end for each
+								return true
+
+			
+		DoHeader	is a DerivedField
+			type is Boolean
+			if ((InDefaultType.DefaultVendor
+			or   InDefaultType.DefaultAllVendorInformation)
+			and  OutVendor not entered
+			and  LocalForVendor)
+				if (RequisitionHeaderRel exists)			 
+					OutVendor = RequisitionHeaderRel.Vendor 
+				else
+					OutVendor = RequisitionRel.Vendor
+				return true
+
+			return false
+		
+		DoContract	is a DerivedField
+			type is Boolean
+			
+			initialize ProcurementCostDefault
+			ProcurementCostDefault.InProcurementGroup			= InCompany.ProcurementGroup
+			ProcurementCostDefault.InCompany					= InCompany
+			ProcurementCostDefault.InItem						= InItem
+			ProcurementCostDefault.InItemType					= InItemType
+			ProcurementCostDefault.InLocation  				    = InFromLocation
+			ProcurementCostDefault.InVendorItem					= InVendorItem
+			ProcurementCostDefault.InServiceCode				= InServiceCode
+			if (FromRequisition
+			or  FromInventoryControl)
+				ProcurementCostDefault.InRequestingCompany		= InRequestingCompany
+				ProcurementCostDefault.InRequestingLocation 	= InRequestingLocation
+			ProcurementCostDefault.InOverrideCost				= false
+			ProcurementCostDefault.InOverrideContract			= false
+			ProcurementCostDefault.InOverrideLastCostOrLastPO  	= false
+			ProcurementCostDefault.InDate						= current date
+			if (FromRequisition)
+				ProcurementCostDefault.InSystem						= "RQ"
+				ProcurementCostDefault.InContractGroup			= InContractGroup
+				ProcurementCostDefault.InContract				= InContract
+				ProcurementCostDefault.InContractLine			= InContractLine
+			if (FromPurchaseOrder)
+				ProcurementCostDefault.InSystem						= "PO"
+			if (FromInventoryControl)
+				ProcurementCostDefault.InSystem						= "IC"
+			if (InCostUOM entered
+			and ProcurementCostDefault.InCostUOM not entered)
+				ProcurementCostDefault.InCostUOM				= InCostUOM
+			ProcurementCostDefault.InDoDebug					= InDoDebug
+			if (InDoDebug)
+				display "VPFLD:DoContract:CallProcurementCostDefault.DerivedVendorAndLocation"
+			if (FromRequisition and InItemType.Service)
+				Excecute	= ProcurementCostDefault.DerivedVendorLocationForService
+			else
+				Excecute	= ProcurementCostDefault.DerivedVendorAndLocation
+			if (OutVendor not entered)
+				OutVendor = ProcurementCostDefault.OutputVendor
+
+			if (OutVendor entered
+			and LocalFromIC142)
+				LocalContractVendor = true
+			return true
+			
+		DoItemSource	is a DerivedField
+			type is Boolean
+			
+			if (not InItemType.Inventoried
+			and not InItemType.NonStock)
+				return false
+						
+			if (FromRequisition)
+				LocalReplenishmentLocation = InFromLocation
+			else
+				LocalReplenishmentLocation = InShipToLocation
+				
+			if (ItemReplenishmentSourcesRel exists)
+				OutVendor 							= first ItemReplenishmentSourcesRel.Vendor
+					
+			if (OutVendor entered
+			and LocalFromIC142)
+				LocalItemSourceVendor = true
+			return true
+
+		DoDefaultPurchaseFromLocation is a DerivedField
+			type is Boolean
+			initialize LocalForPurchaseFromLocation
+			LocalForPurchaseFromLocation = true
+			if (FromPurchaseOrder)
+				return false
+			else
+				if (FromInventoryControl)
+					initialize LocalCurrentOrderLevel
+					for each DefaultingOrderICArray.Sequence
+						if (OutPurchaseFromLocation not entered)
+							LocalCurrentOrderLevel += 1
+							if (LocalCurrentOrderLevel = LocalPurchaseFromLocationDefaultingOrderIC.Contract)
+								Perform = DoContract
+							else
+								if (LocalCurrentOrderLevel = LocalPurchaseFromLocationDefaultingOrderIC.ItemReplenishmentSource)
+									Perform = DoItemSource
+						else
+							end for each
+				else
+					if (FromRequisition)
+						initialize LocalCurrentOrderLevel
+						for each DefaultingOrderRQArray.Sequence
+							if (OutPurchaseFromLocation not entered)
+								LocalCurrentOrderLevel += 1
+								if (LocalCurrentOrderLevel = LocalPurchaseFromLocationDefaultingOrderRQ.Contract)
+									Perform = DoContractLocation
+								else
+									if (LocalCurrentOrderLevel = LocalPurchaseFromLocationDefaultingOrderRQ.ItemReplenishmentSource)
+										Perform = DoItemSourceLocation
+									else
+										if (LocalCurrentOrderLevel = LocalPurchaseFromLocationDefaultingOrderRQ.Requisition)
+											Perform = DoHeaderLocation
+							else
+								end for each
+								return true
+								
+								
+		DoHeaderLocation	is a DerivedField
+			type is Boolean
+			
+			if (InDefaultType.DefaultAllVendorInformation
+			and OutPurchaseFromLocation not entered
+			and  LocalForPurchaseFromLocation)
+				if ((OutVendor entered
+				and  OutVendor = RequisitionHeaderRel.Vendor)
+				or   RequisitionHeaderRel not exists)
+					if (RequisitionHeaderRel.PurchaseFromLocation entered)			 
+						OutPurchaseFromLocation = RequisitionHeaderRel.PurchaseFromLocation 
+					else
+						OutPurchaseFromLocation = RequisitionRel.PurchaseFromLocation
+				return true
+
+			return false
+		
+		DoContractLocation	is a DerivedField
+			type is Boolean
+			
+			if (LocalContractPurchaseFromLocation entered)
+				OutPurchaseFromLocation = LocalContractPurchaseFromLocation
+			initialize ProcurementCostDefault
+			ProcurementCostDefault.InProcurementGroup			= InCompany.ProcurementGroup
+			ProcurementCostDefault.InCompany					= InCompany
+			ProcurementCostDefault.InItem						= InItem
+			ProcurementCostDefault.InItemType					= InItemType
+			ProcurementCostDefault.InLocation  				    = InFromLocation
+			ProcurementCostDefault.InVendor						= OutVendor
+			ProcurementCostDefault.InVendorItem					= InVendorItem
+			if (FromRequisition
+			or  FromInventoryControl)
+				ProcurementCostDefault.InRequestingCompany		= InRequestingCompany
+				ProcurementCostDefault.InRequestingLocation 	= InRequestingLocation
+			ProcurementCostDefault.InOverrideCost				= false
+			ProcurementCostDefault.InOverrideContract			= false
+			ProcurementCostDefault.InOverrideLastCostOrLastPO  	= false
+			ProcurementCostDefault.InDate						= current date
+			if (FromRequisition)
+				ProcurementCostDefault.InSystem					= "RQ"
+				ProcurementCostDefault.InContractGroup			= InContractGroup
+				ProcurementCostDefault.InContract				= InContract
+				ProcurementCostDefault.InContractLine			= InContractLine
+			if (FromPurchaseOrder)
+				ProcurementCostDefault.InSystem						= "PO"
+			if (FromInventoryControl)
+				ProcurementCostDefault.InSystem						= "IC"
+			if (InCostUOM entered
+			and ProcurementCostDefault.InCostUOM not entered)
+				ProcurementCostDefault.InCostUOM				= InCostUOM
+			ProcurementCostDefault.InDoDebug					= InDoDebug
+			if (InDoDebug)
+				display "VPFLD:DoContractLocation:CallProcurementCostDefault.DerivedVendorAndLocation"	
+			if (FromRequisition and InItemType.Service)
+				Excecute	= ProcurementCostDefault.DerivedVendorLocationForService
+			else
+				Excecute	= ProcurementCostDefault.DerivedVendorAndLocation
+			LocalContractPurchaseFromLocation = ProcurementCostDefault.OutputPurchaseFromLocation
+			if (OutPurchaseFromLocation not entered)
+				OutPurchaseFromLocation = LocalContractPurchaseFromLocation
+
+			if (OutPurchaseFromLocation entered
+			and LocalFromIC142)
+				LocalContractVendor = true
+
+			if (OutPurchaseFromLocation entered)
+				LocalVendorLocationFromContract = true
+				
+			return true
+			
+		DoItemSourceLocation	is a DerivedField
+			type is Boolean
+			
+			if (not InItemType.Inventoried
+			and not InItemType.NonStock)
+				return false
+						
+			if (FromRequisition)
+				LocalReplenishmentLocation = InFromLocation
+			else
+				LocalReplenishmentLocation = InShipToLocation
+				
+			if (ItemReplenishmentSourcesRel exists)
+				LocalItemSourcePurchaseFromLocation = first ItemReplenishmentSourcesRel.PurchaseFromLocation
+				if (OutPurchaseFromLocation not entered)
+					if (OutVendor entered
+					and LocalItemSourcePurchaseFromLocation entered
+					and OutVendor = first ItemReplenishmentSourcesRel.Vendor)
+						OutPurchaseFromLocation = LocalItemSourcePurchaseFromLocation
+
+			if (OutVendor entered
+			and LocalFromIC142)
+				LocalItemSourceVendor = true					
+			return true
+    	

@@ -1,0 +1,1039 @@
+BudgetChangeOrder is a BusinessClass
+	default label is "BudgetChangeRequest"
+	owned by GeneralLedger
+	prefix is BUDCO   
+   
+    Ontology
+    	symbolic key is BudgetChangeOrder
+
+    Patterns
+
+    	implements ContextualParent
+
+    Persistent Fields
+        Description
+        Currency
+        DefaultPeriod				is a GeneralLedgerCalendarPeriod
+        	delete ignored
+        Status						is Numeric size 1
+			States
+				Unreleased			value is 0
+				PendingApproval		value is 1
+				EditInProgress		value is 2
+				PreparingRelease	value is 3
+				Released			value is 4
+				DeleteInProgress	value is 5
+				RefreshInProgress	value is 6
+		ReleaseDate					is Date				
+#ifdef module sharedfinance
+		ApprovalLevel					is Numeric 8
+		ReassignToApprovalLevel			is an ApprovalCodeResource
+		Approver						is a FinanceResource
+		ApproverTeam					is a FinanceTeamField
+#endif
+#ifndef module sharedfinance
+		ApprovalLevel					is Numeric 8
+		ReassignToApprovalLevel			is Numeric 8
+		Approver						is Numeric 13
+		ApproverTeam					is a GlonlyFinanceTeamField
+#endif
+		HasNoUnitsAmount				is Boolean
+			default label is "HideUnits"
+
+    Transient Fields
+
+	Local Fields
+		AsyncId						is a AsyncActionRequest
+		ChangeView					is a Scenario view
+		LocalAction					is Alpha 1
+
+		LocalApprovalLevel			   	is Numeric 8
+		LocalApproverList			   	is Alpha 250
+		LocalFirstApproverAssigned	  	is Boolean
+#ifdef module sharedfinance
+		LocalApprover				   	is a FinanceResource  
+		LocalApproverTeam			   	is a FinanceTeamField  
+#endif
+#ifndef module sharedfinance
+		LocalApprover				   	is Numeric 13
+		LocalApproverTeam			   	is AlphaUpper 20		
+#endif
+		RejectReasonCodeRequired		is Boolean
+				
+	Rule Blocks
+		CreateEntranceRules
+ 			LocalAction = "C"
+#ifdef module sharedfinance
+			if (Scenario.ChangesRequireApproval)
+
+				LocalApprover = actor.agent(Employee).Employee
+				constraint (!ApprovalCodeResourceByResourceRel exists)
+					"PersonCreatingTheJournalCannotBeTheApprover"
+#endif
+
+
+		SendRejectNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<ChangeRejectedMessage>"
+				priority is very high
+
+				linkback(webapp is JournalApprover navigation is ApprovalLinkbackNavigation text is "BudgetChangeRequestRejected")				
+												
+		SendApproveNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<ChangeApprovedMessage>"
+				priority is very high
+
+				linkback(webapp is JournalApprover navigation is ApprovalLinkbackNavigation text is "BudgetChangeRequestApproved")				
+
+		SendEditFailureNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<EditFailureNotification>"
+				priority is very high
+
+				linkback(webapp is JournalApprover navigation is ApprovalLinkbackNavigation text is "BudgetChangeRequestBudgetEditFailed")
+												
+#ifdef module sharedfinance
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+#endif					
+
+		ReleaseActions
+			increment Scenario.ChangeCount
+			invoke Create Scenario
+				assign result to ChangeView
+				invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				invoked.Parent					= Scenario
+				invoked.BudgetChangeOrder		= BudgetChangeOrder
+				invoked.Description				= BudgetChangeOrder.Description
+				invoked.CommitmentType			= CommitmentType.BudgetChange
+				invoked.Status					= Scenario.Status.Ready
+				invoked.ChangeID				= Scenario.ChangeCount	
+		
+			invoke ReleaseLines BudgetChangeOrderLine in background
+				assign async action request id to AsyncId
+				invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				invoked.PrmScenario					= Scenario
+				invoked.PrmChangeOrder				= BudgetChangeOrder
+				invoked.PrmChildScenario			= ChangeView.Scenario
+			if (BypassCubeRefresh)
+				invoke PreparingRelease.SetReleased in background
+					run after AsyncId
+			else				
+				invoke PreparingRelease.Refresh in background
+					run after AsyncId
+		EditActions
+			if (LazyDocumentRel exists)
+				invoke ReleaseChangeOrder LazyDocumentRel.BudgetLazyDocument
+					invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup			= UniqueID
+					invoked.PrmScenario					= Scenario
+					invoked.PrmBudgetChangeOrder		= BudgetChangeOrder					
+			else
+				include EditTotalsBudget
+
+		EditTotalsBudget
+			if (BudgetEditConfigurationRel.BatchBudgetEdit)
+				invoke Create BudgetEditBatch
+					invoked.DocumentID									= UniqueID
+					invoked.BudgetEditCallBackWrap.FEG					= FinanceEnterpriseGroup			
+					invoked.BudgetEditMode								= BudgetEditMode.Hard
+					invoked.BudgetEditTotalsProcessing					= BudgetEditTotalsProcessing.Purge
+					invoked.CreateTime									= current timestamp  
+					invoked.BusinessClassName							= "BudgetChangeOrder"
+					invoked.EditContext									= "Release"
+				
+				invoke InitiateBudgetEdit BudgetEditConfigurationRel
+			else 				
+				invoke EditTotalsBudget BudgetTemplateGroupTotal in background
+					invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup			= UniqueID
+					invoked.PrmScenario					= Scenario
+					invoked.PrmBudgetChangeOrder		= BudgetChangeOrder		
+
+		InitiateBudgetChangeApprovalFlow
+#ifdef module sharedfinance
+							include GetNextApprovalLevel
+#endif
+			ApprovalLevel	= LocalApprovalLevel
+			Approver 		= LocalApprover
+			ApproverTeam 	= LocalApproverTeam
+
+			RejectReasonCodeRequired = false
+			trigger "BudgetChangeApproval" PA service
+
+				title is "<ApprovalTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					Scenario
+					BudgetChangeOrder
+					RejectReasonCodeRequired
+				URLs
+					"<ApprovalLinkBack>"
+			make transition to PendingApproval
+
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforBudgetChangeRequest"
+
+		ContextMessageText is a MessageField
+			restricted
+			"BudgetChangeOrder<BudgetChangeOrder>"
+			
+		BudgetEditErrorsExistMessage is a MessageField
+			"BudgetEditErrorsExist"
+		ErrorMessage is a DerivedField
+			type is Alpha 150
+			if (HasBudgetErrors)
+				return BudgetEditErrorsExistMessage
+		CommentsMF is a MessageField
+			restricted
+			"AddComments"
+		CommentsExistMF is a MessageField
+			restricted
+			"CommentsExist"
+		CommentsMessage is a ConditionalField
+			type is Alpha size 20
+			restricted
+			if (HasComments)
+				CommentsExistMF
+			else
+				CommentsMF
+
+
+		ApprovalLinkBack 		is a MessageField
+        	restricted
+			"<linkback(webapp is JournalApprover navigation is ApprovalLinkbackNavigation text is \"ChangeRequest\")>"
+		ApprovalTitle		is a StringField
+			type is Alpha 150
+			restricted
+			"Scenario-"
+			Scenario
+			":ChangeRequest-"
+			BudgetChangeOrder
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.Approver
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+#ifdef module sharedfinance
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+#ifdef module sharedfinance
+			include BuildTeamApproverActorList
+			return LocalApproverList
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays	
+			else
+				return 10000
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+		RejectedMessage 			is a MessageField
+			restricted
+			"Rejected"
+		ApprovedMessage 			is a MessageField
+			restricted
+			"Approved"
+		EditFailedMessage			is a MessageField
+			restricted
+			"BudgetEditFailed"
+		ChangeRejectedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			"BudgetChangeRequest"
+			" "
+			BudgetChangeOrder
+			" "
+			RejectedMessage
+		ChangeApprovedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			"BudgetChangeRequest"
+			" "
+			BudgetChangeOrder
+			" "
+			ApprovedMessage
+		EditFailureNotification		is a StringField
+			type is Alpha 150
+			restricted
+			"BudgetChangeRequest"
+			" "
+			BudgetChangeOrder
+			" "
+			EditFailedMessage
+
+		ViewCreatedChangeRequest	is a StringField				
+			type is Alpha 150
+			restricted
+			"Change Request "
+			BudgetChangeOrder
+			" "
+			Description
+
+		ReleaseActionMessage		is a MessageField
+			restricted
+			"ClickTheButtonBelowToReleaseTheChangeRequest"
+		
+		ViewChangeRequestMessage	is a MessageField
+			restricted
+			"ClickTheLinkBelowToViewTheChangeRequest"
+
+		LinesHasUnitsAmount			is a MessageField
+			restricted
+			"LinesHasUnitsAmountEntered"
+		
+		WizardReleaseErrorMessage	is a MessageField
+			restricted
+			"ReleaseFailed;BudgetErrorsExist"
+
+		BudgetChangeOrderDescription is a MessageField
+			"<BudgetChangeOrder>-<Description>"
+			
+		ChangeRequestDetail	is a StringField
+			type is Alpha 125
+			restricted
+			" "
+			BudgetChangeOrder
+			" "
+			Description
+			" ("
+			Currency
+			")"
+
+		CreateChangeRequestWizardTitleNoRecord	is a LabelField
+			"CreateChangeRequest"
+	
+		CreateChangeRequestWizardTitle 	is a LabelField
+			"CreateChangeRequest<ChangeRequestDetail>"
+
+		ChangeRequestNoRecordTitle	is a LabelField
+			"ChangeRequest"
+
+		ChangeRequestRecordTitle		is a LabelField
+			"ChangeRequest<BudgetChangeOrder>_<Description>"
+						
+		ChangeRequestWizardTitle is a DerivedField
+			type is Alpha 110
+			if (BudgetChangeOrder entered)
+				return CreateChangeRequestWizardTitle
+			else
+				return CreateChangeRequestWizardTitleNoRecord
+
+		ChangeRequestTitle	is a DerivedField
+			type is MessageField
+			if (BudgetChangeOrder entered)
+				return ChangeRequestRecordTitle
+			else
+				return ChangeRequestNoRecordTitle
+		DerivedChildScenario	is a DerivedField
+			type is like Scenario
+			default label is "ChildScenario"
+			if (Status.Released)
+				return first BudgetChangeOrderLineRel.BudgetChangeScenario
+		BudgetFailureMessage is a MessageField
+			"BudgetsExceeded;CouldNotRelease;SeeEditErrorsTab"
+		
+		ScenarioNotReadyDescription is a MessageField
+			"You_can_only_create_Change_Requests_when_Budget_Scenario_is_Ready"
+		
+		EmptyStateMessage is a MessageField
+			"None_for_this_budget_scenario"
+
+		AddChangeRequestMessage is a MessageField
+			"Add_a_new_Change_Request"
+		
+		DerivedScenarioNotReadyDescription is a DerivedField
+			type is MessageField
+			if (not Scenario.Status.Ready)
+				return ScenarioNotReadyDescription
+			else 
+				return blank
+
+		DerivedEmptyStateMessage is a DerivedField
+			type is MessageField
+			if (not Scenario.Status.Ready)
+				return EmptyStateMessage
+			else
+				return AddChangeRequestMessage
+
+		GeneralLedgerTotalCubeOfflineMessage	is a MessageField
+			"CannotDisplayCurrentAmounts;CubeIsInaccessible"			
+	Conditions
+		HasBudgetErrors
+			when (BudgetEditErrorRel exists)
+		HasTemplateUpdates
+			when (BudgetTemplateGroupTotalsRel exists)
+		HasError
+			when (HasBudgetErrors)
+		HasComments
+			restricted
+			when (BudgetChangeOrderComment set exists)
+		ShowUnitsAmount
+			restricted
+			when (not HasNoUnitsAmount)
+		AllowCopy
+			restricted
+			when (Status.Unreleased
+			or    Status.PendingApproval
+			or    Status.Released)
+		BypassCubeRefresh
+			restricted
+			when (BudgetEditConfigurationRel.BypassCubeRefreshOnBudgetChangeOrderRelease 
+			or    config.BypassCubeRefreshOnBudgetChangeOrderRelease = true)
+		UnreleasedChangeRequest
+			restricted
+			when (Status < 4)		
+
+		CubeOffline
+			restricted
+			when (UnreleasedChangeRequest
+			and   not TotalCubeRel.Mode.Active)		
+	Relations
+		BudgetChangeOrderLineRel is a BudgetChangeOrderLine set
+		LinesWithAmountRel
+			one-to-many relation to BudgetChangeOrderLine
+			Field Mapping uses ByAmount
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.Scenario							= Scenario
+				related.BudgetChangeOrder					= BudgetChangeOrder
+			Instance Selection
+				where (related.Amount						!= 0)
+
+		LinesWithUnitsAmountRel is a BudgetChangeOrderLine set
+			Instance Selection
+				where (related.UnitsAmount entered)
+
+		BudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup		= UniqueID
+		ProcessingTemplatesRel
+			one-to-many relation to BudgetTemplate
+			Field Mapping uses ByStatus
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.Status								= 1 
+				related.Scenario							= Scenario
+		BudgetTemplateGroupTotalsRel
+			one-to-many relation to BudgetTemplateGroupTotal
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup                    = FinanceEnterpriseGroup
+				related.BudgetTemplateGroupTotal.BudgetEditGroup  = UniqueID
+		AccountingEntityHierarchiesRel
+			one-to-many relation to AccountingEntityHierarchy
+			Field Mapping uses ByParent
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.AccountingEntity				= Scenario.Basis.AccountingEntityTopNode
+		AccountingEntitiesInBasisRel
+			one-to-many relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.AccountingEntity				= AccountingEntityHierarchiesRel.SubordinateAccountingEntity
+		TotalCubeRel
+			one-to-one relation to AnalyticCube
+			Field Mapping uses AnalyticCubeSet
+				related.BusinessClass = "GeneralLedgerTotal"
+		LazyDocumentRel
+			one-to-one relation to BudgetLazyDocument
+			Field Mapping uses symbolic key
+				related.BudgetLazyDocument.DocumentID	= UniqueID
+		AllChildrenRel
+			one-to-many relation to Scenario
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Parent = Scenario)
+		AllTotalsRel
+			one-to-many relation to GeneralLedgerTotal
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.Scenario					= AllChildrenRel.Scenario
+			Instance Selection
+				where ((related.GeneralLedgerTotal.Currency	    = Currency)
+				or     (related.GeneralLedgerTotal.Currency     = blank 
+				and     related.NetUnitsAmount entered ))
+		BudgetEditConfigurationRel
+			one-to-one relation to BudgetEditConfiguration
+			Field Mapping uses symbolic key
+				related.BudgetEditConfiguration = FinanceEnterpriseGroup
+
+
+#ifdef module sharedfinance
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= Scenario.ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= Scenario.ApprovalCode
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= Scenario.ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+			Instance Selection
+				where (!related.Approver.FinanceResourceActor = update stamp.actor
+				and    !related.Approver.FinanceResourceActor = create stamp.actor)
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+			Instance Selection
+				where (!related.FinanceTeamMember.TeamMember.FinanceResourceActor = update stamp.actor  
+				and    !related.FinanceTeamMember.TeamMember.FinanceResourceActor = create stamp.actor) 
+		ApprovalCodeResourceByResourceRel
+			one-to-one relation to ApprovalCodeResource
+			Field Mapping uses ByApprover
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= Scenario.ApprovalCode
+				related.Approver				= LocalApprover
+#endif
+
+	Sets
+		ByChangeOrderDescending
+			Sort Order
+				FinanceEnterpriseGroup
+				BudgetChangeOrder descending
+				Scenario
+		ByStatus
+			Sort Order
+				FinanceEnterpriseGroup
+				Scenario
+				Status
+				BudgetChangeOrder
+
+	Field Rules
+		Description
+			required
+			
+		Currency
+
+			if (LocalAction = "C")
+				required
+			if (LocalAction = "U"
+			and Currency not entered)
+				constraint (old Currency not entered)
+					"CurrencyIsRequired"
+			if (!Status.Unreleased)
+				cannot be changed
+			if (LinesWithAmountRel exist)
+				cannot be changed
+					"CurrencyCannotBeChangedWhenLinesHaveAmount"
+			
+		DefaultPeriod
+			constraint (DefaultPeriod.TopNode = Scenario.Basis.GeneralLedgerCalendar.TopNode)
+				"PeriodMustBeInScenarioBasisCalendar"
+			constraint (DefaultPeriod.PeriodType.Month)
+				"PeriodMustBeOfTypeMonth"
+
+		HasNoUnitsAmount
+			initial value is true
+			
+			if (HasNoUnitsAmount changed)
+				if (HasNoUnitsAmount
+				and LinesWithUnitsAmountRel exists)
+					confirmation required
+						"HideUnitsSelected.OneOrMoreChangeRequestLinesHaveUnitsAmount.WouldYouLikeToProceed?"
+					
+	Attach Rules
+		
+
+    Actions
+	
+    	Create is a Create Action
+    		valid when (Scenario.Status.Ready)
+			Entrance Rules
+				include CreateEntranceRules
+
+		CreateUsingWizard is a Create Action
+   			valid when (Scenario.Status.Ready)		
+			Entrance Rules
+				include CreateEntranceRules
+
+		Delete is a Delete Action
+			restricted
+			Action Rules
+				if (LazyDocumentRel exists)
+					invoke Purge LazyDocumentRel
+
+#ifdef module sharedfinance
+
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+#endif
+
+		LazyRelease is an Instance Action
+			restricted
+			Action Rules
+				include EditTotalsBudget			
+
+
+		CopyChangeRequest is an Instance Action
+			valid when (AllowCopy)
+			Parameters
+				TargetScenario						is a Scenario
+				NewDescription						is like Description
+				ReverseAmounts						is Boolean
+				CopyComments						is Boolean
+				CopyAttachments						is Boolean
+				CopyLineComments					is Boolean
+				CopyLineAttachments					is Boolean
+
+			Parameter Rules
+				TargetScenario
+					initial value is Scenario
+					required
+					constraint (TargetScenario.Status.Ready)
+						"ScenarioStatusMustBeReady"
+					constraint (TargetScenario.CommitmentType.Budget)
+						"TargetScenarioNotABudgetScenario"
+				NewDescription
+					initial value is Description
+					required
+				CopyComments
+					if (CopyAttachments
+					and not CopyComments)
+						initialize CopyAttachments
+				CopyLineComments
+					if (CopyLineAttachments
+					and not CopyLineComments)
+						initialize CopyLineAttachments
+
+			Local Fields
+
+			Entrance Rules
+				if (Scenario not = TargetScenario)
+					constraint ((Scenario.HasAccountingEntity      = TargetScenario.HasAccountingEntity)
+					and         (Scenario.HasPostingAccountingUnit = TargetScenario.HasPostingAccountingUnit)
+					and         (Scenario.HasPostingAccount        = TargetScenario.HasPostingAccount)
+					and         (Scenario.HasPostingProject        = TargetScenario.HasPostingProject)
+					and         (Scenario.HasPostingDimension1     = TargetScenario.HasPostingDimension1)
+					and         (Scenario.HasPostingDimension2     = TargetScenario.HasPostingDimension2)
+					and         (Scenario.HasPostingDimension3     = TargetScenario.HasPostingDimension3)
+					and         (Scenario.HasPostingDimension4     = TargetScenario.HasPostingDimension4)
+					and         (Scenario.HasPostingDimension5     = TargetScenario.HasPostingDimension5)
+					and         (Scenario.HasPostingDimension6     = TargetScenario.HasPostingDimension6)
+					and         (Scenario.HasPostingDimension7     = TargetScenario.HasPostingDimension7)
+					and         (Scenario.HasPostingDimension8     = TargetScenario.HasPostingDimension8)
+					and         (Scenario.HasPostingDimension9     = TargetScenario.HasPostingDimension9)
+					and         (Scenario.HasPostingDimension10    = TargetScenario.HasPostingDimension10))
+						"TargetScenarioDimensionsDoNotMatchWithTheSourceScenario"
+
+			Action Rules
+				if (instance count of BudgetChangeOrderLineRel > 100)
+					invoke CopyChangeRequestLine BudgetChangeOrderLine in background
+						invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.PrmScenario						= Scenario
+						invoked.PrmChangeOrder					= BudgetChangeOrder
+						invoked.TargetScenario					= TargetScenario
+						invoked.NewDescription					= NewDescription
+						invoked.ReverseAmounts					= ReverseAmounts
+						invoked.CopyComments					= CopyComments
+						invoked.CopyAttachments					= CopyAttachments
+						invoked.CopyLineComments				= CopyLineComments
+						invoked.CopyLineAttachments				= CopyLineAttachments
+				else
+					invoke CopyChangeRequestLine BudgetChangeOrderLine in foreground
+						invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.PrmScenario						= Scenario
+						invoked.PrmChangeOrder					= BudgetChangeOrder
+						invoked.TargetScenario					= TargetScenario
+						invoked.NewDescription					= NewDescription
+						invoked.ReverseAmounts					= ReverseAmounts
+						invoked.CopyComments					= CopyComments
+						invoked.CopyAttachments					= CopyAttachments
+						invoked.CopyLineComments				= CopyLineComments
+						invoked.CopyLineAttachments				= CopyLineAttachments
+
+	StateCycles
+		ChangeOrderLifecycle is a StateCycle
+			state field is Status
+			
+			Unreleased	is a State
+ 				Update is an Update Action
+ 					Entrance Rules
+ 						LocalAction = "U"
+#ifdef module sharedfinance
+						if (Scenario.ChangesRequireApproval)
+
+							LocalApprover = actor.agent(Employee).Employee
+							constraint (!ApprovalCodeResourceByResourceRel exists)
+								"PersonCreatingTheJournalCannotBeTheApprover"
+#endif
+
+		 		Release is an Instance Action
+		 			valid when (!Scenario.Locked)
+		 			confirmation required
+		 			Entrance Rules
+						constraint (!Scenario.Locked)
+							"ScenarioIsLocked."
+						constraint (!Scenario.Exporting)
+							"ScenarioIsExporting._PleaseWait."
+		 				constraint (BudgetChangeOrderLineRel exists)
+		 					"MustHaveChangeRequestLinesInOrderToRelease"
+						if (Scenario.IsInIncrementalLoad)
+							for each BudgetChangeOrderLineRel
+								constraint (each.GeneralLedgerCalendarPeriod < Scenario.IncrementalLoadStartPeriod
+								or each.GeneralLedgerCalendarPeriod > Scenario.IncrementalLoadEndPeriod)
+									"CannotRelease._\OneOrMoreChangeRequestLinesHavePeriodWithinCurrentIncrementalLoadPeriodRange"
+		 				if (Scenario.BalancedUnitChanges)
+		 					constraint (sum BudgetChangeOrderLineRel.UnitsAmount = 0)
+		 						"UnitsAmountsNotBalanced"
+		 				if (Scenario.BalancedChanges)
+		 					constraint (sum BudgetChangeOrderLineRel.Amount = 0)
+		 						"AmountsNotBalanced"
+#ifdef module sharedfinance
+						if (Scenario.ChangesRequireApproval)
+
+
+							LocalApprover = create stamp.actor.agent(Employee).Employee
+							constraint (!ApprovalCodeResourceByResourceRel exists)
+								"PersonCreatingTheJournalCannotBeTheApprover"
+							constraint (Scenario.ApprovalCode.HasApprovalLevels) 
+								"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+							constraint (!Scenario.ApprovalCode.HasTeamWithNoMembers) 
+								"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+							constraint (!Scenario.ApprovalCode.HasInvalidEscalations)
+								"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+							constraint (!Scenario.ApprovalCode.HasInactiveResources)
+								"CannotComplete;TheApprovalCodeHasInactiveResources"
+#endif
+		 			Action Rules
+		 				ReleaseDate = current corporate date
+
+		 			Exit Rules
+		 				if (BudgetTemplateGroupTotalsRel exist)
+		 					constraint (ProcessingTemplatesRel not exist)
+		 						"CannotReleaseWhileTemplatesAreProcessing"
+		 				if (Scenario.ChangesRequireApproval)
+#ifdef module sharedfinance
+							include GetNextApprovalLevel
+#endif					
+							if (!LocalApprover entered)
+								ApprovalLevel = LocalApprovalLevel 
+								constraint (LocalApproverTeam entered)
+									"PersonUpdatingJournalCannotBeTheApprover"
+								constraint (DerivedCurrentTeamActorList entered)
+									"PersonUpdatingJournalCannotBeATeamMembers"
+								initialize ApprovalLevel
+
+
+
+							if (BudgetTemplateGroupTotalsRel exist)
+								make transition to EditInProgress
+								if (BudgetEditConfigurationRel.BatchBudgetEdit)
+									invoke Create BudgetEditBatch
+										invoked.DocumentID									= UniqueID
+										invoked.BudgetEditCallBackWrap.FEG					= FinanceEnterpriseGroup			
+										invoked.BudgetEditMode								= BudgetEditMode.Hard
+										invoked.BudgetEditTotalsProcessing					= BudgetEditTotalsProcessing.Purge
+										invoked.CreateTime									= current timestamp  
+										invoked.BusinessClassName							= "BudgetChangeOrderApproval"
+										invoked.EditContext									= "Release"
+
+									invoke InitiateBudgetEdit BudgetEditConfigurationRel
+								else 				
+									invoke EditTotalsBudgetForApproval BudgetTemplateGroupTotal
+										invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+										invoked.PrmBudgetEditGroup			= UniqueID
+										invoked.PrmScenario					= Scenario
+										invoked.PrmBudgetChangeOrder		= BudgetChangeOrder
+							else
+								include InitiateBudgetChangeApprovalFlow
+		 				else
+		 					if (BudgetTemplateGroupTotalsRel exist)
+		 						make transition to EditInProgress
+		 						include EditActions
+							else
+								make transition to PreparingRelease
+		 						include ReleaseActions
+		 						
+		 		DeleteChangeRequest is an Instance Action
+		 			confirmation required
+					Action Rules
+						invoke Purge BudgetEditErrorRel
+			
+						if (instance count of BudgetChangeOrderLineRel < 100)
+							invoke PurgeGroupTotalsForEditGroup BudgetTemplateGroupTotal
+								invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+								invoked.PrmBudgetEditGroup				= UniqueID
+							invoke Delete
+						else
+							make transition to DeleteInProgress
+							invoke DeleteAllForChangeOrder BudgetChangeOrderLine in background
+								assign async action request id to AsyncId
+								invoked.PrmEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.PrmScenario			= Scenario
+								invoked.PrmChangeOrder		= BudgetChangeOrder
+							invoke PurgeGroupTotalsForEditGroup BudgetTemplateGroupTotal
+								run after AsyncId
+								assign async action request id to AsyncId
+								invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+								invoked.PrmBudgetEditGroup				= UniqueID
+							invoke DeleteInProgress.DoDelete in background
+								run after AsyncId
+
+						
+            PendingApproval  	is a State
+				Reject is an Instance Action
+					restricted
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize ReleaseDate
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+
+				ManualReject is an Instance Action
+		    		valid when (Status.PendingApproval)
+		    		confirmation required
+		    			"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						initialize ReleaseDate
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+						cancel "BudgetChangeApproval" PA service
+
+			
+		   		ManualApprove is an Instance Action
+		    		valid when (Status.PendingApproval)
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Entrance Rules
+						constraint (!Scenario.Exporting)
+							"ScenarioIsExporting._PleaseWait."
+						constraint (!create stamp.actor	= actor)
+							"PersonCreatingTheJournalCannotBeTheApprover"
+						constraint (!update stamp.actor	= actor)
+							"PersonUpdatingTheJournalCannotBeTheApprover"
+						
+					Action Rules			
+						include SendApproveNotificationToUser
+						cancel "BudgetChangeApproval" PA service
+		 				if (BudgetTemplateGroupTotalsRel exist)
+		 					make transition to EditInProgress
+		 					include EditActions
+						else
+							make transition to PreparingRelease
+		 					include ReleaseActions
+
+				Approve is an Instance Action
+					restricted
+					Action Rules
+						constraint (!Scenario.Exporting)
+							"ScenarioIsExporting._PleaseWait."
+						include SendApproveNotificationToUser
+		 				if (BudgetTemplateGroupTotalsRel exist)
+		 					make transition to EditInProgress
+		 					include EditActions
+						else
+							make transition to PreparingRelease
+		 					include ReleaseActions
+
+
+				RejectWithReasonCode is an Instance Action
+					restricted
+					subject is RejectBudgetChangeRequest
+					reason code required
+					action comment required
+		
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						initialize ReleaseDate
+						include SendRejectNotificationToUser
+						make transition to Unreleased
+			
+					Exit Rules
+						invoke Create BudgetChangeOrderComment
+							invoked.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+							invoked.Scenario					= Scenario
+							invoked.BudgetChangeOrder			= BudgetChangeOrder
+#ifdef module sharedfinance
+							invoked.Subject						= reason code
+#endif
+#ifndef module sharedfinance
+							invoked.Subject						= action comment
+#endif
+							invoked.Comment						= action comment
+							invoked.CommentDate					= current corporate date
+							invoked.From						= actor
+
+			EditInProgress		is a State
+				InitiateApproval is an Instance Action
+					restricted
+					default label is untranslatable
+					Action Rules
+						include InitiateBudgetChangeApprovalFlow
+		 		Success is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				make transition to PreparingRelease
+		 				include ReleaseActions
+		 		Failure is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				make transition to Unreleased
+		 		CleanupOnFailedEdit is an Instance Action
+		 			confirmation required
+		 				"ThisActionShouldOnlyBeInvokedIfEditHasFailedPriorToUpdatingBudgetAmounts;InvokingWhileEditIsInProgressWillProduceIncorrectResults"
+		 			Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam		
+						initialize ReleaseDate
+						include SendEditFailureNotificationToUser
+						if (LazyDocumentRel exists)
+							invoke Update LazyDocumentRel
+								initialize invoked.ReadyToRelease
+
+						make transition to Unreleased
+
+			PreparingRelease	is a State
+				SetReleased is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+		 		Refresh is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				make transition to RefreshInProgress
+		 				invoke Refresh TotalCubeRel in background
+		 					assign async action request id to AsyncId
+		 				invoke RefreshInProgress.SetReleased in background
+		 				 	run after AsyncId
+
+			RefreshInProgress	is a State
+		 		SetReleased is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				make transition to Released
+		
+			Released			is a State
+			
+		 	DeleteInProgress is a State
+		 		DoDelete is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				invoke Delete

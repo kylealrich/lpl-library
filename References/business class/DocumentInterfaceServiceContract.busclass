@@ -1,0 +1,205 @@
+DocumentInterfaceServiceContract is a BusinessClass
+	owned by ma
+	prefix is DISvC
+    sql name is DocumentInterfaceServContract
+
+	Ontology
+		symbolic key is DocumentInterfaceServiceContract
+
+    Patterns
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+	Persistent Fields
+        Contract					is like Contract 
+
+	Local Fields
+		ErrorMessage				is Alpha 150
+		NewContract					is a Contract view
+	
+	Derived Fields
+
+		ContractNotFoundMessage is a MessageField
+			restricted
+			"ContractNotFound"
+
+	Conditions
+		RecordInError
+			when (DocumentInterfaceErrorRel exists)
+
+	Relations
+		MatchCompanyRel
+			one-to-one relation to MatchCompany
+			Field Mapping uses symbolic key
+				related.Company							= DocumentInterfaceInvoice.Company
+				
+		PayablesCompanyRel
+			one-to-one relation to PayablesCompany
+			Field Mapping uses symbolic key
+				related.Company							= DocumentInterfaceInvoice.Company
+
+		DocumentInterfaceErrorRel
+			one-to-many relation to DocumentInterfaceError
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.DocumentInterfaceInvoice		= DocumentInterfaceInvoice
+				related.DocumentInterfaceDetail			= blank
+				related.DocumentInterfaceDistribution	= blank
+				related.DocumentInterfaceAddOnCharge	= blank
+				related.DocumentInterfaceComment		= blank
+				related.DocumentInterfacePurchaseOrder  = blank
+				related.DocumentInterfaceServiceContract  = DocumentInterfaceServiceContract
+
+		DocumentInterfaceDetailRel
+			one-to-many relation to DocumentInterfaceDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.DocumentInterfaceInvoice		= DocumentInterfaceInvoice
+			Instance Selection
+				where (related.Contract					= Contract)
+				
+
+
+
+
+
+
+
+
+		ContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup				= PayablesCompanyRel.VendorGroup
+				related.Contract					= Contract
+
+	Sets
+		ByContract
+			Sort Order
+				Contract
+				DocumentInterfaceInvoice
+				DocumentInterfaceServiceContract
+				
+	Field Rules
+
+
+	Rule Blocks
+
+	Actions
+		Create is a Create Action
+
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+					
+		InterfaceContracts is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup   is a FinanceEnterpriseGroup
+				PrmCompany					is like PayablesCompany
+		        InvoiceProcess          	is AlphaUpper size 1
+		            States
+		                Add            value is "A"
+		                MatchSubmitOrRelease value is "R"
+				PrmProcessType				is AlphaUpper size 1
+		            States
+		                MatchInvoices    	value is "M"
+		                ExpenseInvoices		value is "E"
+		                Both				value is "B"
+				PrmVendorClass				is like VendorClass		                
+				PrmDocumentInterfaceInvoice is like DocumentInterfaceInvoice
+				PrmInterfaceRun				is a PayablesInvoiceInterfaceResult
+		 		AutoCreateDetails					is Numeric 1
+		 			States
+		 				FromPurchaseOrder				value is 2
+		 				FromReceipt						value is 3
+		 				FromReceiptThenFromPO			value is 4
+				AllowMatchItemOrVendorItem	is Boolean
+				ErrorOccurred					is Boolean
+
+			Local Fields
+				LocalInterfacedContractCount			is Numeric 10
+			
+			Sort Order
+				FinanceEnterpriseGroup
+				DocumentInterfaceInvoice
+				DocumentInterfaceServiceContract
+				
+			Instance Selection
+				where (DocumentInterfaceInvoice.InterfaceRunID = PrmInterfaceRun
+				and    DocumentInterfaceInvoice.SystemAssignedInvoice entered)
+
+			Rule Blocks
+				SetError
+					invoke Create DocumentInterfaceError
+						invoked.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+						invoked.DocumentInterfaceInvoice 		= DocumentInterfaceInvoice
+						invoked.DocumentInterfaceServiceContract 	= DocumentInterfaceServiceContract
+						invoked.ErrorMessage					= ErrorMessage
+					invoke Update PrmInterfaceRun
+						invoked.Status 							= 2
+			
+			Action Rules
+				Empty Set Rules
+						
+					invoke InterfaceDetails DocumentInterfaceDetail
+						invoked.PrmFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+						invoked.PrmCompany					= PrmCompany
+						invoked.InvoiceProcess				= InvoiceProcess
+						invoked.PrmProcessType				= PrmProcessType
+						invoked.PrmVendorClass				= PrmVendorClass
+						invoked.PrmDocumentInterfaceInvoice = PrmDocumentInterfaceInvoice
+						invoked.PrmInterfaceRun				= PrmInterfaceRun
+						invoked.AllowMatchItemOrVendorItem	= AllowMatchItemOrVendorItem
+
+				Set Rules
+						
+					Exit Rules
+
+
+
+						invoke InterfaceDetails DocumentInterfaceDetail
+							invoked.PrmFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+							invoked.PrmCompany					= PrmCompany
+							invoked.InvoiceProcess				= InvoiceProcess
+							invoked.PrmProcessType				= PrmProcessType
+							invoked.PrmVendorClass				= PrmVendorClass
+							invoked.PrmDocumentInterfaceInvoice = PrmDocumentInterfaceInvoice
+							invoked.PrmInterfaceRun				= PrmInterfaceRun
+							invoked.AllowMatchItemOrVendorItem	= AllowMatchItemOrVendorItem
+
+				DocumentInterfaceInvoice Set Rules
+				
+					Entrance Rules
+						ErrorOccurred = false
+						if (DocumentInterfaceInvoice.RecordInError)
+							ErrorOccurred = true
+						
+
+				Instance Rules
+
+					
+					if  (!ErrorOccurred)
+						LocalInterfacedContractCount			+= 1
+						invoke Create MatchServiceContractInvoice
+							assign result to NewContract
+							resume on error
+								ErrorOccurred			= true
+								ErrorMessage 			= error message
+								
+							invoked.Company						= DocumentInterfaceInvoice.Company 
+							invoked.PayablesInvoice				= DocumentInterfaceInvoice.SystemAssignedInvoice
+							invoked.Contract					= Contract
+
+
+						if (ErrorOccurred)
+
+							include SetError
+						else
+							invoke FastDelete
+

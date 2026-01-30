@@ -1,0 +1,215 @@
+CreditAnalyst is a BusinessClass
+	owned by ar
+	prefix is CAN
+	classic name is CRANALYST
+
+	Ontology
+		symbolic key is CreditAnalyst
+			classic set name is CANSET1
+			classic name is CREDIT-ANLYST
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+		Name
+		PhoneNumber		is a TelephoneNumber 
+			holds pii
+			classic name for PhoneNumber.SubscriberNumber is PHONE-NMBR
+			classic name for PhoneNumber.Extension is PHONE-EXT
+		UsedFlag		is Boolean
+			classic name is USED-FL
+		EmailAddress	is an EmailAddressMulti 
+			holds pii
+		MobileNumber	is a MobilePhone 
+			holds pii
+		FaxNumber 
+			holds pii
+		TwitterID 
+			holds pii
+		SocialNetworkID2 
+			holds pii
+		SocialNetworkID3 
+			holds pii
+		SocialNetworkID4 
+			holds pii
+		SocialNetworkID5 
+			holds pii
+
+	Local Fields
+		SumOfCompanyCustomerRelCurrentBalanceDone	is Boolean	
+		SumOfCompanyCustomerRelCurrentBalance		is like InternationalAmount	
+
+		SumOfCompanyCustomersOnHoldRelCurrentBalanceDone	is Boolean	
+		SumOfCompanyCustomersOnHoldRelCurrentBalance		is like InternationalAmount	
+
+	Rule Blocks
+		SumCompanyCustomerRelCurrentBalance	
+			if (!SumOfCompanyCustomerRelCurrentBalanceDone)
+				initialize SumOfCompanyCustomerRelCurrentBalance
+					for each CompanyCustomerRel
+						SumOfCompanyCustomerRelCurrentBalance += each.CurrentBalance
+				SumOfCompanyCustomerRelCurrentBalanceDone = true
+
+		SumCompanyCustomersOnHoldRelCurrentBalance	
+			if (!SumOfCompanyCustomersOnHoldRelCurrentBalanceDone)
+				initialize SumOfCompanyCustomersOnHoldRelCurrentBalance
+					for each CompanyCustomersOnHoldRel
+						SumOfCompanyCustomersOnHoldRelCurrentBalance += each.CurrentBalance
+				SumOfCompanyCustomersOnHoldRelCurrentBalanceDone = true
+
+
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforCreditAnalyst"
+
+		ContextMessageText is a MessageField
+			restricted
+			"CreditAnalyst<CreditAnalyst>ForCompany<Company>"
+
+		CompanyCustomerCurrentBalance is a DerivedField
+			type is like InternationalAmount
+			include SumCompanyCustomerRelCurrentBalance	
+
+			return (SumOfCompanyCustomerRelCurrentBalance)	
+
+		CompanyCustomersOnHoldCurrentBalance is a DerivedField	
+			type is like InternationalAmount
+			include SumCompanyCustomersOnHoldRelCurrentBalance
+			return (SumOfCompanyCustomersOnHoldRelCurrentBalance)
+
+		CompanyCustomersOnHold is a ComputeField	
+			type is Numeric 6
+			restricted
+			(instance count of CompanyCustomersOnHoldRel)
+		
+		CreditAnalystName is a StringField
+			type is Text
+			default label is "CreditAnalyst"
+			CreditAnalyst " - " Name
+
+
+
+	Relations
+		CreditselRel
+			one-to-many relation to CompanyCustomerReviewSelect
+			delete cascades
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.CreditAnalyst	= CreditAnalyst
+
+		OpenCreditselRel
+			one-to-many relation to CompanyCustomerReviewSelect
+			delete cascades
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.CreditAnalyst	= CreditAnalyst
+			Instance Selection
+				where (related.Status.OpenStatusNeedsReview)
+
+		CompanyCustomersOnHoldRel
+			one-to-many relation to CompanyCustomer
+			Field Mapping uses IsHoldCodeSet	
+				related.Company			= Company
+				related.CreditAnalyst	= CreditAnalyst
+
+
+
+		CompanyCustomerRel	
+			one-to-many relation to CompanyCustomer
+			Field Mapping uses Set8
+				related.Company			= Company
+				related.CreditAnalyst	= CreditAnalyst
+
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		CompanySecurityGroupMemberRel	
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+
+
+	Conditions
+		OpenCreditselRelExists
+			restricted
+			when (OpenCreditselRel exists)
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		SecurityGroupAllowsAccess	
+			when (actor.context.CompanySecurityGroup = blank
+			or	CompanySecurityGroupMemberRel exists)
+
+		RecordExists
+			restricted
+			when (CreditAnalyst exists)
+			
+	Field Rules
+		Name
+			required
+
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+
+
+		DisplayTransactionAmounts is an Instance Action
+			default label is "DisplayAmountsInCompanyCustomerCurrency"				
+			valid when (OpenCreditselRelExists)
+			completion message is "DisplayAmountsInCompanyCustomerCurrencyComplete"		
+			run in foreground
+
+			Action Rules
+				invoke DisplayTransactionCurrencyAmounts OpenCreditselRel
+					invoked.PrmReceivableCompany	= Company
+					invoked.PrmCreditAnalyst		= CreditAnalyst
+
+		DisplayBaseAmounts is an Instance Action
+			default label is "DisplayAmountsInCompanyCurrency"							
+			valid when (OpenCreditselRelExists)
+			completion message is "DisplayAmountsInCompanyCurrencyComplete"				
+			run in foreground
+
+			Action Rules
+				invoke DisplayBaseCurrencyAmounts OpenCreditselRel
+					invoked.PrmReceivableCompany	= Company
+					invoked.PrmCreditAnalyst		= CreditAnalyst
+
+		Anonymize is an Instance Action	
+			restricted
+			Action Rules
+				Name	= 999999999
+
+				initialize PhoneNumber
+
+			Exit Rules
+				invoke Create AnonymizeLog
+					invoked.FinanceEnterpriseGroup			= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+					invoked.Status							= 1
+					invoked.AffectedBusinessClass			= "AR11"
+					invoked.ReceivableCompany				= Company
+					invoked.CreditAnalyst					= CreditAnalyst
+
+		PurgeAuditLog is an Instance Action	
+			restricted
+			Action Rules
+				invoke purge audit log entries
+
+			Exit Rules
+				invoke Create AnonymizeLog
+					invoked.FinanceEnterpriseGroup			= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+					invoked.Status							= 2
+					invoked.AffectedBusinessClass			= "AR11"
+					invoked.ReceivableCompany				= Company
+					invoked.CreditAnalyst					= CreditAnalyst

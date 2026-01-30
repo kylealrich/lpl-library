@@ -1,0 +1,174 @@
+CashTransactionProcessingRule is a BusinessClass
+    owned by cashmgmt
+    prefix is CMTPR
+
+    Ontology
+    	symbolic key is CashTransactionProcessingRule
+
+	Patterns
+		implements Resequence on Priority
+			new sequence field is NewPriority
+			set is ByPriority
+			
+    Persistent Fields
+		Priority						is a DisplayOrder
+		Description						is Alpha 250
+		AssignmentRule		 			is a BankStatementLine group
+			default label is "CustomGroup"
+		CodingOption			 		is Numeric 2
+	    	States
+	    		None						value is 1
+	    		Category					value is 2
+	    		ProcessingRule				value is 3
+	    		Identifier					value is 4
+		CashTransactionIdentifierType
+		CashTransactionCategory
+		ProcessingRuleAccount			is a FinanceCodeBlockFull
+			default label is "AccountInformation"
+		CashAllocationCode
+		Active
+	
+	Transient Fields
+		NewPriority						is a DisplayOrder
+	
+	Derived Fields
+		OverrideText is a MessageField
+			"Note:_CategoryCanBeOverriddenOn_\Identifier"
+			
+	Field Rules
+		Priority
+			autosequence using ByPriority
+				
+		Description
+			default to CashTransactionProcessingRule
+		
+		AssignmentRule
+			required
+				"CustomGroupIsRequired"
+		
+		CodingOption
+			if (CodingOption.Category)
+				constraint (CashTransactionCategory.HasAccountingInformation)
+					"AccountingInformationOrAnAllocationCodeIsRequiredOnCategory<CashTransactionCategory>"
+					
+			if (CodingOption changed)
+				if (!CodingOption.ProcessingRule)
+					initialize ProcessingRuleAccount
+				if (!CodingOption.Identifier)
+					initialize CashTransactionIdentifierType
+			
+			required
+					
+		CashTransactionIdentifierType
+			if (CodingOption.Identifier)
+				required
+					"IdentifierTypeIsRequired"
+		
+		CashTransactionCategory
+			required
+				"CategoryIsRequired"
+					
+		ProcessingRuleAccount
+			if (CodingOption.ProcessingRule)
+				if (!ProcessingRuleAccount.ToAccountingEntity entered)
+					initialize ProcessingRuleAccount.Ledger
+					
+				if (!CashAllocationCode entered)
+					required
+						"AccountingInformationOrAnAllocationCodeIsRequiredWhenCodingOptionIsProcessingRule"
+				else
+					cannot be entered
+						"CanEnterEitherAccountingInformationOrAnAllocationCode"
+				
+		CashAllocationCode
+			if (CodingOption.ProcessingRule)
+				if (!ProcessingRuleAccount entered)
+					required
+						"AccountingInformationOrAnAllocationCodeIsRequiredWhenCodingOptionIsProcessingRule"
+				else
+					cannot be entered
+						"CanEnterEitherAccountingInformationOrAnAllocationCode"
+					
+		Active
+			initial value is true
+	
+	Conditions
+		RuleUsesDescriptionOrReference
+			restricted
+			when (AssignmentRule.Condition like "*AccountMatchesIdentifier*"
+			or	  AssignmentRule.Condition like "*DescriptionMatchesIdentifier*"
+			or 	  AssignmentRule.Condition like "*RelatedReferenceMatchesIdentifier*"
+			or 	  AssignmentRule.Condition like "*BankReferenceMatchesIdentifier*"
+			or 	  AssignmentRule.Condition like "*TextReferenceMatchesIdentifier*")
+		
+		InProcessingRuleGroup
+			restricted
+			when (CashTransactionProcessingRuleGroupDetailRel exists)
+			
+		NotInProcessingRuleGroup
+			restricted
+			when (!CashTransactionProcessingRuleGroupDetailRel exists)
+		
+		RuleReferencesCashManagementAccount
+			restricted
+			when (AssignmentRule.Condition like "*CashManagementAccount*")
+					
+	Attach Rules
+		constraint (Active)
+			"ProcessingRuleIsInactive"
+	
+	Sets
+		ByPriority
+			duplicates
+			Sort Order
+ 				CashManagementGroup
+ 				Priority
+ 				CashTransactionProcessingRule
+ 				
+	Relations
+		CashTransactionIdentifierRel
+			one-to-many relation to CashTransactionIdentifier
+			Field Mapping uses symbolic key
+				related.CashManagementGroup				= CashManagementGroup
+				related.CashTransactionIdentifierType	= CashTransactionIdentifierType
+			Instance Selection
+				where (related.Active)
+		
+		CashTransactionProcessingRuleGroupDetailRel
+			one-to-many relation to CashTransactionProcessingRuleGroupDetail
+			Field Mapping uses ByCashTransactionProcessingRule
+				related.CashManagementGroup				= CashManagementGroup
+				related.CashTransactionProcessingRule	= CashTransactionProcessingRule
+						
+	Actions
+		Create is a Create Action
+			Action Rules
+				if (CodingOption.Identifier)
+					constraint (RuleUsesDescriptionOrReference)
+						"CustomGroupMustUseAnIdentifierConditionWhenUsingClassificationInformationFromIdentifier"
+				else
+					constraint (!RuleUsesDescriptionOrReference)
+						"AnIdentifierConditionCannotBeDefinedInTheCustomGroupWhenClassificationInformationIsNotUsedFromIdentifier"
+					
+		Update is an Update Action
+			Action Rules
+				if (CodingOption.Identifier)
+					constraint (RuleUsesDescriptionOrReference)
+						"CustomGroupMustUseAnIdentifierConditionWhenUsingClassificationInformationFromIdentifier"
+				else
+					constraint (!RuleUsesDescriptionOrReference)
+						"AnIdentifierConditionCannotBeDefinedInTheCustomGroupWhenClassificationInformationIsNotUsedFromIdentifier"
+		
+		AddProcessingRule is an Instance Action
+			valid when (Active)
+			Parameters
+				PrmCashManagementGroup 		  			is a CashManagementGroup
+				PrmCashTransactionProcessingRuleGroup	is a CashTransactionProcessingRuleGroup
+
+			Action Rules
+				invoke Create CashTransactionProcessingRuleGroupDetail
+					invoked.CashManagementGroup	 				= PrmCashManagementGroup
+					invoked.CashTransactionProcessingRuleGroup	= PrmCashTransactionProcessingRuleGroup
+					invoked.CashTransactionProcessingRule		= CashTransactionProcessingRule
+								
+		Delete is a Delete Action

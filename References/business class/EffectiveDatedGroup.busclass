@@ -1,0 +1,615 @@
+EffectiveDatedGroup is a BusinessClass
+    owned by la
+    prefix is EFDG
+
+    Ontology
+    	symbolic key is EffectiveDatedGroup
+
+	Patterns
+    	disable Auditing
+        disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+        Status		  		is Numeric size 1
+        	States
+        		New				value is 0
+        		Complete		value is 8
+		RootBusinessClass   is a BusinessClass 		
+		RootAction			is a BusinessAction        		
+        Retries				is Numeric size 6	
+        EffectiveDate		is Date
+        EffectiveTimeZone	is a TimeZone
+        ExecuteTime			is TimeStamp
+        AsyncID				is UniqueID   
+        ErrorMessage		is Alpha size 200
+
+	Field Rules
+
+
+
+
+		EffectiveDate
+			required
+
+	Derived Fields
+
+        ContextTimeZone is a NativeField
+            type is like TimeZone
+
+        HasBasis is a NativeField
+            type is Boolean
+            default label is "HasEffectiveDateBasisDefined"
+
+        ScheduledDate is a NativeField
+            type is Date
+
+        ScheduledTime is a NativeField
+            type is Time
+
+        ScheduledTimeZone is a NativeField
+            type is like TimeZone
+
+		ExecuteAt is a NativeField
+			type is TimeStamp
+
+		MaxRetries is a NativeField
+			type is Numeric 8
+			
+		PastDueStatus is a DerivedField
+			type is MessageField
+			if (MissingSchedule)
+				return MissingScheduleMessage
+			else
+			if (RequestIsInError)
+				return LastFailedStatus
+			else
+			if (InProcess)
+				return NotFinishedStatus
+			else
+			if (RequestIsSuspended)
+				return RequestSuspendedMessage
+			else
+			if (QueueIsSuspended)
+				return QueueSuspendedMessage
+			else
+				return "RequestNotScheduled"
+			
+		AsyncStatus is a DerivedField
+			type is MessageField
+			if (HasErrorMessage)
+				return ErrorMessage
+			else
+			if (Failed)
+				return LastFailedStatus
+			else
+			if (MissingSchedule)
+				return MissingAsyncMessage
+			else
+			if (InProcess)
+				return NotFinishedStatus
+			else
+				return SuspendedAsyncMessage
+			
+		FailedAlertMessage is a DerivedField
+			type is MessageField
+			if (HasErrorMessage)
+				return ErrorMessage
+			else
+				return ""
+			
+		SuspendedAlertMessage is a DerivedField
+			type is MessageField
+			if (RequestIsSuspended)
+				return RequestSuspendedMessage
+			else
+			if (QueueIsSuspended)
+				return QueueSuspendedMessage
+		
+		NotFinishedStatus is a MessageField
+			"<AsyncRel.last NonFinishedTriggers.Status>"
+			
+		LastFailedStatus is a DerivedField
+			type is MessageField
+			if (RequestIsInError)
+				return AsyncFailedMessage
+			else
+				return ErrorMessage
+			
+		AsyncFailedMessage is a MessageField
+			"<AsyncRel.last FailedTriggers.Status>"
+			
+		MissingAsyncMessage is a MessageField
+			"MissingAsyncRequest"
+			
+		SuspendedAsyncMessage is a MessageField
+			"AsyncRequestSuspended"
+			
+		QueueSuspendedMessage is a MessageField
+			"AsyncQueueSuspended"
+			
+		MissingScheduleMessage is a MessageField
+			"MissingSchedule"
+			
+		RequestSuspendedMessage is a MessageField
+			"RequestIsSuspended"
+			
+		CouldBe82353 is a DerivedField
+			type is Boolean
+			restricted
+			
+			for each EffectiveDatedEntry set
+				if (each.CouldBe82353)
+					return true
+					
+			return false
+
+		EffectiveCurrentDate is a NativeField
+		    type is Date
+
+        DefaultTimeZone is a NativeField
+            type is like TimeZone
+
+        EnteredTimeZone is a DerivedField
+            type is Alpha size 50
+            if (EffectiveTimeZone entered)
+                return EffectiveTimeZone.DerivedOffsetDisplayName
+            else
+                return blank
+
+        EffectiveTimeZoneBasis is a NativeField
+            type is like EffectiveTimeZoneBasis
+
+	Local Fields
+		LocalInError is Boolean
+		LocalErrorMessage is Alpha size 200
+
+			
+
+
+
+				
+				
+
+
+
+
+
+
+
+
+
+			
+	Conditions
+	    EffectiveDateInPast
+	        when (EffectiveDate <= EffectiveCurrentDate)
+
+		HasErrorMessage
+			default label is "ErrorMessageExists"
+			when (ErrorMessage != blank)
+			
+		IsNew
+			default label is "New"
+			when (Status.New)
+			
+		IsPending
+			default label is "Pending"
+			when (Status.New and (not (MissingSchedule or not AsyncRel.PendingScheduling)) and (not AsyncRel.FailedTriggersExist)) 
+		
+		InProcess
+			when (not Failed and (AsyncRel.NonFinishedTriggers exist))
+			
+		RequestIsSuspended
+			when (Status.New and not Failed and not InProcess and (MissingSchedule or not AsyncRel.PendingScheduling))
+		
+    	QueueIsSuspended
+    		when (AsyncRel.last NonFinishedTriggers.AsyncQueueDefinition.Suspended)
+    		
+    	IsSuspended
+    		default label is "Suspended"
+    		when (RequestIsSuspended or QueueIsSuspended)
+    		
+		Failed
+			when (Status.New and (AsyncRel.FailedTriggersExist or HasErrorMessage))
+			
+    	RequestIsInError
+    		when (AsyncRel.FailedTriggersExist)
+
+    	MissingSchedule
+    		when (Status.New and not AsyncRel exists)
+    		
+    	MaxRetriesReached
+    		when (Retries >= MaxRetries)
+    		
+    	CanProcess
+    		default label is untranslatable
+    		when (Status.New
+    		and   EffectiveDateInPast)
+
+    	IsComplete
+    	    default label is "Complete"
+    		when (Status.Complete)
+    		
+    	CanRequeue
+    		default label is untranslatable
+    		when (CanProcess and RequestIsInError and (AsyncRel.last FailedTriggers.Status.TerminatedAbnormally))
+    		
+		HasAsyncId
+			default label is "AsyncIDEntered"
+			when (AsyncID entered)
+
+		HasSchedule
+		    default label is "Has_an_AsyncRequestDefined"
+		    when (Status.New and AsyncRel exists
+            and   not RequestIsInError
+            and   not RequestIsSuspended)
+
+        IsBlocked
+            default label is "AsyncRequestMissing_or_InError"
+            when (not Status.Complete
+            and  (RequestIsSuspended
+            or    RequestIsInError))
+
+	Relations
+		AsyncRel							
+			one-to-one relation to AsyncActionRequest 
+			Field Mapping uses symbolic key
+				related.AsyncActionRequest			= AsyncID
+					
+		FailedTriggers
+    		one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerByRequest
+				related.AsyncActionRequest = AsyncID
+			Instance Selection
+				where (related.Status = 7)
+				
+		Trigger
+			one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerByRequest
+				related.AsyncActionRequest = AsyncID
+
+		DefaultTimeZoneRel
+		    one-to-one relation to TimeZone
+		    Field Mapping uses symbolic key
+		        related.TimeZone = DefaultTimeZone
+
+        ContextTimeZoneRel
+            one-to-one relation to TimeZone
+            Field Mapping uses symbolic key
+                related.TimeZone = ContextTimeZone
+
+		ScheduledTimeZoneRel
+		    one-to-one relation to TimeZone
+		    Field Mapping uses symbolic key
+		        related.TimeZone = ScheduledTimeZone
+			
+	Sets
+
+		ByCompleteStamp
+			indexed
+			Sort Order
+				create stamp
+				EffectiveDatedGroup
+			Instance Selection
+				where (Status.Complete)		
+		
+		ByNewStamp
+			indexed
+			Sort Order
+				create stamp
+				EffectiveDatedGroup
+			Instance Selection
+				where (Status.New)		
+
+		ByCompleteEffective
+			indexed
+			Sort Order
+				EffectiveDate
+				create stamp
+				EffectiveDatedGroup
+			Instance Selection
+				where (Status.Complete)		
+	
+		ByNewEffective
+			indexed
+			Sort Order
+				EffectiveDate
+				create stamp
+				EffectiveDatedGroup
+			Instance Selection
+				where (Status.New)		
+
+		ByEffectiveDate
+			indexed
+			Sort Order
+				EffectiveDate
+				create stamp
+				EffectiveDatedGroup				
+				
+		ByAsyncID
+			indexed
+			Sort Order
+				AsyncID
+			Instance Selection
+				where (HasAsyncId)	
+				
+		ByCanProcess
+			indexed
+			Sort Order
+				EffectiveDatedGroup
+			Instance Selection
+				where (Status.New)
+		
+	Rule Blocks
+		DeleteAsyncTrigger
+			if (last Trigger exists)							
+				for each Trigger
+					if (each.Status.LostWhilePending)
+						invoke Delete LostWhilePending each
+					else
+					if (each.Status.FailedToStart)
+						invoke Delete FailedToStart each
+					else
+					if (each.Status.LostWhileInProgress)
+						invoke Delete LostWhileInProgress each
+					else
+					if (each.Status.TerminatedAbnormally)
+						invoke Delete TerminatedAbnormally each
+					
+		DeleteAsyncRequest					
+			if (AsyncRel exists)								
+				invoke Delete AsyncRel
+
+		TurnOffRequest
+			if (AsyncRel exists)
+				invoke SetPendingScheduling AsyncRel
+					invoked.ParamPendingScheduling = false
+				
+		
+				
+	Actions
+						
+		ProcessPastDueRequests is a Set Action
+			run in background 
+			disable checkpoint
+			
+			Instance Selection
+				where (Status.New
+				and    EffectiveDate <= EffectiveCurrentDate)
+				
+			Sort Order
+				EffectiveDate
+				create stamp
+				EffectiveDatedGroup
+				
+			Action Rules
+				Instance Rules
+					invoke New.ProcessInternal
+						invoked.SuppressError = true
+						invoked.RemoveTrigger = true
+									
+		RemoveCompletedGroups is a Set Action
+			Parameters
+				ThruDate 		is Date
+				PurgeOffsetDays is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = ThruDate
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = EffectiveCurrentDate - PurgeOffsetDays
+
+
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Instance Selection
+				where (Status.Complete
+				and    ExecuteTime < LocalThruDate)
+
+			Sort Order
+				Status
+				ExecuteTime
+				create stamp
+				EffectiveDatedGroup	
+								
+			Action Rules
+
+				Instance Rules
+					invoke Complete.Delete						
+		
+    StateCycles
+    
+    	GroupLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+
+				Create is a Create Action
+					restricted
+				
+				Cancel is an Instance Action
+					Action Rules
+						for each EffectiveDatedEntry set
+							if (not each.BusinessObjectExists)
+								confirmation required
+									"<each.RecordID.BusinessClassName>DoesNotExist.Continue?"
+
+						include TurnOffRequest
+									
+						for each EffectiveDatedEntry set
+							invoke CancelNew each
+
+						include DeleteAsyncTrigger
+						include DeleteAsyncRequest
+
+						if (config(framework).strictEffectiveDate = "true")
+						    ExecuteTime = system current timestamp
+						else
+						    ExecuteTime = current timestamp
+
+						make transition to Complete
+
+				CancelInBackground is an Instance Action
+					run in background
+
+					Action Rules
+						include TurnOffRequest
+						invoke CancelSet EffectiveDatedEntry
+							invoked.ParamGroup = EffectiveDatedGroup
+
+				FinishCancel is an Instance Action
+					restricted
+
+					Action Rules
+						include DeleteAsyncTrigger
+						include DeleteAsyncRequest
+
+                        if (config(Framework).strictEffectiveDate = "true")
+						    ExecuteTime = system current timestamp
+						else
+						    ExecuteTime = current timestamp
+
+						make transition to Complete
+						
+				ChangeEffectiveDate is an Instance Action
+					Parameters
+						NewEffectiveDate is Date
+						NewEffectiveTimeZone is a TimeZone
+
+					Action Rules
+					    EffectiveDate = NewEffectiveDate
+					    EffectiveTimeZone = EffectiveTimeZone
+
+                        constraint (NewEffectiveDate >= EffectiveCurrentDate)
+                            "EffectiveDateMustBeInFuture"
+
+                        if (config(Framework).strictEffectiveDate = "true")
+                            if (NewEffectiveDate <= current corporate date)
+                                confirmation required
+                                    "ChangingEffectiveDateToTodayWillProcessImmediately"
+                        else
+                        if (ExecuteAt <= system current timestamp)
+                            confirmation required
+                                "ChangingEffectiveDateToTodayWillProcessImmediately"
+ 							
+						for each EffectiveDatedEntry set
+							invoke ChangeEffectiveDate each
+								invoked.NewEffectiveDate = NewEffectiveDate
+								invoked.NewEffectiveTimeZone = NewEffectiveTimeZone
+
+                        if (ExecuteAt <= system current timestamp)
+                            if (not MissingSchedule)
+                            	include DeleteAsyncTrigger
+                            
+                            invoke Process
+                        else
+							if (MissingSchedule)
+								invoke Schedule
+							else
+								include DeleteAsyncTrigger
+																	
+								invoke Update AsyncRel
+									invoked.PendingScheduling = true
+									invoked.TimeToExec		  = ExecuteAt
+									invoked.TranDisableAudit  = true
+
+				Process is an Instance Action					
+					Action Rules
+						invoke ProcessInternal
+							invoked.SuppressError = false
+							invoked.RemoveTrigger = true
+				
+				TriggerProcess is an Instance Action
+					restricted
+					valid when (CanProcess)
+					
+					Action Rules
+						invoke ProcessInternal
+							invoked.SuppressError = false
+							invoked.RemoveTrigger = false
+										
+				ProcessInternal is an Instance Action
+					restricted
+					valid when (CanProcess)
+
+					Parameters
+						SuppressError is Boolean
+						RemoveTrigger is Boolean
+											
+					Action Rules
+                        constraint(EffectiveDateInPast)
+                            "EffectiveDateMustBeInPast"
+
+						if (RemoveTrigger)
+							include DeleteAsyncTrigger
+							include DeleteAsyncRequest
+													
+						for each EffectiveDatedEntry set
+							invoke Process each
+								resume on error
+									if (SuppressError)
+										LocalInError = true										
+										LocalErrorMessage = error message
+									else
+										cancel resume
+							
+						for each EffectiveDatedEntry set								
+							invoke ApplyPendingRules each
+								resume on error
+									if (SuppressError)
+										LocalInError = true										
+										LocalErrorMessage = error message
+									else
+										cancel resume
+						
+						if (not LocalInError)
+							ExecuteTime = system current timestamp
+							make transition to Complete	
+						
+				Schedule is an Instance Action
+					valid when (MissingSchedule)
+
+				ResetRetries is an Instance Action 
+					restricted
+					Action Rules
+						Retries = 0
+						
+				Retry is an Instance Action 
+					restricted
+					Action Rules
+						increment Retries
+					
+
+
+
+
+				Requeue is an Instance Action
+					valid when (CanRequeue)
+					Action Rules
+						invoke Requeue TerminatedAbnormally AsyncRel.last FailedTriggers
+						
+				Fix82353 is an Instance Action
+					valid when (CouldBe82353)
+					default label is untranslatable
+					
+					Action Rules
+						for each EffectiveDatedEntry set
+							if (each.CouldBe82353)
+								invoke Fix82353 each 
+									
+			Complete is a State
+				Delete is a Delete Action
+	

@@ -1,0 +1,182 @@
+RecipeLine is a BusinessClass
+	owned by recipe
+	
+	prefix is RCPL
+	
+	Ontology
+		symbolic key is RecipeLine
+		
+	Patterns
+		disable AuditIndex
+	
+	Persistent Fields
+		Sequence
+			disable Auditing
+		IngredientItem				is an Item
+			default label is "Item"
+		Description
+		IngredientType
+		QuantityInRecipeUOM			is like UnsignedQuantity
+			default label is "Quantity"
+			precision is IngredientItem.DerivedNumberOfDecimalsRecipe
+		RecipeUnitOfMeasure
+			default label is "RecipeUOM"
+		RecipeUOMConversion			is a UOMConversion
+		StockUOM					is a UnitOfMeasure
+		QuantityInStockUOM			is like UnsignedQuantity
+			default label is "Quantity"
+			precision is IngredientItem.NumberOfDecimalsQuantity
+			protected
+	
+	Local Fields
+		RoundedValue
+		LocalInputQuantity			is like UnsignedQuantity
+		RoundToRecipeDecimals		is Boolean
+		LocalRoundedQuantity		is an UnsignedQuantity	
+		
+	Rule Blocks
+		RoundQuantity
+			initialize RoundedValue
+			RoundedValue.RoundInput = LocalInputQuantity
+			if (RoundToRecipeDecimals)
+				RoundedValue.RoundTo = (1/10^IngredientItem.DerivedNumberOfDecimalsRecipe)
+			else
+				RoundedValue.RoundTo = (1/10^IngredientItem.NumberOfDecimalsQuantity)
+			RoundedValue.RoundingType = RoundingType.Normal
+			
+			LocalRoundedQuantity = RoundedValue.RoundResult
+	
+	Transient Fields
+		TransientIngredientUnitOfMeasure is an IngredientUnitOfMeasure
+
+	Derived Fields
+			
+	Relations
+		ValidRecipeItemsRel
+			one-to-many relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup		= ItemGroup
+			Instance Selection
+				where (related.Ingredient)
+	
+		ItemRecipeUOMRel
+			one-to-one relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup				= ItemGroup
+				related.Item					= IngredientItem
+				related.RecipeUnitOfMeasure		= RecipeUnitOfMeasure
+		
+		DefaultItemRecipeUOMRel
+			one-to-many relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup				= ItemGroup
+				related.Item					= IngredientItem
+			Instance Selection
+				where (related.ValidForRecipe.Default)
+				
+	Field Rules
+		Sequence
+			if (action type.Create)
+				autosequence using Recipe.LineCount
+			
+			constraint (Sequence <= Recipe.LineCount)
+				"LastSequenceIs<Recipe.LineCount>"
+
+		IngredientItem
+			required
+
+		Description
+			required
+			initial value is IngredientItem.Description
+			default to IngredientItem.Description
+				
+		IngredientType
+			initial value is IngredientType.Ingredient
+			default to IngredientType.Ingredient
+
+		QuantityInRecipeUOM
+			required
+			
+			if (action type.Create)
+				constraint (QuantityInRecipeUOM decimals <= IngredientItem.DerivedNumberOfDecimalsRecipe)
+					"TooManyDecimalDigitsEnteredForQuantity:MaxForItem<IngredientItem>Is<IngredientItem.DerivedNumberOfDecimalsRecipe>"
+			else
+			if (action type.Update)
+				LocalInputQuantity = QuantityInRecipeUOM
+				RoundToRecipeDecimals = true
+				include RoundQuantity
+				QuantityInRecipeUOM = LocalRoundedQuantity
+			
+		RecipeUnitOfMeasure
+			required
+			default to DefaultItemRecipeUOMRel.RecipeUnitOfMeasure
+			
+			constraint (ItemRecipeUOMRel.ValidForRecipe.Default
+			or			ItemRecipeUOMRel.ValidForRecipe.Valid)
+				"RecipeUnitOfMeasure<RecipeUnitOfMeasure>IsNotValidForItem<IngredientItem>"
+	
+		RecipeUOMConversion
+			required
+			default to ItemRecipeUOMRel.UnitsPerStock
+		
+		StockUOM
+			default to IngredientItem.StockUOM
+			cannot be changed
+			
+		QuantityInStockUOM
+			LocalInputQuantity = (QuantityInRecipeUOM / RecipeUOMConversion)
+			RoundToRecipeDecimals = false
+			include RoundQuantity
+			QuantityInStockUOM = LocalRoundedQuantity
+
+	Conditions
+		ActiveRecipe
+			restricted
+			when (Recipe.Active)
+
+	Sets
+		BySequence
+			duplicates
+			Sort Order
+				ItemGroup
+				Item
+				Sequence
+				RecipeLine
+				
+		ByIngredient
+			Sort Order
+				ItemGroup
+				Item
+				IngredientItem
+					
+	Actions
+		Create is a Create Action
+			restricted
+			Action Rules
+			Exit Rules
+			
+		AddIngredient is a Create Action
+			valid when (ItemGroup.RecipeManagementInUse)
+			Action Rules
+				IngredientItem 		= TransientIngredientUnitOfMeasure.Item
+				RecipeUnitOfMeasure = TransientIngredientUnitOfMeasure.RecipeUnitOfMeasure
+					
+				constraint (IngredientItem.Ingredient)
+					"Item<IngredientItem>MustBeSetupAsIngredientItem"
+
+		Delete is a Delete Action
+			valid when (ItemGroup.RecipeManagementInUse)
+			Entrance Rules
+				invoke SystemUpdate Recipe
+					invoked.LineCount			-= 1
+		
+		Update is an Update Action
+			valid when (ItemGroup.RecipeManagementInUse)
+			Action Rules
+		
+		SystemUpdate is an Update Action
+			restricted
+			bypass field rules
+			Exit Rules
+
+	

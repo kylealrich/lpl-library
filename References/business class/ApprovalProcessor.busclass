@@ -1,0 +1,1682 @@
+ApprovalProcessor is a BusinessClass
+    owned by GeneralLedger
+    prefix is ApPro
+
+    Ontology
+    	symbolic key is ApprovalProcessor
+    	
+    Patterns
+	
+	Persistent Fields
+        ProcessorTitle                  is Alpha 200
+#ifdef module sharedfinance
+		Approver						is a FinanceResource
+		ApprovalLevel					is Numeric 8
+		ApproverTeam					is a FinanceTeamField
+		ReassignToApprovalLevel			is a ResponsibilityMatrixResource
+#endif
+#ifndef module sharedfinance
+		Approver						is Numeric 13
+		ApprovalLevel					is Numeric 8
+		ApproverTeam					is a GlonlyFinanceTeamField
+		ReassignToApprovalLevel			is Numeric 8
+#endif
+		ApprovalPosition				is a Position
+		Status							is Numeric 1
+			States
+				ApprovalNotRequired		value is 0
+				PendingApproval			value is 1
+				Approved				value is 2
+				Rejected				value is 3
+				Disapproved             value is 4      
+				Unreleased				value is 5      
+				Cancelled				value is 6
+		RejectReasonCodeRequired		is Boolean
+		Workunit						is a PfiWorkunit
+		Matrix							is a ResponsibilityMatrix
+		ApprovalMatrix					is a ResponsibilityMatrixApproval
+		ApprovalAmount					is a CurrencyAmount
+
+	Local Fields
+		LocalUpdatingLevel				is Boolean
+		LocalActor						is an Actor
+        LocalApproverList			   	is Text
+		LocalPositionList				is Text
+		LocalFirstApproverAssigned	  	is Boolean
+		LocalFirstActorAssigned			is Boolean
+		LocalApprovalLevel			   	is Numeric 8
+#ifdef module sharedfinance
+		LocalApprover				   	is a FinanceResource
+		LocalApproverTeam			   	is a FinanceTeamField
+#endif
+#ifndef module sharedfinance
+		LocalApprover				   	is Numeric 13
+		LocalApproverTeam			   	is AlphaUpper 20
+#endif
+		LocalApprovalPosition			is a Position
+		LocalEmployee					is an Employee
+		LocalEmailAddress				is an EmailAddressMulti
+
+	Transient Fields
+
+    Rule Blocks
+		InitiateJournalFlow
+			trigger "TransactionApprovalProcessor" PA service
+				title is "<ProcessorTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					ApprovalProcessor
+				URLs
+					"<linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is \"ViewTransaction\")>"    
+
+#ifdef module ap
+		InitiatePayablesFlow
+			trigger "TransactionApprovalProcessor" PA service
+				title is "<ProcessorTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					ApprovalProcessor
+				URLs
+					"<linkback(webapp is Approver navigation is TransactionLinkbackNav text is \"ViewTransaction\")>"
+#endif
+
+#ifdef module po
+		InitiateContractManagementFlow 
+			trigger "TransactionApprovalProcessor" PA service
+				title is "<ProcessorTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					ApprovalProcessor
+					ContractName
+					NotificationEmail
+					Supplier
+					SupplierName					
+				URLs
+					"<linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is \"ViewContract\")>"		
+#endif
+
+#ifdef module rq
+		InitiateRequisitionFlow
+			trigger "TransactionApprovalProcessor" PA service
+				title is "<ProcessorTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					ApprovalProcessor
+					RequisitionRel.Company
+						variable name is Company
+					RequisitionRel.Requisition
+						variable name is Requisition
+					RequisitionRel.RequestingLocation
+						variable name is RequestingLocation
+					RequisitionRel.RequestingLocation.Name
+						variable name is RequestingLocationName
+					RequisitionRel.Requester
+						variable name is Requester
+					RequisitionRel.DerivedMatrixGLString
+						variable name is GLString
+					RequisitionRel.ApprovalValue
+						variable name is RequisitionTotal
+				URLs
+					"<linkback(webapp is Approver navigation is TransactionLinkbackNav text is \"ViewRequisition\")>"
+#endif
+
+#ifdef module po
+		InitiatePurchaseOrderFlow
+			trigger "TransactionApprovalProcessor" PA service
+				title is "<ProcessorTitle>"
+				Variables
+					FinanceEnterpriseGroup
+					ApprovalProcessor
+					PurchaseOrderRel.Company
+						variable name is Company
+					PurchaseOrderRel.PurchaseOrder
+						variable name is PurchaseOrder
+					PurchaseOrderRel.Vendor
+						variable name is Vendor
+					PurchaseOrderRel.Vendor.VendorName
+						variable name is VendorName
+					PODistributionAggregationRel.SummaryAccount
+						variable name is GLString
+					PODistributionAggregationRel.SummaryAmount
+						variable name is GLStringTotal
+				URLs
+					"<linkback(webapp is Approver navigation is TransactionLinkbackNav text is \"ViewPurchaseOrder\")>"
+#endif
+
+		SendRejectNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<RejectedMessage>"
+				priority is very high
+				linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is "GlobalLedgerTransactionRejected")				
+
+		SendDisapproveNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<RejectedMessage>"
+				priority is very high
+				linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is "ContractDistributionAggregationRejected")	
+
+#ifdef module rq
+		SendUnreleasedNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<UnreleasedMessage>"
+				priority is very high
+				linkback(webapp is Approver navigation is TransactionLinkbackNav text is "RequisitionUnreleased")
+#endif
+
+		SendManualApproveNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<ManuallyApprovedMessage>"
+				priority is very high
+				linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is "GloballLedgerTransactionApproved")
+
+		SendManualRejectNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<ManuallyRejectedMessage>"
+				priority is very high
+				linkback(webapp is JournalApprover navigation is TransactionLinkbackNav text is "GlobalLedgerTransactionRejected")
+
+		SendSubmittedForApprovalEmail
+#ifdef module sharedfinance
+			if (Approver entered)
+				if (Approver.NotifyWhenInvoiceSubmitted)
+					LocalEmailAddress = Approver.EmailAddress
+#endif
+#ifdef module ap
+					include SendAvailableInvoiceMessage
+			else
+#endif
+#ifdef module sharedfinance
+			if (ApproverTeam entered)
+				if (FinanceTeamMembersFromCurrentApprovalLevelRel exists)
+					for each FinanceTeamMembersFromCurrentApprovalLevelRel
+						if (each.FinanceTeamMember.TeamMember.NotifyWhenInvoiceSubmitted)
+							LocalEmailAddress = each.FinanceTeamMember.TeamMember.EmailAddress
+#endif
+#ifdef module ap
+							include SendAvailableInvoiceMessage
+#endif
+#ifdef module sharedfinance
+				else
+				if (FinanceTeamMembersFromEscalatedApprovalLevelRel exists)
+					for each FinanceTeamMembersFromEscalatedApprovalLevelRel
+						if (each.FinanceTeamMember.TeamMember.NotifyWhenInvoiceSubmitted)
+							LocalEmailAddress = each.FinanceTeamMember.TeamMember.EmailAddress
+#endif
+#ifdef module ap
+							include SendAvailableInvoiceMessage
+#endif
+#ifdef module sharedfinance
+				else
+					for each FinanceTeamMembersFromEscalatedApprovalLevelRel2
+						if (each.FinanceTeamMember.TeamMember.NotifyWhenInvoiceSubmitted)
+							LocalEmailAddress = each.FinanceTeamMember.TeamMember.EmailAddress
+#endif
+#ifdef module ap
+							include SendAvailableInvoiceMessage
+			else
+#endif
+			if (ApprovalPosition entered)
+				if (PositionTeamMembersFromCurrentApprovalLevelRel exists)
+					for each PositionTeamMembersFromCurrentApprovalLevelRel
+						LocalEmailAddress = each.Employee.EmployeeWorkEmailAddress
+#ifdef module ap
+						include SendAvailableInvoiceMessage
+#endif
+				else
+				if (PositionTeamMembersFromEscalatedApprovalLevelRel exists)
+					for each PositionTeamMembersFromEscalatedApprovalLevelRel
+						LocalEmailAddress = each.Employee.EmployeeWorkEmailAddress
+#ifdef module ap
+						include SendAvailableInvoiceMessage
+#endif
+				else
+					for each PositionTeamMembersFromEscalatedApprovalLevelRel2
+						LocalEmailAddress = each.Employee.EmployeeWorkEmailAddress
+#ifdef module ap
+						include SendAvailableInvoiceMessage
+#endif
+
+#ifdef module ap
+		SendAvailableInvoiceMessage
+			if (PfiConfigurationFromEmailPropertyRel.Value entered
+			and LocalEmailAddress entered)
+				send email
+					to LocalEmailAddress
+					from PfiConfigurationFromEmailPropertyRel.Value
+					subject "<SendAvailableEmailSubject>"
+					Attachments
+						if (PayablesInvoiceRel.InvoiceImageEntered)
+							attachment PayablesInvoiceRel.PayablesInvoiceDocumentInvoiceTypeRel.Attachment.File
+								name is PayablesInvoiceRel.PayablesInvoiceDocumentInvoiceTypeRel.Attachment.Title
+								mime type is PayablesInvoiceRel.PayablesInvoiceDocumentInvoiceTypeRel.Attachment.MimeType
+						if (PayablesInvoiceRel.Company.VendorGroup.InvoiceApprovalIncludeRelatedDocs)
+							for each PayablesInvoiceRel.PayablesInvoiceDocumentNonInvoiceTypeRel
+								attachment each.Attachment.File
+									name is each.Attachment.Title
+									mime type is each.Attachment.MimeType
+					Contents
+						"<SendAvailableEmailContent>"
+						"<PayablesInvoiceRel.DerivedApprovalComments>"
+						"<PayablesInvoiceRel.DerivedEmailLink>"
+						"<PayablesInvoiceRel.DerivedEscalatedText>"
+#endif
+
+		SendManualUnreleasedNotificationToUser
+			send notification
+				to	create stamp.actor
+				description is	"<ManuallyUnreleasedMessage>"
+				priority is very high
+				linkback(webapp is Approver navigation is TransactionLinkbackNav text is "RequisitionUnreleased")	
+
+#ifdef module sharedfinance
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			if (FinanceTeamMembersFromCurrentApprovalLevelRel exists)
+				for each FinanceTeamMembersFromCurrentApprovalLevelRel
+					if (LocalFirstApproverAssigned)
+						LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					else
+						LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+						LocalFirstApproverAssigned = true
+			else
+			if (FinanceTeamMembersFromEscalatedApprovalLevelRel exists)
+				for each FinanceTeamMembersFromEscalatedApprovalLevelRel
+					if (LocalFirstApproverAssigned)
+						LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					else
+						LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+						LocalFirstApproverAssigned = true
+			else
+				for each FinanceTeamMembersFromEscalatedApprovalLevelRel2
+					if (LocalFirstApproverAssigned)
+						LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					else
+						LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+						LocalFirstApproverAssigned = true
+
+		BuildApprovalPositionActorList
+			LocalPositionList = ""
+			LocalFirstActorAssigned = false
+			if (PositionTeamMembersFromCurrentApprovalLevelRel exists)
+				for each PositionTeamMembersFromCurrentApprovalLevelRel
+					LocalEmployee = each.Employee
+					if (LocalFirstActorAssigned)
+						LocalPositionList = LocalPositionList + "," + each.Employee.agent(Actor).Actor
+					else
+						LocalPositionList = each.Employee.agent(Actor).Actor
+						LocalFirstActorAssigned = true
+			else
+			if (PositionTeamMembersFromEscalatedApprovalLevelRel exists)
+				for each PositionTeamMembersFromEscalatedApprovalLevelRel
+					LocalEmployee = each.Employee
+					if (LocalFirstActorAssigned)
+						LocalPositionList = LocalPositionList + "," + each.Employee.agent(Actor).Actor
+					else
+						LocalPositionList = each.Employee.agent(Actor).Actor
+						LocalFirstActorAssigned = true
+			else
+				for each PositionTeamMembersFromEscalatedApprovalLevelRel2
+					LocalEmployee = each.Employee
+					if (LocalFirstActorAssigned)
+						LocalPositionList = LocalPositionList + "," + each.Employee.agent(Actor).Actor
+					else
+						LocalPositionList = each.Employee.agent(Actor).Actor
+						LocalFirstActorAssigned = true
+
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel = ApprovalLevel
+			if (first EscalatedLocalMatrixApprovalLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel = ApprovalLevel + 1
+				if (EscalatedLocalMatrixApprovalLevelRel2 exists)
+					LocalApprover		  = first EscalatedLocalMatrixApprovalLevelRel2.Approver
+					LocalApproverTeam	  = first EscalatedLocalMatrixApprovalLevelRel2.ApprovalTeam
+					LocalApprovalPosition = first EscalatedLocalMatrixApprovalLevelRel2.ApprovalPosition
+				else
+					LocalApprover		  = first EscalatedLocalMatrixApprovalLevelRel.Approver
+					LocalApproverTeam	  = first EscalatedLocalMatrixApprovalLevelRel.ApprovalTeam
+					LocalApprovalPosition = first EscalatedLocalMatrixApprovalLevelRel.ApprovalPosition
+			else
+				LocalApprovalLevel = first EscalatedLocalMatrixApprovalLevelRel.EscalationApprovalLevel.ApprovalLevel
+				if (EscalatedLocalMatrixApprovalLevelRel2 exists)
+					LocalApprover		  = first EscalatedLocalMatrixApprovalLevelRel2.Approver
+					LocalApproverTeam	  = first EscalatedLocalMatrixApprovalLevelRel2.ApprovalTeam
+					LocalApprovalPosition = first EscalatedLocalMatrixApprovalLevelRel2.ApprovalPosition
+				else
+					LocalApprover		  = first EscalatedLocalMatrixApprovalLevelRel.Approver
+					LocalApproverTeam	  = first EscalatedLocalMatrixApprovalLevelRel.ApprovalTeam
+					LocalApprovalPosition = first EscalatedLocalMatrixApprovalLevelRel.ApprovalPosition
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel		= first ResponsibilityMatrixResourceRel.ApprovalLevel
+				LocalApprover			= first ResponsibilityMatrixResourceRel.Approver
+				LocalApproverTeam		= first ResponsibilityMatrixResourceRel.ApprovalTeam
+				LocalApprovalPosition	= first ResponsibilityMatrixResourceRel.ApprovalPosition
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalMatrixApprovalLevelRel exists)
+					LocalApprovalLevel		= first LocalMatrixApprovalLevelRel.ApprovalLevel
+					LocalApprover			= first LocalMatrixApprovalLevelRel.Approver
+					LocalApproverTeam		= first LocalMatrixApprovalLevelRel.ApprovalTeam
+					LocalApprovalPosition	= first LocalMatrixApprovalLevelRel.ApprovalPosition
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+					initialize LocalApprovalPosition
+#endif
+
+    Derived Fields
+        ApprovedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"Approved"
+
+		RejectedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"Rejected"
+
+		DisapprovedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"Disapproved"
+
+		UnreleasedMessage		is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"Unreleased"
+
+		ManuallyApprovedMessage	is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"ManuallyApproved"
+		
+		ManuallyRejectedMessage	is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"ManuallyRejected"
+
+		ManuallyUnreleasedMessage	is a StringField
+			type is Alpha 150
+			restricted
+			ProcessorTitle
+			" "
+			"ManuallyUnreleased"
+
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+#ifdef module sharedfinance
+			if (CurrentMatrixApprovalLevelRel exists)
+				return first CurrentMatrixApprovalLevelRel.Approver
+			else
+			if (EscalatedMatrixApprovalLevelRel exists)
+				return first EscalatedMatrixApprovalLevelRel.Approver
+			else
+				return first EscalatedMatrixApprovalLevelRel2.Approver
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+#ifdef module sharedfinance
+			if (CurrentMatrixApprovalLevelRel exists)
+				return first CurrentMatrixApprovalLevelRel.Approver.FinanceResourceActor
+			else
+			if (EscalatedMatrixApprovalLevelRel exists)
+				return first EscalatedMatrixApprovalLevelRel.Approver.FinanceResourceActor
+			else
+				return first EscalatedMatrixApprovalLevelRel2.Approver.FinanceResourceActor
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+#ifdef module sharedfinance
+			if (CurrentMatrixApprovalLevelRel exists)
+				return first CurrentMatrixApprovalLevelRel.ApprovalTeam
+			else
+			if (EscalatedMatrixApprovalLevelRel exists)
+				return first EscalatedMatrixApprovalLevelRel.ApprovalTeam
+			else
+				return first EscalatedMatrixApprovalLevelRel2.ApprovalTeam
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Text
+			restricted
+#ifdef module sharedfinance
+			include BuildTeamApproverActorList
+			return LocalApproverList
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentPositionActorList is a DerivedField
+			type is Text
+			restricted
+#ifdef module sharedfinance
+			include BuildApprovalPositionActorList
+			return LocalPositionList
+#endif
+#ifndef module sharedfinance
+			return blank
+#endif
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentMatrixApprovalLevelRel.EscalationDays > 0)
+				return first CurrentMatrixApprovalLevelRel.EscalationDays	
+			else
+			if (first EscalatedMatrixApprovalLevelRel.EscalationDays > 0)
+				return first EscalatedMatrixApprovalLevelRel.EscalationDays
+			else
+			if (first EscalatedMatrixApprovalLevelRel2.EscalationDays > 0)
+				return first EscalatedMatrixApprovalLevelRel2.EscalationDays
+			else
+				return 10000
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+#ifdef module sharedfinance
+			if (first CurrentMatrixApprovalLevelRel.EscalationHours > 0)
+				return first CurrentMatrixApprovalLevelRel.EscalationHours
+			else
+			if (first EscalatedMatrixApprovalLevelRel.EscalationHours > 0)
+				return first EscalatedMatrixApprovalLevelRel.EscalationHours
+			else
+			if (first EscalatedMatrixApprovalLevelRel2.EscalationHours > 0)
+				return first EscalatedMatrixApprovalLevelRel2.EscalationHours
+			else
+				return 9999.99
+#endif
+#ifndef module sharedfinance
+			return 0
+#endif
+
+        DerivedAuditCount is a DerivedField
+			type is Alpha size up to 20
+			restricted
+			if (ApprovalProcessorAudit set exists)
+				return "(" + instance count of ApprovalProcessorAudit set + ")"
+			else
+				return ""
+
+		DerivedAuditIndicator is a DerivedField
+			type is Alpha 1
+			if (ApprovalProcessorAudit set exists)
+				return "*"
+			else
+				return ""
+
+		DerivedDocumentType is a DerivedField
+			type is Numeric size 3
+			if (ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry)
+				return 1
+			if (ApprovalProcessor.ApprovalTransactionForm.Requisition)
+				return 2
+			if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+				return 3
+			if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+				return 4
+			if (ApprovalProcessor.ApprovalTransactionForm.ContractManagement)
+				return 5
+
+		ContractName is a DerivedField 
+			type is Alpha size 120
+#ifdef module po
+			return ContractRel.Name 
+#endif
+#ifndef module po
+			return blank
+#endif
+		
+		Supplier is a DerivedField 
+			type is Numeric size 10 
+#ifdef module po
+			return ContractRel.Supplier 
+#endif
+#ifndef module po
+			return 0
+#endif
+
+		SupplierName is a DerivedField 
+			type is Alpha size 120
+#ifdef module po
+			return ContractRel.SupplierName 
+#endif
+#ifndef module po
+			return blank
+#endif
+
+		NotificationEmail is a DerivedField 
+			type is Alpha size 120		
+#ifdef module ap
+			if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+				return PayablesInvoiceRel.DerivedProcessingTeamToEmail
+#endif
+#ifdef module rq
+			if (ApprovalProcessor.ApprovalTransactionForm.Requisition)
+				return RequisitionRel.RequesterEmailAddress
+#endif
+#ifdef module po
+			if (ApprovalProcessor.ApprovalTransactionForm.ContractManagement)
+				return ContractRel.PrimaryContactEmail
+			if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+				return PurchaseOrderRel.Buyer.EmployeeWorkEmailAddress
+#endif
+			if (ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry)
+				return blank
+
+		DerivedCurrencyLabel is a DerivedField
+			type is Alpha up to 27
+#ifdef module ap
+			return PayablesInvoiceRel.InvoiceCurrency
+#endif
+#ifndef module ap
+			return blank
+#endif
+
+		DerivedApprovalAmountAndCurrency is a DerivedField
+			type is Alpha up to 27 
+			return ApprovalAmount+ " " + ResponsibilityMatrixResourceRel.ApprovalCurrency
+
+		DerivedAPSummaryAmountAndCurrency is a DerivedField
+			type is Alpha up to 27
+#ifdef module ap
+			return PayablesInvoiceAggregationRel.SummaryAmount+ " " + DerivedCurrencyLabel
+#endif
+#ifndef module ap
+			return blank
+#endif
+
+		DerivedPOSummaryAmountAndCurrency is a DerivedField
+			type is Alpha up to 27
+#ifdef module po
+			return PODistributionAggregationRel.SummaryAmount+ " " + PurchaseOrderRel.Currency
+#endif
+#ifndef module po
+			return blank
+#endif
+
+		DerivedContractSummaryAmountAndCurrency is a DerivedField
+			type is Alpha up to 27
+#ifdef module po
+			return ContractAggregationRel.SummaryAmount+ " " + ContractRel.CurrencyCode
+#endif
+#ifndef module po
+			return blank
+#endif
+
+#ifdef module ap
+		SendAvailableEmailSubject is a MessageField
+			restricted
+			"Distribution<PayablesInvoiceAggregationRel.SummaryAccount>For_\Invoice<PayablesInvoiceRel.Invoice>For_\Amt<PayablesInvoiceAggregationRel.SummaryAmount>_\DueOn<PayablesInvoiceRel.DueDate>"
+
+		SendAvailableEmailContent is a MessageField
+			restricted
+			"Distribution<PayablesInvoiceAggregationRel.SummaryAccount>For_\Invoice<PayablesInvoiceRel.Invoice>For_\Amt<PayablesInvoiceAggregationRel.SummaryAmount>_\DueOn<PayablesInvoiceRel.DueDate>HasBeenSubmittedForYourApproval."
+#endif
+
+		DerivedContract is a DerivedField 
+			type is Numeric size 15
+#ifdef module po
+			return ContractRel.Contract 
+#endif
+#ifndef module po
+			return 0
+#endif
+
+		Vendor is a DerivedField 
+			type is Numeric size 9
+#ifdef module po
+			return PurchaseOrderRel.Vendor
+#endif
+#ifndef module po
+			return 0
+#endif
+
+		VendorName is a DerivedField 
+			type is Alpha size 120
+#ifdef module po
+			return PurchaseOrderRel.Vendor.VendorName
+#endif
+#ifndef module po
+			return blank
+#endif
+
+		Requisition is a DerivedField 
+			type is Numeric size 12
+#ifdef module rq
+			return RequisitionRel.Requisition
+#endif
+#ifndef module rq
+			return 0
+#endif
+
+		RequestingLocation is a DerivedField 
+			type is AlphaUpper size 20
+#ifdef module rq
+			return RequisitionRel.RequestingLocation
+#endif
+#ifndef module rq
+			return blank
+#endif
+
+		RequestingLocationName is a DerivedField 
+			type is Alpha size 80
+#ifdef module rq
+			return RequisitionRel.RequestingLocation.Name
+#endif
+#ifndef module rq
+			return blank
+#endif
+
+		DerivedPurchaseOrder is a DerivedField 
+			type is Numeric 12
+#ifdef module rq
+			return PurchaseOrderRel.PurchaseOrder
+#endif
+#ifndef module rq
+			return 0
+#endif
+		
+		DerivedApprovalNotRequiredComment is a MessageField
+			restricted
+			"ApprovalAmountIsBelowTheLimit"
+
+		DerivedAutoApprovedComment is a MessageField
+			restricted
+			"NoMatchingFinanceStructureFoundInTheMatrix"
+
+    Conditions
+
+#ifdef module po
+		CanDisplayContractLines 
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.StandingPurchaseType)
+
+		CanDisplayContractServiceLines 
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.ServicePurchaseType)		
+
+		CanDisplayContractParticipants
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.ContractParticipantsExist)		
+
+		CanDisplayContractQuestions
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.ContractQuestionsExist)		
+
+		CanDisplayContractAttachments
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.AttachmentsExist)		
+
+		CanDisplayContractComments 
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+			and   ContractAggregationRel.Contract.CommentsExist)
+
+		DifferentPOAndEntityCurrency
+			restricted
+			when (ResponsibilityMatrixResourceRel.ApprovalCurrency != PurchaseOrderRel.Currency)
+
+		DifferentContractAndEntityCurrency
+			restricted
+			when (ResponsibilityMatrixResourceRel.ApprovalCurrency != ContractRel.CurrencyCode)
+#endif
+
+#ifdef module ap
+		PayablesInvoiceHasMessages
+			restricted
+			when (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+			and   PayablesInvoiceRel.HasInvoiceMessages)
+
+		PayablesInvoiceHasErrors
+			restricted
+			when (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+			and   PayablesInvoiceRel.ErrorsExists)
+
+		DifferentInvoiceAndEntityCurrency
+			restricted
+			when (ResponsibilityMatrixResourceRel.ApprovalCurrency != PayablesInvoiceRel.InvoiceCurrency)
+#endif
+
+		ForContractManagement
+			restricted 
+			when (ApprovalProcessor.ApprovalTransactionForm.ContractManagement)
+
+#ifdef module rq
+		DisplayRequisitionComments
+			restricted
+			when (ApprovalProcessor.ApprovalTransactionForm.Requisition
+			and   RequisitionCommentRel exists)
+
+		DifferentRQAndEntityCurrency
+			restricted
+			when (ResponsibilityMatrixResourceRel.ApprovalCurrency != RequisitionRel.BaseCurrencyCode)
+#endif
+
+    Relations
+
+        ResponsibilityMatrixResourceRel
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.ResponsibilityMatrix        	= Matrix
+				related.ResponsibilityMatrixApproval	= ApprovalMatrix
+			Instance Selection
+				where (related.DocumentType 	= DerivedDocumentType
+				and		related.ApprovalAmount <= ApprovalAmount)
+
+		CurrentMatrixApprovalLevelRel
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.ResponsibilityMatrix        	= Matrix
+				related.ResponsibilityMatrixApproval	= ApprovalMatrix
+				related.ApprovalLevel					= ApprovalLevel
+			Instance Selection
+				where (related.DocumentType 	= DerivedDocumentType
+				and		related.ApprovalAmount <= ApprovalAmount)
+
+		EscalatedMatrixApprovalLevelRel
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+				related.ResponsibilityMatrix         = Matrix
+				related.ResponsibilityMatrixApproval = ApprovalMatrix
+				related.ApprovalLevel				 = ApprovalLevel
+			Instance Selection
+				where (related.DocumentType 		 = DerivedDocumentType)
+
+		EscalatedMatrixApprovalLevelRel2
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+				related.ResponsibilityMatrix         = Matrix
+				related.ResponsibilityMatrixApproval = ApprovalMatrix
+				related.ApprovalLevel				 = ApprovalLevel
+
+#ifdef module sharedfinance
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first CurrentMatrixApprovalLevelRel.ApprovalTeam
+
+		FinanceTeamMembersFromEscalatedApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first EscalatedMatrixApprovalLevelRel.ApprovalTeam
+
+		FinanceTeamMembersFromEscalatedApprovalLevelRel2
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= first EscalatedMatrixApprovalLevelRel2.ApprovalTeam
+
+		FinanceResourceRel
+			one-to-one relation to FinanceResource
+			Field Mapping uses symbolic key
+				related.HROrganization		= FinanceEnterpriseGroup.HROrganization
+				related.FinanceResource		= LocalEmployee
+				
+#endif
+
+		PositionTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to WorkAssignment
+			Field Mapping uses ByPosition
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Position				= first CurrentMatrixApprovalLevelRel.ApprovalPosition
+
+		PositionTeamMembersFromEscalatedApprovalLevelRel
+			one-to-many relation to WorkAssignment
+			Field Mapping uses ByPosition
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Position				= first EscalatedMatrixApprovalLevelRel.ApprovalPosition
+
+		PositionTeamMembersFromEscalatedApprovalLevelRel2
+			one-to-many relation to WorkAssignment
+			Field Mapping uses ByPosition
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Position				= first EscalatedMatrixApprovalLevelRel2.ApprovalPosition
+
+		LocalMatrixApprovalLevelRel
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.ResponsibilityMatrix        	= Matrix
+				related.ResponsibilityMatrixApproval	= ApprovalMatrix
+			Instance Selection
+				where (related.ApprovalLevel		>= LocalApprovalLevel
+				and		related.DocumentType 		= DerivedDocumentType
+				and		related.ApprovalAmount		<= ApprovalAmount)
+
+		EscalatedLocalMatrixApprovalLevelRel
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+				related.ResponsibilityMatrix         = Matrix
+				related.ResponsibilityMatrixApproval = ApprovalMatrix
+				related.ApprovalLevel				 = LocalApprovalLevel
+			Instance Selection
+				where (related.FirstInSet)
+
+		EscalatedLocalMatrixApprovalLevelRel2
+			one-to-many relation to ResponsibilityMatrixResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+				related.ResponsibilityMatrix         = Matrix
+				related.ResponsibilityMatrixApproval = ApprovalMatrix
+				related.ApprovalLevel				 = LocalApprovalLevel
+			Instance Selection
+				where (related.DocumentType 		 = DerivedDocumentType)
+
+        ParentAgentRel
+			one-to-one relation to ParentAgent
+			Field Mapping uses ActorSet
+				related.Actor = LocalActor
+
+		AgentRel
+			one-to-many relation to Agent
+			Field Mapping uses ParentSet
+				related.ParentAgent = ParentAgentRel.ParentAgent
+			Instance Selection
+				where (related.BusinessObjectRef.BusinessClassName = "Employee")
+
+		ResponsibilityMatrixApprovalProcessorRel
+			one-to-many relation to ApprovalProcessor
+			Field Mapping uses ByTransactionLine
+				related.FinanceEnterpriseGroup						= FinanceEnterpriseGroup
+				related.ApprovalProcessor.ApprovalType				= ApprovalProcessor.ApprovalType
+				related.ApprovalProcessor.SystemCode				= ApprovalProcessor.SystemCode
+				related.ApprovalProcessor.ApprovalTransactionForm	= ApprovalProcessor.ApprovalTransactionForm
+				related.ApprovalProcessor.TransactionHeader1		= ApprovalProcessor.TransactionHeader1										
+				related.ApprovalProcessor.TransactionHeader2		= ApprovalProcessor.TransactionHeader2
+				related.ApprovalProcessor.TransactionHeader3		= ApprovalProcessor.TransactionHeader3	
+				related.ApprovalProcessor.TransactionHeader4		= ApprovalProcessor.TransactionHeader4
+				related.ApprovalProcessor.TransactionLine1			= ApprovalProcessor.TransactionLine1
+            	related.ApprovalProcessor.TransactionLine2   		= ApprovalProcessor.TransactionLine2
+
+		ResponsibilityMatrixPendingApprovalProcessorRel
+			one-to-many relation using ResponsibilityMatrixApprovalProcessorRel
+			Instance Selection
+				where (related.Status.PendingApproval)
+		
+		ResponsibilityMatrixRejectedApprovalProcessorRel
+			one-to-many relation using ResponsibilityMatrixApprovalProcessorRel
+			Instance Selection
+				where (related.Status.Rejected)
+
+		ApprovalProcessorAuditRel is a ApprovalProcessorAudit set
+
+#ifdef module po
+		ContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key 
+				related.ContractGroup											= ApprovalProcessor.TransactionHeader1 
+				related.Contract                                                = ApprovalProcessor.TransactionHeader2 
+
+		ContractAggregationRel
+			one-to-one relation to ContractDistributionAggregation
+			Field Mapping uses symbolic key 
+				related.ContractGroup											= ApprovalProcessor.TransactionHeader1 
+				related.Contract                                                = ApprovalProcessor.TransactionHeader2 
+				related.ContractDistributionAggregation                         = ApprovalProcessor.Transaction 
+
+#endif
+
+		GeneralLedgerJournalControlRel
+			one-to-one relation to GeneralLedgerJournalControl
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup									= FinanceEnterpriseGroup
+				related.AccountingEntity										= ApprovalProcessor.TransactionHeader1
+				related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod	= ApprovalProcessor.TransactionHeader2
+				related.GeneralLedgerJournalControl								= ApprovalProcessor.TransactionHeader3
+		
+		GeneralLedgerTransactionRel
+			one-to-one relation to GeneralLedgerTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup									= FinanceEnterpriseGroup
+				related.AccountingEntity										= ApprovalProcessor.TransactionHeader1
+				related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod	= ApprovalProcessor.TransactionHeader2
+				related.GeneralLedgerJournalControl								= ApprovalProcessor.TransactionHeader3
+				related.GeneralLedgerTransaction								= ApprovalProcessor.Transaction
+
+#ifdef module ap
+		PayablesInvoiceRel
+            one-to-one relation to PayablesInvoice
+            Field Mapping uses symbolic key
+                related.Company                         = ApprovalProcessor.TransactionHeader1
+                related.PayablesInvoice                 = ApprovalProcessor.TransactionHeader2
+
+		PayablesInvoiceDistributionRel
+			one-to-many relation to PayablesInvoiceDistribution
+			Field Mapping uses symbolic key
+				related.Company							= ApprovalProcessor.TransactionHeader1
+                related.PayablesInvoice                 = ApprovalProcessor.TransactionHeader2
+			Instance Selection
+				where (related.DistributionAggregation  = ApprovalProcessor.Transaction)
+       
+        PayablesInvoiceAggregationRel
+            one-to-one relation to APDistributionAggregation
+            Field Mapping uses symbolic key
+                related.Company                         = ApprovalProcessor.TransactionHeader1
+                related.PayablesInvoice                 = ApprovalProcessor.TransactionHeader2
+                related.APDistributionAggregation       = ApprovalProcessor.Transaction
+
+		APDistributionAggregationStatusRel
+            one-to-many relation to APDistributionAggregation
+            Field Mapping uses symbolic key
+                related.Company							= ApprovalProcessor.TransactionHeader1
+                related.PayablesInvoice					= ApprovalProcessor.TransactionHeader2
+			Instance Selection
+				where (related.Status.PendingApproval
+				or     related.Status.Unreleased
+				or     related.Status.Rejected)
+#endif
+		
+
+		RecurringJournalControlRel
+			one-to-one relation to RecurringJournalControl
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup									= FinanceEnterpriseGroup
+				related.AccountingEntity 										= ApprovalProcessor.TransactionHeader1
+				related.RecurringJournalControl 								= ApprovalProcessor.TransactionHeader2
+
+		RecurringJournalScheduleRel
+			one-to-one relation to RecurringJournalSchedule
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 								 	= FinanceEnterpriseGroup
+				related.AccountingEntity									 	= ApprovalProcessor.TransactionHeader1
+				related.RecurringJournalControl 							 	= ApprovalProcessor.TransactionHeader2
+				related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod	= ApprovalProcessor.TransactionHeader3
+			
+		RecurringJournalTransRel
+			one-to-one relation to RecurringJournalTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntity		= ApprovalProcessor.TransactionHeader1
+				related.RecurringJournalControl = ApprovalProcessor.TransactionHeader2
+				related.RecurringJournalTransaction	= ApprovalProcessor.Transaction
+
+		PfiConfigurationFromEmailPropertyRel
+			one-to-one relation to PfiConfigurationProperty
+			Field Mapping uses symbolic key
+				related.PfiConfiguration			= "main"
+				related.PfiConfigurationProperty	= "FinanceAdminFromEmailAddress"
+
+#ifdef module rq
+		RequisitionRel
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.Requisition										= ApprovalProcessor.Transaction
+
+		RequisitionLineRel
+			one-to-many relation to RequisitionLine
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.Requisition										= ApprovalProcessor.Transaction
+
+		RequisitionCommentRel
+			one-to-many relation to RequisitionComment
+			Field Mapping uses part of key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.Requisition										= ApprovalProcessor.Transaction
+#endif
+
+#ifdef module po
+		PurchaseOrderRel
+			one-to-one relation to PurchaseOrder
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+
+		PurchaseOrderLinesRel
+			one-to-many relation to PurchaseOrderLine
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+
+        PODistributionAggregationRel
+            one-to-one relation to PODistributionAggregation
+            Field Mapping uses symbolic key
+                related.Company											= ApprovalProcessor.TransactionHeader1
+                related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+                related.PODistributionAggregation						= ApprovalProcessor.Transaction
+
+        PODistributionAggregationPendingOrCreatedRel
+            one-to-many relation to PODistributionAggregation
+            Field Mapping uses symbolic key
+                related.Company											= ApprovalProcessor.TransactionHeader1
+                related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+			Instance Selection
+				where (related.Status.PendingApproval
+				or     related.Status.Created)
+
+		POLineDistributionsForAggregationRel
+			one-to-many relation to PurchaseOrderLineDistribution
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+			Instance Selection
+				where (related.DistributionAggregation = ApprovalProcessor.Transaction)
+
+		POLinesForAggregationRel
+			one-to-many relation to PurchaseOrderLine
+			Field Mapping uses symbolic key
+				related.Company											= ApprovalProcessor.TransactionHeader1
+				related.PurchaseOrder									= ApprovalProcessor.TransactionHeader2
+				related.PurchaseOrderLine								= POLineDistributionsForAggregationRel.PurchaseOrderLine
+#endif
+
+	Sets
+		ByTransactionLine
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				ApprovalProcessor.ApprovalType
+				ApprovalProcessor.SystemCode
+				ApprovalProcessor.ApprovalTransactionForm
+				ApprovalProcessor.TransactionHeader1
+				ApprovalProcessor.TransactionHeader2
+				ApprovalProcessor.TransactionHeader3
+				ApprovalProcessor.TransactionHeader4
+				ApprovalProcessor.TransactionLine1
+				ApprovalProcessor.TransactionLine2
+
+	Field Rules
+		Status
+			default to 0
+    Actions
+        Create is a Create Action
+			restricted
+			Action Rules
+            Exit Rules
+				invoke AddToApprovalHistory
+					if (actor.agent(Employee).Employee !entered
+					and ApprovalProcessor.ApprovalTransactionForm.ContractManagement)
+#ifdef module po
+						invoked.PrmFinanceResource      = ContractRel.PrimaryContactRel.Contact 
+#endif 
+#ifndef module po
+						invoked.PrmFinanceResource      = blank
+#endif 
+					else
+						invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+					invoked.PrmFinanceTeam			= ApproverTeam
+					invoked.PrmRole					= ApprovalPosition.Description
+					invoked.PrmStatus				= 11
+
+        Update is an Update Action
+			restricted
+            Action Rules
+				if(ApprovalMatrix != old ApprovalMatrix)
+					initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam
+					initialize ApprovalPosition
+					initialize ReassignToApprovalLevel
+
+        Delete is a Delete Action
+
+        StartMatrixApproval is an Instance Action
+            restricted						
+            Action Rules
+#ifdef module sharedfinance
+                include GetNextApprovalLevel
+#endif
+                ApprovalLevel		= LocalApprovalLevel
+                Approver 			= LocalApprover
+                ApproverTeam 		= LocalApproverTeam
+				ApprovalPosition 	= LocalApprovalPosition
+                if (Approver entered or ApproverTeam entered or ApprovalPosition entered)
+					if(Status.Rejected)
+						invoke AddToApprovalHistory
+							invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+							invoked.PrmFinanceTeam			= ApproverTeam
+							invoked.PrmRole					= ApprovalPosition.Description
+							invoked.PrmStatus				= 11
+					invoke AddToApprovalHistory
+						invoked.PrmFinanceResource		= LocalApprover
+						invoked.PrmFinanceTeam			= ApproverTeam
+						invoked.PrmRole					= ApprovalPosition.Description
+						invoked.PrmStatus				= 1
+					Status = 1
+#ifdef module ap
+					if (ApprovalProcessor.ApprovalTransactionForm = ApprovalTransactionForm.PayablesInvoice)
+						RejectReasonCodeRequired = true
+						invoke Update PayablesInvoiceAggregationRel
+							invoked.Status = 5	
+#endif
+#ifdef module sharedfinance
+						include SendSubmittedForApprovalEmail
+#endif
+#ifdef module ap
+						include InitiatePayablesFlow
+					else
+#endif
+					if (ApprovalProcessor.ApprovalTransactionForm = ApprovalTransactionForm.GLJournalEntry)
+						include InitiateJournalFlow
+#ifdef module po
+					else 
+					if (ForContractManagement)
+						invoke Update ContractAggregationRel
+							invoked.Status = 0 
+						include InitiateContractManagementFlow	
+#endif
+#ifdef module rq
+					else
+					if (ApprovalProcessor.ApprovalTransactionForm.Requisition)
+						RejectReasonCodeRequired = true
+
+						include InitiateRequisitionFlow
+#endif
+#ifdef module po
+					else
+					if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+						invoke Update PODistributionAggregationRel
+							invoked.Status = 1 
+						RejectReasonCodeRequired = true
+
+						include InitiatePurchaseOrderFlow
+#endif
+
+
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				PrmEscalate	is Boolean
+				PrmReassign	is Boolean
+			Action Rules
+				LocalUpdatingLevel = true
+#ifdef module sharedfinance
+				if (PrmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+					if (PrmEscalate)
+						include GetNextEscalationApprovalLevel
+						ApprovalLevel		= LocalApprovalLevel
+						Approver			= LocalApprover
+						ApproverTeam		= LocalApproverTeam
+						ApprovalPosition	= LocalApprovalPosition
+                        invoke Update last ApprovalProcessorAuditRel
+							invoked.Escalated = true
+						if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+							include SendSubmittedForApprovalEmail
+						if(LocalApprover entered)
+							invoke AddToApprovalHistory
+								invoked.PrmFinanceResource		= LocalApprover
+								invoked.PrmStatus				= 1
+						else
+						if(LocalApproverTeam entered)
+							invoke AddToApprovalHistory
+								invoked.PrmFinanceTeam			= ApproverTeam
+								invoked.PrmStatus				= 1
+						else
+						if(LocalApprovalPosition entered)
+							invoke AddToApprovalHistory
+								invoked.PrmRole					= ApprovalPosition.Description
+								invoked.PrmStatus				= 1
+					else
+						include GetNextApprovalLevel
+						ApprovalLevel		= LocalApprovalLevel
+						Approver			= LocalApprover
+						ApproverTeam		= LocalApproverTeam
+						ApprovalPosition	= LocalApprovalPosition
+						if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+							include SendSubmittedForApprovalEmail
+						if(LocalApprover entered)
+							invoke AddToApprovalHistory
+								invoked.PrmFinanceResource		= LocalApprover
+								invoked.PrmStatus				= 1
+						else
+						if(LocalApproverTeam entered)
+							invoke AddToApprovalHistory
+								invoked.PrmFinanceTeam			= ApproverTeam
+								invoked.PrmStatus				= 1
+						else
+						if(LocalApprovalPosition entered)
+							invoke AddToApprovalHistory
+								invoked.PrmRole					= ApprovalPosition.Description
+								invoked.PrmStatus				= 1
+#endif
+
+		UpdateApprovalHistory is an Instance Action		
+			default label is untranslatable
+			restricted
+			Parameters
+				ParmActor		is an Actor
+				ParmStatus		is Numeric 2
+			Action Rules
+				LocalActor = ParmActor
+#ifdef module sharedfinance
+				if (ParmActor = actor)
+					LocalApprover = actor.agent(Employee).Employee
+				else
+					LocalApprover = first AgentRel.BusinessObjectRef(Employee).Employee
+				invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= LocalApprover
+					invoked.PrmStatus				= ParmStatus
+#endif
+
+		AddToApprovalHistory is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+#ifdef module sharedfinance
+				PrmFinanceResource		is an Employee
+				PrmFinanceTeam			is a FinanceTeam
+#endif
+#ifndef module sharedfinance
+				PrmFinanceResource		is Numeric 13
+				PrmFinanceTeam			is a GlonlyFinanceTeamField
+#endif	
+				PrmRole					is AlphaUpper 30
+				PrmStatus				is Numeric 3
+				PrmEscalated			is Boolean
+				PrmActionReason			is AlphaUpper 20
+				PrmComment				is Alpha size up to 500
+			Action Rules
+                invoke Create ApprovalProcessorAudit
+                    invoked.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+                    invoked.ApprovalProcessor       = ApprovalProcessor
+					invoked.Resource				= PrmFinanceResource
+					invoked.Team					= PrmFinanceTeam
+					invoked.Role					= PrmRole
+					invoked.Status					= PrmStatus
+					invoked.Escalated				= PrmEscalated
+					invoked.ActionReason			= PrmActionReason
+					invoked.Comment					= PrmComment
+					invoked.UpdateDate				= current timestamp
+
+		Release is an Instance Action
+			restricted
+			Action Rules
+				invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+					invoked.PrmStatus				= 15
+		
+		Approve is an Instance Action
+			restricted
+			Parameters
+				PrmAutoApprove			is Boolean
+			Local Fields
+				LocalErrorOccured		is Boolean
+			Action Rules
+				Status = 2
+				if (PrmAutoApprove)
+					invoke AddToApprovalHistory
+						invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+						invoked.PrmStatus				= 6
+						invoked.PrmComment				= DerivedAutoApprovedComment
+            Exit Rules
+				initialize LocalErrorOccured
+				initialize ApprovalMatrix
+				initialize Matrix
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ForContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke UnreleaseTransaction
+						resume on error
+							LocalErrorOccured = true
+				if (!ForContractManagement)
+					invoke ReleaseTransaction
+						resume on error
+#ifdef module po
+				else 
+				if (ForContractManagement)
+					invoke Approve ContractAggregationRel	
+#endif
+
+		Reject is an Instance Action
+			restricted
+			Action Rules
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					include SendRejectNotificationToUser
+				Status = 3
+                invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 3
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			Exit Rules
+				initialize ApprovalMatrix
+				initialize Matrix
+				if (!ForContractManagement)
+					invoke UnreleaseTransaction
+						resume on error
+#ifdef module po
+				else
+				if (ForContractManagement)
+					invoke Reject ContractAggregationRel
+#endif
+
+		RejectWithReasonCode is an Instance Action
+			restricted
+			subject is ResponsibilityMatrixApproval
+			reason code required
+			action comment required
+			Action Rules
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					include SendRejectNotificationToUser
+				Status = 3
+                invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 3
+					invoked.PrmActionReason			= reason code
+					invoked.PrmComment				= action comment
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+
+			Exit Rules
+				if (!ForContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke UnreleaseTransaction
+						resume on error
+#ifdef module po
+				else
+				if (ForContractManagement)
+					invoke Reject ContractAggregationRel
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke Reject PODistributionAggregationRel	
+#endif
+
+		Disapprove is an Instance Action   
+			restricted
+			subject is ResponsibilityMatrixApproval
+			reason code required
+			action comment required
+			Action Rules
+				Status = 4
+                invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 5
+					invoked.PrmActionReason			= reason code
+					invoked.PrmComment				= action comment
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			
+			Exit Rules 
+#ifdef module po
+				invoke Disapprove ContractAggregationRel
+#endif
+
+		Unrelease is an Instance Action   
+			restricted
+			subject is ResponsibilityMatrixApproval
+			reason code required
+			action comment required
+			Action Rules
+				Status = 5
+                invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 22
+					invoked.PrmActionReason			= reason code
+					invoked.PrmComment				= action comment
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			
+			Exit Rules
+#ifdef module rq
+				if (ApprovalProcessor.ApprovalTransactionForm.Requisition) 
+					invoke Released.DirectUnrelease RequisitionRel
+#endif
+#ifdef module po
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke Unrelease PODistributionAggregationRel
+#endif
+
+
+		ManualApprove is an Instance Action
+			restricted
+			Local Fields
+				LocalErrorOccured		is Boolean
+			Action Rules
+				Status = 2
+                invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 13
+            Exit Rules
+				initialize LocalErrorOccured
+				initialize ApprovalMatrix
+				initialize Matrix
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke UnreleaseTransaction
+						resume on error
+							LocalErrorOccured = true
+				if (!ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke ReleaseTransaction
+						resume on error
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					include SendManualApproveNotificationToUser
+				cancel "TransactionApprovalProcessor" PA service
+
+		ManualReject is an Instance Action
+			restricted
+			Parameters
+				PrmActionReason			is AlphaUpper 20
+				PrmComment				is Alpha size up to 500
+			Action Rules
+				Status = 3
+                invoke AddToApprovalHistory
+                    invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 14
+					invoked.PrmActionReason			= PrmActionReason
+					invoked.PrmComment				= PrmComment
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			Exit Rules
+				initialize ApprovalMatrix
+				initialize Matrix
+				if (!ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					invoke UnreleaseTransaction
+						resume on error
+				if (!ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and !ApprovalProcessor.ApprovalTransactionForm.ContractManagement
+				and !ApprovalProcessor.ApprovalTransactionForm.Requisition
+				and !ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					include SendManualRejectNotificationToUser
+				cancel "TransactionApprovalProcessor" PA service
+		
+		ManualUnrelease is an Instance Action   
+			restricted
+			Parameters
+				PrmActionReason			is AlphaUpper 20
+				PrmComment				is Alpha size up to 500
+			Action Rules
+				Status = 5
+                invoke AddToApprovalHistory
+                    invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+                    invoked.PrmStatus				= 23
+					invoked.PrmActionReason			= PrmActionReason
+					invoked.PrmComment				= PrmComment
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			Exit Rules
+				initialize ApprovalMatrix
+				initialize Matrix
+				cancel "TransactionApprovalProcessor" PA service
+
+		CreateApprovalNotRequiredHistory is an Instance Action
+			restricted
+			Action Rules
+				invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+					invoked.PrmStatus				= 24
+					invoked.PrmComment				= DerivedApprovalNotRequiredComment
+		
+
+		UnreleaseTransaction is an Instance Action
+			restricted
+			Action Rules
+				if(ApprovalProcessor.SystemCode = "GL" 
+				and ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry
+				and !GeneralLedgerJournalControlRel.ResponsibilityMatrixPendingApprovalsExist
+				and GeneralLedgerJournalControlRel.Status.PendingApproval)
+					invoke PendingApproval.MoveToUnreleased GeneralLedgerJournalControlRel
+				else
+				if(ApprovalProcessor.SystemCode = "RJ" 
+				and ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry
+				and !ResponsibilityMatrixPendingApprovalProcessorRel exists)
+					invoke InitializeApprovalPeriod Released RecurringJournalControlRel
+#ifdef module ap
+				else
+				if(ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice
+				and PayablesInvoiceRel.Status.PendingApproval
+				and PayablesInvoiceAggregationRel.Status != 8		
+				and PayablesInvoiceAggregationRel.Status != 7)		
+					invoke Update PayablesInvoiceAggregationRel
+						invoked.Status = 7	
+					invoke PendingApproval.MatrixPflowReject PayablesInvoiceRel
+						invoked.PrmRejectReason		= reason code
+						invoked.PrmRejectComment	= action comment
+						invoked.PrmWorkunit			= Workunit
+						invoked.PrmSummaryAccount	= PayablesInvoiceAggregationRel.SummaryAccount
+#endif
+#ifdef module rq
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.Requisition)
+					invoke Released.DirectReject RequisitionRel
+#endif
+
+		ReleaseTransaction is an Instance Action
+			restricted
+			Action Rules
+				if(ApprovalProcessor.SystemCode = "GL" 
+				and ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry
+				and !GeneralLedgerJournalControlRel.ResponsibilityMatrixPendingApprovalsExist
+				and !GeneralLedgerJournalControlRel.ResponsibilityMatrixRejectedApprovalsExist
+				and GeneralLedgerJournalControlRel.Status.Unreleased)
+			        invoke Unreleased.Release GeneralLedgerJournalControlRel
+				else
+				if(ApprovalProcessor.SystemCode = "RJ" 
+				and ApprovalProcessor.ApprovalTransactionForm.GLJournalEntry
+				and RecurringJournalControlRel.DerivedResponsibilityMatrixRelease)
+					invoke Journalize RecurringJournalScheduleRel
+#ifdef module ap
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+					if (PayablesInvoiceAggregationRel.Status != 6		
+					and PayablesInvoiceAggregationRel.Status != 2)		
+						invoke Update PayablesInvoiceAggregationRel
+							invoked.Status = 6	
+#endif
+#ifdef module rq
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.Requisition)
+					invoke Released.DirectApprove RequisitionRel
+#endif
+#ifdef module po
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					if (PODistributionAggregationRel.Status != 2		
+					and PODistributionAggregationRel.Status != 0)		
+						invoke Update PODistributionAggregationRel
+							invoked.Status = 2	
+#endif
+			Exit Rules
+#ifdef module po		
+				if (ApprovalProcessor.ApprovalTransactionForm.PurchaseOrder)
+					if (!PODistributionAggregationPendingOrCreatedRel exists
+					and PurchaseOrderRel.ApprovalStatus.NeedsApproval)
+						invoke Released.Approve PurchaseOrderRel
+#endif
+#ifdef module ap
+				else
+				if (ApprovalProcessor.ApprovalTransactionForm.PayablesInvoice)
+					if (!APDistributionAggregationStatusRel exists
+					and PayablesInvoiceRel.Status.PendingApproval)
+						invoke PendingApproval.PflowApprove PayablesInvoiceRel
+#endif
+
+		CancelPAService	is an Instance Action
+			restricted
+			Action Rules
+				Status = 6
+				invoke AddToApprovalHistory
+					invoked.PrmFinanceResource		= actor.agent(Employee).Employee
+					invoked.PrmStatus				= 12
+
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ApprovalPosition
+			Exit Rules
+				initialize ApprovalMatrix
+				initialize Matrix
+				cancel "TransactionApprovalProcessor" PA service

@@ -1,0 +1,457 @@
+ProjectAssignmentEffort is a BusinessClass
+    owned by Projects
+    prefix is PJASE
+
+    Ontology
+    	part of ProjectAssignment
+    		relative key is ProjectEffortPeriod
+    		
+    Persistent Fields
+    	Certified					is Boolean
+		DateRange
+		EffortPercent				is Percent size 6.3
+		CertifiedCommittedEffort	is Percent size 6.3
+			default label is "CommittedEffort"
+		ProjectEffortSchedule
+		ProjectLaborSchedule
+        
+	Transient Fields
+		EffortEmployee						is like Employee
+			derive value from Employee
+		GetSplitAmounts						is Boolean
+
+	Context Fields
+	Local Fields
+		LocalActor					  is an Actor	
+		
+	Derived Fields	
+		ContextMessageEntityType is a StringField
+			type is Alpha 40
+			restricted
+			"InforERPEnterpriseProjectEffort"
+			
+		ContextMessageText is a StringField
+			type is Alpha 30
+			restricted
+			"ProjectAssignmentEffort<ProjectAssignmentEffort>"
+	
+		TotalEffortPercent is a DerivedField
+			type is Percent size 7.3
+			return (sum OtherProjectAssignmentEffortRel.EffortPercent + EffortPercent)
+
+		AverageActualPercent is a DerivedField
+			type is Percent size 7.3
+			return (sum ProcessedProjectAssignmentLaborRel.ActualPercent / LaborPeriodCount)
+
+		AveragePlannedPercent is a DerivedField
+			type is Percent size 7.3
+			return (sum ProcessedProjectAssignmentLaborRel.PlannedPercent / LaborPeriodCount)
+
+		LaborPeriodCount is a DerivedField
+			type is Numeric size 4
+			return (instance count of ProjectSchedulePeriodRel)
+
+		DateCertified is a DerivedField
+			type is Date
+			if (Certified)
+				return Certified date last changed to Certified
+			
+		CertifyingActor is a DerivedField
+			type is Alpha size up to 100
+			initialize LocalActor
+			for each audit log records
+				if (each.Certified = true
+				and old each.Certified = false)
+					LocalActor = each.actor
+			return LocalActor.PersonName.PresentationName
+			
+
+		AlertPlaceholderMF is a MessageField
+   			"_"
+   		
+
+   		DerivedAvgPercent is a DerivedField
+   			type is Percent size 6
+   			restricted
+   			return AverageActualPercent
+   			
+   		DerivedEffortPercent is a DerivedField
+   			type is Percent size 6
+   			restricted
+   			return EffortPercent
+   			
+   		DerivedAvgAndEffortPercent is a DerivedField
+   			type is Alpha size 50
+   			DerivedAvgAndEffortPercent = "Actual: "+ DerivedAvgPercent + " | " + "Effort Percent: " + DerivedEffortPercent
+   			return DerivedAvgAndEffortPercent
+
+		
+		
+    Conditions
+    	IsMyProject
+    		restricted
+    		when (Project.IsMyProject)
+    	IsOkToCertify
+    		restricted
+    		when (!Certified
+    		and   !Employee.ExcludeFromCertification
+    		and   current corporate date >= DateRange.End)
+    	IsOkToUncertify
+    		restricted
+    		when (Certified
+    		and   !Employee.ExcludeFromCertification)
+		VarianceExists
+			restricted		
+			when (AverageActualPercent != EffortPercent
+			and   EffortPercent entered)
+		ValidDateRangeNotCertified
+			restricted
+			when (!Certified
+			and   DateRange.End < current corporate date)
+		DetailVariance
+			restricted
+			when (AverageActualPercent != EffortPercent	
+			and  (AverageActualPercent entered
+			or    EffortPercent entered))
+		
+		HasProjectAssignmentEffortComments
+			restricted		
+			when (ProjectAssignmentEffortCommentRel exists)	
+
+
+		MobileValidDateRangeNotCertified
+			restricted
+			when (!Certified
+			and   DateRange.End < current corporate date
+			and ProjectEffortPeriod.TotalEffortPercent!=1)
+		
+		MobileCertifyEffortVal
+			restricted
+			when(ProjectEffortPeriod.TotalEffortPercent=1
+			and IsOkToCertify)
+		
+		MobileEditCertifyPercent
+			restricted
+			when (!MobileValidDateRangeNotCertified 
+			and !IsOkToUncertify)
+	
+
+		
+    Relations
+    	OtherProjectAssignmentEffortRel
+    		one-to-many relation to ProjectAssignmentEffort
+    		Field Mapping uses ByEmployeeAndPeriod
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Employee				= Employee
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule
+    			related.ProjectEffortPeriod		= ProjectEffortPeriod
+    		Instance Selection
+    			where (related.UniqueID != UniqueID)
+
+		AllPeriodEffortRel
+    		one-to-many relation to ProjectAssignmentEffort
+    		Field Mapping uses ByEmployeeAndPeriod
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Employee				= Employee
+    			related.ProjectEffortSchedule	= ProjectEffortSchedule    			
+    			related.ProjectEffortPeriod		= ProjectEffortPeriod
+    	
+		ProcessedProjectAssignmentLaborRel
+			one-to-many relation to ProjectAssignmentLabor
+			Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Project					= Project
+    			related.Employee				= Employee
+				related.ProjectAssignment		= ProjectAssignment
+			Instance Selection
+				where (related.DateRange.End within DateRange
+				and   (related.Status.Processed
+				or     related.Status.Certified)
+				and    related.ProjectLaborSchedule = ProjectLaborSchedule)
+
+		ProjectEmployeeLaborPeriodRel
+			one-to-many relation to ProjectEmployeeLaborPeriod
+			Field Mapping uses symbolic key
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Employee				= Employee
+				related.ProjectLaborSchedule	= ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange)
+
+		ProjectSchedulePeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectLaborSchedule	= ProjectLaborSchedule
+			Instance Selection
+				where (related.DateRange.End within DateRange)
+				
+		ProjectEmployeeEffortPeriodRel
+			one-to-one relation to ProjectEmployeeEffortPeriod
+			Field Mapping uses symbolic key
+				related.HROrganization			= FinanceEnterpriseGroup.HROrganization
+				related.Employee				= Employee
+				related.ProjectEffortSchedule	= ProjectEffortSchedule
+				related.ProjectEffortPeriod		= ProjectEffortPeriod
+
+		EmployeeRel
+			one-to-one relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization	= FinanceEnterpriseGroup.HROrganization
+				related.Employee		= Employee
+		ProjectAssignmentEffortCommentRel
+    		one-to-many relation to ProjectAssignmentEffortComment
+    		Field Mapping uses ByCommentDate
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Employee				= Employee	
+				related.Project					= Project			
+				related.ProjectAssignment		= ProjectAssignment
+    			related.ProjectEffortPeriod		= ProjectEffortPeriod
+
+    Sets
+		ByEmployeeAndPeriod
+			Sort Order
+				FinanceEnterpriseGroup
+				Employee
+				ProjectEffortSchedule
+				ProjectEffortPeriod
+				Project
+				ProjectAssignment
+				
+    	ByPeriodAndEmployee
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			ProjectEffortSchedule
+    			ProjectEffortPeriod
+    			Employee    			
+    			Project
+				ProjectAssignment
+				
+    	ByEffortPercent
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			Employee
+    			ProjectEffortPeriod
+    			EffortPercent descending
+    			Project
+    			ProjectAssignment
+
+    Field Rules
+    	Certified
+    		cannot be changed
+					
+		DateRange    		
+    		DateRange = ProjectEffortPeriod.DateRange
+
+		EffortPercent
+			if (EffortPercent changed)
+				constraint (!Certified)
+					"EffortPercentCanBeChangedForUncertifiedRecordsOnly"
+			constraint (EffortPercent <=1)
+				"EffortPercentCannotExceed100"
+
+		CertifiedCommittedEffort
+			cannot be changed
+
+		ProjectEffortSchedule
+			cannot be changed
+			
+		ProjectLaborSchedule
+			cannot be changed
+
+	Delete Rules
+		if (OtherProjectAssignmentEffortRel not exists)
+			invoke Delete ProjectEmployeeEffortPeriodRel
+
+	Actions
+        Create is a Create Action
+        	restricted
+        	Action Rules
+				CertifiedCommittedEffort = ProjectAssignment.CommittedEffort
+			Exit Rules
+				if (GetSplitAmounts)
+					EffortPercent = sum ProcessedProjectAssignmentLaborRel.CertifiedPercent
+				if (ProjectEmployeeEffortPeriodRel not exists)
+					invoke Create ProjectEmployeeEffortPeriodRel
+						invoked.ProjectLaborSchedule = ProjectLaborSchedule
+								
+        Update is an Update Action
+
+		CertifyAllEffort is a Set Action
+			restricted
+        	Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+        			default label is "FinanceEnterpriseGroup"
+        		EmployeeGroup				is an Employee group
+        		PrmProjectEffortSchedule	is a ProjectEffortSchedule
+        			default label is "EffortSchedule"
+        		PrmProjectEffortPeriod		is a ProjectEffortPeriod
+        			default label is "Period"
+        	Parameter Rules
+        		PrmFinanceEnterpriseGroup
+        			required
+				PrmProjectEffortSchedule
+					required
+				PrmProjectEffortPeriod
+					required
+    				constraint (current corporate date >= PrmProjectEffortPeriod.DateRange.End)
+    					"PeriodEndingDateMustBePriorToCurrentDate"
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectEffortSchedule
+				ProjectEffortPeriod
+				Certified
+				Employee
+        	Instance Selection
+        		where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+        		and    ProjectEffortSchedule = PrmProjectEffortSchedule
+        		and    ProjectEffortPeriod = PrmProjectEffortPeriod
+        		and   !Certified
+        		and   !Employee.ExcludeFromCertification        		
+        		and   (EmployeeRel.Employee within EmployeeGroup
+        		or     EmployeeGroup not entered))
+			Action Rules
+				Employee Set Rules
+					Exit Rules
+		        		if (IsOkToCertify
+	    	    		and TotalEffortPercent = 1)
+							invoke SetCertified AllPeriodEffortRel
+								invoked.PrmCertified = true
+							invoke Update ProjectEmployeeLaborPeriodRel
+								invoked.Status = 4
+
+		CertifyEffort is an Instance Action
+			valid when (IsOkToCertify)
+			Action Rules
+				if (FinanceEnterpriseGroup.EnterpriseProjectStructure.CertifyEffortConfirmation entered)
+					confirmation required
+						"<FinanceEnterpriseGroup.EnterpriseProjectStructure.CertifyEffortConfirmation>"			
+	    		constraint (TotalEffortPercent = 1)
+	    			"TotalEffortPercentForPeriodMustEqual100"
+				invoke SetCertified AllPeriodEffortRel
+					invoked.PrmCertified = true
+				invoke Update ProjectEmployeeLaborPeriodRel
+					invoked.Status = 4
+
+		UncertifyAllEffort is a Set Action
+			restricted
+        	Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+        			default label is "FinanceEnterpriseGroup"
+        		EmployeeGroup				is an Employee group
+        		PrmProjectEffortSchedule	is a ProjectEffortSchedule
+        			default label is "EffortSchedule"
+        		PrmProjectEffortPeriod	is a ProjectEffortPeriod
+        			default label is "Period"
+        	Parameter Rules
+        		PrmFinanceEnterpriseGroup
+        			required
+				PrmProjectEffortSchedule
+					required
+				PrmProjectEffortPeriod
+					required
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectEffortSchedule
+				ProjectEffortPeriod
+				Certified
+				Employee
+        	Instance Selection
+        		where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+        		and    ProjectEffortSchedule = PrmProjectEffortSchedule
+        		and    ProjectEffortPeriod = PrmProjectEffortPeriod
+        		and    Certified
+        		and   !Employee.ExcludeFromCertification
+        		and   (EmployeeRel.Employee within EmployeeGroup
+        		or     EmployeeGroup not entered))
+			Action Rules
+				Employee Set Rules
+					Exit Rules
+						invoke SetCertified AllPeriodEffortRel
+							invoked.PrmCertified = false
+						invoke Update ProjectEmployeeLaborPeriodRel
+							invoked.Status = 3
+			
+		UncertifyEffort is an Instance Action
+			valid when (IsOkToUncertify)
+			Action Rules
+				invoke SetCertified AllPeriodEffortRel
+					invoked.PrmCertified = false
+				invoke Update ProjectEmployeeLaborPeriodRel
+					invoked.Status = 3
+					
+		SetCertified is an Instance Action
+			restricted
+			Parameters
+				PrmCertified	is Boolean
+			Action Rules
+				Certified = PrmCertified
+				if (PrmCertified)
+					CertifiedCommittedEffort = ProjectAssignment.CommittedEffort
+					invoke SetStatus ProcessedProjectAssignmentLaborRel
+						invoked.PrmStatus = 4
+				else
+					invoke SetStatus ProcessedProjectAssignmentLaborRel
+						invoked.PrmStatus = 3
+					
+		PopulateEffortPercent is an Instance Action
+			valid when (ValidDateRangeNotCertified)
+			Action Rules
+				invoke PopulateEffortPercent ProjectEmployeeEffortPeriodRel
+					
+        Delete is a Delete Action
+        	restricted
+        
+
+        MobilePopulateEffortPercent is an Instance Action
+			valid when (MobileValidDateRangeNotCertified)
+			Action Rules
+				invoke MobilePopulateEffortPercent ProjectEmployeeEffortPeriodRel
+		
+		EnterEffort is an Instance Action
+			restricted
+			Parameters
+				PrmEffortPercent is Percent size 6
+					default label is "EffortPercentage"
+			Parameter Rules
+				PrmEffortPercent
+					initial value is EffortPercent
+					default to EffortPercent
+					
+			Action Rules
+				constraint (PrmEffortPercent <=1)
+					"EffortPercentCannotExceed100"
+				for each AllPeriodEffortRel
+					if(each.Project = Project)
+						invoke Update AllPeriodEffortRel
+							invoked.EffortPercent			= PrmEffortPercent
+							invoked.ProjectLaborSchedule 	= ProjectLaborSchedule
+						end for each
+
+		CreateComments is an Instance Action
+			Parameters
+				PrmSubject	 			is a CommentName
+		    	PrmComment				is Text
+				PrmFrom					is Alpha size 230
+				PrmCommentDate			is TimeStamp
+				PrmDocumentURL			is URL	
+				PrmAttachment			is an Attachment
+			Parameter Rules
+				PrmSubject
+					required
+		    	PrmComment
+		    		required
+				PrmFrom	
+					initial value is actor
+					required
+				PrmCommentDate
+		    		default to current timestamp
+			Action Rules
+				invoke Create ProjectAssignmentEffortComment
+					fill in fields from this instance
+					invoked.Subject				   = PrmSubject
+			    	invoked.Comment                = PrmComment
+					invoked.From                   = PrmFrom	
+					invoked.CommentDate            = PrmCommentDate
+					invoked.DocumentURL			   = PrmDocumentURL					
+			    	invoked.Attachment             = PrmAttachment

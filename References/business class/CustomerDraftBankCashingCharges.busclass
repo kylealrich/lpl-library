@@ -1,0 +1,149 @@
+CustomerDraftBankCashingCharges is a BusinessClass
+    owned by dt
+    prefix is DTS
+    sql name is CDraftBankCashingCharges
+    classic name is DTCASHING
+
+    Ontology
+        symbolic key is CustomerDraftBankCashingCharges
+            classic set name is DTSSET1
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Company             					is Numeric size 4  
+        TransactionDate     					is an ExchangeDate
+        Currency								is a FromCurrency
+            classic name is CURRENCY-CD
+        AdministrationExpenseAccount    		is a FinanceCodeBlock
+            classic name for AdministrationExpenseAccount.AccountingUnit is ADMN-ACCT-UNIT
+            classic name for AdministrationExpenseAccount.GeneralLedgerChartAccount is ADMN-ACCOUNT
+        BankExpenseAccount              		is a FinanceCodeBlock
+            classic name for BankExpenseAccount.AccountingUnit is EXP-ACCT-UNIT
+            classic name for BankExpenseAccount.GeneralLedgerChartAccount is EXP-ACCOUNT
+        BankExpenseAmount		          		is an InternationalAmount
+        	precision is CashCode.Currency
+        	classic name is TRAN-EXP-AMT
+        BaseBankExpenseAmount          			is an InternationalAmount
+        	classic name is ORIG-EXP-AMT
+        AdministrationExpenseAmount	        	is an InternationalAmount
+        	precision is CashCode.Currency
+        	classic name is TRAN-ADMIN-AMT
+        BaseAdministrationExpenseAmount        	is an InternationalAmount
+        	classic name is ORIG-ADMIN-AMT
+        ExchangeRate        					is an AcctRate
+        GeneralLedgerUpdated					is Boolean
+        	classic name is GL-UPDATE-FL
+        	default label is "GlobalLedgerUpdated"
+        TransactionIDNumber
+            classic name is TRANS-IDENT
+        JournalBook								is AlphaUpper size 12 
+            classic name is JRNL-BOOK-NBR
+            restricted
+
+	Local Fields
+		LocalCurrencyTable						is a CurrencyTable
+        LocalCurrencyExchange               	is a CurrencyExchange 
+
+    Conditions
+
+        IsDtsset2
+            classic name is DTSSET2
+            restricted
+            when (BankTransactionCode entered
+            and   TransactionIDNumber entered)
+            
+        NonBaseCurrency
+        	when (CashCode.Currency != ReceivableCompanyRel.Currency)	
+
+    Sets
+
+        Set2
+            indexed
+            Instance Selection
+                where (IsDtsset2)
+            Sort Order
+                BankTransactionCode
+                TransactionIDNumber
+
+	Relations
+        CompanyCashCodeRel
+            one-to-one relation to CompanyCashCode
+            required
+            Field Mapping uses symbolic key
+                related.Company  			= Company
+                related.CashCode			= CashCode
+
+
+		ReceivableCompanyRel	
+			one-to-one relation to ReceivableCompany
+			required
+			Field Mapping uses symbolic key
+				related.Company  			= Company
+
+    Field Rules
+
+        Company
+            required
+            constraint (CompanyCashCodeRel exists)
+            	"CashCodeDoesNotExistForCompany"
+
+		Currency
+			required
+			default to CashCode.Currency
+
+			initialize LocalCurrencyExchange
+			LocalCurrencyExchange.ToCurrency		= ReceivableCompanyRel.Currency	
+			ExchangeRate 							= LocalCurrencyExchange.OutputCurrencyRate
+				
+		TransactionDate
+			required
+			default to current corporate date
+
+		BankExpenseAmount
+
+			if (AdministrationExpenseAmount not entered)
+				required
+					"MustEnterOneExpenseAmount"
+					
+			if (BankExpenseAccount entered)
+				required
+					"MustEnterBankExpenseAmountIfAccountEntered"
+			else
+				cannot be entered
+					"CannotEnterBankExpenseAmountIfAccountNotEntered"
+
+
+			BaseBankExpenseAmount = BankExpenseAmount * ExchangeRate
+
+		AdministrationExpenseAmount
+
+			if (AdministrationExpenseAccount entered)
+				required
+					"MustEnterAdministrationExpenseAmountIfAccountEntered"
+			else
+				cannot be entered
+					"CannotEnterAdministrationExpenseAmountIfAccountNotEntered"
+
+
+			BaseAdministrationExpenseAmount = AdministrationExpenseAmount * ExchangeRate
+
+	Actions
+		Create is a Create Action
+			Entrance Rules
+				LocalCurrencyTable = ReceivableCompanyRel.DerivedCurrencyTable
+   			Action Rules
+		
+		Update is an Update Action
+			Entrance Rules
+				LocalCurrencyTable = ReceivableCompanyRel.DerivedCurrencyTable
+				constraint (!GeneralLedgerUpdated)
+					"CannotUpdate;ExpenseRecordHasBeenPosted"
+							
+		Delete is a Delete Action
+			Entrance Rules
+				constraint (!GeneralLedgerUpdated)
+					"CannotDelete;ExpenseRecordHasBeenPosted"

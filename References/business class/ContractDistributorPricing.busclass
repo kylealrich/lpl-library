@@ -1,0 +1,241 @@
+ContractDistributorPricing is a BusinessClass
+	owned by po
+	prefix is CNDP
+
+	Ontology
+		symbolic key is ContractDistributorPricing
+
+	Persistent Fields
+		Title						is a Description
+		Description					is a Description4
+		DistributorPricing
+		DistributorFreightPricing
+		DefaultDistributorPricing	is Boolean
+
+	Local Fields
+		OriginalContractAndDistributorPricing
+		LocalContractAndDistributorPricing
+
+	Derived Fields
+		RepresentativeText is a StringField
+			type is Text
+			default label is "ContractDistributorPricing"
+			ContractDistributorPricing " - " Title
+
+	Conditions
+		PricingModified
+			restricted
+			when (DistributorPricing changed
+			or	  DistributorFreightPricing changed)
+		IsDefault
+			restricted
+			when (DefaultDistributorPricing)
+		NewDefault
+			restricted
+			when (DefaultDistributorPricing
+			and   DefaultDistributorPricing changed)
+		CannotUpdateGPO
+			restricted
+			when (ContractGroup.DoNotAllowGPOUpdates
+			and   Contract.HasGPORelatedContract)
+
+		FreightMarkupDiscountEntered
+			restricted
+			when (DistributorFreightPricing.FreightPricingMarkupDiscount.Markup
+			or    DistributorFreightPricing.FreightPricingMarkupDiscount.Discount)
+		FreightPricingEntered
+			restricted
+			when (DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightPercent > 0
+			or    DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightCost > 0)
+
+	Sets
+		ByDefault
+			duplicates
+			indexed
+			Sort Order
+				ContractGroup
+				Contract
+			Instance Selection
+				where (IsDefault)
+
+	Relations
+		PricingMembersRel
+			one-to-many relation to ContractDistributorPricingMember
+			Field Mapping uses  ByPricingID
+		  		related.ContractGroup					= ContractGroup
+		   		related.Contract						= Contract
+		   		related.PricingIdentifier				= ContractDistributorPricing
+
+		HasAnotherDefaultRel
+			one-to-many relation to ContractDistributorPricing
+			Field Mapping uses ByDefault
+		  		related.ContractGroup					= ContractGroup
+		   		related.Contract						= Contract
+
+		HasAnotherPricingRel
+			one-to-many relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+		  		related.ContractGroup					= ContractGroup
+		   		related.Contract						= Contract
+
+		ContractLineMemberRel 
+			one-to-many relation to ContractLineMember 
+			Field Mapping uses symbolic key 
+		  		related.ContractGroup					= ContractGroup
+		   		related.Contract						= Contract
+			Instance Selection 
+				where (related.PricingIdentifier = ContractDistributorPricing)
+
+	Field Rules
+		Title
+			default to ContractDistributorPricing
+
+		DistributorPricing
+			required
+				"DistributorPricingMarkupOrDiscountAndCostOrPercentAreRequired"
+		DefaultDistributorPricing
+			default to false
+		DistributorFreightPricing
+			if (FreightMarkupDiscountEntered)
+				constraint (FreightPricingEntered)
+					"FreightCostOrPercentIsRequired"
+
+	Actions
+		Create is a Create Action
+			valid when (!Contract.ContractStatus.Closed)
+			Action Rules
+				constraint (!Contract.ContractStatus.Closed)
+					"ContractStatusCannotBeClosedToAddAPricingIdentifier"
+				if (!IsDefault
+				and HasAnotherPricingRel !exists)
+					DefaultDistributorPricing = true
+				if (IsDefault)
+					if (HasAnotherDefaultRel exists)
+						invoke UpdateContractDistributorPricing HasAnotherDefaultRel
+							invoked.DefaultDistributorPricing = false
+				if (DistributorPricing.PricingMarkupDiscount.Discount)
+					constraint (DistributorPricing.DistributorPricingAmtPct.PricingCost = 0)
+						"DiscountMustBeByPercentForHeaderLevelDefaulting"
+		   			constraint (DistributorPricing.DistributorPricingAmtPct.PricingPercent < 1.0)
+						"ForDiscounts,DistributorPricingPercentMustBeLessThan100%"
+				if (DistributorFreightPricing.FreightPricingMarkupDiscount.Discount)
+					constraint (DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightCost = 0)
+						"DiscountMustBeByPercentForHeaderLevelDefaulting"
+		   			constraint (DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightPercent < 1.0)
+						"ForDiscounts,DistributorFreightPercentMustBeLessThan100%"
+
+		Update is an Update Action
+			valid when (!Contract.ContractStatus.Closed)
+			Action Rules
+				if (NewDefault)
+					if (HasAnotherDefaultRel exists)
+						invoke UpdateContractDistributorPricing HasAnotherDefaultRel
+							invoked.DefaultDistributorPricing = false
+				if (DistributorPricing.PricingMarkupDiscount.Discount)
+					constraint (DistributorPricing.DistributorPricingAmtPct.PricingCost = 0)
+						"DiscountMustBeByPercentForHeaderLevelDefaulting"
+		   			constraint (DistributorPricing.DistributorPricingAmtPct.PricingPercent < 1.0)
+						"ForDiscounts,DistributorPricingPercentMustBeLessThan100%"
+				if (DistributorFreightPricing.FreightPricingMarkupDiscount.Discount)
+					constraint (DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightCost = 0)
+						"DiscountMustBeByPercentForHeaderLevelDefaulting"
+		   			constraint (DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightPercent < 1.0)
+						"ForDiscounts,DistributorFreightPercentMustBeLessThan100%"
+				invoke UpdateContractDistributorPricing
+				if (PricingModified)
+					if (ContractLineMemberRel exists)
+						invoke UpdateMarkupPercent ContractLineMember 
+							invoked.PrmContractGroup					= ContractGroup
+							invoked.PrmContract     					= Contract
+							invoked.PrmPricingIdentifier				= ContractDistributorPricing
+							invoked.PrmLineDistributorPricingCode		= DistributorPricing.PricingMarkupDiscount
+							invoked.PrmLineDistributorPricingAmt	    = DistributorPricing.DistributorPricingAmtPct.PricingCost
+							invoked.PrmLineDistributorPricingPct        = DistributorPricing.DistributorPricingAmtPct.PricingPercent
+							invoked.PrmLineDistributorFreightAmt	    = DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightCost
+							invoked.PrmLineDistributorFreightPct        = DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightPercent
+							invoked.PrmLineDistributorFreightCode       = DistributorFreightPricing.FreightPricingMarkupDiscount
+
+		UpdateContractDistributorPricing is an Update Action
+			restricted
+
+		UpdatePricingPercent is an Instance Action   
+			restricted
+			Parameters
+				NewPercent 				is a Percent
+				NewMarkupDiscount		is AlphaUpper size 1
+					States
+	    				Markup      		value is "M"
+	    				Discount      		value is "D" 
+	    				Fixed               value is "F"   				
+			Action Rules
+				DistributorPricing.DistributorPricingAmtPct.PricingPercent = NewPercent
+				DistributorPricing.PricingMarkupDiscount				   = NewMarkupDiscount
+				if (ContractLineMemberRel exists)
+					invoke UpdateMarkupPercent ContractLineMember 
+						invoked.PrmContractGroup					= ContractGroup
+						invoked.PrmContract     					= Contract
+						invoked.PrmPricingIdentifier				= ContractDistributorPricing
+						invoked.PrmLineDistributorPricingCode		= DistributorPricing.PricingMarkupDiscount
+						invoked.PrmLineDistributorPricingAmt	    = DistributorPricing.DistributorPricingAmtPct.PricingCost
+						invoked.PrmLineDistributorPricingPct        = DistributorPricing.DistributorPricingAmtPct.PricingPercent
+						invoked.PrmLineDistributorFreightAmt	    = DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightCost
+						invoked.PrmLineDistributorFreightPct        = DistributorFreightPricing.DistributorFreightPricingAmtPct.FreightPercent
+						invoked.PrmLineDistributorFreightCode       = DistributorFreightPricing.FreightPricingMarkupDiscount
+
+		Delete is a Delete Action
+			valid when (!Contract.ContractStatus.Closed)
+			Action Rules
+				constraint (!PricingMembersRel exists)
+					"MembersExist;ContractDistributorPricingCannotBeDeleted"
+
+ 		Copy is an Instance Action
+ 			valid when (!Contract.ContractStatus.Closed)
+			Parameters
+				NewPricingIdentifier	is AlphaUpper size 4
+				NewTitle 				is a Description
+				NewDescription 			is Alpha size 500
+				NewContract				is a Contract
+			Parameter Rules
+				NewPricingIdentifier
+					if (!NewContract entered)
+						required
+				NewTitle
+					if (!NewContract entered)
+						required
+
+			Action Rules
+				if (!NewContract entered)
+					NewContract = Contract
+				if (!NewPricingIdentifier entered)
+					NewPricingIdentifier = ContractDistributorPricing
+				if (!NewTitle entered)
+					NewTitle = Title
+				if (!NewDescription entered)
+					NewDescription = Description
+				OriginalContractAndDistributorPricing.OriginalContractDistributorPricing 	= ContractDistributorPricing
+				OriginalContractAndDistributorPricing.OriginalContract 						= Contract
+				LocalContractAndDistributorPricing.LocalContractDistributorPricing 			= NewPricingIdentifier
+				LocalContractAndDistributorPricing.LocalContract 							= NewContract
+				constraint (!LocalContractAndDistributorPricing.LocalContractDistributorPricing.ContractDistributorPricing exists)
+					"ContractDistributorPricingAlreadyExists"
+				constraint (LocalContractAndDistributorPricing.LocalContract.IsDistributorContract)
+					"NewContractMustBeADistributorContractToUseDistributorPricing"
+
+				invoke Create ContractDistributorPricing
+					invoked.ContractGroup				= ContractGroup
+					invoked.Contract					= NewContract
+					invoked.ContractDistributorPricing	= NewPricingIdentifier
+					invoked.Title						= NewTitle
+					invoked.Description					= NewDescription
+					invoked.DistributorPricing			= OriginalContractAndDistributorPricing.OriginalContractDistributorPricing.DistributorPricing
+					invoked.DistributorFreightPricing	= OriginalContractAndDistributorPricing.OriginalContractDistributorPricing.DistributorFreightPricing
+
+
+
+
+
+
+
+
+
+

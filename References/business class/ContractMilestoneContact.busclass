@@ -1,0 +1,231 @@
+ContractMilestoneContact is a BusinessClass
+	owned by po
+
+	prefix is CMCo
+
+	Ontology
+		symbolic key is ContractMilestoneContact
+
+	Patterns
+
+	Persistent Fields
+		ContractAttachedContact
+		Contact					is an Employee
+		Name					is a PersonName 
+			holds pii
+		Address					is a PostalAddressV2	
+			holds pii
+		Phone					is a Telephone 
+			holds pii
+		Email					is an EmailAddressMulti 
+			holds pii
+			default label is "EmailAddress"
+		ResponsibleForMilestone	is Boolean
+
+	Derived Fields
+		DerivedName is a DerivedField
+			type is Alpha 101
+			default label is "Name"
+			if (ContactEntered)
+				return Contact.FirstLastName
+			else
+				return Name.FirstAndLastName
+
+		DerivedPhone is a DerivedField
+			type is Alpha 100
+			default label is "PhoneNumber"
+			if (ContactEntered)
+				return Contact.EmployeeWorkTelephone
+			else
+				return Phone.TelephoneDisplay
+
+		DerivedEmail is a DerivedField 
+			type is EmailAddressField with multiple addresses
+			holds pii
+			default label is "EmailAddress"
+			if (ContactEntered)
+				return Contact.EmployeeWorkEmailAddress
+			else
+				return Email
+
+ 	Field Rules
+
+		ResponsibleForMilestone
+			if (ResponsibleForMilestone changed)
+				if (old ResponsibleForMilestone = true)
+					constraint (ResponsibleForMilestone = true)
+						"InOrderToRemoveResponsibilityUseThe'RefreshOption'_thenMakeAnotherContactTheResponsiblePerson."
+
+	Conditions
+		NotResponsibleForThisMilestone
+			restricted
+			when (!ResponsibleForMilestone)
+
+		ContactEntered
+			restricted
+			when (Contact entered)
+
+		ContractContactEntered
+			restricted
+			when (ContractAttachedContact entered)
+
+		AllowsSendImmediate
+			restricted
+			when (Contract.NotContractTemplate
+			and  !Contract.ContractStatus.Closed)
+
+		EmailAttachmentsExist
+			restricted
+			when (MilestoneCommentsWithAttachmentsToEmailRel exists)
+
+ 	Relations
+ 		OtherContractMilestoneResponsibleContactsRel
+ 			one-to-many relation to ContractMilestoneContact
+			Field Mapping uses symbolic key
+ 				related.ContractGroup					= ContractGroup
+ 				related.Contract						= Contract
+ 				related.ContractMilestone				= ContractMilestone
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.ResponsibleForMilestone)
+
+ 		ContractMilestoneResponsibleContactsRel
+ 			one-to-many relation to ContractMilestoneContact
+ 			Field Mapping uses symbolic key
+ 				related.ContractGroup					= ContractGroup
+ 				related.Contract						= Contract
+ 				related.ContractMilestone				= ContractMilestone
+			Instance Selection
+				where (related.ResponsibleForMilestone)
+
+		MilestoneCommentsWithAttachmentsToEmailRel
+			one-to-many relation to ContractMilestoneComment
+			Field Mapping uses part of key
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractMilestone			= ContractMilestone
+			Instance Selection
+				where (related.HasAttachmentToEmail)
+
+		ContractGroupEmailTemplateRel
+			one-to-one relation to ContractGroupEmailTemplate
+			Field Mapping uses symbolic key
+				related.ContractGroup                   = ContractGroup
+
+	Sets
+
+		ByContact
+			Sort Order
+				ContractGroup
+				Contract
+				ContractMilestone
+				Contact
+				ContractMilestoneContact
+
+ 	Actions
+ 		CreateAdHocContact is a Create Action
+			Entrance Rules
+
+ 			Action Rules
+
+ 				constraint (Email entered)
+ 					"MustEnterAnEmailAddresss"
+
+ 			Exit Rules
+ 				if (ResponsibleForMilestone)
+ 					for each OtherContractMilestoneResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForMilestoneToFalse 	= true
+
+ 		CreateContactFromEmployee is a Create Action
+			Entrance Rules
+
+ 			Action Rules
+
+				constraint (Contact.EmployeeWorkEmailAddressExists)
+					"ContactEmailAddressRequired"
+
+ 			Exit Rules
+ 				if (ResponsibleForMilestone)
+ 					for each OtherContractMilestoneResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForMilestoneToFalse 	= true
+
+ 		Update is an Update Action
+ 			Action Rules
+
+ 				if (!ContactEntered)
+ 					constraint (Email entered)
+ 						"MustEnterAnEmailAddress"
+
+ 			Exit Rules
+ 				if (ResponsibleForMilestone)
+ 					for each OtherContractMilestoneResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForMilestoneToFalse		= true
+
+ 		Delete is a Delete Action
+
+ 		Purge is a Purge Action
+ 			restricted
+
+ 		FastUpdate is an Instance Action
+ 			restricted
+ 			Parameters
+ 				PrmUpdateResponsibleForMilestoneToFalse		is Boolean
+
+ 			Action Rules
+ 				if (PrmUpdateResponsibleForMilestoneToFalse)
+ 					ResponsibleForMilestone		= false
+
+		SendImmediateEmail is an Instance Action
+			valid when (AllowsSendImmediate)
+			Parameters
+				PrmSendToEmailAddress					is an EmailAddressMulti 
+					holds pii
+				PrmCcEmail                              is an EmailAddressMulti 
+					holds pii
+				PrmEmailSubjectLine						is Alpha size up to 400
+				PrmEmailContents						is Alpha size up to 3000
+				PrmIncludeAttachments					is Boolean
+
+			Parameter Rules
+				PrmSendToEmailAddress
+					initial value is DerivedEmail
+					required
+						"EmailAddressIsRequired"
+
+				PrmEmailSubjectLine
+					initial value is ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailSubject
+
+					required
+						"EmailSubjectIsRequired"
+
+				PrmEmailContents
+					initial value is ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailContent
+
+					required
+						"EmailContentsAreRequired"
+
+				PrmIncludeAttachments
+					constraint (EmailAttachmentsExist)
+						"CannotSelectToIncludeAttachmentsWhenNoAttachmentsExistToEmail"
+
+			Action Rules
+				invoke CreateImmediateEmail ContractNotificationEmail
+					invoked.ContractGroup					= ContractGroup
+					invoked.Contract						= Contract
+					invoked.ContractMilestone				= ContractMilestone
+					initialize invoked.ContractDeliverable
+					invoked.SentToMilestoneContact			= ContractMilestoneContact
+					initialize invoked.SentToDeliverableContact
+					invoked.SentToEmailAddress				= PrmSendToEmailAddress
+					invoked.SentToCc                        = PrmCcEmail
+					invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+					invoked.SentFromEmailAddress			= actor.ContactInfo.EmailAddress
+					invoked.EmailSubjectLine				= PrmEmailSubjectLine
+					invoked.EmailContent					= PrmEmailContents
+					invoked.NotificationType				= 4
+					invoked.IncludeAttachments				= PrmIncludeAttachments
+
+			Exit Rules

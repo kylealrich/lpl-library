@@ -1,0 +1,758 @@
+WireTransferBatch is a BusinessClass
+	owned by cb
+	prefix is WTB
+	
+	Ontology
+		symbolic key is WireTransferBatch
+	
+	Patterns
+       	implements BODId
+       	
+	Persistent Fields
+		FinancialInstitution
+		FinancialInstitutionBranch
+		Status						is Numeric size 2
+    		States
+    			New						value is 1
+    			AwaitingApproval		value is 2
+    			Released				value is 3
+	            Historical				value is 4
+	    TransferType				is Numeric 2
+			States
+				Internal				value is 1
+				External				value is 2
+		Description
+		TransactionDate				is Date
+		ApprovalCode
+		Rejected					is Boolean
+		ApprovalLevel				is Numeric 8
+		ReassignToApprovalLevel		is an ApprovalCodeResource
+		Approver					is a FinanceResource
+		ApproverTeam				is a FinanceTeamField
+		FileName					is AlphaUpper up to 100
+			Text Variables
+                FinancialInstitution		value is FinancialInstitution
+                FinancialInstitutionBranch	value is FinancialInstitutionBranch
+		FTPConfiguration
+		AwaitingApprovalTimestamp	is TimeStamp
+		ReleasedTimestamp			is TimeStamp
+		HistoricalTimestamp			is TimeStamp
+    	OutputFileType 	is Numeric 2
+    		States
+    			CSVFile			value is 0
+    			BODOutput		value is 1	
+   				InforTreasury	value is 2		
+		PostingDate								
+			
+	Local Fields
+		LocalApprovalLevel			is Numeric 8
+		LocalApprover				is a FinanceResource
+		LocalApproverTeam			is a FinanceTeamField		
+		LocalApproverList			is Alpha 250
+		LocalFirstApproverAssigned	is Boolean
+		LocalCashManagementGroup	is like CashManagementGroup
+		LocalWireTransferBatch		is like WireTransferBatch
+		
+	Rule Blocks
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+					
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				
+			include ApproverEmailNotification
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+			
+			if (LocalApprovalLevel entered)
+				include ApproverEmailNotification
+
+		ApproverEmailNotification
+			if (LocalApprover entered)
+				send email
+					to		LocalApprover.EmailAddress
+					from	actor.agent(FinanceResource).EmailAddress
+					subject "WireTransfer<Description>HasBeenSubmittedForYourApproval"
+					Contents
+							"WireTransfer<Description>HasBeenSubmittedForYourApproval"
+
+		RejectionEmailNotification
+			if (Rejected)
+				send email
+					to		CreatedActorRel.ContactInfo.EmailAddress
+					from	actor.agent(FinanceResource).EmailAddress
+					subject "WireTransfer<Description>HasBeenRejected"
+					Contents
+							"RejectedOn_<current timestamp>By_<actor.agent(FinanceResource).FinanceResource.PreferredSimplePresentationName>"
+		
+		ReleaseEdits
+			constraint (WireTransferBatchDetail set exists)
+				"WireTransferDetailsMustBeDefined"
+			
+			constraint (FinancialInstitutionBranch.WireRoutingNumber entered)
+				"WireRoutingNumberMustBeEnteredOnTheFinancialInstitutionBranch"
+		
+			if (CashManagementGroup.WireTransferApprovalRequired)
+				constraint (ApprovalCode entered)
+					"ApprovalCodeIsRequired"
+	
+			constraint (FinalFileName matches "^[0-9a-zA-Z{}.\-_\s]+$") 
+				"FileNameCannotContainSlashesOrSpecialCharacters:<FinalFileName>"
+				
+			for each WireTransferBatchDetail set
+				constraint (each.TransactionDate >= current corporate date)
+					"TransactionDateCannotBeInThePast"
+				
+				constraint (each.ValidPostingDate)		
+					"ThePostingDateForWireTransferDetail<each.WireTransferBatchDetail>IsOutsideValidDateRange"
+				
+				constraint (each.FromCashCode.BankAccountNumber.Active)		
+					"TheFromCashCodeForWireTransferDetail<each.WireTransferBatchDetail>IsInactive"
+				
+				if (each.InternalTransfer)
+					constraint (each.ToCashCode.BankAccountNumber.Active)	
+						"TheToCashCodeForWireTransferDetail<each.WireTransferBatchDetail>IsInactive"		
+									
+				if (each.DistributionsRequired)
+					constraint (each.WireTransferBatchDetailDistribution set exists)
+						"DistributionsAreRequiredForWireTransfer<each.WireTransferBatchDetail>"
+				
+					if (each.ExternalTransfer)
+						constraint (each.DistributionsBalance)
+							"DistributionsDoNotBalanceForWireTransfer<each.WireTransferBatchDetail>"
+							
+					if (each.FeeAmount entered)
+						constraint (each.FeeDistributionsBalance)
+							"FeeDistributionsDoNotBalanceForWireTransfer<each.WireTransferBatchDetail>"
+							
+					constraint (each.TotalDistributionsBalance)
+						"TotalDistributionsDoNotBalanceForWireTransfer<each.WireTransferBatchDetail>"
+
+				if (CashManagementGroup.FinanceEnterpriseGroup.FundAccounting)
+					invoke EditFundAmounts each
+
+
+	Derived Fields
+		DerivedStatus is a DerivedField
+			type is Alpha 20
+			default label is "Status"
+			if (Status.New)
+				return "New"
+			else
+			if (Status.AwaitingApproval)
+				return "Awaiting Approval"
+			else
+			if (Status.Historical)
+				return "Historical"
+			else
+			if (Status.Released
+			and WireTransferDetailNotProcessedRel exists)
+    			return "Released"
+    		else
+    			return "Processed"
+	    
+	    TotalTransactionAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum WireTransferBatchDetail set.TransactionAmount)
+	            
+		DerivedNextApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			LocalApprovalLevel = ApprovalLevel
+			include GetNextApprovalLevel
+			return LocalApprovalLevel
+			
+		DerivedCurrentApprovalResource is a DerivedField
+			type is like FinanceResource
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is like FinanceTeam
+			restricted
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorList
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+    
+    	DerivedWireTransferBatch is a DerivedField
+    		type is Alpha 10
+    		restricted
+    		if (WireTransferBatch entered)
+    			return WireTransferBatch
+    		else
+    			return blank
+    			
+    	FinalFileName is a DerivedField
+            type is AlphaUpper up to 100
+            return FileName text
+    	
+    	FileNameDisplay is a DerivedField
+            type is AlphaUpper up to 100
+            return FinalFileName + "-TIMESTAMP"
+        
+        FTPConfigurationName is a DerivedField
+			type is Alpha 100
+			if (FTPConfiguration.System)
+				return "system"
+			else
+			if (FTPConfiguration.System1)
+				return "system1"
+			else
+			if (FTPConfiguration.System2)
+				return "system2"
+			else
+			if (FTPConfiguration.System3)
+				return "system3"
+			else
+			if (FTPConfiguration.System4)
+				return "system4"
+		
+	Field Rules
+		FinancialInstitution
+			required
+		
+		FinancialInstitutionBranch
+			required
+			
+		TransferType
+			required
+		
+		Description
+			required
+			
+		TransactionDate
+			required
+			initial value is current corporate date
+			if (TransactionDate changed)
+				confirmation required
+					"TransactionDateWillBeChangedOnAllWireTransferDetails;WouldYouLikeToContinue?"
+				invoke Update WireTransferBatchDetail set
+					invoked.TransactionDate = TransactionDate
+					
+		ApprovalCode
+			if (CashManagementGroup.WireTransferApprovalRequired)
+				required
+	
+		FileName
+			initial value is "WIRE TRANSFER-{FinancialInstitution}-{FinancialInstitutionBranch}"
+			default to "WIRE TRANSFER-{FinancialInstitution}-{FinancialInstitutionBranch}"
+			constraint (FileName matches "^[0-9a-zA-Z{}.\-_\s]+$") 
+				"FileNameCannotContainSlashesOrSpecialCharacters:<FileName>"
+		
+		FTPConfiguration
+			default to CashManagementGroup.FTPConfiguration
+			default to 1	
+					
+		OutputFileType
+			initial value is FinancialInstitutionBranch.WireTransferOutputFileType
+			if (OutputFileType.CSVFile
+			and CashManagementGroup.InforTreasuryIntegrationType entered)
+				required
+					"IntegrationTypeMustBeBlankOn_\Cash_\Management_\GroupToUtilizeCSVOutput"
+
+			if (OutputFileType.BODOutput)
+				constraint (!CashManagementGroup.InforTreasuryIntegrationType entered)
+					"IntegrationTypeMustBeBlankOn_\Cash_\Management_\GroupToUtilizeBODOutput"
+
+			if (OutputFileType.InforTreasury)						
+				constraint (CashManagementGroup.InforTreasuryIntegrationType entered)
+					"IntegrationTypeMustBeEnteredOn_\Cash_\Management_\GroupToUtilize_\Infor_\TreasuryOutput"
+
+		PostingDate	
+			initial value is TransactionDate
+			default to TransactionDate
+			
+	Conditions
+		RecordExists
+			restricted
+			when (WireTransferBatch exists)
+			
+		IsNew
+			restricted
+			when (!RecordExists
+			or    Status.New)	
+			
+		IsNotNew
+			restricted
+			when (RecordExists
+			and  !Status.New)
+			
+		RejectWireTransferReasonCodeRequired
+ 			restricted
+			when (CashManagementGroup.RejectWireTransferReasonCodeRequired)
+		
+		AllWireTransfersProcessed
+			restricted
+			when (Status.Released
+			and   !WireTransferDetailNotProcessedRel exists)
+		
+		Processed
+			when (AllWireTransfersProcessed)			
+		
+		ReleasedNotProcessedWireTransfers
+			restricted
+			when (Status.Released
+			and   WireTransferDetailNotProcessedRel exists)
+
+		BudgetEditInProgress	
+			restricted
+        	when (WireTransferDetailRelBudgetProcessingInProcessRel exists)	
+        
+        BudgetEditFailure	
+        	restricted
+    		when (WireTransferDetailRelBudgetProcessingFailureRel exists)	
+
+		ReleaseActionValid	
+			restricted
+			when (!CashManagementGroup.WireTransferApprovalRequired
+
+			and   !WireTransferBatchDetail set.BudgetEditProcessing.Failure
+			and   !WireTransferBatchDetail set.BudgetEditProcessing.InProcess)
+
+		SubmitActionValid	
+			restricted
+			when (CashManagementGroup.WireTransferApprovalRequired
+
+			and   !WireTransferBatchDetail set.BudgetEditProcessing.Failure
+			and   !WireTransferBatchDetail set.BudgetEditProcessing.InProcess)
+																				
+	Relations
+		CreatedActorRel
+	 		one-to-one relation to Actor
+	 		Field Mapping uses symbolic key
+	 			related.Actor	= create stamp.actor
+	 	
+	 	CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+		
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+	
+		AccountsByFinancialInstitutionBranchRel
+			one-to-many relation to CashManagementAccount
+			Field Mapping uses ByFinancialInstitution
+				related.CashManagementGroup			= CashManagementGroup
+				related.FinancialInstitution		= FinancialInstitution
+				related.FinancialInstitutionBranch	= FinancialInstitutionBranch
+	
+		CashCodesByFinancialInstitutionBranchRel
+			one-to-many relation to CashCode
+			Field Mapping uses Set3
+				related.CashManagementGroup			= CashManagementGroup
+				related.FinancialInstitution		= FinancialInstitution
+				related.FinancialInstitutionBranch	= FinancialInstitutionBranch
+				
+		WireTransferDetailNotProcessedRel
+			one-to-many relation to WireTransferBatchDetail
+			Field Mapping uses ByProcessed
+				related.CashManagementGroup		= CashManagementGroup
+				related.WireTransferBatch		= WireTransferBatch
+				related.Processed				= false
+		
+		WireTransferDetailProcessedRel
+			one-to-many relation to WireTransferBatchDetail
+			Field Mapping uses ByProcessed
+				related.CashManagementGroup		= CashManagementGroup
+				related.WireTransferBatch		= WireTransferBatch
+				related.Processed				= true
+		
+		PfiConfigurationRel
+			one-to-one relation to PfiConfiguration
+			Field Mapping uses symbolic key
+				related.PfiConfiguration = FTPConfigurationName
+
+		WireTransferDetailRelBudgetProcessingFailureRel	
+			one-to-many relation to WireTransferBatchDetail
+			Field Mapping uses ByProcessed
+				related.CashManagementGroup		= CashManagementGroup
+				related.WireTransferBatch		= WireTransferBatch
+				related.Processed				= false
+			Instance Selection	
+            	where (related.BudgetEditProcessing	= 2) 
+				
+		WireTransferDetailRelBudgetProcessingInProcessRel	
+			one-to-many relation to WireTransferBatchDetail
+			Field Mapping uses ByProcessed
+				related.CashManagementGroup		= CashManagementGroup
+				related.WireTransferBatch		= WireTransferBatch
+				related.Processed				= false
+			Instance Selection	
+            	where (related.BudgetEditProcessing	= 1) 
+
+		GeneralLedgerSystemCodeRel	
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.GeneralLedgerSystemCode	= "CB"	
+				
+	Sets
+		ByStatus
+			Sort Order
+				CashManagementGroup
+				Status
+				WireTransferBatch
+							
+	Actions
+		UpdateApprovalLevel is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmEscalate	is Boolean
+				PrmReassign	is Boolean
+				
+			Action Rules
+				if (PrmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (PrmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel	= LocalApprovalLevel
+					Approver		= LocalApprover
+					ApproverTeam	= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel	= LocalApprovalLevel
+					Approver		= LocalApprover
+					ApproverTeam	= LocalApproverTeam
+
+		UpdateBODIdFields is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmDocumentID        is Alpha size 100
+					default label is "DocumentID"
+				PrmRevision          is Alpha size 22
+					default label is "Revision"	
+				PrmSystemOfRecord    is Alpha size 1
+					default label is "SystemOfRecord"
+			Action Rules			
+				if (bod id.DocumentID 			!= PrmDocumentID)
+					bod id.DocumentID			= PrmDocumentID
+				if (bod id.Revision 			!= PrmRevision)
+					bod id.Revision				= PrmRevision
+				if (bod id.SystemOfRecord 		!= PrmSystemOfRecord)
+					bod id.SystemOfRecord		= PrmSystemOfRecord
+		
+		TriggerWireTransferBOD is an Instance Action  
+	  	 	default label is untranslatable
+	  	 	restricted
+			Action Rules
+				if (CashManagementGroup.FinanceEnterpriseGroup.BODTrigger)
+					if (action != "UpdateBODIdFields") 
+						increment bod id.VariationID
+						trigger "WireTransferService" PA service
+							resume on error
+							title is "WireTransfer:<WireTransferBatch>"
+							Criteria
+								CashManagementGroup
+							Variables
+								include persistent fields from	WireTransferBatch
+								include persistent fields from	FinancialInstitutionBranch
+								CashManagementGroup.FinanceEnterpriseGroup
+									variable name is FinanceEnterpriseGroup
+								CashManagementGroup
+									variable name is CashManagementGroup														
+	
+		UpdateWireTransferBatchPostingDate is a Set Action	
+			default label is untranslatable
+			restricted		
+			Parameters
+				PrmCashManagementGroup			is a CashManagementGroup
+
+			Instance Selection
+				where (CashManagementGroup		= PrmCashManagementGroup
+				and    PostingDate				!entered)
+
+			Sort Order  
+				CashManagementGroup
+				WireTransferBatch
+
+			Action Rules
+				Instance Rules
+					if (WireTransferBatchDetail set exists)
+						invoke UpdatePostingDate WireTransferBatchDetail set
+							invoked.PrmPostingDate	= TransactionDate
+					
+					PostingDate = TransactionDate		
+							
+									
+	StateCycles
+		WireTransferCycle is a StateCycle
+			state field is Status
+		
+			New is a State
+				Create is a Create Action
+					Action Rules
+						if (FinancialInstitutionBranch entered)
+							constraint (CashCodesByFinancialInstitutionBranchRel exists)
+								"CashCodesDoNotExistForFinancialInstitution<FinancialInstitution>-<FinancialInstitutionBranch>"
+							
+				Update is an Update Action
+					
+				Delete is a Delete Action
+
+				Release is an Instance Action
+					valid when (ReleaseActionValid)	
+					Entrance Rules
+						constraint (ReleaseActionValid)	
+							"ReleaseActionInvalid"
+					Action Rules
+						include ReleaseEdits
+						
+						if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit	
+						or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track) 
+							if (WireTransferDetailNotProcessedRel exists)	
+								invoke ProcessBudgetEdits WireTransferDetailNotProcessedRel	
+									invoked.PrmActionCode	= "R"	
+						else
+							make transition to Released
+							
+				UpdateStatus is an Instance Action	
+					default label is untranslatable
+					restricted
+					Parameters
+						PrmActionCode	is an ActionCode
+					Action Rules
+						if (all WireTransferBatchDetail set.BudgetEditProcessing.Success)	
+							if (PrmActionCode.Release)
+								make transition to Released
+							else	
+							if (PrmActionCode.Approve)
+								invoke FinalApproval 	
+
+				SubmitForApproval is an Instance Action
+					valid when (SubmitActionValid)	
+					Entrance Rules	
+						constraint (SubmitActionValid)	
+							"SubmitForApprovalActionInvalid"
+					Action Rules
+						include ReleaseEdits
+						
+						if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit	
+						or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track) 
+							if (WireTransferDetailNotProcessedRel exists)	
+								invoke ProcessBudgetEdits WireTransferDetailNotProcessedRel	
+									invoked.PrmActionCode	= "A"	
+						else
+							invoke FinalApproval	
+							
+				FinalApproval is an Instance Action	
+					default label is untranslatable
+					restricted
+					Action Rules					
+						include GetNextApprovalLevel
+						ApprovalLevel				= LocalApprovalLevel
+						Approver 					= LocalApprover
+						ApproverTeam 				= LocalApproverTeam
+						LocalCashManagementGroup 	= CashManagementGroup
+						LocalWireTransferBatch		= WireTransferBatch
+						
+						initiate WireTransferApproval process
+							title is "WireTransfer<Description>WaitingForApproval" 
+							Variables
+								LocalCashManagementGroup
+								LocalWireTransferBatch
+							URLs
+								"<linkback(webapp is CashAccountant navigation is ProcessFlowForm text is \"ViewWireTransfer\" session key CashManagementGroup is CashManagementGroup)>"
+						
+						make transition to AwaitingApproval
+							
+			AwaitingApproval is a State
+				on entrance to AwaitingApproval
+					Action Rules
+						AwaitingApprovalTimestamp = current timestamp
+						
+						Status = Status.AwaitingApproval
+						
+				Approve is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						make transition to Released
+											
+				Reject is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						if (WireTransferDetailNotProcessedRel exists)	
+							invoke BudgetRejectUpdates WireTransferDetailNotProcessedRel
+								
+						Rejected = true
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize AwaitingApprovalTimestamp
+		
+						make transition to New
+						include RejectionEmailNotification
+		
+				RejectWithReasonCode is an Instance Action
+					default label is untranslatable
+					restricted
+					subject is RejectWireTransfer
+					reason code required
+					action comment required
+		
+					Action Rules
+						if (WireTransferDetailNotProcessedRel exists)	
+							invoke BudgetRejectUpdates WireTransferDetailNotProcessedRel
+								
+						Rejected = true
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam	
+						initialize AwaitingApprovalTimestamp
+						
+						make transition to New
+						include RejectionEmailNotification
+			
+				ManualApprove is an Instance Action
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+						
+					Action Rules
+						make transition to Released
+			
+						cancel WireTransferApproval process
+								
+				ManualReject is an Instance Action
+					subject is RejectWireTransfer
+					Parameters
+						PrmComment		is Alpha size up to 500
+						
+					Action Rules
+						if (RejectWireTransferReasonCodeRequired)			
+							constraint (reason code entered)
+								"ReasonCodeIsRequiredForRejectingWireTransfer"												
+						if (WireTransferDetailNotProcessedRel exists)	
+							invoke BudgetRejectUpdates WireTransferDetailNotProcessedRel
+								
+						Rejected = true
+					
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize AwaitingApprovalTimestamp	
+						
+						make transition to New
+						include RejectionEmailNotification
+						
+						cancel WireTransferApproval process
+		
+			Released is a State
+				on entrance to Released
+					Action Rules
+
+						invoke ReleaseDistributions WireTransferDetailNotProcessedRel				
+						
+						invoke CreateWireTransferOutput WireTransferBatchDetail
+							invoked.PrmCashManagementGroup	= CashManagementGroup
+							invoked.PrmWireTransferBatch	= WireTransferBatch
+							
+						ReleasedTimestamp = current timestamp
+				
+				Reset is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						constraint (!WireTransferDetailProcessedRel exists)
+							"WireTransfersHaveBeenProcessed;CannotReset"
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize AwaitingApprovalTimestamp
+						initialize ReleasedTimestamp
+						
+						if (WireTransferDetailNotProcessedRel exists)			
+							invoke Reset WireTransferDetailNotProcessedRel		
+								
+						make transition to New
+								
+				Close is an Instance Action
+					valid when (AllWireTransfersProcessed)
+					Action Rules
+						make transition to Historical
+															
+			Historical is a State
+				on entrance to Historical
+					Action Rules
+						HistoricalTimestamp = current timestamp

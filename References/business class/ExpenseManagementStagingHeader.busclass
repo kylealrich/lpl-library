@@ -1,0 +1,486 @@
+ExpenseManagementStagingHeader is a BusinessClass
+    owned by ap
+    prefix is XMH
+    sql name is XMStagingHeader
+    classic name is CTXMEXPHDR
+
+    Ontology
+        symbolic key is ExpenseManagementStagingHeader
+            classic set name is XMHSET1
+            sql name is XMStagingHeader
+            classic name is OBJID
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements BODId
+
+    Persistent Fields
+
+        Document			is AlphaUpper 22
+
+        Currency
+        Purpose    			is Alpha 250
+        FromDate 			is Date
+        ToDate     			is Date
+        Status     			is Numeric 4
+        Origin     			is Numeric 1
+        	restricted
+        HROrganizationAndEmployee
+        Vendor
+        Source       		is AlphaUpper size 1
+			restricted
+	        States
+	            Vendor                  value is "V"
+        RemitToCode         is a VendorLocation
+		PaymentReference	is Alpha 15
+		
+	Field Rules
+		Source
+			force default to Source.Vendor
+					
+	Local Fields
+		NewExpenseManagementInterfaceHeader	is an ExpenseManagementInterfaceHeader view
+		WorkCreditCardIssuer				is Alpha 250
+		WorkCreditCardNumber				is Alpha 16
+		WorkDocument						is AlphaUpper 22
+		WorkSequence						is Numeric 3
+		WorkVendor							is like Vendor
+		WorkTransactionAmount      			is an InternationalAmount	
+		LocalExpenseManagementStagingDetail	is an ExpenseManagementStagingDetail
+		NewExpenseManagementInterfaceDetail	is an ExpenseManagementInterfaceDetail view
+		
+	Conditions
+		ShowBODIdForm
+			restricted
+			when (bod id.AccountingEntity entered
+			or	  bod id.Location entered
+			or	  bod id.DocumentID entered
+			or	  bod id.Revision entered
+			or	  bod id.SystemOfRecord entered
+			or	  bod id.VariationID entered)
+
+	Relations
+        ExpenseManagementInterfaceConfigurationRel
+            one-to-many relation to ExpenseManagementInterfaceConfiguration
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup						= VendorGroup.BusinessGroup.FinanceEnterpriseGroup
+
+        ExpenseManagementInterfaceHeaderRel
+            one-to-one relation to ExpenseManagementInterfaceHeader
+            Field Mapping uses symbolic key
+                related.VendorGroup									= VendorGroup
+                related.ExpenseManagementInterfaceHeader.Document 	= Document
+
+        CreditCardDetailRel
+            one-to-many relation to ExpenseManagementStagingDetail
+            Field Mapping uses ByCreditCardIssuer
+                related.VendorGroup						= VendorGroup
+                related.ExpenseManagementStagingHeader	= ExpenseManagementStagingHeader
+            Instance Selection
+            	where (related.PayMethod = 30)
+
+        ExpenseDetailRel
+            one-to-many relation to ExpenseManagementStagingDetail
+            Field Mapping uses symbolic key
+                related.VendorGroup						= VendorGroup
+                related.ExpenseManagementStagingHeader	= ExpenseManagementStagingHeader
+            Instance Selection
+            	where (related.PayMethod != 30)
+
+		CashAdvanceExpenseDetailRel
+            one-to-many relation to ExpenseManagementStagingDetail
+            Field Mapping uses symbolic key
+                related.VendorGroup						= VendorGroup
+                related.ExpenseManagementStagingHeader	= ExpenseManagementStagingHeader
+            Instance Selection
+            	where (related.IsCashAdvance)
+
+		LocalExpenseManagementStagingDetailRel
+			one-to-one relation to ExpenseManagementStagingDetail
+            Field Mapping uses symbolic key
+                related.VendorGroup						= VendorGroup
+                related.ExpenseManagementStagingHeader	= ExpenseManagementStagingHeader
+                related.ExpenseManagementStagingDetail	= LocalExpenseManagementStagingDetail
+
+	Actions
+		Create is a Create Action
+			
+		Update is an Update Action
+
+		Delete is a Delete Action
+		
+		Purge is a Purge Action
+		
+		ResetRelatedLines is an Instance Action
+			restricted
+								
+			Action Rules
+
+				for each ExpenseManagementStagingDetail set
+					if (each.RelatedLineNotFirst)
+						invoke FastUpdate each
+							invoked.ExpenseManagementInterfaceExpenseType	= each.RelatedInterfaceDetail.ExpenseManagementInterfaceExpenseType
+							invoked.PayMethod				= each.RelatedInterfaceDetail.PayMethod
+							invoked.TransactionDate			= each.RelatedInterfaceDetail.TransactionDate
+			                invoked.CreditCardIssuer		= each.RelatedInterfaceDetail.CreditCardIssuer
+			                invoked.CreditCardNumber		= each.RelatedInterfaceDetail.CreditCardNumber
+			                invoked.AccountingEntity		= each.RelatedInterfaceDetail.AccountingEntity
+			                invoked.TransactionCurrency		= each.RelatedInterfaceDetail.TransactionCurrency
+			                invoked.ApprovedBaseCurrency	= each.RelatedInterfaceDetail.ApprovedBaseCurrency
+			                invoked.ExchangeRate			= each.RelatedInterfaceDetail.ExchangeRate
+			                invoked.Billable				= each.RelatedInterfaceDetail.Billable
+			                invoked.FinanceStructure		= each.RelatedInterfaceDetail.FinanceStructure
+	
+					if (each.FirstRelatedLine)
+						invoke FastUpdate each.RelatedInterfaceDetail
+							invoked.FinanceStructure			= each.FinanceStructure
+							invoked.BaseAmount					= each.BaseAmount
+							invoked.TransactionAmount			= each.TransactionAmount
+							invoked.ApprovedBaseAmount			= each.ApprovedBaseAmount
+							invoked.ApprovedTransactionAmount	= each.ApprovedTransactionAmount
+							
+
+
+
+
+
+
+
+
+
+		
+		MoveAll is a Set Action
+			completion message is "MoveAllComplete"
+			Parameters
+				PrmVendorGroup		is a VendorGroup
+					default label is "VendorGroup"
+			Parameter Rules
+				PrmVendorGroup
+					required
+
+			Instance Selection
+				where (ExpenseManagementStagingDetail set exists
+				and ExpenseManagementInterfaceConfigurationRel exists
+				and !ExpenseManagementInterfaceHeaderRel exists)
+			Action Rules
+				Instance Rules
+					invoke Move
+					
+		Move is an Instance Action
+			Entrance Rules
+				constraint (ExpenseManagementStagingDetail set exists)
+					"NoDetailRecordsExist;CannotProcess"
+				constraint (ExpenseManagementInterfaceConfigurationRel exists)
+					"ConfigurationRecordNotFound;CannotProcess"
+				constraint (!ExpenseManagementInterfaceHeaderRel exists)
+					"EmployeeExpenseDocumentAlreadyExistsForThisDocumentNumber"
+					
+				for each ExpenseManagementStagingDetail set
+					if (each.RelatedInterfaceDetail not entered)
+						if (each.PayMethod = 2)
+							constraint (each.CreditCardIssuer entered)
+								"CreditCardIssuerRequiredForPayMethod2OnLine<each.ExpenseManagementStagingDetail>"
+							constraint (each.CreditCardNumber entered)
+								"CreditCardIssuerRequiredForPayMethod2OnLine<each.ExpenseManagementStagingDetail>"
+							constraint (each.ExpenseManagementInterfaceCreditCardIssuerRel exists)
+								"CreditCardVendor<each.CreditCardIssuer>RecordNotFoundAndWillBeCreated.VendorNeedsToBeFilledIn"
+							constraint (each.ExpenseManagementInterfaceCreditCardIssuerRel.Vendor entered)
+								"CreditCardVendorRecordFoundFor<each.CreditCardIssuer>ButVendorIsNotFilledIn"
+								
+			Action Rules
+
+				invoke ResetRelatedLines
+
+		        if (CreditCardDetailRel exists)		
+									        	
+		        	initialize WorkCreditCardIssuer
+		        	initialize WorkCreditCardNumber
+		        	initialize WorkDocument
+		        	initialize WorkSequence
+
+		        	for each CreditCardDetailRel
+		        		if (each.CreditCardIssuer	!= WorkCreditCardIssuer
+		        		or  each.CreditCardNumber	!= WorkCreditCardNumber)
+		        		
+			        		if (each.CreditCardIssuer	!= WorkCreditCardIssuer)
+			        			initialize WorkSequence
+			        		else
+			        			WorkSequence += 1
+
+			        		WorkCreditCardIssuer 		= each.CreditCardIssuer
+			        		WorkCreditCardNumber		= each.CreditCardNumber
+							WorkVendor 					= each.ExpenseManagementInterfaceCreditCardIssuerRel.Vendor
+
+							if (WorkSequence entered)
+		        				WorkDocument			= Document + "-" + WorkVendor + "-" + WorkSequence
+		        			else 
+		        				WorkDocument			= Document + "-" + WorkVendor
+							
+				        	invoke Create ExpenseManagementInterfaceHeader
+								assign result to NewExpenseManagementInterfaceHeader
+								invoked.VendorGroup						= VendorGroup
+								invoked.ExpenseManagementInterfaceHeader.Document		= WorkDocument
+								invoked.Vendor							= Vendor
+								invoked.PayVendor						= each.ExpenseManagementInterfaceCreditCardIssuerRel.Vendor
+								invoked.CreditCardNumber				= WorkCreditCardNumber
+		
+
+
+								invoked.ReimbursmentSystem				= 10
+								invoked.DefaultDistributionAccount		= first ExpenseManagementInterfaceConfigurationRel.DefaultAccountingUnit
+								invoked.FirstName						= Vendor.VendorName
+								invoked.LastName						= Vendor.VendorName
+		
+								invoked.Currency						= Currency
+								invoked.Description						= Purpose
+								invoked.BeginDate						= FromDate
+								invoked.EndDate							= ToDate
+								invoked.Status							= 1
+								invoked.ResourceType					= 20
+								invoked.RecordType						= 10
+								invoked.PaymentReference				= PaymentReference
+								invoked.RemitToCode						= RemitToCode
+						        invoked.CreditCardNumber				= WorkCreditCardNumber
+						        invoked.bod id.AccountingEntity			= bod id.AccountingEntity
+								invoked.bod id.Location					= bod id.Location
+								invoked.bod id.DocumentID				= bod id.DocumentID
+								invoked.bod id.Revision					= bod id.Revision
+								invoked.bod id.SystemOfRecord			= bod id.SystemOfRecord
+								invoked.bod id.VariationID				= bod id.VariationID
+						        
+						invoke Create ExpenseManagementInterfaceDetail
+							assign result to NewExpenseManagementInterfaceDetail
+							invoked.VendorGroup								= VendorGroup
+							invoked.AccountingEntity							= each.AccountingEntity
+							invoked.ExpenseManagementInterfaceHeader.Document	= WorkDocument
+							
+
+							invoked.Vendor									= NewExpenseManagementInterfaceHeader.Vendor
+
+
+							invoked.AccountingEntity						= each.AccountingEntity
+							invoked.ExpenseManagementInterfaceExpenseType	= each.ExpenseManagementInterfaceExpenseType
+							invoked.FinanceStructure						= each.FinanceStructure
+							invoked.ExpenseDate								= each.TransactionDate
+							invoked.Status									= 1
+							invoked.PaymentMethod							= 30
+							invoked.TransactionCurrency						= each.TransactionCurrency
+							invoked.TransactionAmount						= each.TransactionAmount
+							
+							if (each.ApprovedBaseCurrency entered)
+								invoked.ReimbursementCurrency				= each.ApprovedBaseCurrency
+							else
+								invoked.ReimbursementCurrency				= Currency
+									
+							invoked.ReimbursementAmount						= each.ApprovedBaseAmount
+							invoked.ReimbursementRate						= each.ExchangeRate
+							invoked.Billable								= each.Billable
+
+                            invoked.TaxCode1								= each.TaxCode
+
+						LocalExpenseManagementStagingDetail = each.ExpenseManagementStagingDetail
+						for each LocalExpenseManagementStagingDetail.ExpenseManagementStagingAllocation set
+							invoke Create ExpenseManagementInterfaceAllocation
+								fill in fields from NewExpenseManagementInterfaceDetail.ExpenseManagementInterfaceDetail
+								invoked.Percentage			= each.Percentage
+								invoked.Amount				= each.Amount
+								invoked.BaseAmount			= each.BaseAmount
+								invoked.FinanceStructure	= each.FinanceStructure
+								invoked.Billable			= each.Billable
+
+
+						invoke Update NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader
+							invoked.ReimbursementAmount		= NewExpenseManagementInterfaceHeader.ReimbursementAmount + each.ApprovedBaseAmount
+							invoked.ReimbursementCurrency	= Currency
+
+					invoke Delete CreditCardDetailRel
+
+
+				if (CashAdvanceExpenseDetailRel exists)		
+		        	invoke Create ExpenseManagementInterfaceHeader
+						assign result to NewExpenseManagementInterfaceHeader
+						invoked.VendorGroup									= VendorGroup
+						invoked.ExpenseManagementInterfaceHeader.Document	= Document + "-ADV"
+
+
+						invoked.Vendor						= Vendor
+
+						invoked.ReimbursmentSystem			= 10
+						invoked.DefaultDistributionAccount	= first ExpenseManagementInterfaceConfigurationRel.DefaultAccountingUnit
+						invoked.FirstName					= Vendor.VendorName
+						invoked.LastName					= Vendor.VendorName
+						invoked.ResourceType				= 20
+
+						invoked.Currency					= Currency
+						invoked.Description					= Purpose
+						invoked.BeginDate					= FromDate
+						invoked.EndDate						= ToDate
+						invoked.Status						= 1
+						invoked.RecordType					= 20 
+						invoked.PaymentReference			= PaymentReference
+						invoked.RemitToCode					= RemitToCode
+
+						if (PaymentReference not entered)
+							invoked.PayVendor					= Vendor
+
+				        invoked.bod id.AccountingEntity			= bod id.AccountingEntity
+						invoked.bod id.Location					= bod id.Location
+						invoked.bod id.DocumentID				= bod id.DocumentID
+						invoked.bod id.Revision					= bod id.Revision
+						invoked.bod id.SystemOfRecord			= bod id.SystemOfRecord
+						invoked.bod id.VariationID				= bod id.VariationID
+
+		        	for each CashAdvanceExpenseDetailRel
+		        	
+						if  (each.ApprovedBaseAmount entered
+						and  !each.FirstRelatedLine)
+
+							invoke Create ExpenseManagementInterfaceDetail
+								assign result to NewExpenseManagementInterfaceDetail
+								invoked.VendorGroup								= VendorGroup
+								invoked.AccountingEntity							= each.AccountingEntity
+								invoked.ExpenseManagementInterfaceHeader.Document	= Document + "-ADV"
+								
+
+								invoked.Vendor									= NewExpenseManagementInterfaceHeader.Vendor
+
+
+								invoked.ExpenseManagementInterfaceExpenseType	= each.ExpenseManagementInterfaceExpenseType
+								invoked.ExpenseDate								= each.TransactionDate
+								invoked.Status									= 1
+								invoked.PaymentMethod							= each.PayMethod
+	
+								invoked.TransactionCurrency						= each.TransactionCurrency
+								invoked.TransactionAmount						= each.TransactionAmount
+								
+								if (each.ApprovedBaseCurrency entered)
+									invoked.ReimbursementCurrency				= each.ApprovedBaseCurrency
+								else
+									invoked.ReimbursementCurrency				= Currency
+									
+								invoked.ReimbursementAmount						= each.ApprovedBaseAmount
+								invoked.ReimbursementRate						= each.ExchangeRate
+								invoked.Billable								= each.Billable
+								invoked.FinanceStructure						= each.FinanceStructure
+
+                                invoked.TaxCode1								= each.TaxCode
+
+							LocalExpenseManagementStagingDetail = each.ExpenseManagementStagingDetail
+							for each LocalExpenseManagementStagingDetail.ExpenseManagementStagingAllocation set
+								invoke Create ExpenseManagementInterfaceAllocation
+									fill in fields from NewExpenseManagementInterfaceDetail.ExpenseManagementInterfaceDetail
+									invoked.Percentage			= each.Percentage
+									invoked.Amount				= each.Amount
+									invoked.BaseAmount			= each.BaseAmount
+									invoked.FinanceStructure	= each.FinanceStructure
+									invoked.FinanceStructure	= each.FinanceStructure
+
+
+							invoke Update NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader
+								invoked.ReimbursementAmount		= NewExpenseManagementInterfaceHeader.ReimbursementAmount + each.ApprovedBaseAmount
+								invoked.ReimbursementCurrency	= Currency
+	
+					invoke Delete CashAdvanceExpenseDetailRel
+
+
+		        if (ExpenseDetailRel exists)
+		        	initialize WorkTransactionAmount	
+		        	invoke Create ExpenseManagementInterfaceHeader
+						assign result to NewExpenseManagementInterfaceHeader
+						invoked.VendorGroup									= VendorGroup
+						invoked.ExpenseManagementInterfaceHeader.Document	= Document
+
+
+						invoked.Vendor						= Vendor
+
+						invoked.ReimbursmentSystem			= 10
+						invoked.DefaultDistributionAccount	= first ExpenseManagementInterfaceConfigurationRel.DefaultAccountingUnit
+						invoked.FirstName					= Vendor.VendorName
+						invoked.LastName					= Vendor.VendorName
+						invoked.ResourceType				= 20
+
+						invoked.Currency					= Currency
+						invoked.Description					= Purpose
+						invoked.BeginDate					= FromDate
+						invoked.EndDate						= ToDate
+						invoked.Status						= 1
+						invoked.RecordType					= 10
+						invoked.PaymentReference			= PaymentReference
+						invoked.RemitToCode					= RemitToCode
+
+						if (PaymentReference not entered)
+							invoked.PayVendor					= Vendor
+
+				        invoked.bod id.AccountingEntity			= bod id.AccountingEntity
+						invoked.bod id.Location					= bod id.Location
+						invoked.bod id.DocumentID				= bod id.DocumentID
+						invoked.bod id.Revision					= bod id.Revision
+						invoked.bod id.SystemOfRecord			= bod id.SystemOfRecord
+						invoked.bod id.VariationID				= bod id.VariationID
+
+		        	for each ExpenseDetailRel
+		        	
+						if  (each.ApprovedBaseAmount entered
+						and  !each.FirstRelatedLine)
+
+							invoke Create ExpenseManagementInterfaceDetail
+								assign result to NewExpenseManagementInterfaceDetail
+								invoked.VendorGroup								= VendorGroup
+								invoked.AccountingEntity							= each.AccountingEntity
+								invoked.ExpenseManagementInterfaceHeader.Document	= Document
+								
+
+								invoked.Vendor									= NewExpenseManagementInterfaceHeader.Vendor
+
+
+								invoked.ExpenseManagementInterfaceExpenseType	= each.ExpenseManagementInterfaceExpenseType
+								invoked.ExpenseDate								= each.TransactionDate
+								invoked.Status									= 1
+								invoked.PaymentMethod							= each.PayMethod
+	
+								invoked.TransactionCurrency						= each.TransactionCurrency
+								
+								if (each.TransactionAmount entered)
+									invoked.TransactionAmount					= each.TransactionAmount
+									WorkTransactionAmount 					   += each.TransactionAmount	
+								else
+								if (each.BaseAmount entered)
+									invoked.TransactionAmount					= each.BaseAmount
+									WorkTransactionAmount 					   += each.BaseAmount			
+								else
+								if (each.ApprovedBaseAmount entered)
+									invoked.TransactionAmount					= each.ApprovedBaseAmount
+									WorkTransactionAmount 					   += each.ApprovedBaseAmount	
+									
+								if (each.ApprovedBaseCurrency entered)
+									invoked.ReimbursementCurrency				= each.ApprovedBaseCurrency
+								else
+									invoked.ReimbursementCurrency				= Currency
+								
+								invoked.ReimbursementAmount						= each.ApprovedBaseAmount
+
+								invoked.ReimbursementRate						= each.ExchangeRate
+								invoked.Billable								= each.Billable
+								invoked.FinanceStructure						= each.FinanceStructure
+								invoked.TaxCode1								= each.TaxCode			
+
+							LocalExpenseManagementStagingDetail = each.ExpenseManagementStagingDetail
+							for each LocalExpenseManagementStagingDetail.ExpenseManagementStagingAllocation set
+								invoke Create ExpenseManagementInterfaceAllocation
+									fill in fields from NewExpenseManagementInterfaceDetail.ExpenseManagementInterfaceDetail
+									invoked.Percentage			= each.Percentage
+									invoked.Amount				= each.Amount
+									invoked.BaseAmount			= each.BaseAmount
+									invoked.FinanceStructure	= each.FinanceStructure
+									invoked.FinanceStructure	= each.FinanceStructure
+
+
+							invoke Update NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader
+								invoked.ReimbursementAmount		= NewExpenseManagementInterfaceHeader.ReimbursementAmount + each.ApprovedBaseAmount
+								invoked.ReimbursementCurrency	= Currency
+
+					invoke Delete ExpenseDetailRel
+
+				invoke Delete
+				

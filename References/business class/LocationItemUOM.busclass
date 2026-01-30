@@ -1,0 +1,357 @@
+LocationItemUOM is a BusinessClass
+	owned by ic
+	prefix is LCUOM
+
+	Ontology
+		symbolic key is LocationItemUOM
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+		LocationStockUOM				    is Boolean
+		ValidForInventoryTransactions	    is Numeric 1
+			States
+				NotValid	value is 0
+				Default		value is 1
+				Valid		value is 2
+				Inactive	value is 9
+		ValidForBuying					    is Numeric 1
+			States
+				NotValid	value is 0
+				Default		value is 1
+				Valid		value is 2
+				Inactive	value is 9
+		PackingWeight					    is Decimal 9.3
+		PackingVolume					    is Decimal 9.3
+		PackLevel						    is Numeric 1
+			States
+				1 value is 1
+				2 value is 2
+				3 value is 3
+				4 value is 4
+
+	Local Fields
+		ItemBalancesCleanConversion						is Boolean
+		ItemUOM
+		LocalFieldConverted								is Alpha 30
+		LocalFromCopy									is Boolean
+		LocalUOMUpdated									is Boolean
+		LocalValidForBuying								is Numeric 1
+		LocalValidForInventoryTransactions				is Numeric 1
+		LocationItemUOMConversion
+
+	Derived Fields
+
+		DerivedUOMMultiplier				is a DerivedField
+			type is like UOMMultiplier
+			return ItemUOM.UOMConversion
+
+
+		BuyingMessage						is a MessageField
+			restricted
+			"Buying:<ValidForBuying>"
+		CleanConversionErrorMessage			is a MessageField
+			restricted
+			"<LocalFieldConverted>DoesNotConvertCleanly"
+		InventoryTransactionsMessage		is a MessageField
+			restricted
+			"InventoryTransactions:<ValidForInventoryTransactions>"
+		UOMChangeWarningMessage				is a MessageField
+			restricted
+			"Warning,UOMMayBeInUse;Continue?"
+
+	Conditions
+		ActiveBuyingUOM
+			restricted
+			when (not ValidForBuying.Inactive)
+		DefaultForBuying
+			restricted
+			when (ValidForBuying.Default)
+		DefaultForInventoryTransactions
+			restricted
+			when (ValidForInventoryTransactions.Default)
+		IsCatchWeightItem
+			restricted
+			when (not Item.CatchWeightCode.NotCatchWeight)
+		IsStockUOM
+			restricted
+			when (UnitOfMeasure = Item.StockUOM)
+		OKForBuying
+			restricted
+			when (ValidForBuying.Default
+			or    ValidForBuying.Valid)
+		OKForTransaction
+			restricted
+			when (ValidForInventoryTransactions.Default
+			or    ValidForInventoryTransactions.Valid)
+
+	Sets
+		ByItemUOM
+			Sort Order
+				Item
+				UnitOfMeasure
+				Company
+				InventoryLocation
+
+	Relations
+		HasAnotherUOMWithSamePackLevelRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.PackLevel entered
+				and    related.PackLevel			= PackLevel
+				and	   related.UnitOfMeasure	not = UnitOfMeasure)
+
+		ItemUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup     						= Company
+				related.Item          						= Item
+				related.UnitOfMeasure 						= UnitOfMeasure
+
+		OtherDefaultBuyUOMRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.UnitOfMeasure			not = UnitOfMeasure
+				and    related.ValidForBuying.Default)
+
+		OtherDefaultTransactionUOMRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.UnitOfMeasure			not = UnitOfMeasure
+				and    related.ValidForInventoryTransactions.Default)
+
+		OtherLocationItemUOMRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.UnitOfMeasure			not = UnitOfMeasure)
+
+		OtherStockLocationItemUOMRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.UnitOfMeasure			not = UnitOfMeasure
+				and    related.LocationStockUOM)
+
+		StockLocationItemUOMRel
+			one-to-many relation to LocationItemUOM
+			Field Mapping uses symbolic key
+				related.Company  							= Company
+				related.InventoryLocation 					= InventoryLocation
+				related.Item								= Item
+			Instance Selection
+				where (related.LocationStockUOM)
+
+	Field Rules
+		LocationStockUOM
+			if (action type.Create
+			and not LocalFromCopy
+			and	StockLocationItemUOMRel not exists)
+				default to true
+
+			constraint (ItemUOM.TrackedIn)
+				"MustBeTrackedIn_ItemUOMWhenUsedAsStockUOM"
+
+		PackLevel
+			constraint (HasAnotherUOMWithSamePackLevelRel not exists)
+				"PackLevel<PackLevel>CannotBeDuplicated;AlreadyAssignedTo<first HasAnotherUOMWithSamePackLevelRel.UnitOfMeasure>"
+
+		PackingWeight
+			default to Item.StockWeight * DerivedUOMMultiplier
+
+		PackingVolume
+			default to Item.StockVolume * DerivedUOMMultiplier
+
+		ValidForBuying
+			if (action type.Create
+			and not LocalFromCopy
+			and LocationStockUOM)
+				if (OtherDefaultBuyUOMRel exists)
+					default to ValidForBuying.Valid
+				else
+					default to ValidForBuying.Default
+
+			if (ValidForBuying not entered 
+			or  ValidForBuying.Inactive)
+				constraint (not LocationStockUOM)
+					"LocationStockUOMMustBeAValidBuyingUOM" 
+
+		ValidForInventoryTransactions
+			if (action type.Create
+			and not LocalFromCopy
+			and LocationStockUOM)
+				if (OtherDefaultTransactionUOMRel exists)
+					default to ValidForInventoryTransactions.Valid
+				else
+					default to ValidForInventoryTransactions.Default
+
+			if (ValidForInventoryTransactions not entered 
+			or  ValidForInventoryTransactions.Inactive)
+				constraint (not LocationStockUOM)
+					"LocationStockUOMMustBeAValidTransactionUOM" 
+
+	Rule Blocks
+		CheckCleanConversion
+			initialize LocationItemUOMConversion
+			LocationItemUOMConversion.InLocationItemUOM	= UnitOfMeasure
+			ItemBalancesCleanConversion = LocationItemUOMConversion.CleanConversion
+
+		ValidateDefaultUOM
+			initialize LocalUOMUpdated
+			initialize LocalValidForInventoryTransactions
+			initialize LocalValidForBuying
+
+			if ((action type.Create or LocationStockUOM changed)
+			and  LocationStockUOM)
+				if (OtherStockLocationItemUOMRel exists)
+					confirmation required
+						"Warning:_Existing_Location_Item_StockUOMWillBeChanged;Proceed?"
+					for each OtherStockLocationItemUOMRel
+						invoke FastUpdate each
+							initialize invoked.LocationStockUOM
+			if (DefaultForInventoryTransactions and OtherDefaultTransactionUOMRel exists)	
+				invoke FastUpdate OtherDefaultTransactionUOMRel
+					invoked.ValidForInventoryTransactions = ValidForInventoryTransactions.Valid	
+			if (DefaultForBuying and OtherDefaultBuyUOMRel exists)
+				invoke FastUpdate OtherDefaultBuyUOMRel
+					invoked.ValidForBuying = ValidForBuying.Valid
+
+		UpdateForInactiveUOM
+
+
+			if (ValidForInventoryTransactions changed
+			or  ValidForBuying changed)
+				if (old ValidForInventoryTransactions.Inactive
+				or  old ValidForBuying.Inactive)
+					if (ValidForInventoryTransactions not changed)
+						ValidForInventoryTransactions = ValidForInventoryTransactions.NotValid
+					if (ValidForBuying not changed)
+						ValidForBuying 				  = ValidForBuying.NotValid
+				else
+				if (ValidForInventoryTransactions.Inactive
+				or  ValidForBuying.Inactive)
+					ValidForInventoryTransactions 	  = ValidForInventoryTransactions.Inactive
+					ValidForBuying 					  = ValidForBuying.Inactive
+
+	Actions
+  		Create is a Create Action
+  			valid when (not IsCatchWeightItem)   
+			Entrance Rules
+				constraint (ItemUOM exists)
+					"<UnitOfMeasure>IsAnInvalidUnitOfMeasureForItem<Item>"
+				constraint (not IsCatchWeightItem)
+					"CannotCreate_Location_Item_UOMFor_CatchWeightItems"
+
+				if (LocationStockUOM)
+					include CheckCleanConversion
+
+				if (invoking action = "Item.CopyItem"
+				or  invoking action = "ItemLocation.CopyItemLocation")
+					LocalFromCopy = true
+
+  	 		Action Rules
+				if (not LocalFromCopy)
+					include ValidateDefaultUOM
+					include UpdateForInactiveUOM 	 			
+			Exit Rules
+				if ((invoking action not = "ItemLocation.Create"
+				and  invoking action not = "ItemLocation.Update"
+				and  not LocalFromCopy)
+				and  LocationStockUOM)
+					invoke LocationItemUOMUpdate ItemLocation
+						invoked.ItemLocationStockUOM.UnitOfMeasure = UnitOfMeasure
+
+  	 	Delete is a Delete Action
+			Entrance Rules
+				if  (invoking action not = "ItemLocation.Create"
+				and  invoking action not = "ItemLocation.Update")
+					if (OtherLocationItemUOMRel exists)
+						if (instance count of OtherLocationItemUOMRel = 1)
+							for each OtherLocationItemUOMRel
+								invoke FastUpdate each
+									if (not each.LocationStockUOM)
+										invoked.LocationStockUOM	= true
+									if (not each.DefaultForInventoryTransactions)
+										invoked.ValidForInventoryTransactions = ValidForInventoryTransactions.Default
+									if (not each.DefaultForBuying)
+										invoked.ValidForBuying = ValidForBuying.Default							
+						else
+							constraint (not LocationStockUOM)
+								"TheNewLocationStockUOMMustBeSetFirst"
+							constraint (not ValidForInventoryTransactions.Default)
+								"TheNewDefaultUOMForTransactionsMustBeSetFirst"			
+							constraint (not ValidForBuying.Default)
+								"TheNewDefaultUOMForBuyingMustBeSetFirst"
+
+			Exit Rules
+				if (invoking action not = "ItemLocation.Update"
+				and invoking action not = "ItemLocation.Delete")
+					if (ItemLocation.ItemLocationStockUOM = UnitOfMeasure)
+						invoke LocationItemUOMUpdate ItemLocation
+							if (instance count of OtherLocationItemUOMRel = 1)
+								invoked.ItemLocationStockUOM.UnitOfMeasure = OtherLocationItemUOMRel.UnitOfMeasure
+							else
+								initialize invoked.ItemLocationStockUOM
+
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+  	 	Update is an Update Action
+			Action Rules
+	 			if (LocationStockUOM changed)
+	 				constraint (LocationStockUOM)
+	 					"TheNewLocationStockUOMMustBeSetFirst"
+					
+					if (LocationStockUOM)
+						include CheckCleanConversion
+
+					if (not OKForBuying)
+						ValidForBuying = ValidForBuying.Valid
+					if (not OKForTransaction)
+						ValidForInventoryTransactions = ValidForInventoryTransactions.Valid
+
+				if (ValidForInventoryTransactions changed)
+	 				constraint (not old ValidForInventoryTransactions.Default)
+	 					"TheNewDefaultUOMForTransactionsMustBeSetFirst"
+	 				
+	 			if (ValidForBuying changed)
+	 				constraint (not old ValidForBuying.Default)
+	 					"TheNewDefaultUOMForBuyingMustBeSetFirst"
+
+				include ValidateDefaultUOM
+				include UpdateForInactiveUOM
+			Exit Rules
+				if (invoking action not = "ItemLocation.Update")
+					if (LocationStockUOM changed)
+						if (LocationStockUOM)
+							invoke LocationItemUOMUpdate ItemLocation
+								invoked.ItemLocationStockUOM.UnitOfMeasure = UnitOfMeasure
+						else
+							invoke LocationItemUOMUpdate ItemLocation
+								initialize invoked.ItemLocationStockUOM
+
+
+  	 	  						
+

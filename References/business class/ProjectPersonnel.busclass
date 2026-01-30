@@ -1,0 +1,212 @@
+ProjectPersonnel is a BusinessClass
+	owned by Projects
+	prefix is Ppsn
+	
+	Ontology
+		symbolic key is ProjectPersonnel
+		
+	Patterns
+	
+	Persistent Fields
+		Active	
+
+	Local Fields
+		LocalSequenceNumber			is Numeric size 9
+		
+	Field Rules
+	
+		Active
+			if (Active changed
+			and !old Active)
+				constraint (!ActiveXMApproverExists)
+					"AnActive<XMApproverMF>AlreadyExists"
+	Derived Fields			
+		XMApproverMF is a MessageField
+			restricted
+			"XM_Approver"
+
+		DerivedProjectInvoiceBalance is a DerivedField
+			type is like InternationalAmount
+			return sum ProjectContractInvoiceBalancesRel.Amount	
+
+		DerivedAllProjectInvoiceBalance is a DerivedField
+			type is like InternationalAmount
+			return OpenInvoiceAmount + DerivedProjectInvoiceBalance
+
+		OpenInvoiceAmount is a DerivedField
+			type is like InternationalAmount
+			return sum OpenBillingInvoiceLineRel.Amount
+
+		DerivedProjectBudgetRemaining is a DerivedField
+			type is like InternationalAmount
+			return Project.BudgetAmount - DerivedAllProjectInvoiceBalance	
+
+	Conditions
+		ActiveXMApproverExists
+			when (ProjectPersonnelRel exists)
+			
+		IsMyPersonnel
+			restricted
+			when (Employee = actor.agent(Employee).Employee
+			and   Active)	
+
+		IsMyPIPersonnel
+			restricted
+			when (Employee = actor.agent(Employee).Employee
+			and   ProjectRole.RecordType = "3"			
+			and   Active)	
+
+		IsMyAdminPersonnel
+			restricted
+			when (Employee = actor.agent(Employee).Employee
+			and   ProjectRole.RecordType = "2"			
+			and   Active)	
+
+		IsPartofEnterpriseStructure
+			restricted
+			when (Project.ProjectInEnterpriseStructureRel exists)
+
+        IsFirstRole
+	        restricted
+    	    when (ProjectRole = first ProjectRoleRel.ProjectRole)
+			
+	Sets
+		ByEmployee
+			Sort Order
+				FinanceEnterpriseGroup
+				Employee
+				Project
+				ProjectRole
+    Relations
+
+    	ProjectPersonnelPIRel
+			one-to-many relation to ProjectPersonnel
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.Project		       	   = Project
+			Instance Selection
+				where (related.ProjectRole.RecordType = "3"
+				and    related.Active)
+
+    	ProjectPersonnelRel
+			one-to-many relation to ProjectPersonnel
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.Project		       	   = Project
+			Instance Selection
+				where (related.ProjectRole.RecordType = "4"
+				and    related.Active)
+
+		ProjectEnterpriseStructureRel
+			one-to-one relation to ProjectHierarchy
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.ProjectStructure		= FinanceEnterpriseGroup.EnterpriseProjectStructure
+				related.Project		   			= Project
+		ProjectRoleRel
+        	one-to-many relation to ProjectPersonnel
+            Field Mapping uses ByEmployee
+            	related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+                related.Employee               = actor.agent(Employee).Employee
+                related.Project                = Project
+    	GLTransactionDetailPersonnelRel
+			one-to-many relation to GLTransactionDetail
+			Field Mapping uses TransactionsByProject
+				related.FinanceEnterpriseGroup   = FinanceEnterpriseGroup			
+				related.FinanceCodeBlock.Project = Project
+
+		ProjectFundingSourceDeliverableRel
+			one-to-many relation to ProjectFundingSourceDeliverable
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceDimension2		= Project.FinanceDimension2
+			Instance Selection
+				where (related.CanSendEmailNotification)
+
+		OpenProjectAssignmentLaborRel
+			one-to-many relation to ProjectAssignmentLabor
+			Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Project					= Project
+			Instance Selection
+				where (related.Status.Entered
+				or     related.Status.Approved)
+		UnCertifiedEffortRel
+			one-to-many relation to ProjectAssignmentEffort
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Project					= Project
+			Instance Selection
+				where (!related.Certified)
+#ifdef module rq				
+		RequisitionLineDistributionsAllRel
+            one-to-many relation to RequisitionLineDistribution
+            Field Mapping uses ByProject
+                related.DistributionAccount.Project	= Project
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and    !related.RequisitionLine.Closed)
+#endif				
+#ifdef module po			
+		PurchaseOrderLineDistributionsAllRel
+            one-to-many relation to PurchaseOrderLineDistribution
+            Field Mapping uses ByProject
+                related.DistributionAccount.Project	= Project
+			Instance Selection
+				where (related.Company.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and    related.PurchaseOrderLine.Closed.No) 
+#endif
+		OpenBillingInvoiceLineRel
+			one-to-many relation to ProjectContractInvoiceLine
+			Field Mapping uses ByFeeCodeAndTransaction
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= Project.ParentDisplayContractRel.Project
+				related.Project					= Project
+			Instance Selection
+				where (related.ProjectContractInvoice.Status.Created
+				and    !related.ProjectContractInvoice.InvoiceType.RevenueRecognition)
+
+		ProjectContractInvoiceBalancesRel
+			one-to-many relation to ProjectContractInvoiceBalance
+			Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+    			related.ProjectContract        = Project.ParentDisplayContractRel.Project
+			Instance Selection				
+				where (related.FinanceCodeBlock.Project = Project)
+
+		GLCommitsRel
+			one-to-many relation to GLCommit
+			Field Mapping uses ByProjectAndSystemCurrent
+				related.FinanceEnterpriseGroup   = FinanceEnterpriseGroup
+				related.FinanceCodeBlock.Project = Project
+    Actions
+		Create is a Create Action
+			Entrance Rules
+				if (Active)
+					if (ProjectRole.RecordType = "4")
+						constraint (!ActiveXMApproverExists)
+							"AnActive<XMApproverMF>AlreadyExists"
+			Exit Rules
+				invoke TriggerProjectMaster Project
+
+
+
+
+		
+		Update is an Update Action
+			Exit Rules
+				invoke TriggerProjectMaster Project
+
+
+
+
+		
+		Delete is a Delete Action	
+			Entrance Rules
+				invoke TriggerProjectMaster Project
+			Exit Rules
+
+
+
+
+				

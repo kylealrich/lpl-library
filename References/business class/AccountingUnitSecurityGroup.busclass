@@ -1,0 +1,300 @@
+AccountingUnitSecurityGroup is a BusinessClass
+	owned by GeneralLedger
+	
+	prefix is AUSGP
+	
+	Ontology
+		symbolic key is AccountingUnitSecurityGroup		
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+		RequiresRebuild				is Boolean
+		MatrixSecurityGroup			is Boolean
+				
+	Local Fields
+		LocalAccountingEntity		is an AccountingEntity
+		LocalFinanceEnterpriseGroup is like FinanceEnterpriseGroup
+		LocalAccountingUnit 		is an AccountingUnit
+		LocalEmployee				is an Employee
+		LocalActor					is an Actor
+		LocalSecurityGroup			is like AccountingUnitSecurityGroup
+		NewMatrixSecurityGroup      is a AccountingUnitSecurityGroup view
+		
+	Derived Fields
+
+		DerivedDescription is a StringField
+			type is like Description
+			restricted
+			"Matrix Security Group for Actor: " 
+			LocalActor
+
+		DerivedName is a StringField
+			type is like Description
+			restricted
+			LocalActor
+			"1" 
+	Conditions
+	
+		GroupExists
+			restricted
+			when (AccountingUnitSecurityGroup exists)
+
+		NoActorsAssigned
+            restricted
+            when (!ActorContextRel exists)
+
+		MatrixSecurityEnabled
+            restricted
+            when (FinanceEnterpriseGroup.ResponsibilityMatrixSecurity)
+	
+	Relations
+		OtherGroupsRel
+			one-to-many relation to AccountingUnitSecurityGroup
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.UniqueID 	   != UniqueID)
+						
+		ContextPropertyRel
+			one-to-one relation to ContextProperty
+			Field Mapping uses ByKeyField
+				related.KeyField = "AccountingUnitSecurityGroup"
+				related.DataArea = parentcontext.dataarea
+				
+		ActorContextRel
+			one-to-many relation to ActorContext
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ContextProperty = ContextPropertyRel.ContextProperty
+				and    related.Value 		   = AccountingUnitSecurityGroup)
+				
+		EmployeeActorContextRel
+			one-to-one relation to ActorContext
+			Field Mapping uses SymbolicKeyByContextProperty
+				related.ContextProperty = ContextPropertyRel.ContextProperty
+				related.Actor		    = LocalActor
+
+		AccountingUnitSecurityGroupRel
+			one-to-one relation to AccountingUnitSecurityGroup
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup 			= LocalFinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup		= LocalSecurityGroup
+
+		SameAccountingUnitGroupRel
+			one-to-one relation to AccountingUnitSecurityGroup
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup 			= LocalFinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup		= LocalActor	
+
+		LocalAccountingUnitSecurityGroupDetailRel
+			one-to-one relation to AccountingUnitSecurityGroupDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	    = LocalFinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup = LocalSecurityGroup
+				related.AccountingEntity			= LocalAccountingEntity
+				related.AccountingUnit				= LocalAccountingUnit
+				
+		AccountingUnitSecurityGroupDetailRel
+			one-to-many relation to AccountingUnitSecurityGroupDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup = AccountingUnitSecurityGroup
+				
+		AUSecurityGroupDetailForEntityRel
+			one-to-many relation to AccountingUnitSecurityGroupDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup = AccountingUnitSecurityGroup
+				related.AccountingEntity			= LocalAccountingEntity
+	
+		DimensionSecurityGroupsRequiringRebuildRel
+			one-to-many relation to FinanceDimensionSecurityGroup
+			Field Mapping uses GroupsRequiringRebuild
+				related.FinanceEnterpriseGroup = LocalFinanceEnterpriseGroup
+#ifdef module po				
+		FactSheetRel
+			one-to-one relation to SampleDocumentTemplate
+			Field Mapping uses symbolic key
+				related.SampleDocumentTemplate = "DIMENSIONSECURITY_ST"
+#endif				
+	Sets
+		GroupsRequiringRebuild
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingUnitSecurityGroup
+			Instance Selection
+				where (RequiresRebuild)
+							
+	Field Rules
+		Description
+			required
+
+	Actions
+		Create is an Action
+		Update is an Action
+		
+		Delete is an Action
+			restricted
+			
+		DeleteSecurityGroup is an Instance Action
+			confirmation required
+			completion message is "SecurityGroupWillBeDeleted"
+			
+			Entrance Rules
+				if (MatrixSecurityGroup)
+					confirmation required
+						"SecurityGroupWasCreatedFromResponsibilityMatrix.AreYouSureYouWantToDeleteThisRecord?"
+				constraint (!ActorContextRel exists)
+					"CannotDelete;ActorsAreAssignedToThisGroup"
+			Action Rules
+				invoke DeleteFinal AccountingUnitSecurityGroupMember set
+				if (AccountingUnitSecurityGroupDetail set exists)
+					invoke DeleteDetailsForGroup AccountingUnitSecurityGroupDetail in background
+						invoked.PrmFinanceEnterpriseGroup 	   = FinanceEnterpriseGroup
+						invoked.PrmAccountingUnitSecurityGroup = AccountingUnitSecurityGroup						
+				else
+					invoke Delete
+						
+		CopyMembers is an Instance Action
+			Parameters
+				CopyToGroup		is an AccountingUnitSecurityGroup
+				
+			Parameter Rules
+				CopyToGroup
+					required
+					constraint (CopyToGroup != AccountingUnitSecurityGroup)
+						"CannotCopyToSelf"
+			
+			Action Rules
+				for each AccountingUnitSecurityGroupMember set
+					invoke Create AccountingUnitSecurityGroupMember
+						resume on error
+						fill in fields from each
+							except invoked.AccountingUnitSecurityGroup
+						invoked.AccountingUnitSecurityGroup = CopyToGroup
+					commit transaction
+									
+		RebuildGroups is a Set Action
+		
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+					
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			
+			Local Fields
+				LocalAsyncId			is an AsyncActionRequest
+				
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingUnitSecurityGroup
+						
+			Instance Selection
+				where (RequiresRebuild)
+			
+			Action Rules
+				Set Rules
+					Exit Rules
+						LocalFinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+						if (DimensionSecurityGroupsRequiringRebuildRel exists)
+							invoke RebuildGroups FinanceDimensionSecurityGroup
+								run after LocalAsyncId
+								invoked.PrmFinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+							
+				Instance Rules
+					invoke DeleteDetailsForMatrixGroup AccountingUnitSecurityGroupDetail in background
+						assign async action request id to LocalAsyncId
+						invoked.PrmFinanceEnterpriseGroup				= FinanceEnterpriseGroup
+						invoked.PrmAccountingUnitSecurityGroup			= AccountingUnitSecurityGroup						
+						invoked.PrmKeepAccountingUnitSecurityGroup		= true
+
+					for each AccountingUnitSecurityGroupMember set
+						invoke RebuildMember each in background
+							run after LocalAsyncId
+						
+					RequiresRebuild = false													
+
+		SetRequiresRebuild is an Instance Action
+			restricted
+			Action Rules
+				if (!RequiresRebuild)
+					RequiresRebuild = true
+										
+		BuildMatrixSecurityGroup is an Instance Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+				PrmAccountingEntity         is an AccountingEntity
+				PrmAccountingUnit			is an AccountingUnit
+				PrmEmployee				    is an Employee
+			Action Rules
+				LocalFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				LocalAccountingEntity		= PrmAccountingEntity
+				LocalAccountingUnit 		= PrmAccountingUnit
+				LocalEmployee				= PrmEmployee
+				LocalActor					= LocalEmployee.agent(Actor).Actor
+				if (EmployeeActorContextRel exists
+				and LocalActor entered)
+					LocalSecurityGroup = EmployeeActorContextRel.Value
+					if (LocalAccountingUnitSecurityGroupDetailRel !exists)
+						if (!AccountingUnitSecurityGroupRel.MatrixSecurityGroup)
+							invoke Create AccountingUnitSecurityGroup
+								assign result to NewMatrixSecurityGroup
+								if (SameAccountingUnitGroupRel exists)
+									invoked.AccountingUnitSecurityGroup = DerivedName
+								else
+									invoked.AccountingUnitSecurityGroup = LocalActor
+								invoked.Description			= DerivedDescription
+								invoked.MatrixSecurityGroup = true
+							invoke CopyMembers AccountingUnitSecurityGroupRel
+								invoked.CopyToGroup	= NewMatrixSecurityGroup.AccountingUnitSecurityGroup
+							invoke Create AccountingUnitSecurityGroupDetail
+								invoked.FinanceEnterpriseGroup 	    = LocalFinanceEnterpriseGroup
+								invoked.AccountingUnitSecurityGroup = NewMatrixSecurityGroup.AccountingUnitSecurityGroup
+								invoked.AccountingUnit			  	= LocalAccountingUnit
+								invoked.AccountingEntity			= LocalAccountingEntity
+								invoked.MatrixSecurityDetail		= true
+							invoke Delete EmployeeActorContextRel
+							invoke Create ActorContext
+								invoked.ContextProperty = NewMatrixSecurityGroup.AccountingUnitSecurityGroup.ContextPropertyRel.ContextProperty
+								invoked.Actor			= LocalActor
+								invoked.Value			= NewMatrixSecurityGroup.AccountingUnitSecurityGroup
+						else
+							invoke Create AccountingUnitSecurityGroupDetail
+								invoked.FinanceEnterpriseGroup 	    = LocalFinanceEnterpriseGroup
+								invoked.AccountingUnitSecurityGroup = LocalSecurityGroup
+								invoked.AccountingUnit			  	= LocalAccountingUnit
+								invoked.AccountingEntity			= LocalAccountingEntity
+								invoked.MatrixSecurityDetail		= true
+										
+		Rebuild is an Instance Action 
+			restricted
+
+			Local Fields
+				AllDetailsDeleted	is Boolean
+							
+			Action Rules
+				while (!AllDetailsDeleted)
+					if (!AccountingUnitSecurityGroupDetailRel exists)
+						AllDetailsDeleted = true
+					else
+						for each distinct FEGAndEntity in AccountingUnitSecurityGroupDetailRel
+							LocalAccountingEntity = each.AccountingEntity
+							invoke Delete AUSecurityGroupDetailForEntityRel
+					 		commit transaction	
+
+			 	for each AccountingUnitSecurityGroupMember set
+			 		invoke RebuildMember each
+			 		commit transaction	
+				RequiresRebuild = false
+									
+		DeleteDetails is an Instance Action
+			restricted
+				
+			Action Rules
+
+		

@@ -1,0 +1,256 @@
+PurgeActionResultBusClass is a BusinessClass
+    owned by la
+    prefix is PARBC
+    
+    Ontology
+    	symbolic key is PurgeActionResultBusClass
+    
+    Patterns
+    	disable Auditing
+		disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+		RecordCount							is Numeric size 9
+		AsyncActionGroup	is UniqueID
+		RecordCountCheckSum 				is a PurgeCheckSumResultsArray
+			default label is "CheckSum"
+		CreatedInArchive 					is Numeric size 9
+		CreatedCheckSum 					is a PurgeCheckSumResultsArray
+			default label is "CreatedInArchiveCheckSum"	
+		UpdatedInArchive 					is Numeric size 9   
+		UpdatedCheckSum 					is a PurgeCheckSumResultsArray
+		RestoredCount 						is Numeric size 9 
+		RestoredCheckSum 					is a PurgeCheckSumResultsArray
+			default label is "RestoredFromArchiveCheckSum"
+		PurgedFromArchive 					is Numeric size 9
+		PurgedFromArchiveCheckSum 			is a PurgeCheckSumResultsArray
+		LastRestoredStamp	is TimeStamp 
+
+	Conditions
+		ActionGroupMembersExist
+			when (ActionGroupMembers exists)
+			
+		DisplayActionGroupMembers
+			default label is untranslatable
+			when (instance count of ActionGroupMembers > 1)
+			
+		ActionGroupEntered
+			when (AsyncActionGroup entered)
+		
+		IsUnderScoreBusinessClass
+			default label is untranslatable
+			when (PurgeActionResultBusClass.PurgedBusinessClass[1:2] = "S_" or PurgeActionResultBusClass.PurgedBusinessClass[1:2] = "U_")
+			
+		DisplayOtherTabs
+			default label is untranslatable
+			when (not IsUnderScoreBusinessClass and IsPurgable)
+			
+		DisplayData
+			when (ArchivedDataRel exists or PurgeActionResultBusClass.PurgedBusinessClass.ImplementsArchivable or IsUnderScoreBusinessClass)
+			
+		IsPurgable
+			default label is untranslatable
+			when (PurgeActionResultBusClass.PurgedBusinessClass.ImplementsArchivable and PurgeActionResultBusClass.PurgedBusinessClass.ArchivingEnabledForBusinessClass)
+			
+		DataPossiblyNotSent
+			default label is untranslatable
+			when (IsPurgable and (not ArchivedDataRel exists or NotArchivedDataRel exists))
+			
+		RecordCountConsistent 
+			default label is untranslatable
+			when (RecordCount = (CreatedInArchive - RestoredCount - PurgedFromArchive)) 
+		
+		DisplayRedAlert
+			default label is untranslatable
+			when (not RecordCountConsistent and IsPurgable and not DataPossiblyNotSent)
+			
+		DisplayGreenAlert
+			default label is untranslatable
+			when (RecordCountConsistent and  IsPurgable and not DataPossiblyNotSent)
+			
+
+
+
+			
+	Local Fields
+		I is Numeric 2
+		J is Numeric 2
+		AddCheckSum is Boolean
+		
+	Field Rules
+		AsyncActionGroup
+			default to current action background group id
+			
+	Rule Blocks
+		SetCheckSum
+
+			I = 1
+			while I <= sizeofarray {ParamCheckSumField} and I <= sizeofarray {CheckSumField}
+				if (not {ParamCheckSumField}.CheckSumField[I].Name entered)
+					end while
+				
+				J = 1
+				
+				while J <= sizeofarray {CheckSumField} 
+					if ({CheckSumField}.CheckSumField[J].Name = blank or {CheckSumField}.CheckSumField[J].Name = {ParamCheckSumField}.CheckSumField[I].Name)
+						{CheckSumField}.CheckSumField[J].Name = {ParamCheckSumField}.CheckSumField[I].Name
+						
+						if (AddCheckSum)
+							{CheckSumField}.CheckSumField[J].CheckSumValue += {ParamCheckSumField}.CheckSumField[I].CheckSumValue
+						else
+							{CheckSumField}.CheckSumField[J].CheckSumValue -= {ParamCheckSumField}.CheckSumField[I].CheckSumValue
+						
+						end while
+					J += 1
+	
+				I += 1
+
+	Actions
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			restricted
+			
+		UpdatePurgeValues is an Instance Action
+			restricted
+			default label is untranslatable
+			
+
+			Parameters
+				ParamPurgedCount				is Numeric size 12
+					default label is "PurgedCount"
+				ParamPurgedCheckSum 			is a PurgeCheckSumResultsArray
+					default label is "CheckSum"
+					
+			Action Rules
+				RecordCount += ParamPurgedCount
+				AddCheckSum = true
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamPurgedCheckSum
+					replace CheckSumField with RecordCountCheckSum
+			
+		UpdateArchivedValues is an Instance Action
+			restricted
+			default label is untranslatable
+			refresh and lock this instance
+			
+			Parameters
+				ParamCreatedInArchive 		is Numeric size 12
+					default label is "CreatedInArchive "
+				ParamCreatedCheckSum 		is a PurgeCheckSumResultsArray
+					default label is "RestoredFromArchiveCheckSum"	
+				ParamUpdatedInArchive 		is Numeric size 12 
+					default label is "UpdatedInArchive"
+				ParamUpdatedCheckSum 		is a PurgeCheckSumResultsArray
+					default label is "SkippedArchiveCheckSum"	
+					
+			Action Rules
+				CreatedInArchive += ParamCreatedInArchive
+				UpdatedInArchive += ParamUpdatedInArchive
+				AddCheckSum = true 
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamCreatedCheckSum
+					replace CheckSumField with CreatedCheckSum
+					
+				include SetCheckSum
+					replace ParamCheckSumField with ParamUpdatedCheckSum
+					replace CheckSumField with UpdatedCheckSum
+			
+		RestoredFromCommand is an Instance Action
+			restricted
+			Parameters
+				ParamLastRestoredStamp is TimeStamp
+					default label is untranslatable:"<LastRestoredStamp label>"
+				
+			Parameter Rules	
+				ParamLastRestoredStamp
+					required
+					
+					if (ParamLastRestoredStamp < create stamp)
+						confirmation required
+							"AreYouSureYouWantToResetThisRecordThatWasCreatedAfterTheRestoredStamp?" 
+			
+			Action Rules
+				LastRestoredStamp = ParamLastRestoredStamp
+				initialize RecordCount
+				initialize RecordCountCheckSum
+				initialize CreatedInArchive
+				initialize CreatedCheckSum
+				initialize UpdatedInArchive
+				initialize UpdatedCheckSum
+				initialize RestoredCount
+				initialize RestoredCheckSum
+				initialize PurgedFromArchive
+				initialize PurgedFromArchiveCheckSum 	
+				
+		UpdateRestoredValues is an Instance Action
+			restricted
+			default label is untranslatable
+			
+
+			Parameters
+				ParamRestoredCount				is Numeric size 12
+					default label is "RestoredCount"
+				ParamRestoredCheckSum 			is a PurgeCheckSumResultsArray
+					default label is "CheckSum"
+				ParamLastRestoredStamp			is TimeStamp
+				ParamSentToArchive				is Boolean
+					
+			Action Rules
+				RestoredCount += ParamRestoredCount
+				RecordCount -= ParamRestoredCount
+				LastRestoredStamp = ParamLastRestoredStamp
+				AddCheckSum = true
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamRestoredCheckSum
+					replace CheckSumField with RestoredCheckSum
+					
+				AddCheckSum = false	
+				
+				include SetCheckSum 
+					replace ParamCheckSumField with ParamRestoredCheckSum
+					replace CheckSumField with RecordCountCheckSum
+		
+	Relations
+		ArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultBusClassUniqueID
+				related.PurgeActionResultBusClassUniqueID = UniqueID 
+				
+		NotArchivedDataRel
+    		one-to-many relation to ArchivedData
+    		delete cascades
+			Field Mapping uses ByPurgeActionResultBusClassUniqueID
+				related.PurgeActionResultBusClassUniqueID = UniqueID
+			Instance Selection
+				where (related.SentToArchive != 1) 
+				
+		ActionGroupMembers
+			one-to-many relation to PurgeActionResultBusClass
+			Field Mapping uses ByAsyncActionGroup
+				related.AsyncActionGroup = AsyncActionGroup
+
+	Sets
+		ByUniqueID
+			indexed
+			Sort Order
+				UniqueID
+		
+		ByAsyncActionGroup
+			indexed
+			Sort Order
+				AsyncActionGroup
+				PurgeActionResultBusClass.PurgedBusinessClass
+				PurgeActionResult
+			Instance Selection
+				where (ActionGroupEntered)

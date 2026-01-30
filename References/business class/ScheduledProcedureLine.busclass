@@ -1,0 +1,926 @@
+ScheduledProcedureLine is a BusinessClass
+    owned by ic
+    prefix is SPL
+
+    Ontology
+        symbolic key is ScheduledProcedureLine
+
+    Patterns
+        implements StaticJava
+
+    Persistent Fields
+        FromCompanyLocation
+        RequestingLocation
+            protected
+        FromCompanyParLocationBin
+        ProcedureDate                               is Date
+            protected
+        PreferenceCard
+            protected
+        Item
+        ItemType
+            protected
+        ComponentUOM                                is a UnitOfMeasure
+            default label is "UOM"
+            protected
+        ComponentUOMMultiplier                      is a UOMMultiplier
+            protected
+        ComponentOpenQuantity                       is like Quantity
+            protected
+        ComponentHoldQuantity                       is like Quantity
+            protected
+        CancelQuantity                              is like Quantity    
+            protected
+            precision is DerivedNumberOfDecimalsQuantity
+        ReservedQuantity                            is like Quantity    
+            protected
+        PickedQuantity                              is like Quantity    
+            precision is DerivedNumberOfDecimalsQuantity
+        Status                                      is Numeric size 1
+            protected
+            States
+                Open                value is 0
+                FullyReserved       value is 1
+                Requested           value is 2
+                Closed              value is 3
+                Rejected            value is 4 
+                Canceled            value is 5
+                WithError           value is 6
+                Processed           value is 7
+        OriginalItem                                is like Item
+        Requisition                                 is like Requisition 
+            protected
+        RequisitionLine                             is like RequisitionLine
+        Allocated                                   is Boolean
+
+    Context Fields
+
+    Transient Fields
+        TransientDeductFromReservedQuantity         is like Quantity
+    Local Fields
+        LocalCancelDifference                       is like Quantity
+        LocalDeductFromReservedQuantity             is like Quantity
+        LocalFromCompany                            is like InventoryCompany
+        LocalParLocation                            is like InventoryLocation
+        UOMCalculation
+
+    Derived Fields
+        DerivedAvailableQuantity                    is a DerivedField
+			type is like Quantity
+            return ItemLocationRel.AvailableQuantity
+
+        DerivedCancelDifferenceInStockUOM           is a DerivedField
+            type is like Quantity
+            restricted
+			if (ComponentUOM entered
+			and ComponentUOM not = Item.StockUOM)
+                initialize UOMCalculation
+                UOMCalculation.InputUOM				                = ComponentUOM
+                UOMCalculation.InputUOMConversion	                = ComponentUOMMultiplier
+                UOMCalculation.InputQuantity		                = LocalCancelDifference
+                UOMCalculation.Method				                = UOMCalculation.Method.ConvertToStock
+                return UOMCalculation.OutputQuantity
+			else
+				return LocalCancelDifference
+
+		DerivedCancelQuantityInStockUOM             is a DerivedField
+			type is like Quantity
+			if (ComponentUOM entered
+			and ComponentUOM not = Item.StockUOM)
+                initialize UOMCalculation
+                UOMCalculation.InputUOM				                = ComponentUOM
+                UOMCalculation.InputUOMConversion	                = ComponentUOMMultiplier
+                UOMCalculation.InputQuantity		                = CancelQuantity
+                UOMCalculation.Method				                = UOMCalculation.Method.ConvertToStock
+                return UOMCalculation.OutputQuantity
+			else
+				return CancelQuantity
+
+        DerivedCancelableQuantity                   is a DerivedField
+            type is like Quantity
+                precision is DerivedNumberOfDecimalsQuantity
+            if (IsNonStock)
+                return DerivedTotalUnpickedQuantity
+            else
+                return DerivedTotalQuantity
+
+        DerivedCanceledReservationQuantity          is a ComputeField
+            type is like Quantity
+            (CancelQuantity - DerivedUnreservedQuantity)
+
+		DerivedNumberOfDecimalsQuantity             is a ConditionalField
+			type is Numeric size 1
+			if (Item exists)
+				Item.NumberOfDecimalsQuantity
+			else
+			if (InventoryCompanyRel exists)
+				InventoryCompanyRel.NumberOfDecimalsQuantity
+			else
+				4
+
+        DerivedParLocationGroupItem                 is a DerivedField
+            type is Boolean
+            restricted
+            if (IsForParLocationGroup)
+                for each ParLocationGroupMemberRel
+                    LocalParLocation = each.InventoryLocation
+                    if (ParItemLocationAnyRel exists)
+                        return true
+                        end for each
+
+        DerivedProcedureRoom		                is a DerivedField
+			type is AlphaUpper size 20
+			default label is "ProcedureRoom"
+			return ScheduledProcedure.Room
+
+		DerivedProcedureTime		                is a DerivedField
+			type is Time
+			default label is "ProcedureTime"
+			return ScheduledProcedure.ProcedureTime
+
+        DerivedQuantityToProcess                    is a ComputeField
+            type is like Quantity
+            (DerivedTotalQuantity - CancelQuantity)
+
+        DerivedOpenQuantity                         is a DerivedField
+            type is like Quantity
+                precision is DerivedNumberOfDecimalsQuantity
+            return ComponentOpenQuantity
+
+        DerivedHoldQuantity                         is a DerivedField
+            type is like Quantity
+                precision is DerivedNumberOfDecimalsQuantity
+            return ComponentHoldQuantity
+
+        DerivedReservedQuantity                     is a DerivedField
+            type is like Quantity
+            return ReservedQuantity
+
+        DerivedTotalQuantity                        is a ComputeField
+            type is like Quantity
+                precision is DerivedNumberOfDecimalsQuantity
+            (ComponentOpenQuantity + ComponentHoldQuantity)
+
+        DerivedTotalUnpickedQuantity                is a ComputeField
+            type is like Quantity
+            restricted
+            (DerivedTotalQuantity - CancelQuantity - PickedQuantity)
+
+		DerivedTotalQuantityInStockUOM              is a DerivedField
+			type is like Quantity
+            if (ComponentUOM entered
+			and ComponentUOM not = Item.StockUOM)
+                initialize UOMCalculation
+                UOMCalculation.InputUOM				                = ComponentUOM
+                UOMCalculation.InputUOMConversion	                = ComponentUOMMultiplier
+                UOMCalculation.InputQuantity		                = DerivedTotalQuantity
+                UOMCalculation.Method				                = UOMCalculation.Method.ConvertToStock
+                return UOMCalculation.OutputQuantity
+			else
+				return DerivedTotalQuantity
+        
+        DerivedUnreservedQuantity                   is a DerivedField 
+            type is like Quantity
+            if (IsInventoried
+            and IsInProcess
+            and not Allocated)
+                return (DerivedTotalQuantityInStockUOM - DerivedCancelQuantityInStockUOM - ReservedQuantity)
+
+        DerivedAllocatedQuantity                    is a DerivedField
+            type is like Quantity
+            default label is "AllocatedQuantity"
+            return WarehouseDemandLineRel.DerivedAllocatedQuantityDisplay
+
+        DerivedRescheduledProcedureAlertMessage is a DerivedField
+			type is MessageField
+            if (IsNonStock)
+                if (Status.Processed)
+                    return "Item has been picked"
+            else
+                if (RequisitionLineShipmentLineExists)
+                    return "Shipment exists for this item"
+                else
+                if (RequisitionLinePurchaseOrderReleasedOrIssued)
+                    return "Purchase Order exists for this item"
+
+        DerivedParLocationErrorMessage is a DerivedField
+            type is MessageField
+            if (not IsParLocationActive)
+                return MessageParLocationInactive
+            else
+            if (not IsParItemLocation)
+                return MessageNotParItemInLocation
+            else 
+                return MessageParItemInactive
+
+        DerivedParLocationGroupErrorMessage is a DerivedField
+            type is MessageField
+            if (not IsParLocationGroupActive)
+                return MessageParLocationGroupInactive
+            else
+                return MessageNotParItemInGroup
+
+		MessageItemInactive         is a MessageField
+			"ItemIsInactive"
+
+		MessageParLocationInactive  is a MessageField
+			"ParLocationIsInactive"
+
+		MessageNotParItemInLocation is a MessageField
+			"NotAParItemInThisLocation"
+
+		MessageParItemInactive      is a MessageField
+			"ParItemIsInactive"
+
+		MessageParLocationGroupInactive  is a MessageField
+			"ParLocationGroupIsInactive"
+
+		MessageNotParItemInGroup    is a MessageField
+			"NotAParItemInAnyLocationOnParLocationGroup"
+
+    Sets
+        ByItemLocationProcedureDate
+            Sort Order
+                FromCompanyLocation.FromCompany
+                FromCompanyLocation.FromLocation
+                Item
+                ProcedureDate
+                Company
+                ScheduledProcedure
+                ScheduledProcedureLine
+
+    Conditions
+        CanFinish
+            restricted
+            when (IsOpenNonStock
+            and   HasParLocationInfo
+            and   IsFullyPicked)
+
+        CanReserveRemaining
+            restricted
+            when (IsInventoried
+            and   HasActiveReservation
+            and   DerivedUnreservedQuantity entered
+            and   DerivedAvailableQuantity  entered)
+
+        CanUndoReservation
+            restricted
+            when (HasActiveReservation
+            and   HasReservedQuantity)
+
+        HasActiveReservation
+            restricted
+            when (IsInProcess
+            and   not Allocated)        
+
+        HasParLocationError
+            restricted
+            when (IsOpenNonStock
+            and   IsForParLocation
+            and   not HasValidParLocation)
+
+        HasParLocationGroupError
+            restricted
+            when (IsOpenNonStock
+            and   IsForParLocationGroup
+            and  (not IsParLocationGroupActive
+            or    not IsParLocationGroupItem))
+
+        HasParLocationInfo
+            restricted
+            when (IsForParLocation
+            or    IsForParLocationGroup)
+
+        HasReservedQuantity
+            restricted
+            when (IsInventoried
+            and   ReservedQuantity entered)
+
+        HasUnreservedQuantity
+            restricted
+            when (IsInventoried
+            and   DerivedUnreservedQuantity entered
+            and  (Status.Open
+            or   (Status.Requested and not Allocated)))
+
+        HasValidParLocation
+            restricted
+            when  (IsItemActive
+            and    IsParLocationActive
+            and    IsParItemLocation
+            and    IsParItemLocationActive)
+
+        IsCanceled
+            restricted
+            when (Status.Canceled)
+
+        IsClosedOrProcessed
+            restricted
+            when (Status.Closed
+            or    Status.Processed)
+
+        IsForParLocation
+            restricted
+            when (FromCompanyParLocationBin.ParLocation entered)
+
+        IsForParLocationGroup
+            restricted
+            when (FromCompanyParLocationBin.ParLocationGroup entered)
+
+        IsForDetailPickUpdate
+            restricted
+            when (IsOpenNonStock
+            and   IsForParLocationGroup)
+
+        IsFullyReserved
+            restricted
+            when (Status.FullyReserved)
+
+        IsFullyPicked
+            restricted
+            when (PickedQuantity = DerivedQuantityToProcess)
+
+        IsInProcess
+            restricted
+            when (Status.Open
+            or    Status.FullyReserved
+            or    Status.Requested)
+
+        IsInventoried
+            restricted
+            when (ItemType.Inventoried)
+
+        IsItemActive
+            restricted
+            when (Item.Active)
+
+        IsNonInventoried
+            restricted
+            when (not ItemType.Inventoried)
+
+        IsNonStock
+            restricted
+            when (ItemType.NonStock)
+
+        IsOpen
+            restricted
+            when (Status.Open)
+
+        IsOpenNonStock
+            restricted
+            when (IsNonStock
+            and   IsOpen)
+
+        IsOpenOrFullyReserved
+            restricted
+            when (Status.Open
+            or    Status.FullyReserved)
+
+        IsParItemLocation 
+            restricted
+            when (ParItemLocationRel exists)
+
+        IsParItemLocationActive
+            restricted
+            when (IsForParLocation
+            and   ParItemLocationRel.Active)
+
+        IsParLocationGroupItem
+            restricted
+            when (DerivedParLocationGroupItem)
+
+        IsParLocationActive
+            restricted
+            when (IsForParLocation
+            and   FromCompanyParLocationBin.ParLocation.IsActive)
+
+        IsParLocationGroupActive
+            restricted
+            when (IsForParLocationGroup
+            and   FromCompanyParLocationBin.ParLocationGroup.Active)
+
+        IsPicked
+            restricted
+            when (PickedQuantity entered)
+
+        IsRequested
+            restricted
+            when (Status.Requested)
+
+        IsSpecial
+            restricted
+            when (ItemType.Special)
+
+        ItemExists
+            restricted
+            when (Item exists)
+
+        RequisitionLineErrorExists
+            restricted
+            when (RequisitionLineUnreleasedRel.LineErrorsExist)
+
+        RequisitionLineShipmentLineExists
+            restricted
+            when (RequisitionLinesRel.ShipmentLineExists = "Yes")
+
+        RequisitionLinePurchaseOrderReleasedOrIssued
+            restricted
+            when (RequisitionLinesRel.PurchaseOrderReleasedOrIssued = "Yes")
+
+        RequisitionLinePurchaseOrderOrShipmentLineExists
+            restricted
+            when (RequisitionLineShipmentLineExists
+            or    RequisitionLinePurchaseOrderReleasedOrIssued)
+            
+        ShowRescheduledProcedureAlert
+            restricted
+            when (ScheduledProcedure.RescheduledProcedure
+            and  (RequisitionLinePurchaseOrderOrShipmentLineExists
+            or    Status.Processed))
+
+
+    Relations
+		InventoryCompanyRel
+			one-to-one relation to InventoryCompany
+			Field Mapping uses symbolic key
+				related.Company                                 = Company
+
+        ItemLocationRel
+            one-to-many relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                                 = FromCompanyLocation.FromCompany
+                related.InventoryLocation                       = FromCompanyLocation.FromLocation
+                related.Item                                    = Item
+            Instance Selection
+                where (related.Active
+                and    related.InventoryTracked)
+
+        ItemLocationDemandForecastRel
+            one-to-many relation to ItemLocationDemandForecast
+            Field Mapping uses symbolic key
+                related.Company                                 = FromCompanyLocation.FromCompany
+                related.InventoryLocation                       = FromCompanyLocation.FromLocation
+                related.Item                                    = Item
+
+		ItemUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup                               = FromCompanyLocation.FromCompany.ItemGroup
+				related.Item                                    = Item
+				related.UnitOfMeasure                           = ComponentUOM
+
+        ParItemLocationAnyRel
+            one-to-many relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                                 = FromCompanyParLocationBin.FromCompany
+                related.InventoryLocation                       = LocalParLocation
+                related.Item                                    = Item
+
+        ParItemLocationRel
+            one-to-many relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                                 = FromCompanyParLocationBin.FromCompany
+                related.InventoryLocation                       = FromCompanyParLocationBin.ParLocation
+                related.Item                                    = Item
+
+        ParLocationGroupMemberRel
+            one-to-many relation to ParLocationGroupMember
+            Field Mapping uses symbolic key
+                related.Company                                 = FromCompanyParLocationBin.FromCompany
+                related.ParLocationGroup                        = FromCompanyParLocationBin.ParLocationGroup
+
+        ParLocationGroupMemberByPriorityRel
+            one-to-many relation to ParLocationGroupMember
+            Field Mapping uses ByPriority
+                related.Company                                 = FromCompanyParLocationBin.FromCompany
+                related.ParLocationGroup                        = FromCompanyParLocationBin.ParLocationGroup
+            Instance Selection
+                where (related.Active)
+
+        RequisitionLinesRel
+            one-to-many relation to RequisitionLine
+            Field Mapping uses Set7
+                related.Company                                 = Company
+                related.Requisition                             = ScheduledProcedure.Requisition
+                related.RequisitionLine                         = RequisitionLine
+
+        RequisitionLineUnreleasedRel
+            one-to-many relation to RequisitionLine
+            Field Mapping uses Set4
+                related.Company                                 = Company
+                related.Requisition                             = ScheduledProcedure.Requisition
+                related.RequisitionLine                         = RequisitionLine
+            Instance Selection
+                where (related.IsUnreleasedStatus)
+
+        ScheduledProcedureLineDetailsRel is a ScheduledProcedureLineDetail set
+
+        ScheduledProcedureLineDetailsValidRel is a ScheduledProcedureLineDetail set
+            Instance Selection
+                where (not related.HasParLocationError)
+
+        ScheduledProcedureLineDetailsWithErrorRel is a ScheduledProcedureLineDetail set
+            Instance Selection
+                where (related.HasParLocationError)
+
+        ScheduledProcedureLineDetailForParLocationRel
+            one-to-many relation to ScheduledProcedureLineDetail
+            Field Mapping uses ByParLocation
+                related.Company                                 = Company
+                related.ScheduledProcedure                      = ScheduledProcedure
+                related.FromCompanyParLocationBin.FromCompany   = LocalFromCompany 
+                related.FromCompanyParLocationBin.ParLocation   = LocalParLocation
+            Instance Selection
+                where (related.UniqueParLocation)
+
+        ScheduledProcedureLinesOnRequisitionRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses symbolic key
+                related.Company                                 = Company
+                related.ScheduledProcedure                      = ScheduledProcedure
+            Instance Selection
+                where (RequisitionLine entered)
+
+        ScheduledProcedureLinesOpenOrFullRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses symbolic key
+                related.Company                                 = Company
+                related.ScheduledProcedure                      = ScheduledProcedure
+            Instance Selection
+                where (related.IsOpenOrFullyReserved)
+
+        ScheduledProcedureLinesOngoingReqRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses symbolic key
+                related.Company                                 = Company
+                related.ScheduledProcedure                      = ScheduledProcedure
+            Instance Selection
+                where (related.IsRequested)
+
+        ScheduledProcedureLinesInProcessRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses symbolic key
+                related.Company                                 = Company
+                related.ScheduledProcedure                      = ScheduledProcedure
+            Instance Selection
+                where (related.IsInProcess)
+
+		WarehouseDemandReservationRel
+			one-to-one relation to WarehouseDemand
+			Field Mapping uses symbolic key
+				related.Company								    = FromCompanyLocation.FromCompany
+				related.WarehouseDemand.DemandSystemCode	    = DemandSystemCode.PreferenceCard
+				related.WarehouseDemand.DemandDocument		    = ScheduledProcedure
+				related.WarehouseDemand.DemandCompany		    = Company
+
+        WarehouseDemandLineReservationRel
+            one-to-one relation to WarehouseDemandLine
+            Field Mapping uses symbolic key
+                related.Company 								= FromCompanyLocation.FromCompany
+                related.WarehouseDemand.DemandSystemCode 		= DemandSystemCode.PreferenceCard
+                related.WarehouseDemand.DemandDocument 			= ScheduledProcedure
+                related.WarehouseDemand.DemandCompany			= Company
+                related.InventoryLocation 						= FromCompanyLocation.FromLocation
+                related.Item								 	= Item
+                related.WarehouseDemandLine.DemandDocumentType 	= DemandDocumentType.ScheduledProcedure
+                related.WarehouseDemandLine.LineNumber 			= ScheduledProcedureLine
+                related.WarehouseDemandLine.ComponentSequence 	= blank
+
+        WarehouseDemandLineRel
+			one-to-one relation to WarehouseDemandLine
+			Field Mapping uses symbolic key
+				related.Company											= FromCompanyLocation.FromCompany
+                related.WarehouseDemand.DemandSystemCode				= DemandSystemCode.Requisitions
+                related.WarehouseDemand.DemandDocument					= ScheduledProcedure.Requisition
+                related.WarehouseDemand.DemandCompany					= Company
+                related.InventoryLocation								= FromCompanyLocation.FromLocation
+                related.Item											= Item
+                related.WarehouseDemandLine.DemandDocumentType			= DemandDocumentType.Issue
+                related.WarehouseDemandLine.LineNumber					= RequisitionLine
+                related.WarehouseDemandLine.ComponentSequence   		= blank
+
+    Rule Blocks
+        CreateScheduledProcedureLineDetail
+            if (IsForParLocation)
+                LocalFromCompany    = FromCompanyParLocationBin.FromCompany
+                LocalParLocation    = FromCompanyParLocationBin.ParLocation
+                invoke Create ScheduledProcedureLineDetail
+                    fill in fields from this instance
+                    if (ScheduledProcedureLineDetailForParLocationRel not exists)
+                        invoked.UniqueParLocation = true
+            else
+                for each ParLocationGroupMemberByPriorityRel
+                    LocalFromCompany    = FromCompanyParLocationBin.FromCompany
+                    LocalParLocation    = each.InventoryLocation
+                    invoke Create ScheduledProcedureLineDetail
+                        fill in fields from this instance
+                            except invoked.FromCompanyParLocationBin
+                            except invoked.PickedQuantity
+                        invoked.FromCompanyParLocationBin.FromCompany       = LocalFromCompany
+                        invoked.FromCompanyParLocationBin.ParLocation       = LocalParLocation
+                        invoked.Priority                                    = each.Priority
+                        invoked.PickFromLocationGroup                       = true
+                        if (ScheduledProcedureLineDetailForParLocationRel not exists)
+                            invoked.UniqueParLocation = true
+
+        ProcessWarehouseDemand
+			if (WarehouseDemandReservationRel not exists)
+
+                invoke Create WarehouseDemand
+                    invoked.Company                                 = FromCompanyLocation.FromCompany
+                    invoked.WarehouseDemand.DemandSystemCode        = DemandSystemCode.PreferenceCard
+                    invoked.WarehouseDemand.DemandDocument          = ScheduledProcedure
+                    invoked.WarehouseDemand.DemandCompany           = Company
+                    invoked.DocumentNumberNumeric				    = ScheduledProcedure
+
+            if (WarehouseDemandLineReservationRel not exists)
+
+                invoke CreateReservation WarehouseDemandLine
+                    fill in fields from this instance
+                        except invoked.Status                    
+                    invoked.DemandRecordType                        = WarehouseDemandLine.DemandRecordType.Reservation
+                    invoked.Company                                 = FromCompanyLocation.FromCompany
+                    invoked.InventoryLocation                       = FromCompanyLocation.FromLocation
+                    invoked.WarehouseDemand.DemandSystemCode        = DemandSystemCode.PreferenceCard
+                    invoked.WarehouseDemand.DemandDocument          = ScheduledProcedure 
+                    invoked.WarehouseDemand.DemandCompany           = Company
+                    invoked.WarehouseDemandLine.DemandDocumentType  = DemandDocumentType.ScheduledProcedure
+                    invoked.WarehouseDemandLine.LineNumber          = ScheduledProcedureLine
+                    invoked.DocumentNumberNumeric				    = ScheduledProcedure
+                    invoked.LineType                                = ItemType
+                    invoked.Item                                    = Item
+                    invoked.Quantity                                = DerivedTotalQuantityInStockUOM
+                    invoked.TransactionUOM                          = ComponentUOM
+                    invoked.TransactionUOMMultiplier                = ComponentUOMMultiplier
+                    invoked.PreferenceCardTransaction               = true
+        
+        ComputeReservedQuantity
+            if (DerivedAvailableQuantity > 0)
+                if (DerivedAvailableQuantity >= DerivedTotalQuantityInStockUOM)
+                    ReservedQuantity = DerivedTotalQuantityInStockUOM
+                    if (not IsRequested)
+                        Status = Status.FullyReserved
+                else
+                    ReservedQuantity = DerivedAvailableQuantity  
+
+    Field Rules
+		ComponentUOMMultiplier
+			if (IsSpecial)
+				default to 1
+			else
+            if (IsOpenOrFullyReserved)
+                if (ItemUOMRel exists)
+                    force default to ItemUOMRel.UOMConversion
+                else
+                    force default to 1
+
+        FromCompanyParLocationBin
+            default FromCompanyParLocationBin.Shelf to ParItemLocationRel.PreferredBin
+            if (FromCompanyParLocationBin changed)
+                FromCompanyParLocationBin.Shelf = ParItemLocationRel.PreferredBin
+                initialize PickedQuantity
+                invoke Delete ScheduledProcedureLineDetailsRel
+                include CreateScheduledProcedureLineDetail
+
+        ItemType
+            cannot be changed
+			if (ItemLocationRel exists)
+			    default to ItemType.Inventoried
+			else
+            if (ItemExists)
+                default to ItemType.NonStock
+            else
+                default to ItemType.Special
+
+        PickedQuantity
+            if (not IsNonStock)
+                cannot be entered
+            constraint (PickedQuantity <= DerivedQuantityToProcess)
+                "PickedQuantityShouldNotBeGreaterThanQuantityToProcess"
+
+    Actions
+        Create is a Create Action
+            restricted
+            Action Rules
+                if (ItemLocationRel exists)
+                    include ComputeReservedQuantity
+
+            Exit Rules
+                if (IsInventoried)
+                    include ProcessWarehouseDemand 
+                else
+                if (IsNonStock
+                and HasParLocationInfo)
+                    include CreateScheduledProcedureLineDetail
+
+        CancelLine is an Instance Action  
+            valid when (IsOpenOrFullyReserved)
+            Parameters
+                PrmCancelQuantity           is like Quantity
+                    default label is "NewCancelQuantity"
+                    precision is DerivedNumberOfDecimalsQuantity
+
+            Parameter Rules
+                PrmCancelQuantity
+                    initial value is DerivedCancelableQuantity
+                    constraint (CancelQuantity < PrmCancelQuantity)
+                        "NewCanceledQuantityShouldBeGreaterThanCurrentCancelQuantity"
+                    
+                    constraint (PrmCancelQuantity <= DerivedCancelableQuantity)
+                        "CannotCancel<PrmCancelQuantity>;Only<DerivedCancelableQuantity>LeftOnLine<ScheduledProcedureLine>"
+
+			Action Rules
+                LocalCancelDifference   = PrmCancelQuantity - CancelQuantity
+                CancelQuantity          = PrmCancelQuantity
+
+                if (DerivedUnreservedQuantity < 0)
+                    LocalDeductFromReservedQuantity  = DerivedUnreservedQuantity
+                    ReservedQuantity                += LocalDeductFromReservedQuantity
+
+                if (CancelQuantity = DerivedTotalQuantity)
+                    Status = Status.Canceled 
+
+            Exit Rules
+                if (Status.Canceled) 
+                    invoke Delete WarehouseDemandLineReservationRel
+                    
+                    if (not invoking action = "ScheduledProcedure.Cancel")
+                        invoke StatusChange ScheduledProcedure
+                else
+                    invoke UpdateReservation WarehouseDemandLineReservationRel
+                        invoked.PrmReservedQuantity = LocalDeductFromReservedQuantity 
+                        invoked.PrmCancelQuantity   = DerivedCancelDifferenceInStockUOM
+                    
+
+        CloseLine is an Instance Action
+            restricted
+            Action Rules
+                Status = Status.Closed
+                initialize ReservedQuantity
+            Exit Rules
+                invoke Delete WarehouseDemandLineReservationRel
+                if (ScheduledProcedureLinesInProcessRel not exists)
+                    invoke Close ScheduledProcedure
+
+        Delete is a Delete Action
+            restricted
+            Action Rules
+                invoke Delete WarehouseDemandLineReservationRel
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules  
+
+		FinishLine is an Instance Action
+			valid when (CanFinish)
+			Action Rules
+				Status = Status.Processed
+                if (IsForParLocationGroup)
+                    constraint (ScheduledProcedureLineDetailsWithErrorRel not exists)
+                        "CannotFinish;HasErrorOnPickedLocations"
+            Exit Rules
+                if (ScheduledProcedureLinesInProcessRel not exists)
+                    invoke Close ScheduledProcedure
+                else
+                    invoke StatusChange ScheduledProcedure
+
+        PickAll is a Set Action
+            completion message is "NonStockItemsPicked"
+            run in foreground
+            Parameters
+                PrmCompany                      is like InventoryCompany
+                PrmScheduledProcedure           is like ScheduledProcedure
+            Instance Selection
+				where (Company              = PrmCompany
+                and    ScheduledProcedure   = PrmScheduledProcedure
+                and    IsOpenNonStock
+                and    HasParLocationInfo
+                and    not IsFullyPicked)
+            
+            Action Rules
+                Set Rules
+					Entrance Rules
+					
+					Exit Rules
+
+                Instance Rules
+                    for each ScheduledProcedureLineDetailsRel
+                        if (each.HasValidParLocation)
+                            invoke Update each
+                                if (DerivedTotalUnpickedQuantity > each.DerivedParLevel)
+                                    invoked.PickedQuantity = each.DerivedParLevel
+                                else
+                                    invoked.PickedQuantity += DerivedTotalUnpickedQuantity
+                            end for each
+
+        RejectLine is an Instance Action
+            restricted
+            Action Rules
+                Status = Status.Rejected
+                initialize ReservedQuantity
+            Exit Rules
+                invoke Delete WarehouseDemandLineReservationRel
+                invoke StatusChange ScheduledProcedure
+
+        RemoveRequisition is an Instance Action
+            restricted
+            Action Rules
+                initialize RequisitionLine
+                if (ReservedQuantity = DerivedTotalQuantityInStockUOM) 
+                    Status = Status.FullyReserved
+                else
+                    Status = Status.Open
+            Exit Rules
+                if (ScheduledProcedureLinesOnRequisitionRel not exists)
+                    invoke RemoveRequisition ScheduledProcedure
+
+                invoke StatusChange ScheduledProcedure
+
+        ReserveBeforeAllocate is an Instance Action
+            restricted
+            Parameters
+                PrmDemandQuantity is like Quantity
+            Action Rules
+                if (DerivedAvailableQuantity entered
+                and DerivedUnreservedQuantity entered)
+
+                    invoke ReserveRemaining
+
+                if (PrmDemandQuantity < ReservedQuantity)
+
+                    TransientDeductFromReservedQuantity = ReservedQuantity - PrmDemandQuantity 
+                    invoke UndoReservation 
+        
+        ReserveRemaining is an Instance Action 
+            valid when (CanReserveRemaining)
+			Local Fields
+                LocalAddedReservedQuantity is like Quantity
+            Action Rules
+                if (DerivedAvailableQuantity >= DerivedUnreservedQuantity) 
+                    LocalAddedReservedQuantity = DerivedUnreservedQuantity
+                else
+                    LocalAddedReservedQuantity = DerivedAvailableQuantity
+                
+                ReservedQuantity += LocalAddedReservedQuantity
+                if (not IsRequested
+                and ReservedQuantity = DerivedTotalQuantityInStockUOM) 
+                    Status = Status.FullyReserved
+            Exit Rules
+                invoke UpdateReservation WarehouseDemandLineReservationRel
+                    invoked.PrmReservedQuantity = LocalAddedReservedQuantity
+                if (ScheduledProcedure.IsOpen)
+                    invoke StatusChange ScheduledProcedure
+
+        UndoReservation is an Instance Action
+        	valid when (CanUndoReservation)
+			Action Rules
+                if (TransientDeductFromReservedQuantity entered)
+                    LocalDeductFromReservedQuantity = TransientDeductFromReservedQuantity * -1
+                    ReservedQuantity -= TransientDeductFromReservedQuantity
+                    initialize TransientDeductFromReservedQuantity
+                else
+                    LocalDeductFromReservedQuantity = ReservedQuantity * -1
+                    initialize ReservedQuantity
+                if (IsFullyReserved)
+                    Status = Status.Open
+            Exit Rules
+                invoke UpdateReservation WarehouseDemandLineReservationRel
+                    invoked.PrmReservedQuantity = LocalDeductFromReservedQuantity
+                if (not invoking action = "RejectLine"
+                and not invoking action = "ScheduleProcedure.UndoReservation"
+                and ScheduledProcedure.IsFullyReserved)
+                    invoke StatusChange ScheduledProcedure
+
+        Update is an Update Action
+            valid when (IsOpenNonStock)
+            Entrance Rules
+                constraint (IsOpenNonStock)
+                    "LineCannotBeUpdated"
+
+        UpdateFromRequisition is an Instance Action
+			restricted
+			Local Fields
+                PrmFromCompany  is like InventoryCompany
+                PrmFromLocation is like InventoryLocation
+			Action Rules
+                if (IsInventoried)
+                    invoke Delete WarehouseDemandLineReservationRel
+                if (PrmFromCompany entered)
+                    FromCompanyLocation.FromCompany     = PrmFromCompany
+                    FromCompanyLocation.FromLocation    = PrmFromLocation
+                if (IsInventoried)
+                    initialize ReservedQuantity
+                    include ComputeReservedQuantity
+                    include ProcessWarehouseDemand
+
+        UpdateQuantities is an Instance Action
+            restricted
+            Parameters
+                PrmPickedQuantity       is like Quantity
+
+            Action Rules
+                PickedQuantity          += PrmPickedQuantity
+
+                if (PickedQuantity changed)
+                    constraint (PickedQuantity <= DerivedQuantityToProcess)
+                        "PickedQuantityShouldNotBeGreaterThanQuantityToProcess"

@@ -1,0 +1,182 @@
+SourcingEventLineAOC is a BusinessClass
+	owned by ss
+	prefix is EVLA
+
+	Ontology
+		symbolic key is SourcingEventLineAOC
+
+	Patterns
+		implements ContextualParent
+
+	Persistent Fields
+		ItemNumber			is a snapshot of SourcingEventLine.ItemNumber
+		ItemType			is a snapshot of SourcingEventLine.ItemType
+		AOC					is an AddOnCharge
+		Required			is Boolean
+		PerUnitEstimate		is a AOCUnitPrice
+		AddOnChargeOrigin
+		SpreadMethod
+		Account             is a TransactionCodeBlock        
+
+	Local Fields
+		LocalAccountingEntity is an AccountingEntity
+		
+	Derived Fields
+   		RequiredAOC is a MessageField
+   			"Required"
+	
+	Conditions
+		SourcingEventLineAOCExists
+			restricted
+			when (SourcingEventLineAOC != 0)
+		LineAllowsAOC
+			restricted
+			when (SourcingEventLine.AllowAddOnCharge)
+		ResponseExists
+			restricted
+			when (SourcingEventLineResponseRel exists)
+		HeaderResponseExists
+			restricted
+			when (SourcingEventResponseRel exists)
+		CanMaintainAOC
+			restricted
+			when ((SourcingEventLine.Status.Draft
+			or    (SourcingEventLine.Status.Open
+			and    SourcingEvent.Status.Open))
+			and   LineAllowsAOC)
+		CanMaintainHeaderAOC
+			restricted
+			when (SourcingEvent.Status.Open
+			or    SourcingEvent.Status.Draft)
+		PerUnitEstimateEntered
+			restricted
+			when (PerUnitEstimate entered)
+		AllowanceContract
+			restricted
+			when (AOC.AddOnChargeType.Allowance
+			and   SourcingEventLine.ContractOutput)
+		AllowanceAOC
+			restricted
+			when (AOC.AddOnChargeType.Allowance)
+
+    Relations
+		AddOnChargeRel
+			one-to-one relation to AddOnCharge
+			Field Mapping uses symbolic key
+				related.Company		= Company
+				related.AddOnCharge	= AOC
+
+		SourcingEventLineAOCRel
+			one-to-many relation to SourcingEventLineAOC
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.SourcingEvent		= SourcingEvent
+				related.SourcingEventLine	= SourcingEventLine
+			Instance Selection
+				where (related.SourcingEventLineAOC	!= SourcingEventLineAOC
+				and    related.AOC				 	= AOC)
+
+		SourcingEventLineResponseRel
+		 	one-to-many relation to SourcingEventLineResponse
+		 	Field Mapping uses symbolic key
+		 		related.Company				= Company
+				related.SourcingEvent		= SourcingEvent
+				related.SourcingEventLine	= SourcingEventLine
+				
+		SourcingEventResponseRel
+		 	one-to-many relation to SourcingEventResponse
+		 	Field Mapping uses ByEvent
+		 		related.Company				= Company
+				related.SourcingEvent		= SourcingEvent
+			
+	Field Rules
+		AOC
+			required
+			cannot be changed
+			constraint (AddOnChargeRel exists)
+				"AddOnCostCode<AOC>DoesNotExist"			
+			constraint (SourcingEventLineAOCRel not exists)
+				"AddOnCostCode<AOC>AlreadyExistsForThisSourcingEventLine"
+
+		Required
+			initial value is true
+
+		PerUnitEstimate
+			if (AOC.AddOnChargeType.Allowance)
+				if (PerUnitEstimate > 0)
+					PerUnitEstimate = PerUnitEstimate * -1
+				constraint (PerUnitEstimate < 0)
+					"PerUnitEstimateCannotBeGreaterThanZeroForAllowanceTypeAOC"
+			else
+			if (AOC.AddOnChargeType.Cost)
+				constraint (PerUnitEstimate >= 0)
+					"PerUnitEstimateCannotBeLessThanZeroForCostTypeAOC"
+					
+			constraint (SourcingEventLine.DerivedTotalEstimate >= 0)
+				"CannotEnterAOCPerUnitEstimateThatWillCauseTotalEstimateForEventLineToBeLessThanZero"
+				
+		SpreadMethod
+			default to AddOnChargeRel.SpreadMethod
+
+	Actions
+		Create is a Create Action
+			valid when (CanMaintainAOC)
+			Action Rules
+				constraint (!ResponseExists)
+					"CannotAddAOCToLine<SourcingEventLine>;OneOrMoreSupplierResponsesExist"
+				
+				AddOnChargeOrigin = "SS"
+				
+				LocalAccountingEntity = Company.AccountingEntity
+
+		CreateFromRQ is a Create Action
+			restricted
+			Action Rules
+				invoke Update SourcingEventLine
+					invoked.AllowAddOnCharge = true
+				AddOnChargeOrigin = "RQ"
+				
+				LocalAccountingEntity = Company.AccountingEntity
+			
+		Update is an Update Action
+			valid when (CanMaintainAOC)
+			Action Rules
+			
+				LocalAccountingEntity = Company.AccountingEntity
+
+		Delete is a Delete Action
+			valid when (CanMaintainAOC)
+			Action Rules
+				constraint (!ResponseExists)
+					"CannotDeleteAOC;OneOrMoreSupplierResponsesExist"
+
+		CreateHeaderAddOnCharge is a Create Action
+			valid when (CanMaintainHeaderAOC)
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity
+				
+				constraint (AddOnChargeRel.CanUseForEventHeader)
+   					"PurchaseOrderAddOnChargeCannotBeLandedUnlessASpread"	
+				
+				constraint (!HeaderResponseExists)
+					"CannotAddAOCToEvent<SourcingEvent.RepresentativeText>;OneOrMoreSupplierResponsesExist"
+
+		UpdateHeaderAddOnCharge is an Update Action
+			valid when (CanMaintainHeaderAOC)
+			Action Rules
+
+				LocalAccountingEntity = Company.AccountingEntity
+				
+		DeleteHeaderAddOnCharge is a Delete Action
+			valid when (CanMaintainHeaderAOC)
+			Action Rules
+				constraint (!ResponseExists)
+					"CannotDeleteAOC;OneOrMoreSupplierResponsesExist"
+		
+		FastUpdate is an Update Action
+			restricted
+
+				
+		FastUpdateWithoutEdits is an Instance Action
+			restricted
+

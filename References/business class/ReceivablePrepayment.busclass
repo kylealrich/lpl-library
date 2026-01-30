@@ -1,0 +1,433 @@
+ReceivablePrepayment is a BusinessClass
+    owned by ar
+    prefix is APY
+    classic name is ARPREPAY
+
+    Ontology
+        symbolic key is ReceivablePrepayment
+            classic set name is APYSET1
+            classic name is PAYMENT-SEQ
+            classic name for ReceivablePaymentHeader is BATCH-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+
+		ReferenceType            is AlphaUpper size 1
+			classic name is TRANS-TYPE
+			States
+				Order			value is "O"
+				Invoice			value is "I"
+				DebitMemo		value is "D"
+				CreditMemo		value is "C"
+				Mixed			value is "M"
+				BillingInvoice	value is "B"
+				External		value is "N"
+				PurchaseOrder	value is "P"
+				FundingSource	value is "G"
+				ProformaInvoice value is "R"
+
+		ReceivableInvoiceType
+		ReceivableInvoice
+		BillingInvoice
+		Invoice
+			default label is "Reference"
+		CustomerOrder
+			classic name is ORDER-NBR
+		ProformaInvoice
+		FinanceDimension2
+			default label is "<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>"					
+		Project
+		ProjectContract
+
+		AutomaticCashApplication is an FlagYN
+			classic name is AUTO-APP-FL
+		PrepaymentNbr            is AlphaRight size 10
+		AccruedTaxAmount  		 is an InternationalAmount		
+
+	Transient Fields
+		InputReferenceType            is AlphaUpper size 1
+			default label is "ReferenceType"
+			derive value from DerivedInputReferenceType
+			States
+				Order			value is "O"
+				Invoice			value is "I"
+				BillingInvoice	value is "B"
+				External		value is "N"
+				PurchaseOrder	value is "P"
+				FundingSource	value is "G"
+				ProformaInvoice value is "R"
+	
+	Local Fields
+		LocalProformaPendingAmount is like InternationalAmount
+
+	Derived Fields
+		DerivedInputReferenceType	is a DerivedField
+			type is AlphaUpper size 1
+			if (ReferenceType.CreditMemo
+			or  ReferenceType.DebitMemo
+			or  ReferenceType.Invoice
+			or  ReferenceType.Mixed)
+				return "I"
+			else
+				return ReferenceType
+		
+	Field Rules
+		InputReferenceType
+			required
+			
+		ReferenceType
+
+			if (InputReferenceType.Invoice)
+				ReferenceType = ReceivableInvoiceType
+			else
+				ReferenceType = InputReferenceType
+
+
+
+
+
+
+       		if (AutomaticCashApplication.Yes)
+				constraint (!ReferenceType.CreditMemo
+				and			!ReferenceType.External)
+					"AutoApplicationNotValidForThisReferenceType"
+		
+		ReceivableInvoiceType						
+			if (InputReferenceType.Invoice)
+				required
+			else
+				initialize ReceivableInvoiceType
+				
+		ReceivableInvoice
+			if (InputReferenceType.Invoice)
+				required
+			else
+				initialize ReceivableInvoice
+				
+		BillingInvoice
+			if (InputReferenceType.BillingInvoice)
+				required
+			else
+				initialize BillingInvoice
+
+        Invoice
+
+        	if (InputReferenceType.Invoice)
+        		Invoice = ReceivableInvoice
+        	if (InputReferenceType.BillingInvoice)
+        		Invoice = BillingInvoice
+			if (InputReferenceType.Invoice
+			or  InputReferenceType.External
+			or  InputReferenceType.PurchaseOrder
+			or  InputReferenceType.BillingInvoice)
+				required
+			else
+				initialize Invoice	
+
+
+
+
+        	if (ForReceivableInvoice)
+        		constraint (!first ReceivableInvoiceDetailRel.AlternateReceivableInvoiceType.Mixed)
+        			"TransactionIsOfMixedType,MustUseMixedReferenceType"
+        		if (AutomaticCashApplication.Yes)
+	        		constraint (first ReceivableInvoiceDetailRel.Status.OpenTransaction)
+	        			"TransactionIsNotOpen"
+
+        	if (ReferenceType.Mixed)
+        		if (AutomaticCashApplication.Yes)
+	        		constraint (!ReceivableInvoiceRel.AlternateReceivableInvoiceType.CreditMemo)
+    	    			"AutoApplicationNotValidForMixedSignLineCredit"
+        		constraint (OpenAlternateReceivableInvoiceDetailRel exists)
+        			"NoOpenTransactionsFoundForTransactionNumber"
+        	
+
+        CustomerOrder
+
+        	if (InputReferenceType.Order)
+        		required
+			else
+				initialize CustomerOrder			
+
+        	if (CustomerOrder entered)
+        		constraint (CustomerOrder.Currency = ReceivablePayment.OriginalCurrency)
+        			"CustomerOrderCurrencyCannotBeDifferentThanPaymentCurrency"
+		
+				
+		ProformaInvoice
+			if (InputReferenceType.ProformaInvoice)
+				required
+			else
+				initialize ProformaInvoice
+			if (InputReferenceType.ProformaInvoice)
+				AutomaticCashApplication = "Yes"
+				constraint (ProformaInvoiceRel.CustomerOrderRel.Currency = ReceivablePayment.OriginalCurrency)
+        			"PaymentCurrencyCannotBeDifferentThanProformaInvoiceCurrency"
+				LocalProformaPendingAmount = (ProformaInvoiceRel.InvoiceAmount - sum ProformaInvoiceRel.ReceivablePrepaymentRel.ReceivablePayment.TransactionAmount)
+				constraint (LocalProformaPendingAmount >= ReceivablePayment.TransactionAmount)
+					"PaymentExceedsPendingProformaPrepaymentAmount_<LocalProformaPendingAmount>_<ReceivablePayment.OriginalCurrency>"
+		
+		FinanceDimension2
+    		if (InputReferenceType.FundingSource)
+    			required
+    				"<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>Required"        		
+			else
+				initialize FinanceDimension2
+		
+			if (FinanceDimension2 entered)
+        		constraint (InputReferenceType.FundingSource)
+        			"ReferenceTypeBustBeFundingSourceIf<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>Entered"        		
+        	constraint (Company	= FinanceDimension2.CompanyCustomerGroup.ReceivableCompany and ReceivablePayment.Customer = FinanceDimension2.CompanyCustomerGroup.Customer)
+        		"<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>CompanyAndCustomerMustEqualPaymentCompanyAndCustomer"
+			if (!ReceivablePayment.Status.Unreleased)
+				cannot be changed
+					"CannotChange<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>InformationIfPaymentReleased"
+			if (ReceivablePayment.BaseAppliedAmount entered)
+				cannot be changed
+					"CannotChange<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>InformationIfPaymentHasAppliedAmount"
+		
+		ProjectContract
+    		if (InputReferenceType.FundingSource)
+    			required
+    				"<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.ProjectLabel>ContractRequired"        		
+			else
+				initialize ProjectContract
+
+		Project
+    		if (!InputReferenceType.FundingSource)
+				initialize Project
+			if (Project entered)		
+    			constraint(InputReferenceType.FundingSource)
+					"CannotEnter<Company.CustomerBusinessGroup.FinanceEnterpriseGroup.ProjectLabel>ForThisInputReferenceType"			
+		
+        AutomaticCashApplication
+
+        	default to AutomaticCashApplication.No
+        	if (AutomaticCashApplication.Yes)
+        		constraint (!InputReferenceType.External)
+        			"CannotUseExternalReferenceTypeForAutoApplication"
+				constraint (CustomerUsesOpenItemProcessing)
+					"CustomerMustUseOpenItemProcessingForAutoApply"
+
+
+
+		PrepaymentNbr
+
+			cannot be changed
+			
+	Conditions
+			
+		IsProformaPrepayment
+			restricted
+			when (InputReferenceType.ProformaInvoice)
+			
+		IsOpenCustomerPayment
+        	restricted
+            when (ReceivablePayment.TypeOfPayment.CustomerPayment
+            and   !ReceivablePayment.Status.Unreleased)
+
+		IsUnreleasedCustomerPayment
+        	restricted
+            when (ReceivablePayment.TypeOfPayment.CustomerPayment
+            and   ReceivablePayment.Status.Unreleased)
+            
+        IsAroitems
+        	restricted
+            when (not InputReferenceType.Order
+            and   InputReferenceType entered)
+
+        IsCustorder
+        	restricted
+            when (InputReferenceType.Order)
+
+		ForReceivableInvoice
+			when (ReferenceType.Invoice
+			or    ReferenceType.DebitMemo
+			or    ReferenceType.CreditMemo)
+
+		PaymentReleased
+			restricted
+			when (!ReceivablePayment.Status.Unreleased)
+			
+		CustomerUsesOpenItemProcessing
+			restricted
+			when (CompanyCustomerRel.ReceivableProcessingMethod.OpenItem)
+
+		IsPaymentTransfer		
+			restricted
+			when (invoking action = "ReceivablePayment.PaymentTransferOpen"
+			or    invoking action = "ReceivablePayment.TransferToNonAROpen"
+			or    invoking action = "ReceivablePayment.TransferToNonARReleasedUnassigned"
+			or    invoking action = "ReceivablePayment.TransferToNonAROpenOrReleasedUnassigned")
+
+	Relations
+	
+		ReceivableInvoiceRel
+            one-to-one relation to ReceivableInvoice
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+                related.ReceivableInvoiceType 		= ReferenceType
+                related.ReceivableInvoice			= Invoice
+
+
+
+
+
+
+
+
+		OpenAlternateReceivableInvoiceDetailRel
+            one-to-many relation to ReceivableInvoiceDetail
+            Field Mapping uses symbolic key 
+            Instance Selection
+            	where (related.Status.OpenTransaction
+				and    related.Company                 				= Company
+
+				and    related.ReceivableInvoiceDetail.Invoice		= Invoice)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		CompanyCustomerRel
+			one-to-one relation to CompanyCustomer
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.Customer		= ReceivablePayment.Customer
+				
+
+
+
+
+
+
+
+
+        ReceivableInvoiceDetailRel
+            classic name is AROITEMS
+            one-to-many relation to ReceivableInvoiceDetail
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType = ReferenceType
+                and   related.ReceivableInvoiceDetail.Invoice = Invoice)
+
+        ReceivablePaymentRel
+            classic name is ARPAYMENT
+            one-to-one relation to ReceivablePayment
+            required
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.ReceivablePaymentHeader = ReceivablePaymentHeader
+                related.ReceivablePayment       = ReceivablePayment
+
+        CustomerOrderRel
+            classic name is CUSTORDER
+            one-to-one relation to CustomerOrder
+            Field Mapping uses symbolic key
+                related.Company       = Company
+                related.CustomerOrder = CustomerOrder
+                
+		ProformaInvoiceRel
+			one-to-one relation to ProformaInvoice
+            Field Mapping uses symbolic key
+                related.Company       	= Company
+                related.ProformaInvoice = ProformaInvoice
+    Sets
+
+        ByProjectContract
+            Sort Order
+                ProjectContract
+                Company
+                ReceivablePaymentHeader
+                ReceivablePayment
+
+	Rule Blocks
+		PrepayEdits
+    		constraint (ReceivablePayment.Customer entered)
+    			"CustomerNotEnteredOnPayment;CannotEnterPrepayInformation"
+    		constraint (!ReceivablePayment.HasRemits)
+    			"PrepayNotAllowedIfRemittancesHaveBeenCreated"
+    		constraint (ReceivablePayment.IsOpenOrUnreleased)
+    			"ChangesNotAllowed,PaymentIsNotOpen"
+			constraint (!ReceivablePayment.IsZeroPayment)
+				"CannotCreatePrepaymentForZeroAmountPayment"
+
+			if (!ReceivablePayment.Status.Unreleased)
+				constraint (!ReceivablePayment.HasPendingApplications)
+					"CannotChangePrepayment;PendingApplicationsExist"
+					
+				constraint (!ReceivablePayment.HasAPTransfers)
+					"CannotChange;PaymentPendingTransferToAP"
+
+				constraint (!ReceivablePayment.HasRTMs)
+					"CannotChange;RTMPaymentPending"
+					
+				constraint (!ReceivablePayment.ApplicationAmountEntered)
+					"ChangeNotAllowed;ApplicationsExist"
+
+			if (Company.AllowPrepaymentTax)		
+				constraint (!ReceivablePayment.HasReceivablePaymentRemittanceCreditMemoOrMixedSign)
+					"PaymentHasCreditOrMixedSignRemittanceAndPaymentHasTaxWitholding;CannotEnterPrepayInformation"
+
+
+    Actions
+        Create is a Create Action
+        	Action Rules
+				if (InputReferenceType.Invoice)
+					ReferenceType = ReceivableInvoiceType
+				
+        		if (ReceivablePayment.ReceivedNotAppliedReceivableGeneralLedgerCode != ReceivablePaymentHeader.ReceivedNotAppliedReceivableGeneralLedgerCode)
+        			confirmation required
+						"CashOffsetHasBeenEnteredAndWillBeOverridden-Continue?"
+        		include PrepayEdits
+        		PrepaymentNbr = ReceivablePayment.PaymentNumber
+			Exit Rules
+
+				invoke SetPrepayFlag ReceivablePaymentRel
+
+        CreateFromPaymentTransfer is a Create Action
+        	restricted
+        	Action Rules
+
+
+        Update is an Update Action
+			Action Rules
+				if (InputReferenceType.Invoice)
+					ReferenceType = ReceivableInvoiceType
+				include PrepayEdits
+			Exit Rules
+				invoke SetPrepayFlag ReceivablePaymentRel
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+        Delete is a Delete Action
+			Entrance Rules
+				if (IsProformaPrepayment)
+					constraint (ReceivablePayment.Status.Unreleased)
+						"CannotDelete;ProformaPrepaymentIsReleased"
+				if (!IsPaymentTransfer)		
+					constraint (ReceivablePayment.Status.Unreleased)
+						"CannotDelete;PrepaymentIsReleased"
+
+			Action Rules
+        	Exit Rules
+				invoke SetPrepayFlag ReceivablePaymentRel
+		
+		Purge is a Purge Action
+			restricted

@@ -1,0 +1,509 @@
+EFTExtractResult is a BusinessClass
+	owned by ar
+
+	prefix is EFTER
+
+	Ontology
+		symbolic key is EFTExtractResult
+
+	
+	Patterns
+
+	Persistent Fields
+		RunTime										is TimeStamp
+		CustomerGroup
+		ProcessingCompany							is a ReceivableCompany
+		Company										is a ReceivableCompany
+		TermsCode
+		ProcessDate									is Date
+		FromOverrideDate							is Date
+		ToOverrideDate								is Date
+		FromDate									is Date
+		ToDate										is Date
+		EFTBaseCurrency								is a Currency
+		Status										is Numeric 1
+			States
+				InProcess		value is 0
+				Complete		value is 1
+		BankTransactionCode
+		DataFileName								is AlphaUpper size 50
+		UpdateRecords								is AlphaUpper size 1
+			States
+				No		value is "N"
+				Yes		value is "Y"
+		PreviousResult								is Boolean
+		ExtractedAdjustmentCreditsCount				is Numeric 12
+		ExtractedAdjustmentDebitsOrInvoicesCount	is Numeric 12
+		ExtractedAdjustmentsCount					is Numeric 12
+		ExtractedCreditsCount						is Numeric 12
+		ExtractedDebitsOrInvoicesCount				is Numeric 12
+		ExtractedCount								is Numeric 12
+		CompanyCount								is Numeric 12
+		AdjustmentCreditsAmount						is like InternationalAmount
+		AdjustmentDebitsOrInvoicesAmount			is like InternationalAmount
+		AdjustmentNetAmount							is like InternationalAmount
+		ExtractedCreditsAmount						is like InternationalAmount
+		ExtractedDebitsOrInvoicesAmount				is like InternationalAmount
+		ExtractedNetAmount							is like InternationalAmount
+
+	Local Fields
+		LocalActor					is Actor
+		LocalEFTDueDaysType			is AlphaUpper size 1
+		LocalActualBankDayNumber	is Numeric size 2
+		LocalEFTDueDays				is a DueDays
+		LocalEFTCalendar			is like SystemCalendar
+		LocalBankDate				is Date
+		LocalFromDate				is Date
+
+	Transient Fields
+
+	Derived Fields
+		ActualBankDate	is a DerivedField
+			type is Date
+			if (LocalEFTDueDaysType = "M")
+				LocalActualBankDayNumber = 1
+				if (ActualBankDayNumberRel exists)
+					for each ActualBankDayNumberRel
+						if (LocalActualBankDayNumber <= LocalEFTDueDays)
+							LocalActualBankDayNumber += 1
+							LocalBankDate = each.SystemCalendarDate
+						else
+							end for each
+				else
+					return LocalFromDate
+				return LocalBankDate
+			else
+				return LocalFromDate + LocalEFTDueDays
+
+		NoRecordsToProcessMsg		is a MessageField
+			restricted
+			"NoRecordsToProcess"
+
+		DerivedUpdate				is a MessageField
+			"Yes"
+		
+		DerivedRunDate is a DerivedField			
+			type is Date
+			restricted
+			return RunTime date
+
+	Field Rules
+
+		FinanceEnterpriseGroup
+			initial value is actor.context.FinanceEnterpriseGroup
+			required
+				"FieldFinanceEnterpriseGroupIsRequired"
+
+		CustomerGroup
+			if (CustomerGroup not entered
+			and Company not entered)
+				required
+					"EitherCustomerGroupOrCompanyShouldBeEntered"
+			constraint (Company not entered)
+				"CannotEnterBothCustomerGroupAndCompany"
+			if (CustomerGroup entered)
+				constraint (CustomerGroup.EFTProcessingLevel.GroupLevelProcessing)
+					"EFTProcessingNotSetupAtTheCustomerGroupLevel"
+				constraint (CompanyWithDebitCashCodeRel exists)
+					"NoDefaultProcessingCompanySetUpForGroup:<CustomerGroup>"
+			if (CustomerGroup entered)
+				LocalEFTDueDays						 = CustomerGroup.EFTDueDays
+				LocalEFTDueDaysType					 = CustomerGroup.EFTDueDaysType
+				LocalEFTCalendar					 = CustomerGroup.EFTCalendar
+
+		Company
+			constraint (Company.CustomerGroupField.CustomerGroup.EFTProcessingLevel.CompanyLevelProcessing)
+				"EFTProcessingNotSetupAtTheCompanyLevel"
+			constraint (Company.EFTCalendar entered)
+				"EFTCalendarNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDueDays entered)
+				"EFTDueDaysNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDueDaysType entered)
+				"EFTDueDaysTypeNotEnteredOnCompany:<Company>"
+			constraint (Company.EFTDebitCashCode entered)
+				"NoCashCodeSetUpForCompany:<Company>"
+			if (Company entered)
+				LocalEFTDueDays						 = Company.EFTDueDays
+				LocalEFTDueDaysType					 = Company.EFTDueDaysType
+				LocalEFTCalendar					 = Company.EFTCalendar
+
+		ProcessDate
+			if (FromOverrideDate entered
+			or  ToOverrideDate entered)
+				cannot be entered
+					"CannotEnterProcessingDate;OverrideDateRangeEntered"
+
+		FromOverrideDate
+			default to ToOverrideDate
+
+		ToOverrideDate
+			default to FromOverrideDate
+			constraint (ToOverrideDate >= FromOverrideDate)
+				"FromDateCannotBeGreaterThanToDate"
+
+		BankTransactionCode
+			constraint (FinanceEnterpriseGroup entered)
+				"FinanceEnterpriseGroupMustBeEntered"
+			constraint (BankTransactionCode.IsCashPaymentAndOriginReceivable)
+				"Payment_\Code_(\Bank_\Transaction_\Code)MustHaveA_\Transaction_\CategoryOf_\Cash_\PaymentAndA_\Transaction_\OriginOf_\Receivable.YouCanUseTheIconInThe_\Payment_\CodeFieldToOpenTheSelectListForValidCodes."
+
+		RunTime
+			default to current timestamp
+
+
+	Conditions
+
+		NoRecordsToProcess
+			when (Status entered
+			and  (EFTExtractedRIDCompanyRel not exists
+			and   EFTExtractedRIDGroupRel not exists)
+			and   !HasErrorRecords)
+
+		HasErrorRecords
+			when (EFTExtractErrorResultRel exists)
+
+		ExceptionsRecordExists
+			when (EFTExtractErrorResultRel exists)
+
+		IsEFTExtractOutputCreated
+			restricted
+			when (EFTExtractOutputRel exists)
+
+		IsCompanyLevel
+			restricted
+			when (ExtractedCompanyTotalDetailsRel exists
+			and   Company entered)
+
+		IsGroupLevel
+			restricted
+			when (ExtractedGroupTotalDetailsRel exists
+			and   Company not entered)
+
+		IsGroupLevelAdjustments
+			restricted
+			when (ExtractedGroupAdjustmentTotalDetailsRel exists
+			and   Company not entered)
+
+		IsCompanyLevelAdjustments
+			restricted
+			when (ExtractedCompanyAdjustmentTotalDetailsRel exists
+			and   Company entered)
+
+		ReportOnlyCompanyAdjustments
+			restricted
+			when (EligibleAdjustmentTotalDetailsRel exists
+			and Company entered)
+
+		ReportOnlyGroupAdjsutments
+			restricted
+			when (EligibleAdjustmentTotalDetailsRel exists
+			and Company not entered)
+
+	Relations
+
+		CompanyWithDebitCashCodeRel
+			one-to-many relation to ReceivableCompany
+			Field Mapping uses Set2
+				related.CustomerGroupField.CustomerGroup = CustomerGroup
+			Instance Selection
+				where (related.EFTDebitCashCode entered)
+		
+		ActualBankDayNumberRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup = FinanceEnterpriseGroup
+				related.SystemCalendar  = LocalEFTCalendar
+			Instance Selection
+				where (related.IsBankDay
+				and	   related.SystemCalendarDate > LocalFromDate)
+		
+		EFTExtractedRIDGroupRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+
+
+				
+		EFTExtractedRIDCompanyRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = Company.CustomerGroupField.CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+
+
+				
+		EFTExtractInvoiceNonUpdatedRecordsRel
+			one-to-many relation to EFTExtractInvoiceDetails
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.IsSearch	= "N")
+
+
+
+
+
+
+
+		EFTExtractErrorResultNonUpdatedRecordsRel is a EFTExtractErrorResult set	
+			Instance Selection
+				where (related.IsSearch	= "N")
+
+
+		EFTExtractInvoiceDetailsRel
+			one-to-many relation to EFTExtractInvoiceDetails
+			Field Mapping uses Set1
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.EFTExtractResult		= EFTExtractResult
+
+
+
+
+
+
+
+
+		EFTExtractErrorResultRel is a EFTExtractErrorResult set	
+
+		ExtractedCompanyAdjustmentTotalDetailsRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = Company.CustomerGroupField.CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+			Instance Selection
+
+				where (related.IsAdjusted)
+
+		ExtractedGroupAdjustmentTotalDetailsRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+			Instance Selection
+
+				where (related.IsAdjusted)
+
+		ExtractedGroupTotalDetailsRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+			Instance Selection
+
+				where (related.IsExtracted)
+
+		ExtractedCompanyTotalDetailsRel
+			one-to-many relation to ElectronicFundsTransferTransaction
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult	 = EFTExtractResult	
+				related.CustomerGroup		 = Company.CustomerGroupField.CustomerGroup
+				related.ProcessingCompany	 = ProcessingCompany
+			Instance Selection
+
+				where (related.IsExtracted)
+
+		EFTExtractOutputRel
+			one-to-many relation to EFTExtractOutput
+			Field Mapping uses ByEFTExtractResult	
+				related.EFTExtractResult = EFTExtractResult	
+
+
+
+		EFTExtractResultPurgeRel
+			one-to-many relation to EFTExtractResult
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.PreviousResult)
+
+		EligibleAdjustmentTotalDetailsRel
+			one-to-many relation to EFTExtractInvoiceDetails
+			Field Mapping uses Set1
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.EFTExtractResult		= EFTExtractResult
+			Instance Selection
+				where (related.IsSearch = "N"
+				and   (related.EftAction = "1"
+				or	   related.EftAction = "2"
+				or	   related.EftAction = "3"
+				or	   related.EftAction = "6"))
+
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				EFTExtractResult
+				CustomerGroup
+
+	Actions
+			
+		EFTExtract is a Create Action
+			default label is "PerformEFTExtract"
+			completion message is "PerformEFTExtractSubmitted"
+
+			Field Rules
+				UpdateRecords
+					default to "Y"
+
+			Exit Rules
+				invoke PurgeReportOnlyRecords EFTExtractResultPurgeRel
+				display "=========EFTExtract============" 
+				invoke EFTExtract ReceivableInvoiceDetail
+					invoked.PrmFinanceEnterpriseGroup			= FinanceEnterpriseGroup
+					invoked.PrmCompany							= Company
+					invoked.PrmCustomerGroup					= CustomerGroup
+					invoked.PrmProcessDate						= ProcessDate
+					if (FromOverrideDate entered)
+						invoked.PrmFromDate						= FromOverrideDate
+						invoked.PrmToDate						= ToOverrideDate
+					else
+						if (ProcessDate entered)
+							LocalFromDate	= ProcessDate
+						else
+							LocalFromDate	= current corporate date
+						invoked.PrmFromDate						= LocalFromDate	
+						invoked.PrmToDate						= ActualBankDate
+					invoked.PrmBankTransactionCode				= BankTransactionCode
+					invoked.PrmTermsCode						= TermsCode 
+					invoked.PrmDataFileName  					= DataFileName
+					invoked.PrmEFTExtractResult					= EFTExtractResult
+					invoked.PrmUpdateRecords					= UpdateRecords
+
+
+		EFTExtractReportOnly is a Create Action
+			default label is "PerformEFTExtractReportOnly"
+			completion message is "PerformEFTExtractReportOnlySubmitted"
+
+			Field Rules
+				UpdateRecords
+					default to "N"
+
+			Exit Rules
+				invoke PurgeReportOnlyRecords EFTExtractResultPurgeRel
+				invoke EFTExtract ReceivableInvoiceDetail
+					invoked.PrmFinanceEnterpriseGroup			= FinanceEnterpriseGroup
+					invoked.PrmCompany							= Company
+					invoked.PrmCustomerGroup					= CustomerGroup
+					if (FromOverrideDate entered)
+						invoked.PrmFromDate						= FromOverrideDate
+						invoked.PrmToDate						= ToOverrideDate
+					else
+						if (ProcessDate entered)
+							LocalFromDate	= ProcessDate
+						else
+							LocalFromDate	= current corporate date
+						invoked.PrmFromDate						= LocalFromDate	
+						invoked.PrmToDate						= ActualBankDate	
+					invoked.PrmBankTransactionCode				= BankTransactionCode
+					invoked.PrmTermsCode						= TermsCode 
+					invoked.PrmEFTExtractResult					= EFTExtractResult
+					invoked.PrmUpdateRecords					= UpdateRecords
+
+		Update is an Update Action
+			restricted
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Delete EFTExtractInvoiceDetailsRel
+				invoke Delete EFTExtractErrorResultRel
+
+		Purge is a Purge Action
+			Entrance Rules
+				invoke Purge EFTExtractInvoiceDetailsRel
+				invoke Purge EFTExtractErrorResultRel
+
+		PurgeReportOnlyRecords is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge EFTExtractInvoiceNonUpdatedRecordsRel
+				invoke Purge EFTExtractErrorResultNonUpdatedRecordsRel
+
+		UpdateStatusOnResult is an Instance Action
+			restricted
+			Parameters
+				PrmRecordsExists				is Boolean
+			Action Rules
+				if (UpdateRecords = "Y")
+					if (!PrmRecordsExists)
+						Status = 1
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "EFTExtractHasCompleted"
+							priority is high
+							detail is "NoRecordsFoundToProcess"
+					if (PrmRecordsExists)
+						Status = 1
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "EFTExtractHasCompleted"
+							priority is high
+							detail is "ResultsCanBeSeenInEFTExtractResults"
+				else
+					if (!PrmRecordsExists)
+						Status = 1
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "EFTExtractReportOnlyHasCompleted"
+							priority is high
+							detail is "NoRecordsFoundToProcess"
+					if (PrmRecordsExists)
+						Status = 1
+						PreviousResult = true
+						LocalActor = actor
+							send notification
+								to LocalActor
+								description is "EFTExtractReportOnlyCompleted"
+								priority is high
+								detail is "ResultsCanBeSeenInEFTExtractReportOnly"
+
+		DeleteAllResults is a Set Action			
+			default label is "DeleteAllResults"
+			confirmation required
+				"DeletingEFTExtractResultWillPreventAccessToAnyListViewsAssociatedWithTheResultSet"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and	   DerivedRunDate <= PrmCutoffDate)
+			
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoEFTExtractResultRecordsFoundToDelete"
+						priority is medium
+				
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "EFTExtractResultsHaveBeenDeletedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Delete
+

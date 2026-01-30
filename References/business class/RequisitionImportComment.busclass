@@ -1,0 +1,166 @@
+RequisitionImportComment is a BusinessClass
+	owned by rq
+	prefix is Requ
+	
+	Ontology
+        symbolic key is RequisitionImportComment
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+	
+	Persistent Fields
+		CommentType						is AlphaUpper size 1
+    		States
+                PrintOnInternalDocuments	value is "I"
+                PrintOnPurchaseOrder		value is "P"
+                PrintOnPurchaseOrderTrailer	value is "T"
+                PrintOnReceivingDocument	value is "R"
+                PrintOnPickList				value is "L"
+                PrintOnDeliveryTicket		value is "D"
+                PrintOnRequisition			value is "Q"
+				DisplayOnlyOnInternalDocuments value is "S"
+                DisplayOnly					value is "O"
+                InvoiceComments				value is "N"
+        CommentTitle            is a CommentName
+        CommentText    
+
+	Local Fields
+		LocalErrorMessage			is Alpha 150
+		LocalErrorOccurred			is Boolean
+		LocalCompany				is like InventoryCompany
+		LocalRequisitionImport		is like RequisitionImport
+		LocalRequisitionImportLine	is like RequisitionImportLine
+	
+	Field Rules
+
+	Conditions
+        DetailsExist
+            restricted
+            when (RequisitionImportLineDistributionsRel exists
+            or    RequisitionImportCommentsRel exists
+            or    RequisitionImportAddOnChargesRel exists)
+
+	Relations
+		
+		RequisitionImportLineDistributionsRel
+            one-to-many relation to RequisitionImportLineDistribution
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportCommentsRel
+            one-to-many relation to RequisitionImportComment
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportAddOnChargesRel
+            one-to-many relation to RequisitionImportAddOnCharge
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+
+        RequisitionImportLinesRel
+            one-to-many relation to RequisitionImportLine
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+	
+	Actions
+	
+		Create is a Create Action
+    	
+    	CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+    	
+    	Update is an Update Action
+    	
+    	Delete is a Delete Action
+    	
+    	FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+	
+		InterfaceRequisitionLineComments is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRunGroup							is a RunGroup
+				PrmInterfaceResult					is a RequisitionInterfaceResult
+			Local Fields
+		    	LocalSetCompany                    	is like InventoryCompany
+				LocalSetRequisitionImport			is like RequisitionImport
+				LocalSetRequisitionImportLine		is like RequisitionImportLine
+			Instance Selection			
+				where (PrmRunGroup					= RequisitionImport.RunGroup
+				and    PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup)
+			Sort Order
+				Company
+				RequisitionImport
+				RequisitionImportLine
+				RequisitionImportComment
+			Action Rules
+				Empty Set Rules
+					invoke FinishInterfaceRequisitions RequisitionImport
+						invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+						invoked.PrmRunGroup							= PrmRunGroup
+						invoked.PrmInterfaceResult					= PrmInterfaceResult
+
+				Set Rules
+					Exit Rules
+						invoke FinishInterfaceRequisitions RequisitionImport
+							invoked.PrmFinanceEnterpriseGroup		= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup						= PrmRunGroup
+							invoked.PrmInterfaceResult				= PrmInterfaceResult
+
+				RequisitionImportLine Set Rules
+					Entrance Rules
+						LocalSetCompany								= Company
+						LocalSetRequisitionImport					= RequisitionImport	
+						LocalSetRequisitionImportLine				= RequisitionImportLine						
+					Exit Rules
+						LocalCompany								= LocalSetCompany
+						LocalRequisitionImport						= LocalSetRequisitionImport	
+						LocalRequisitionImportLine					= LocalSetRequisitionImportLine
+						if (not RequisitionImport.RecordInError
+		                and not DetailsExist) 
+		                    invoke FastDelete RequisitionImportLinesRel
+							
+				Instance Rules
+					if (not RequisitionImport.RecordInError)
+						if (RequisitionImportLine entered)
+							invoke Create RequisitionLineComment
+								resume on error
+									LocalErrorOccurred				= true
+									LocalErrorMessage				= error message
+								fill in fields from this instance
+								invoked.Requisition					= RequisitionImport.DerivedRequisition
+								invoked.RequisitionLine				= RequisitionImportLine
+
+						else
+							invoke Create RequisitionComment
+								resume on error
+									LocalErrorOccurred				= true
+									LocalErrorMessage				= error message
+								fill in fields from this instance
+								invoked.Requisition					= RequisitionImport.DerivedRequisition
+	
+						if (LocalErrorOccurred)
+							invoke SetError RequisitionImport
+								invoked.PrmErrorMessage				= LocalErrorMessage
+								invoked.PrmErrorLevel				= RequisitionImport.ErrorLevel.Comment
+						else
+							invoke FastDelete	
+
+

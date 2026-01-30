@@ -1,0 +1,464 @@
+MobileSupplyChainParCountLine is a BusinessClass
+    owned by mscm
+    prefix is MSCPL
+
+    Ontology
+        symbolic key is MobileSupplyChainParCountLine
+
+
+    Persistent Fields
+        Item
+        Count                   is like Quantity
+        AdditionalQuantity      is like Quantity
+        Status                  is Numeric size 1
+            States 
+                NotStarted              value is 0
+                AtPar                   value is 3
+                CompletedWithErrors     value is 7
+                Error                   value is 8
+                Completed               value is 9
+
+        Par                     is like Quantity
+        Requested               is like Quantity
+        TransactionUOM          is like UnitOfMeasure
+        Notes                   is Text
+        ReplenishFrom
+        ErrorStatus             is Numeric size 2
+            States
+                NoError                     value is 0
+                HasNoQuantityOnHand         value is 1
+                InvalidDecimal              value is 2
+
+    Field Rules                       
+        TransactionUOM
+            default to ItemLocationRel.DefaultTransactionUOM
+
+        ReplenishFrom
+            force default to DerivedReplenishFrom
+
+    Relations
+        StockOnHandByTransactionUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                                             = DerivedReplenishFromCompany
+                related.InventoryLocation                                   = DerivedReplenishFromLocation
+                related.Item                                                = Item
+            Instance Selection
+                where (related.StockOnHandDetail.UnitOfMeasure              = TransactionUOM)
+        
+        StockOnHandByStockUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                                             = DerivedReplenishFromCompany
+                related.InventoryLocation                                   = DerivedReplenishFromLocation
+                related.Item                                                = Item
+            Instance Selection
+                where (related.StockOnHandDetail.UnitOfMeasure               = Item.StockUOM)
+
+        ReprocessPickForParTicketRel
+            one-to-many relation to PickForParTicket
+            Field Mapping uses ByMobileSupplyChainParCount
+                related.RequestingCompany                                   = Company
+                related.RequestingLocation                                  = MobileSupplyChainParCount.InventoryLocation
+                related.MobileSupplyChainParCount                           = MobileSupplyChainParCount
+            Instance Selection
+                where (related.Company                                      = ReplenishFrom.ReplenishFromCompany
+                and    related.InventoryLocation                            = ReplenishFrom.ReplenishFromLocation)
+        
+        PickForParTicketRel
+            one-to-many relation to PickForParTicket
+            Field Mapping uses ByMobileSupplyChainParCount
+                related.RequestingCompany                                   = Company
+                related.RequestingLocation                                  = MobileSupplyChainParCount.InventoryLocation
+            Instance Selection
+                where (related.Status.Open
+                or     related.Status.Downloaded)
+
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company             = Company
+                related.InventoryLocation   = MobileSupplyChainParCount.InventoryLocation
+                related.Item                = Item
+
+        ReplenishFromLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company             = DerivedReplenishFromCompany
+                related.InventoryLocation   = DerivedReplenishFromLocation
+                related.Item                = Item
+
+        ReplenishSourceStockOnHandRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company				= DerivedReplenishFromCompany
+                related.InventoryLocation	= DerivedReplenishFromLocation 
+                related.Item				= Item
+
+        ItemTransactionUOMRel 
+            one-to-one relation to ItemUOM
+            Field Mapping uses symbolic key
+                related.ItemGroup                                           = Item.ItemGroup
+                related.Item                                                = Item
+                related.UnitOfMeasure                                       = TransactionUOM
+
+    Local Fields
+        LocalRequisition            is like Requisition
+        LocalAdditionalRequisition  is like Requisition
+        NewRequisition              is a Requisition view
+        NewPickForParTicket         is a PickForParTicket view
+        ErrorOccured                is Boolean
+        ErrorMessage                is Text
+
+    Derived Fields
+        DerivedReplenishFromCompany is a DerivedField
+            type is like InventoryCompany
+            restricted
+            return ItemLocationRel.ReplenishFrom.ReplenishFromCompany
+
+        DerivedReplenishFromLocation is a DerivedField
+            type is like InventoryLocation
+            restricted
+            return ItemLocationRel.ReplenishFrom.ReplenishFromLocation
+
+        DerivedReplenishFrom is a DerivedField
+            type is AlphaUpper size 40
+            restricted
+            return ItemLocationRel.DerivedReplenishFrom
+        
+        DerivedPFPRequestedQuantity is a DerivedField          
+            type is like Quantity
+            restricted
+            return Requested + AdditionalQuantity
+        
+        DerivedParLevel is a DerivedField          
+            type is like Quantity
+            restricted
+            return ItemLocationRel.ReorderPoint
+        
+        AdditionalQuantityMessage is a MessageField
+			restricted
+			"AdditionalQuantityRequisitionIsCreated"
+
+        DerivedMessageDisplay is a DerivedField
+			type is Text
+            if (ErrorStatus.HasNoQuantityOnHand)
+                return NoQtyOnHandItemRequisitionMessage
+            else
+            if (ErrorStatus.InvalidDecimal)
+                return DerivedInvalidDecimalMessage
+        
+        DerivedInvalidDecimalMessage is a MessageField
+            restricted
+            "TooManyDecimalDigitsEnteredForQuantity"
+
+        NoQtyOnHandItemRequisitionMessage is a MessageField    
+			restricted
+			"Item:<Item>UOM:<TransactionUOM>HasNoStockOnHandQuantity,AddedToRequisition"
+
+        DerivedSOHQuantity is a DerivedField    
+            type is like Quantity
+            restricted  
+            if (IsSingleTrackedUOM and not ReplenishFromLocationRel.BinTracked)
+                return ReplenishFromLocationRel.AvailableQuantityInStockUOM	
+            else
+            if (TransactionUOMIsTracked)
+                return sum StockOnHandByTransactionUOMRel.AvailableQuantityInLocationStockUOM
+            else 
+                return sum StockOnHandByStockUOMRel.AvailableQuantityInLocationStockUOM
+
+
+
+    Conditions
+        IsValidForPickForPar
+            restricted
+            when (MobileSupplyChainParCount.ReplenishType.PickForPar
+            and   ReplenishFromLocationRel exists
+            and   ReplenishFromLocationRel.IsNotSerialTracked
+            and   ReplenishFromLocationRel.IsNotLotTracked
+            and   not ReplenishFromLocationRel.IsUDITracked)
+
+        HasStockOnHandQuantity
+            restricted
+            when (DerivedSOHQuantity > 0)
+
+        TransactionUOMIsTracked
+            restricted  
+            when (ItemTransactionUOMRel.TrackedIn)
+
+        IsSingleTrackedUOM
+            restricted
+            when (ItemLocationRel.DerivedMultipleUOM  = 1)
+
+        HasNotes    
+            restricted
+            when (Notes entered)
+
+    Actions
+        Create is a Create Action
+            restricted
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+
+        ProcessParCount is a Set Action
+            restricted
+                
+            Parameters
+                PrmFinanceEnterpriseGroup       is a FinanceEnterpriseGroup
+                    default label is "FinanceEnterpriseGroup"
+                PrmMobileSupplyChainUpload      is an MobileSupplyChainUpload
+                    context of PrmFinanceEnterpriseGroup
+                    default label is "MobileSupplyChainUpload"
+                PrmCompany                      is an InventoryCompany
+                    default label is "Company"
+                PrmInventoryLocation            is an InventoryLocation
+                    default label is "InventoryLocation"
+                PrmMobileSupplyChainParCount    is an MobileSupplyChainParCount
+                    default label is "MobileSupplyChainParCount"
+
+            Sort Order is ByReplenishFrom
+                
+            Instance Selection
+                where ((MobileSupplyChainParCount.MobileSupplyChainUpload   = PrmMobileSupplyChainUpload) 
+                or     (Company                                             = PrmCompany
+                and    InventoryLocation                                    = PrmInventoryLocation
+                and    MobileSupplyChainParCount                            = PrmMobileSupplyChainParCount
+                and    Status.Error))
+
+            Local Fields
+                NewRequisition                  is a Requisition view
+                NewPickForParTicket             is a PickForParTicket view
+                LocalErrorOccured               is Boolean
+                LocalErrorMessage               is Text
+                LocalAdditionalError            is Boolean
+                LocalAdditionalMessage          is Text
+                LocalReplenishFrom              is like ReplenishFrom
+                LocalPickForParTicket           is like PickForParTicket
+                LocalAtPar                      is Boolean
+                LocalAdditionalCount            is Boolean
+
+            Accumulators
+                ItemsWithAdditionalQuantity
+                ItemsAtPar
+                LinesCount
+
+            Action Rules
+                MobileSupplyChainParCount Set Rules
+                    Entrance Rules
+                        initialize ItemsWithAdditionalQuantity
+                        initialize ItemsAtPar
+                        initialize LinesCount
+                        initialize LocalErrorOccured
+                        initialize LocalReplenishFrom
+
+                        invoke Update MobileSupplyChainParCount
+                            invoked.Status = MobileSupplyChainParCount.Status.Processing
+
+                    Exit Rules
+                        if (not LocalErrorOccured)
+                            invoke Release MobileSupplyChainParCount.Requisition                     
+                            
+                            invoke Release MobileSupplyChainParCount.AdditionalRequisition
+                                    
+                        invoke Update MobileSupplyChainParCount
+                            invoked.ItemsProcessed                  = LinesCount
+                            invoked.ItemsWithAdditionalQuantity     = ItemsWithAdditionalQuantity
+                            if (LinesCount = ItemsAtPar)
+                                invoked.Status                      = MobileSupplyChainParCount.Status.Cancelled
+                            else
+                            if (LocalErrorOccured)
+                                invoked.Status                      = MobileSupplyChainParCount.Status.ProcessedWithErrors
+                            else
+                                invoked.Status                      = MobileSupplyChainParCount.Status.Completed
+
+                Instance Rules
+                    initialize LocalAtPar
+                    initialize LocalAdditionalCount
+                    initialize ErrorOccured
+                    initialize ErrorStatus
+                    initialize LocalAdditionalError
+                    LinesCount += 1
+
+                    Par         = DerivedParLevel
+                    Requested   = Par - Count
+                    if (Count >= Par)
+                        LocalAtPar      = true
+                        initialize Requested
+                    if (AdditionalQuantity entered or not LocalAtPar)
+                        if (IsValidForPickForPar 
+                        and HasStockOnHandQuantity)
+                            if (PrmMobileSupplyChainUpload entered) 
+                                if (LocalReplenishFrom != ReplenishFrom)
+                                    LocalReplenishFrom  = ReplenishFrom
+
+
+
+                                    for each PickForParTicketRel
+                                        invoke TransitionToCancelled each
+
+                                    invoke Create PickForParTicket
+                                        assign result to NewPickForParTicket
+                                        invoked.Company                                             = ReplenishFrom.ReplenishFromCompany
+                                        invoked.InventoryLocation                                   = ReplenishFrom.ReplenishFromLocation
+                                        invoked.RequestingCompany                                   = Company
+                                        invoked.MobileSupplyChainParCount                           = MobileSupplyChainParCount
+                                        invoked.RequestingLocation                                  = MobileSupplyChainParCount.InventoryLocation
+                                        invoked.Status                                              = PickForParTicket.Status.Open
+                            
+                                    LocalPickForParTicket = NewPickForParTicket.PickForParTicket       
+                            
+                                if (Count decimals > Item.NumberOfDecimalsQuantity)
+                                    ErrorOccured = true
+                                    ErrorStatus  = ErrorStatus.InvalidDecimal
+                                else
+                                if ((IsSingleTrackedUOM or not TransactionUOMIsTracked)
+                                and StockOnHandByStockUOMRel exists)  
+                                    for each StockOnHandByStockUOMRel
+                                        invoke Create PickForParTicketLine                                            
+                                            invoked.Company                                             = ReplenishFrom.ReplenishFromCompany
+                                            invoked.InventoryLocation                                   = ReplenishFrom.ReplenishFromLocation
+                                            invoked.PickForParTicket                                    = LocalPickForParTicket
+                                            invoked.Status                                              = PickForParTicket.Status.Open
+                                            invoked.Item                                                = Item
+                                            invoked.Bin                                                 = each.StockOnHandDetail.Bin
+                                            invoked.TransactionUOM                                      = TransactionUOM
+                                            invoked.Count                                               = Count
+                                            invoked.RequestedQuantity                                   = DerivedPFPRequestedQuantity
+
+                                else   
+                                if (StockOnHandByTransactionUOMRel exists)  
+                                    for each StockOnHandByTransactionUOMRel 
+                                        invoke Create PickForParTicketLine                                            
+                                            invoked.Company                                             = ReplenishFrom.ReplenishFromCompany
+                                            invoked.InventoryLocation                                   = ReplenishFrom.ReplenishFromLocation
+                                            invoked.PickForParTicket                                    = LocalPickForParTicket
+                                            invoked.Status                                              = PickForParTicket.Status.Open
+                                            invoked.Item                                                = Item
+                                            invoked.Bin                                                 = each.StockOnHandDetail.Bin
+                                            invoked.TransactionUOM                                      = TransactionUOM
+                                            invoked.Count                                               = Count
+                                            invoked.RequestedQuantity                                   = DerivedPFPRequestedQuantity
+                                                
+                                else
+                                    invoke Create PickForParTicketLine
+                                        invoked.Company                                                 = ReplenishFrom.ReplenishFromCompany
+                                        invoked.InventoryLocation                                       = ReplenishFrom.ReplenishFromLocation
+                                        invoked.PickForParTicket                                        = LocalPickForParTicket
+                                        invoked.Status                                                  = PickForParTicket.Status.Open
+                                        invoked.Item                                                    = Item
+                                        invoked.TransactionUOM                                          = TransactionUOM
+                                        invoked.Bin                                                     = ReplenishFrom.ReplenishFromBin
+                                        invoked.Count                                                   = Count
+                                        invoked.RequestedQuantity                                       = DerivedPFPRequestedQuantity
+                        else 
+                            if (not LocalAtPar)
+                                if (MobileSupplyChainParCount.Requisition not entered)
+                                    invoke CreateFromParLocation Requisition
+                                        resume on error
+                                            ErrorOccured    = true
+                                            ErrorMessage    = error message
+                                        assign result to NewRequisition
+                                        invoked.Company  			    = Company                           
+                                        invoked.RequestingLocation		= MobileSupplyChainParCount.InventoryLocation    
+                                        invoked.RequisitionSource		= RqSource.ParLocationCounts
+                                        invoked.Requester			    = actor.agent(Employee).Employee.Requester.Requester
+
+                                    if (not ErrorOccured)
+                                        LocalRequisition                = NewRequisition.Requisition                    
+                                        invoke Update MobileSupplyChainParCount
+                                            invoked.Requisition     	= LocalRequisition
+                                    
+                                else
+                                    LocalRequisition                    = MobileSupplyChainParCount.Requisition
+                                
+                                if (LocalRequisition entered)
+                                    invoke Create RequisitionLine 
+                                        resume on error
+                                            ErrorOccured    = true
+                                            ErrorMessage    = error message                              
+                                        invoked.Company                     = Company
+                                        invoked.Requisition                 = LocalRequisition
+                                        invoked.RequestingLocation          = MobileSupplyChainParCount.InventoryLocation
+                                        invoked.ItemEntryMethod             = ItemEntryMethod.Item
+                                        invoked.Item                        = Item
+                                        invoked.EnteredUOM                  = TransactionUOM
+                                        invoked.Quantity                    = ItemLocationRel.ReorderPoint - Count   
+
+
+                            if (AdditionalQuantity entered
+                            and not IsValidForPickForPar)
+                                if (MobileSupplyChainParCount.AdditionalRequisition not entered)
+                                    invoke CreateFromParLocation Requisition
+                                        resume on error
+                                            LocalAdditionalError    = true
+                                            LocalAdditionalMessage  = error message
+                                        assign result to NewRequisition
+                                        invoked.Company  				    = Company 							
+                                        invoked.RequestingLocation		    = MobileSupplyChainParCount.InventoryLocation	
+                                        invoked.RequisitionSource		    = RqSource.ParLocationCounts
+                                        invoked.Requester				    = actor.agent(Employee).Employee.Requester.Requester
+
+                                    if (not LocalAdditionalError)
+                                        LocalAdditionalRequisition  		= NewRequisition.Requisition                
+                                        invoke Update MobileSupplyChainParCount
+                                            invoked.AdditionalRequisition  	= LocalAdditionalRequisition
+
+                                else
+                                    LocalAdditionalRequisition  		    = MobileSupplyChainParCount.AdditionalRequisition
+
+                                if (LocalAdditionalRequisition entered)
+                                    invoke Create RequisitionLine
+                                        resume on error
+                                            LocalAdditionalError    = true
+                                            LocalAdditionalMessage  = error message
+                                        invoked.Company                     = Company
+                                        invoked.Requisition                 = LocalAdditionalRequisition
+                                        invoked.RequestingLocation          = MobileSupplyChainParCount.InventoryLocation
+                                        invoked.ItemEntryMethod             = ItemEntryMethod.Item
+                                        invoked.Item                        = Item
+                                        invoked.EnteredUOM                  = TransactionUOM
+                                        invoked.Quantity                    = AdditionalQuantity
+                                    
+                                    if (not LocalAdditionalError)
+                                        LocalAdditionalCount    = true
+                                        LocalAtPar              = false
+
+                    if (AdditionalQuantity entered 
+                    and not LocalAdditionalError)
+                        ItemsWithAdditionalQuantity += 1
+                        
+                    if (not HasStockOnHandQuantity and IsValidForPickForPar) 
+                        ErrorStatus = ErrorStatus.HasNoQuantityOnHand
+
+                    initialize Notes
+                    if (LocalAtPar and AdditionalQuantity not entered)
+                        ItemsAtPar        += 1
+                        Status            = Status.AtPar
+                    else 
+                        if (ErrorOccured)
+                            LocalErrorOccured = true
+                            LocalErrorMessage = ErrorMessage
+                            Notes             = ErrorMessage
+                            if (LocalAdditionalCount)
+                                Notes            +=  AdditionalQuantityMessage
+                                Status            = Status.CompletedWithErrors 
+                            else
+                                Status            = Status.Error
+                        else
+                            Status     = Status.Completed
+
+                    if(LocalAdditionalError)
+                        Notes    += LocalAdditionalMessage
+
+
+    Sets
+        ByReplenishFrom
+            Sort Order
+                Company
+                InventoryLocation
+                MobileSupplyChainParCount
+                ReplenishFrom
+                MobileSupplyChainParCountLine

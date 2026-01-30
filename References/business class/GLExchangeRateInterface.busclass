@@ -1,0 +1,233 @@
+GLExchangeRateInterface is a BusinessClass
+    owned by GeneralLedger
+    prefix is GLCUR
+    default label is "GlobalLedgerDailyRateInterface"
+
+	Ontology
+		symbolic key is GLExchangeRateInterface
+
+    Patterns
+        disable Auditing
+        disable EffectiveDated
+		disable AsOfDateProcessing
+
+    Persistent Fields
+		CurrencyTable
+		FromCurrency
+		ToCurrency
+		ExchangeDate		is Date
+    	Rate				is a CurrencyExchangeRate
+    	ErrorDescription	is Alpha 150
+		
+	Local Fields
+		LocalCurrencyRelationship is a CurrencyRelationship
+		LocalCurrencyTable		  is a CurrencyTable
+		LocalEffectiveDate		  is a EffectiveDate
+		LocalRate				  is a CurrencyExchangeRate
+		
+	Conditions
+ 		ErrorTransaction
+ 			restricted
+ 			when (ErrorDescription entered)
+
+	Derived Fields
+		CurrencyRelationshipError	is a StringField
+			type is Alpha 60
+			restricted
+			"Currency relationship between "
+			LocalCurrencyRelationship.FromCurrency
+			" and "
+			LocalCurrencyRelationship.ToCurrency
+			" does not exist"
+			
+		CurrencyTableRequired		is a StringField
+			type is Alpha 60
+			restricted
+			"Currency table is required "
+			
+		CurrencyTableError			is a StringField
+			type is Alpha 60
+			restricted
+			"Currency table does not exist: "
+			LocalCurrencyTable
+			
+		RecordExistsError			is a StringField
+			type is Alpha 60
+			restricted
+			"Record already exists"
+			
+		EffectiveDateError			is a StringField
+			type is Alpha 60
+			restricted
+			"Exchange date is required"
+			
+		NegativeRateError			is a StringField
+			type is Alpha 60
+			restricted
+			"Rate cannot be negative"
+			
+		RateRequiredError			is a StringField
+			type is Alpha 60
+			restricted
+			"Currency Daily Rate is required"
+			
+	Transient Fields
+		IsErrorTransaction				is Boolean
+			derive value from ErrorTransaction
+			
+			
+			
+	Field Rules
+		GLExchangeRateInterface
+			required
+				"SequenceNumberIsRequired"
+				
+		Rate
+			required
+				"CurrencyDailyRateIsRequired"
+			
+		FromCurrency
+			constraint (CurrencyRelationshipRel exists)
+				"CurrencyRelationshipBetween<FromCurrency>And<ToCurrency>DoesNotExist"
+			required
+			
+		ToCurrency
+			required
+				
+	Relations
+		FromCurrencyRel
+			one-to-one relation to Currency
+			Field Mapping uses symbolic key
+				related.Currency = FromCurrency
+				
+		ToCurrencyRel
+			one-to-one relation to Currency
+			Field Mapping uses symbolic key
+				related.Currency = ToCurrency
+					
+		CurrencyTableRel
+			one-to-one relation to CurrencyTable
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.CurrencyTable 		   = CurrencyTable
+				
+		CurrencyRelationshipRel
+			one-to-one relation to CurrencyRelationship
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			  = FinanceEnterpriseGroup
+				related.CurrencyRelationship.FromCurrency = FromCurrency
+				related.CurrencyRelationship.ToCurrency   = ToCurrency
+				
+		GLExchRateInterfaceRel
+			one-to-one relation to GLExchangeRateInterface
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+				related.GLExchangeRateInterface	= GLExchangeRateInterface
+			
+		CurrExchangeRateRel
+			one-to-one relation to CurrExchangeRate
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		 					   = FinanceEnterpriseGroup
+				related.CurrencyTable 									   = CurrencyTable
+				related.CurrExchangeRate.CurrencyRelationship.FromCurrency = FromCurrency
+				related.CurrExchangeRate.CurrencyRelationship.ToCurrency   = ToCurrency
+				related.ExchangeDate	 								   = ExchangeDate
+						
+	Sets
+
+    Actions
+		Create is a Create Action
+									
+		Update is an Update Action
+		
+		Delete is a Delete Action
+		
+		ImportToCurrencyDailyRate is a Set Action
+			completion message is "CurrencyDailyRateInterfaceCompleted"
+			Parameters
+				PrmEnterpriseGroup			is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmReplaceExistingRecords	is Boolean
+					default label is "ReplaceExistingRecords"
+				PrmIncludeRecsInError		is Boolean
+					default label is "IncludeRecordsInError"
+						
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmEnterpriseGroup)	
+						
+			Local Fields
+				FailedRecordCount	is Numeric 12
+				PassedRecordCount	is Numeric 12
+
+			Action Rules
+				Empty Set Rules
+
+
+
+				Set Rules
+					Exit Rules
+						if (PassedRecordCount entered
+						or  FailedRecordCount entered)
+							invoke Create GLExchangeRateInterfaceResult
+								invoked.FinanceEnterpriseGroup	= PrmEnterpriseGroup
+								invoked.RunTime					= current timestamp
+								invoked.PassedCount				= PassedRecordCount
+								invoked.FailedCount				= FailedRecordCount
+						
+				Instance Rules
+					LocalCurrencyRelationship.FromCurrency = FromCurrency
+					LocalCurrencyRelationship.ToCurrency = ToCurrency
+					LocalCurrencyTable = CurrencyTable
+					LocalEffectiveDate = ExchangeDate
+					LocalRate		   = Rate
+					if (PrmIncludeRecsInError)
+						ErrorDescription = ""
+
+
+
+															
+					if (!ErrorDescription entered)
+						if (!LocalCurrencyTable exists)
+							ErrorDescription	= CurrencyTableRequired
+							if (LocalCurrencyTable entered)
+								ErrorDescription	= CurrencyTableError
+						
+					if (!ErrorDescription entered)
+						if (!LocalCurrencyRelationship exists)
+							ErrorDescription	= CurrencyRelationshipError
+						
+					if (!ErrorDescription entered)
+						if (!LocalEffectiveDate entered)
+							ErrorDescription	= EffectiveDateError
+						
+					if (!ErrorDescription entered)
+						if (!LocalRate entered)
+							ErrorDescription	= RateRequiredError
+						else
+							if (LocalRate < 0)
+								ErrorDescription	= NegativeRateError
+								
+					if (!ErrorDescription entered)
+						if (!CurrExchangeRateRel exists)
+							invoke Create CurrExchangeRate
+								resume on error
+								invoked.FinanceEnterpriseGroup			      = FinanceEnterpriseGroup
+								invoked.CurrencyTable						  = LocalCurrencyTable
+								invoked.CurrExchangeRate.CurrencyRelationship = LocalCurrencyRelationship
+								invoked.Rate								  = Rate
+								invoked.ExchangeDate					 	  = ExchangeDate
+						else
+							if (PrmReplaceExistingRecords)
+								invoke Update CurrExchangeRateRel
+									invoked.Rate				= Rate
+								
+							else
+								ErrorDescription	= RecordExistsError
+							
+					if (!ErrorDescription entered)
+						invoke Delete
+						PassedRecordCount += 1
+					else
+						FailedRecordCount += 1
+
+						

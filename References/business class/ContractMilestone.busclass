@@ -1,0 +1,584 @@
+ContractMilestone is a BusinessClass
+	owned by po
+	prefix is CMST
+
+	Ontology
+		symbolic key is ContractMilestone
+
+	Persistent Fields
+		Name						is a Description
+		Description					is a Description4
+		MilestoneDate				is Date
+		Quantity					is an UnsignedItemQuantity
+		Rate						is an UnsignedUnitCost
+		Amount						is an UnsignedInternationalAmount
+		PercentComplete				is a UnsignedPercent
+		CompletionStatus			is Numeric size 1
+			States
+				NotYetStarted	value is 1
+				InProgress		value is 2
+				Complete		value is 3
+		NumberOfDaysToFirstAlert	is Numeric size 4
+		NumberOfDaysToSecondAlert	is Numeric size 4
+		FirstAlertSent				is Boolean
+		SecondAlertSent				is Boolean
+
+	Transient Fields
+		Contact is an Employee
+
+	Local Fields
+		LocalSubjectLine	is Alpha size up to 400
+		LocalEmailContents	is Alpha size up to 2000
+
+	Derived Fields
+		RepresentativeText is a StringField
+			type is Text
+			default label is "ContractMilestone"
+			ContractMilestone " - " Name
+
+		QtyTimesRate is a DerivedField
+			type is like InternationalCost
+			restricted
+			return (Quantity * Rate)
+
+		DaysToMilestoneDate is a ComputeField
+			type is Numeric size 4
+			(MilestoneDate - current corporate date)
+
+		PersonResponsible is a StringField
+			type is Alpha size 100
+			first ResponsibleMilestoneContactsRel.DerivedName
+
+		FirstAlertTimeStamp is a StringField
+			type is TimeStamp
+			first FirstAlertsRel.SentTimeStamp
+
+		SentMessage is a MessageField
+			"ItHasBeenSentOn"
+
+		SecondAlertTimeStamp is a StringField
+			type is TimeStamp
+			first SecondAlertsRel.SentTimeStamp
+
+		DaysToGoOrPast is a ConditionalField
+			type is Numeric size 4
+			restricted
+			if (DaysToMilestoneDate < 0)
+				DaysToMilestoneDate * -1
+			else
+				DaysToMilestoneDate
+
+		PastDueMessage is a MessageField
+			"PastDueMessageSentOn:<PastDueMessageTimeStamp>"
+
+		PastDueMessageTimeStamp is a StringField
+			type is TimeStamp
+			restricted
+			first PastDueRel.SentTimeStamp
+
+		OneDayMessage is a MessageField
+			"OneDayPriorToDueDateMessageSentOn<OneDayMessageTimeStamp>"
+
+		OneDayMessageTimeStamp is a StringField
+			type is TimeStamp
+			restricted
+			first OneDayPriorRel.SentTimeStamp
+
+		DerivedContractMilestone is a DerivedField
+			type is like ContractMilestone
+			return ContractMilestone
+			
+		DerivedFinalMilestoneAdhocEmailSubject is a DerivedField
+			type is Alpha size 255
+			return ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailSubject
+			
+		DerivedFinalMilestoneAdhocEmailContent is a DerivedField
+			type is RichText
+			return ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailContent
+			
+		DerivedMilestoneContactEmail is a DerivedField
+			type is EmailAddressField with multiple addresses 
+			holds pii
+			return first ResponsibleMilestoneContactsRel.DerivedEmail
+
+	Field Rules
+		Name
+			required
+				"NameIsRequired"
+
+		Amount
+			if (QtyRateEntered)
+				if (Amount != QtyTimesRate or Amount not entered)
+					confirmation required
+						"TheAmountMustEqualQuantityTimesRate.DoYouWantToContinueAndHaveTheAmountCalculatedForYou?"
+					Amount = QtyTimesRate
+
+		PercentComplete
+			constraint (PercentComplete <= 1.0)
+				"PercentCompleteCannotBeGreaterThan100%"
+
+			if (PercentComplete != 1.0)
+				constraint (old CompletionStatus !=3)
+					"YouMustUseThe'Reopen'ActionToSetPercentCompleteToLessThan100%"
+
+			constraint (PercentComplete not changed
+		   	or         (PercentComplete changed
+		   	and         PercentComplete != 1.000))
+		   		"YouMustUseThe'Complete'ActionToSetPercentCompleteTo100%"
+
+			if (PercentComplete = 0)
+				CompletionStatus           = 1
+		   	else
+		   	if (PercentComplete < 1.0
+		   	and PercentComplete > 0)
+		   		CompletionStatus			= 2
+		   	else
+		   	if  (PercentComplete = 1.0)
+		   		CompletionStatus           = 3
+
+		NumberOfDaysToFirstAlert
+			initial value is ContractGroup.MilestoneYellowAlert
+			if (NumberOfDaysToFirstAlert entered)
+				constraint (NumberOfDaysToFirstAlert > 0)
+					"CannotEnterNegativeDaysInYellowAlert"
+				constraint (NumberOfDaysToFirstAlert > NumberOfDaysToSecondAlert)
+					"YellowAlertNumberOfDaysMustBeGreaterThanRedAlertNumberOfDays"
+				constraint (NumberOfDaysToSecondAlert entered)
+					"MustEnterRedAlertNumberOfDays"
+
+			if (Contract.ContractTemplate)
+				initialize NumberOfDaysToFirstAlert
+
+		NumberOfDaysToSecondAlert
+			initial value is ContractGroup.MilestoneRedAlert
+			if (NumberOfDaysToSecondAlert entered)
+				constraint (NumberOfDaysToSecondAlert > 0)
+					"CannotEnterNegativeDaysInRedAlert"
+				constraint (NumberOfDaysToSecondAlert < NumberOfDaysToFirstAlert)
+					"YellowAlertNumberOfDaysMustBeGreaterThanRedAlertNumberOfDays"
+
+			if (Contract.ContractTemplate)
+				initialize NumberOfDaysToSecondAlert
+
+		Contact
+			if (ContractMilestone exists)
+				if (!AttachedMilestoneContactRel exists)
+					invoke CreateContactFromEmployee ContractMilestoneContact
+						invoked.ContractGroup 			= ContractGroup
+						invoked.Contract				= Contract
+						invoked.ContractMilestone       = ContractMilestone
+						invoked.Contact					= Contact
+						invoked.ResponsibleForMilestone	= true
+				else
+					invoke Update AttachedMilestoneContactRel
+						invoked.ResponsibleForMilestone	= true
+
+	Conditions
+		Exists
+			restricted
+			when (ContractMilestone exists)
+
+		QtyRateEntered
+			restricted
+			when (Quantity entered
+			and  Rate entered)
+
+		CommentsExist
+			restricted
+			when (CommentRel exists)
+
+		OneDayToMilestoneDate
+			restricted
+			when (MilestoneDate entered
+			and   MilestoneDate - current corporate date = 1 day
+			and  !CompletionStatus.Complete)
+
+		PastMilestoneDate
+			restricted
+			when (MilestoneDate entered
+			and   MilestoneDate < current corporate date
+			and  !CompletionStatus.Complete)
+
+		MessagePastDue
+			restricted
+			when (PastDueRel exists)
+
+		MessageOneDay
+			restricted
+			when (OneDayPriorRel exists)
+
+		SecondAlert
+			restricted
+			when (MilestoneDate entered
+			and  !CompletionStatus.Complete
+			and   NumberOfDaysToSecondAlert entered
+			and   MilestoneDate - current corporate date <= NumberOfDaysToSecondAlert)
+
+		FirstAlert
+			restricted
+			when (MilestoneDate entered
+			and  !CompletionStatus.Complete
+			and   NumberOfDaysToFirstAlert entered
+			and   MilestoneDate - current corporate date <= NumberOfDaysToFirstAlert
+			and   MilestoneDate - current corporate date > NumberOfDaysToSecondAlert)
+
+		FirstOrSecondAlert
+			restricted
+			when (FirstAlert
+			or    SecondAlert)
+
+		NotCompleted
+			restricted
+			when (!CompletionStatus.Complete)
+
+		InProgress
+			restricted
+			when (CompletionStatus.InProgress)
+
+		PersonResponsibleExists
+			restricted
+			when (ResponsibleMilestoneContactsRel exists)
+
+		NoPersonResponsibleExistsAndMilestoneExists
+			restricted
+			when (!PersonResponsibleExists
+			and   ContractMilestone exists)
+
+		ContactsExist
+			restricted
+			when (MilestoneContactsRel exists)
+
+		EmailAttachmentsExist
+			restricted
+			when (MilestoneCommentsWithAttachmentsToEmailRel exists)
+			
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+		 	and   ContractGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+			
+		MyContract
+			default label is "MyContracts"
+			when (PrimaryContactRel.Contact = actor.agent(Employee).Employee)
+
+	Relations
+
+		CommentRel is a ContractMilestoneComment set
+
+		MilestoneContactsRel
+			one-to-many relation to ContractMilestoneContact
+			delete cascades
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractMilestone	= ContractMilestone
+
+		AllContactsRel
+			one-to-many relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization 			= ContractGroup.BusinessGroup.FinanceEnterpriseGroup.HROrganization
+
+		AllContractAttachedContactsRel
+			one-to-many relation to ContractAttachedContact
+			Field Mapping uses symbolic key
+				related.ContractGroup				= ContractGroup
+				related.Contract			 		= Contract
+
+		ResponsibleMilestoneContactsRel is a ContractMilestoneContact set
+			Instance Selection
+				where (related.ResponsibleForMilestone)
+
+		AttachedMilestoneContactRel
+			one-to-many relation to ContractMilestoneContact
+			Field Mapping uses ByContact
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractMilestone	= ContractMilestone
+				related.Contact				= Contact
+
+		MilestoneNotificationEmailsRel is a ContractNotificationEmail set
+			Instance Selection
+				where (related.MilestoneNotification)
+
+		FirstAlertsRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractDeliverable	= blank
+				related.ContractMilestone	= ContractMilestone
+			Instance Selection
+				where (related.NotificationType.FirstAlert)
+
+		SecondAlertsRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= blank
+				related.ContractMilestone 			= ContractMilestone
+			Instance Selection
+				where (related.NotificationType.SecondAlert)
+
+		PastDueRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= blank
+				related.ContractMilestone 			= ContractMilestone
+			Instance Selection
+				where (related.NotificationType.PastDueAlert)
+
+		OneDayPriorRel
+			one-to-many relation to ContractNotificationEmail
+			Field Mapping uses ByTimeDescending
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= blank
+				related.ContractMilestone 			= ContractMilestone
+			Instance Selection
+				where (related.NotificationType.OneDayPriorAlert)
+
+		MilestoneCommentsWithAttachmentsToEmailRel
+			one-to-many relation to ContractMilestoneComment
+			Field Mapping uses part of key
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractMilestone			= ContractMilestone
+			Instance Selection
+				where (related.HasAttachmentToEmail)
+
+		ContractGroupEmailTemplateRel
+			one-to-one relation to ContractGroupEmailTemplate
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				
+		PrimaryContactRel
+			one-to-one relation to ContractAttachedContact
+			Field Mapping uses ByPrimary
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+
+	Sets
+		ByMilestoneDate
+			Sort Order
+				ContractGroup
+				MilestoneDate
+				Contract
+				ContractMilestone
+
+	Actions
+		Create is a Create Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				MilestoneDate
+					if (MilestoneDate < current corporate date)
+						confirmation required
+							"Warning:TheMilestoneDateIsPriorToToday'sDate.DoYouWantToContinue?"
+					else
+					if (Contract.ExpirationDate entered
+					and MilestoneDate > Contract.ExpirationDate)
+						confirmation required
+							"Warning:TheMilestoneDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+					else
+					if (MilestoneDate < Contract.EffectiveDate)
+						confirmation required
+							"Warning:TheMilestoneDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+		WizardCreate is a Create Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				MilestoneDate
+					if (MilestoneDate < current corporate date)
+						confirmation required
+							"Warning:TheMilestoneDateIsPriorToToday'sDate.DoYouWantToContinue?"
+					else
+					if (Contract.ExpirationDate entered
+					and MilestoneDate > Contract.ExpirationDate)
+						confirmation required
+							"Warning:TheMilestoneDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+					else
+					if (MilestoneDate < Contract.EffectiveDate)
+						confirmation required
+							"Warning:TheMilestoneDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+		Update is an Update Action
+			valid when (!Contract.ContractStatus.Closed)
+			Field Rules
+				MilestoneDate
+					if (MilestoneDate changed)
+						if (MilestoneDate < current corporate date)
+							confirmation required
+								"Warning:TheMilestoneDateIsPriorToToday'sDate.DoYouWantToContinue?"
+						else
+						if (Contract.ExpirationDate entered
+						and MilestoneDate > Contract.ExpirationDate)
+							confirmation required
+								"Warning:TheMilestoneDateIsAfterTheContractExpirationDate.DoYouWantToContinue?"
+						else
+						if (MilestoneDate < Contract.EffectiveDate)
+							confirmation required
+								"Warning:TheMilestoneDatePreceedsTheContractEffectiveDate.DoYouWantToContinue?"
+
+		Delete is a Delete Action
+			valid when (!Contract.ContractStatus.Closed)
+
+
+		SendEmailForMilestone is an Instance Action
+			default label is "SendEmail_forMilestone"
+			valid when (ContactsExist)
+			Parameters
+				PrmSendToEmailAddress					is an EmailAddressMulti 
+					holds pii
+				PrmCcEmail                              is an EmailAddressMulti 
+					holds pii
+				PrmEmailSubjectLine						is Alpha size up to 400
+				PrmEmailContents						is Alpha size up to 3000
+				PrmIncludeAttachments					is Boolean
+
+			Parameter Rules
+				PrmSendToEmailAddress
+					initial value is first ResponsibleMilestoneContactsRel.DerivedEmail
+					required
+						"EmailAddressIsRequired"
+
+				PrmEmailSubjectLine
+					initial value is ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailSubject
+
+					required
+						"EmailSubjectIsRequired"
+
+				PrmEmailContents
+					initial value is ContractGroupEmailTemplateRel.FinalMilestoneAdhocEmailContent
+
+					required
+						"EmailContentsAreRequired"
+
+				PrmIncludeAttachments
+					constraint (EmailAttachmentsExist)
+						"CannotSelectToIncludeAttachmentsWhenNoAttachmentsExistToEmail"
+
+			Action Rules
+				invoke CreateImmediateEmail ContractNotificationEmail
+					invoked.ContractGroup					= ContractGroup
+					invoked.Contract						= Contract
+					invoked.ContractMilestone				= ContractMilestone
+					initialize invoked.ContractDeliverable
+					initialize invoked.SentToMilestoneContact
+					initialize invoked.SentToDeliverableContact
+					invoked.SentToEmailAddress				= PrmSendToEmailAddress
+					invoked.SentToCc                        = PrmCcEmail
+					invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+					invoked.SentFromEmailAddress			= actor.ContactInfo.EmailAddress
+					invoked.EmailSubjectLine				= PrmEmailSubjectLine
+					invoked.EmailContent					= PrmEmailContents
+					invoked.NotificationType				= 4
+					invoked.IncludeAttachments				= PrmIncludeAttachments
+
+		SendEmailNotificationsOfUpcomingMilestoneDate is a Set Action
+			valid when (Contract.NotContractTemplate)
+			default label is "SendEmailNotifications_onAllMilestones"
+			completion message is "MilestoneEmailNotificationsSentForToday"
+
+			Parameters
+				PrmContractGroup		is a ContractGroup
+
+			Parameter Rules
+
+				PrmContractGroup
+					initial value is actor.context.BusinessGroup
+
+			Local Fields
+				LocalSendEmail			is Boolean
+			Instance Selection
+				where (PrmContractGroup			= ContractGroup
+				and    Contract.NotContractTemplate
+				and   !Contract.ContractStatus.Closed
+				and   (FirstAlert
+				or     SecondAlert
+				or     PastMilestoneDate
+				or     OneDayToMilestoneDate))
+
+			Sort Order
+				ContractGroup
+				Contract
+
+			Action Rules
+				Instance Rules
+					LocalSendEmail			= false
+					initialize LocalEmailContents
+					initialize LocalSubjectLine
+
+					if (MilestoneContactsRel exists)
+						LocalSendEmail         = true
+						if (FirstAlert
+						and !FirstAlertSent)
+							FirstAlertSent		= true
+						else
+						if (SecondAlert
+						and !SecondAlertSent)
+							SecondAlertSent		= true
+
+						if (LocalSendEmail)
+							for each MilestoneContactsRel
+								initialize LocalEmailContents
+								initialize LocalSubjectLine
+								LocalEmailContents		= each.ContractGroupEmailTemplateRel.FinalMilestoneAlertEmailContent
+								LocalSubjectLine		= each.ContractGroupEmailTemplateRel.FinalMilestoneAlertEmailSubject
+								invoke CreateEmail ContractNotificationEmail
+									invoked.ContractGroup					= ContractGroup
+									invoked.Contract						= each.Contract
+									invoked.ContractMilestone				= each.ContractMilestone
+									initialize invoked.ContractDeliverable
+									invoked.SentToMilestoneContact			= each.ContractMilestoneContact
+									initialize invoked.SentToDeliverableContact
+									invoked.SentToEmailAddress				= each.DerivedEmail
+									invoked.SentFromPrimaryContractContact	= each.Contract.PrimaryContact
+									invoked.SentFromEmailAddress			= each.Contract.PrimaryContactEmail
+									invoked.EmailSubjectLine				= LocalSubjectLine
+									invoked.EmailContent					= LocalEmailContents
+									invoked.IncludeAttachments              = true
+									if (FirstAlert)
+										invoked.NotificationType			= 0
+									else
+									if (SecondAlert)
+										invoked.NotificationType			= 1
+									else
+									if (OneDayToMilestoneDate)
+										invoked.NotificationType			= 2
+									else
+									if (PastMilestoneDate)
+										invoked.NotificationType			= 3
+										invoked.PastDueCount				+= 1
+
+		Complete is an Instance Action
+			valid when (!CompletionStatus.Complete)
+
+			Action Rules
+				PercentComplete		= 1.000
+				CompletionStatus	= 3
+
+		Reopen is an Instance Action
+			valid when (CompletionStatus.Complete)
+
+			Parameters
+				PrmNewPercentComplete		is Percent size 6.3
+
+			Parameter Rules
+				PrmNewPercentComplete
+					constraint (PrmNewPercentComplete	< 1.000)
+						"NewPercentCompleteMustBeLessThan100%"
+
+			Action Rules
+				PercentComplete			= PrmNewPercentComplete
+
+				if (PercentComplete		not entered)
+					CompletionStatus	= 1
+				else
+					CompletionStatus	= 2
+
+		Purge is a Purge Action
+			restricted
+

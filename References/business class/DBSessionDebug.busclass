@@ -1,0 +1,545 @@
+DBSessionDebug is a BusinessClass
+    owned by la
+    prefix is DBSD
+    stored in environment
+	contains environment data // TODO - This likely can be removed since "disable data area copy" has been added, once that pattern is fully implemented.
+	disable data area copy
+    
+    Ontology
+    	symbolic key is DBSessionDebug
+    
+    Patterns
+    	implements CRUD
+		disable Auditing
+		disable EffectiveDated
+	
+	Persistent Fields
+		SessionId			is an UserSessionId
+		SessionDescription	is an UserSessionId
+		Actor
+		Start				is TimeStamp
+		End					is TimeStamp
+		UnitCount			is Numeric 5
+		TimestatsCSV		is Text
+		BackgroundActions   is Numeric 5
+		
+	Derived Fields
+		SessionDebugZip					is a NativeField
+			type is BinaryDocument
+
+		SessionDebugZipDefault			is a NativeField
+			type is BinaryDocument
+			default label is untranslatable		
+			
+		SessionDebugDBExport			is a NativeField
+			type is BinaryDocument
+			default label is "ExportOfDatabaseSessionDebug"
+			
+		SessionDebugCodeCoverageExport	is a NativeField
+			type is BinaryDocument
+
+		Title							is a DerivedField
+			type is DocumentTitle size 50
+			return "DBSessionDebugZip"
+		
+		MimeType					is a DerivedField
+			type is MimeType
+			default label is "MIME_Type"
+			return "application/zip"
+			
+		IncompleteBackgroundActions	is a ConditionalField
+			type is Numeric 5
+			if (BackgroundActions = 0)
+				0
+			else
+				instance count of IncompleteBackgroundActionsRel
+				
+		DurationSecs				is a ComputeField
+			type is Numeric 15
+			(End - Start)
+			
+		MaxUnitLogInlineDeleteConfig is a DerivedField
+            type is Numeric size 4
+            return config(framework).MaxDBSessionDebugUnitInlineDelete
+
+		MaxUnitLogInlineDelete is a DerivedField
+            type is Numeric size 4
+            if (MaxUnitLogInlineDeleteConfig > 0)
+            	return MaxUnitLogInlineDeleteConfig
+           	else
+            	return 50
+
+	Transient Fields
+		IncludeSummaryTrn		is Boolean
+			default label is untranslatable 	
+		ExcludeTimeTrn			is Boolean
+			default label is untranslatable
+		TimeByViewTrn			is Boolean
+			default label is untranslatable
+		DisableSuppressZeroTrn	is Boolean
+			default label is untranslatable
+		PrintTextFormatTrn	is Boolean
+			default label is untranslatable
+		
+	Sets
+		ByStartDescending
+			Sort Order
+				Start			descending
+				Actor
+				DBSessionDebug
+		
+		ByActor
+			Sort Order
+				Actor
+				Start			descending
+				DBSessionDebug
+		
+		BySessionId
+			indexed
+			Sort Order
+				SessionId
+				
+		BySessionDescription
+			indexed
+			Sort Order
+				SessionDescription
+
+	Conditions
+		HasIncompleteBackgroundActions
+			default label is "IncompleteBackgroundActions"
+			when (IncompleteBackgroundActions > 0)
+
+		HasBackgroundActions
+			default label is "BackgroundActionsExist"
+			when (BackgroundActions > 0)
+
+		HasUnitsOfWorkPendingTempFileLoad
+			default label is "UnitsOfWorkPendingTempFileLoad"
+			when (UnitsOfWorkPendingTempFileLoadRel exists)
+
+		CreatedRecently
+			when (current timestamp - Start <= 86400)  
+
+	Relations
+		UnitsOfWorkRel
+			one-to-many relation to DBSessionDebugUnit
+			Field Mapping uses symbolic key
+				related.DBSessionDebug = DBSessionDebug
+
+		UnitsOfWorkPendingTempFileLoadRel
+			one-to-many relation to DBSessionDebugUnit
+			Field Mapping uses symbolic key
+				related.DBSessionDebug = DBSessionDebug
+			Instance Selection
+				where (related.LogFileName != blank)
+
+		UnitsOfWorkByTotalTimeMsRel
+			one-to-many relation to DBSessionDebugUnit
+			Field Mapping uses ByTotalTimeMsDescending
+				related.DBSessionDebug = DBSessionDebug
+
+		IncompleteBackgroundActionsRel
+            one-to-many relation to AsyncActionRequest
+            Field Mapping uses BySessionId
+                related.SessionId = SessionId
+            Instance Selection
+            	where (related.DBSessionDebugIsEnabled and (related.PendingScheduling or related.NonFinishedTriggersExist))
+				
+		BackgroundActionsRel
+            one-to-many relation to AsyncActionRequest
+            Field Mapping uses BySessionId
+                related.SessionId = SessionId
+            Instance Selection
+            	where (related.DBSessionDebugIsEnabled)
+									
+	Actions
+		Create is a Create Action
+			
+		Delete is a Delete Action
+			bypass relational integrity rules
+			Action Rules
+				if (UnitCount < MaxUnitLogInlineDelete)
+					invoke Purge UnitsOfWorkRel
+				else
+					invoke DeleteAllLogsForSession DBSessionDebugUnit in background
+						invoked.PrmDBSessionDebug = DBSessionDebug
+
+		Update is an Update Action
+
+		CodeCoverage is an Instance Action
+			Parameters
+				FileType				is Numeric size 1
+					States
+						CCExport		value is 1
+							default label is "CodeCoverageExport"
+				
+				SendVia					is Numeric size 1
+					States
+						SaveToLocalDrive	value is 1
+				
+				FileName				is Alpha 100
+				IncludeSummary			is Boolean
+				ExcludeTime				is Boolean
+				TimeByView				is Boolean
+				DisableSuppressZero		is Boolean	
+				PrintTextFormat			is Boolean	
+				Contents        		is Text
+				
+			Parameter Rules
+				FileType
+					required
+				SendVia
+					required		
+				IncludeSummary
+					initial value is true
+				ExcludeTime
+					initial value is false
+				TimeByView
+					initial value is true
+				DisableSuppressZero
+					initial value is false	
+				PrintTextFormat
+					initial value is false
+						
+		Share is an Instance Action		
+			Parameters
+				SendVia					is Numeric size 1
+					States
+						FTP					value is 1
+						Email				value is 2
+						SaveToLocalDrive	value is 3
+			
+				FileName				is Alpha 100
+				ServerName				is Alpha 100
+				ServerPort				is Alpha 10	
+				Username				is Alpha 256	
+				Password				is Password	
+				SendViaSFTP				is Boolean	
+				To1		        is an EmailAddress
+										default label is "To" 
+				To2		        is an EmailAddress
+										default label is "_" 
+				To3		        is an EmailAddress
+										default label is "_" 
+				To4		        is an EmailAddress
+										default label is "_" 
+				Cc1		        is an EmailAddress
+										default label is "Cc" 
+				Cc2		        is an EmailAddress
+										default label is "_" 
+				Cc3		        is an EmailAddress
+										default label is "_" 
+				Cc4		        is an EmailAddress
+										default label is "_" 
+				Subject         is Alpha size 500
+				IncidentNumber  is Numeric size 10
+				Contents        is Text
+
+			Parameter Rules
+				SendVia
+					required		
+					
+				Subject
+					initial value is "DB Session Debug for session \"" + SessionDescription + "\""
+
+
+
+
+
+					
+				Contents
+					initial value is "See attached Database Tier Session Debug for session \"" + SessionDescription + "\"."
+
+
+
+
+
+																					
+			Action Rules
+				if (SendVia.FTP)
+					invoke FTPDatabaseSessionDebug
+						invoked.ServerName			=	ServerName
+						invoked.ServerPort			=	ServerPort
+						invoked.Username			=	Username	
+						invoked.Password			=	Password	
+						invoked.SendViaSFTP			=	SendViaSFTP
+						invoked.IncludeSummary      =   true
+						invoked.ExcludeTime         =   false
+						invoked.TimeByView          =   true
+						invoked.DisableSuppressZero =   false
+						invoked.PrintTextFormat     =   false
+												
+				if (SendVia.Email)
+					invoke EmailDatabaseTierSessionDebugZip
+						invoked.To1					=	To1
+						invoked.To2					=	To2
+						invoked.To3					=	To3
+						invoked.To4					=	To4
+						invoked.Cc1					=	Cc1
+						invoked.Cc2					=	Cc2
+						invoked.Cc3					=	Cc3
+						invoked.Cc4					=	Cc4
+						invoked.Subject				=	Subject
+						invoked.IncidentNumber		=	IncidentNumber
+						invoked.Contents			=	Contents
+						invoked.IncludeSummary      =   true
+						invoked.ExcludeTime         =   false
+						invoked.TimeByView          =   true
+						invoked.DisableSuppressZero =   false
+						invoked.PrintTextFormat     =   false
+														
+
+		FTPDatabaseSessionDebug is an Instance Action	
+			restricted	
+			Parameters
+				IncludeSummary			is Boolean
+				ExcludeTime				is Boolean
+				TimeByView				is Boolean
+				DisableSuppressZero		is Boolean
+				PrintTextFormat			is Boolean
+				ServerName				is Alpha 100
+				ServerPort				is Alpha 10	
+				Username				is Alpha 20	
+				Password				is Alpha 20	
+				SendViaSFTP				is Boolean	
+				ZipFileName				is Alpha 100	
+				FileType				is Numeric size 1
+								
+	
+		EmailDatabaseTierSessionDebugZip is an Instance Action
+			restricted
+		
+			Parameters
+				To1		        is an EmailAddress
+										default label is "To" 
+				To2		        is an EmailAddress
+										default label is "_" 
+				To3		        is an EmailAddress
+										default label is "_" 
+				To4		        is an EmailAddress
+										default label is "_" 
+				Cc1		        is an EmailAddress
+										default label is "Cc" 
+				Cc2		        is an EmailAddress
+										default label is "_" 
+				Cc3		        is an EmailAddress
+										default label is "_" 
+				Cc4		        is an EmailAddress
+										default label is "_" 
+				Subject         is Alpha size 500
+				IncidentNumber  is Numeric size 10
+				Contents        is Text
+				
+				IncludeSummary			is Boolean
+				ExcludeTime				is Boolean
+				TimeByView				is Boolean
+				DisableSuppressZero		is Boolean
+				PrintTextFormat			is Boolean
+				
+			Parameter Rules
+				To1
+					required
+				Subject
+					required
+					initial value is "DB Session Debug for session \"" + SessionDescription + "\""
+				Contents
+					initial value is "See attached Time Statistics Report and Database Tier Session Debug Logs for session \"" + SessionDescription + "\"."
+				IncludeSummary
+					initial value is true
+				ExcludeTime
+					initial value is false
+				TimeByView
+					initial value is true
+				DisableSuppressZero
+					initial value is false	
+				PrintTextFormat
+					initial value is false
+
+            
+            Local Fields
+				ZipFileName						is Alpha 20
+            	DebugTimestatsAttachmentName	is Alpha 25
+            	ContentsAppend1					is Alpha 200
+            	ContentsAppend2					is Alpha 100
+            	ContentsAppend3					is Alpha 100
+            
+            Action Rules
+            	IncludeSummaryTrn = IncludeSummary
+				ExcludeTimeTrn = ExcludeTime
+				TimeByViewTrn = TimeByView
+				DisableSuppressZeroTrn = DisableSuppressZero
+            	PrintTextFormatTrn = PrintTextFormat
+            	
+            	DebugTimestatsAttachmentName = "DBSessionDebugLogs.zip"
+            	
+            	ContentsAppend1 = "Attached Database Tier Session Debug Time Statistics Report and Database Tier Session Debug Logs."
+
+				if (HasIncompleteBackgroundActions)
+					confirmation required
+						"<IncompleteBackgroundActions>BackgroundAction(s)Incomplete.__Continue?"
+            		ContentsAppend2 = "Note: " + IncompleteBackgroundActions + " background action(s) incomplete at time of send."
+   				if (HasUnitsOfWorkPendingTempFileLoad)
+   					confirmation required
+   						"Load_of_temporary_debug_file(s)_incomplete.__Continue?"
+               		ContentsAppend3 = "Note: Load of temporary debug file(s) incomplete at time of send."
+					
+            	if (IncidentNumber != 0)
+            		Subject = "[Incident " + IncidentNumber + "]: " + Subject
+            		
+                send email
+                	to		To1
+                	to		To2
+                	to		To3
+                	to		To4
+                	cc		Cc1
+                	cc		Cc2
+                	cc		Cc3
+                	cc		Cc4
+                	from	actor.ContactInfo.EmailAddress
+                	subject	"<Subject>"
+                	Attachments
+                		attachment SessionDebugZip
+                			name is DebugTimestatsAttachmentName
+                			mime type is "application/zip"
+                	Contents
+                		"<Contents>"
+                		"<ContentsAppend1>"
+            			"<ContentsAppend2>"
+                		"<ContentsAppend3>"
+                		
+		EmailDatabaseTierSessionDebugDBExport is an Instance Action
+			restricted
+		
+			Parameters
+				To1		        is an EmailAddress
+										default label is "To" 
+				To2		        is an EmailAddress
+										default label is "__" 
+				To3		        is an EmailAddress
+										default label is "__" 
+				To4		        is an EmailAddress
+										default label is "__" 
+				Cc1		        is an EmailAddress
+										default label is "Cc" 
+				Cc2		        is an EmailAddress
+										default label is "__" 
+				Cc3		        is an EmailAddress
+										default label is "__" 
+				Cc4		        is an EmailAddress
+										default label is "__" 
+				Subject         is Alpha size 500
+				IncidentNumber  is Numeric size 10
+				Contents        is Text
+				
+			Parameter Rules
+				To1
+					required
+				Subject
+					required
+					initial value is "DBExport for session \"" + SessionDescription + "\""
+				Contents
+					initial value is "See attached DBExport for session \"" + SessionDescription + "\"."
+            
+            Local Fields
+				ZipFileName						is Alpha 20
+            	DebugTimestatsAttachmentName	is Alpha 25
+            	ContentsAppend1					is Alpha 200
+            	ContentsAppend2					is Alpha 100
+            	ContentsAppend3					is Alpha 100
+            
+            Action Rules        
+            	DebugTimestatsAttachmentName = "DBSessionDBExport.zip"
+            	
+            	ContentsAppend1 = "Attached Database Tier Session Debug DBExport Zip ."
+				if (HasIncompleteBackgroundActions)
+					confirmation required
+						"<IncompleteBackgroundActions>BackgroundAction(s)Incomplete.__Continue?"
+            		ContentsAppend2 = "Note: " + IncompleteBackgroundActions + " background action(s) incomplete at time of send."
+   				if (HasUnitsOfWorkPendingTempFileLoad)
+   					confirmation required
+   						"Load_of_temporary_debug_file(s)_incomplete.__Continue?"
+               		ContentsAppend3 = "Note: Load of temporary debug file(s) incomplete at time of send."
+					
+            	if (IncidentNumber != 0)
+            		Subject = "[Incident " + IncidentNumber + "]: " + Subject
+            		
+                send email
+                	to		To1
+                	to		To2
+                	to		To3
+                	to		To4
+                	cc		Cc1
+                	cc		Cc2
+                	cc		Cc3
+                	cc		Cc4
+                	from	actor.ContactInfo.EmailAddress
+                	subject	"<Subject>"
+                	Attachments
+                		attachment SessionDebugDBExport
+                			name is DebugTimestatsAttachmentName
+                			mime type is "application/zip"
+                	Contents
+                		"<Contents>"
+                		"<ContentsAppend1>"
+            			"<ContentsAppend2>"
+                		"<ContentsAppend3>"                		
+                		
+		DeleteDebugLogs is a Set Action
+			disable checkpoint
+
+			Parameters
+				ThruDate 			is Date
+				PurgeOffsetDays 	is Numeric size 3
+
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+				
+				LocalTransCount is Numeric size 6
+					
+
+
+			Parameter Rules
+				ThruDate   
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThroughEndDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThroughEndDateAndOffset"
+
+			Instance Selection
+				where (Start < LocalThruDate and End < LocalThruDate and End != blank)
+
+			Sort Order is ByStartDescending
+									
+			Action Rules
+				Set Rules
+   					Entrance Rules
+   						initialize LocalTransCount
+   						
+				Instance Rules
+					invoke Purge
+					LocalTransCount += 1
+					if (UnitCount < MaxUnitLogInlineDelete)
+						LocalTransCount += UnitCount
+						
+					if (LocalTransCount > MaxUnitLogInlineDelete)
+						initialize LocalTransCount
+						commit transaction
+					
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+			Action Rules
+				if (UnitCount < MaxUnitLogInlineDelete)
+					invoke Purge UnitsOfWorkRel
+				else
+					invoke DeleteAllLogsForSession DBSessionDebugUnit in background
+						invoked.PrmDBSessionDebug = DBSessionDebug

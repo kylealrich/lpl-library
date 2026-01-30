@@ -1,0 +1,768 @@
+LeasePaymentPeriodBalance is a BusinessClass
+    owned by lm
+    prefix is MAX
+    classic name is LMMASTERX
+
+    Ontology
+        symbolic key is LeasePaymentPeriodBalance
+            classic set name is MAXSET1
+            classic name is PERIOD
+            classic name for Vendor is PMT-VENDOR
+            classic name for LeasePaymentBalance.ExecutoryCostCode is EXEC-CODE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements AnalyticCube
+			disable continuous update
+			dynamically calculate totals
+ 			write to base level only 			
+		implements Archivable
+	Context Fields
+		ReportingBasis
+
+    Persistent Fields
+
+        PaymentDueDate		is Date
+        Amount             	is an InternationalAmount
+        PrincipalAmount    	is an InternationalAmount
+            classic name is PRINCIPAL-AMT
+        InterestAmount     	is an InternationalAmount
+            classic name is INTEREST-AMT
+        LiabilityBalance	is an InternationalAmount
+        LeaseExpense		is an InternationalAmount
+        ROUReduction		is an InternationalAmount
+        ROUBalance			is an InternationalAmount
+        PrincipalTaxAmount 	is an InternationalAmount
+            classic name is PRIN-TAX-AMT
+        InterestTaxAmount  	is an InternationalAmount
+            classic name is INT-TAX-AMT
+        PaymentNumber
+            classic name is PMT-NBR
+        ShortTermLiability  is an InternationalAmount
+        LongTermLiability   is an InternationalAmount
+		ShortTermLiabilityReduction	is an InternationalAmount
+		LongTermLiabilityReduction	is an InternationalAmount
+		OwnershipType		is AlphaUpper size 2
+			States
+				PurchasedASC      	value is "PA"
+				FinanceASC        	value is "FA"
+				OperatingASC      	value is "OA"
+				PurchasedGASB      	value is "PG"
+				FinanceGASB       	value is "FG"
+				FinanceGASB96		value is "FS"
+				ShortTermLease		value is "ST"
+
+		LeaseAccountingType is AlphaUpper size 2
+			States
+				ShortTermLease      		value is "ST"
+				LongTermOperatingLease      value is "LT"
+				FinanceLeaseASC      		value is "FA"
+				FinanceLeaseGASB         	value is "FG"
+				FinanceLeaseGASB96			value is "FS"
+
+
+	Local Fields
+		LocalCalculateLongTermLiabilityDueDate		is Date
+
+	Rule Blocks
+
+		SetOwnershipAndAccountingType
+			if (LeasePaymentBalance.ExecutoryCostCode not entered)
+				if (Lease.IsShortTermLease or Lease.IsMonthToMonthRenewal)
+					OwnershipType = "ST"
+					LeaseAccountingType = "ST"
+				else
+					if (Lease.LeaseAccountingMethod.ASC842)
+						if (Lease.IsLongTermOperatingLease)
+							OwnershipType = "OA"
+							LeaseAccountingType = "LT"
+						else
+							if (Lease.IsFinance)
+								LeaseAccountingType = "FA"
+								if (Lease.Ownership)
+									OwnershipType = "PA"
+								else
+									OwnershipType = "FA"
+					else
+						if (Lease.LeaseAccountingMethod.GASB87)
+							if (Lease.Ownership)
+								OwnershipType = "PG"
+							else
+								OwnershipType = "FG"	
+							LeaseAccountingType = "FG"
+						else
+							if (Lease.LeaseAccountingMethod.GASB96)
+								LeaseAccountingType = "FS"	
+								if (Lease.Ownership)
+									OwnershipType = "PG"
+								else
+									OwnershipType = "FS"
+
+	
+	Derived Fields
+	
+		DerivedMonth is a DerivedField
+			type is Numeric size 2
+			restricted
+			return PaymentDueDate month
+			
+		DerivedYear is a DerivedField
+			type is AlphaUpper size 4
+			restricted
+			return PaymentDueDate year
+	
+		DerivedPaddedMonth is a DerivedField
+			type is AlphaUpper 2
+			restricted
+			if (PaymentDueDate month < 10)
+				DerivedPaddedMonth	= "0" + DerivedMonth 
+			else
+				return PaymentDueDate month
+		
+		DerivedDate is a DerivedField
+			type is AlphaUpper size 7
+			return DerivedPaddedMonth + "/" + DerivedYear	
+			
+		DerivedModificationAmount is a DerivedField
+			type is like InternationalAmount
+
+            if (ModificationCounter > 1) 
+                for each LeaseModificationRel
+                    if  (PaymentDueDate month = each.ModificationDate month
+				    and  PaymentDueDate year =  each.ModificationDate year)
+                        DerivedModificationAmount = each.ModificationAmount.BaseAmount.EnteredCurrencyAmount
+                return DerivedModificationAmount
+            else
+			    for each LeaseModificationRel
+			    	if  (PaymentDueDate month = each.ModificationDate month
+			    	and  PaymentDueDate year =  each.ModificationDate year)
+				    	return each.ModificationAmount.BaseAmount.EnteredCurrencyAmount
+			
+		DerivedImpairmentAmount is a DerivedField
+			type is like InternationalAmount
+			for each LeaseImpairmentRel
+				if  (PaymentDueDate month = each.ImpairmentDate month
+				and  PaymentDueDate year =  each.ImpairmentDate year)
+					return each.ImpairmentAmount.TransactionAmount
+
+		DerivedAdjustmentAmount is a DerivedField
+			type is like InternationalAmount
+			for each LeaseAdjustmentRel
+				if  (PaymentDueDate month = each.AdjustmentDate month
+				and  PaymentDueDate year =  each.AdjustmentDate year)
+					return each.AdjustmentAmount.TransactionAmount * -1 
+			
+        ModificationCounter is a DerivedField	
+			type is Numeric 2
+			for each LeaseModificationRel
+                if  (PaymentDueDate month = each.ModificationDate month
+				and  PaymentDueDate year =  each.ModificationDate year)
+				    ModificationCounter += 1
+			return ModificationCounter
+
+
+		CurrentDate is a DerivedField
+			type is Date
+			restricted
+			return current corporate date
+
+		CurrentPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			return CurrentDate month
+
+		CurrentYear is a DerivedField
+			type is Numeric 4
+			restricted
+			return CurrentDate year
+
+		DueDateYear is a DerivedField
+			type is Numeric 4
+			restricted
+			return PaymentDueDate year
+
+		DueDatePeriod is a DerivedField
+			type is Numeric 2
+			default label is "Month/Year"
+			restricted
+			return PaymentDueDate month
+
+		DerivedASC842ROUAssetAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "ROUAssetAmount"
+			if (Lease.LeaseAccountingMethod.ASC842
+			and Lease.BeginDate month = PaymentDueDate month
+			and Lease.BeginDate year = PaymentDueDate year)
+				return Lease.LeaseROUAssetAmount.BaseAmount.EnteredCurrencyAmount
+			else
+				return blank
+
+		DerivedGASB87ROUAssetAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "ROUAssetAmount"
+			if (Lease.LeaseAccountingMethod.GASB87
+			and	Lease.BeginDate month = PaymentDueDate month
+			and Lease.BeginDate year = PaymentDueDate year)
+				return Lease.LeaseROUAssetAmount.BaseAmount.EnteredCurrencyAmount
+			else
+				return blank
+
+		DerivedGASB96ROUAssetAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "ROUAssetAmount"
+			if (Lease.LeaseAccountingMethod.GASB96
+			and	Lease.BeginDate month = PaymentDueDate month
+			and Lease.BeginDate year = PaymentDueDate year)
+				return Lease.LeaseROUAssetAmount.BaseAmount.EnteredCurrencyAmount
+			else
+				return blank
+
+		DerivedLeaseOwnership is a DerivedField
+			type is AlphaUpper size 1
+			restricted
+			if (!IsFinance)
+				return "O"
+			else
+				if (Lease.Ownership)
+					return "P"
+				else
+					return "C"
+
+		DerivedLeaseAccountingMethod is a DerivedField
+			type is AlphaUpper size 1
+			restricted
+			if (Lease.LeaseAccountingMethod.GASB87)
+				return "G"
+			else
+				if (Lease.IsLongTermOperatingLease)
+					return "O"
+				else
+					return "F"
+
+		DerivedModificationExists is a DerivedField
+            type is Boolean
+            for each LeaseModificationRel
+                if(each.ModificationDate month = PaymentDueDate month
+                and each.ModificationDate year= PaymentDueDate year)
+                    return true
+                    end for each
+        
+        DerivedAdjustmentExists is a DerivedField
+            type is Boolean
+            for each LeaseAdjustmentRel
+                if(each.AdjustmentDate month = PaymentDueDate month
+                and each.AdjustmentDate year= PaymentDueDate year)
+                    return true
+                    end for each
+
+	Conditions
+		
+		ModificationDateBlueAlert
+			restricted
+			when (PaymentDueDate entered
+			and   DerivedModificationExists)
+
+        ModificationInProgressRedAlert
+            restricted
+            when (PaymentDueDate entered
+			and   PaymentDueDate month = last LeaseModificationRel.ModificationDate month
+			and   PaymentDueDate year  = last LeaseModificationRel.ModificationDate year
+			and   Lease.HasLeaseModifications
+            and   last LeaseModificationRel.Status.Unreleased)
+		
+		ImpairmentDateYellowAlert
+			restricted
+			when (PaymentDueDate entered
+			and   PaymentDueDate month = any LeaseImpairmentRel.ImpairmentDate month
+			and   PaymentDueDate year  = any LeaseImpairmentRel.ImpairmentDate year
+			and   Lease.HasLeaseImpairments)
+
+		AdjustmentDateGreenAlert
+			restricted
+			when (PaymentDueDate entered
+			and   DerivedAdjustmentExists)
+
+		AdjustmentInProgressYellowAlert
+            restricted
+            when (PaymentDueDate entered
+			and   DerivedAdjustmentExists
+            and   last LeaseAdjustmentRel.Status.Unreleased)
+
+		IsValidForActorContext
+			restricted
+			when (Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+
+		IsGASB87	
+			restricted
+			when (Lease.LeaseAccountingMethod = LeaseAccountingMethod.GASB87)
+
+        IsFinance
+        	restricted
+            when (Lease.LeaseClassification.Finance)
+		
+		CubeOfflineMode 
+			restricted
+			when (LeasePaymentPeriodBalanceAnalyticCubeRel.Mode != "0" )
+			
+		CubeOnlineMode
+			restricted
+			when (LeasePaymentPeriodBalanceAnalyticCubeRel.Mode = "0")
+
+    Relations
+
+        AmassetRel
+            one-to-many relation to Asset
+            Field Mapping uses Set13
+            Instance Selection
+                where (related.AssetLease.LeaseCompany = Company
+                and   related.AssetLease.Lease = Lease)
+
+        LminvoiceRel
+            one-to-many relation to LeaseInvoice
+            Field Mapping uses Set9
+                related.Company    = Company
+                related.Lease      = Lease
+                related.FiscalYear = LeasePaymentBalance.FiscalYear
+                related.Period     = LeasePaymentPeriodBalance
+
+        ApvenmastRel
+            one-to-one relation to Vendor
+            Field Mapping uses symbolic key
+                related.VendorGroup = Company.VendorGroup
+                related.Vendor      = Vendor
+
+        LmcuamtxRel
+            one-to-one relation to LeaseCurrencyPaymentPeriodBalance
+            Field Mapping uses symbolic key
+                related.Company                               = Company
+                related.Lease                                 = Lease
+                related.Vendor                                = Vendor
+                related.LeasePaymentBalance.ExecutoryCostCode = LeasePaymentBalance.ExecutoryCostCode
+                related.LeasePaymentBalance.FiscalYear        = LeasePaymentBalance.FiscalYear
+                related.LeaseCurrencyPaymentBalance.Currency  = Lease.Currency
+                related.LeaseCurrencyPaymentPeriodBalance     = LeasePaymentPeriodBalance
+                
+        LeaseModificationRel
+            one-to-many relation to LeaseModification
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+                
+        LeaseImpairmentRel
+            one-to-many relation to LeaseImpairment
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+
+		LeaseAdjustmentRel
+            one-to-many relation to LeaseAdjustment
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+
+		GLClosePeriodRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDate
+				related.FinanceEnterpriseGroup			 = Company.BusinessGroup.FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration	 = Company.AccountingEntity.CloseConfiguration
+
+		LeasePaymentPeriodBalanceAnalyticCubeRel
+			one-to-one relation to AnalyticCube
+			Field Mapping uses AnalyticCubeSet
+				related.BusinessClass = "LeasePaymentPeriodBalance"
+
+        LongTermBaseCurrencyLiabilityRel
+            one-to-many relation to LeasePaymentPeriodBalance      
+            Field Mapping uses ByCompanyLeaseVendorFiscalYearDueDate
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+				and    related.PaymentDueDate > LocalCalculateLongTermLiabilityDueDate)
+
+        LongTermBaseCurrencyLiabilityReductionRel
+            one-to-many relation to LeasePaymentPeriodBalance      
+            Field Mapping uses ByCompanyLeaseVendorFiscalYearDueDate
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+				and    related.PaymentDueDate = LocalCalculateLongTermLiabilityDueDate)
+
+	Dimensions
+
+		Company.AccountingEntity
+			top node is ReportingBasis.AccountingEntityTopNode
+			label is "<Company.BusinessGroup.FinanceEnterpriseGroup.AccountingEntityLabel>"		
+			dimension name is AccountingEntity
+
+		Company
+			dimension name is PayablesCompany
+
+		Lease
+			dimension name is Lease
+
+		LeasePaymentPeriodBalance
+			is a monthly period dimension with year of LeasePaymentBalance.FiscalYear
+				current year is CurrentYear
+				current period is CurrentPeriod
+
+		OwnershipType
+			dimension name is OwnershipType
+
+		LeaseAccountingType
+			dimension name is LeaseAccountingType
+
+		Lease.Status
+			dimension name is Status
+			Instance Selection
+				where (Lease.Status.Released
+				or     Lease.Status.Closed
+				or     Lease.Status.Terminated)
+
+	Measures
+		ROUReduction
+	    	measure name is ROUReduction
+			Dimension Based Measures
+             	ROUReductionGASB87
+                 	Dimension Values
+                      	LeaseAccountingType value is "FG"
+             	ROUReductionGASB96
+                 	Dimension Values
+                      	LeaseAccountingType value is "FS"						
+           		ROUReductionASC842OL
+                   	Dimension Values
+						LeaseAccountingType value is "LT"
+           		ROUReductionASC842FL
+                   	Dimension Values
+						LeaseAccountingType value is "FA"						
+
+    	InterestAmount
+	    	measure name is InterestAmount
+			Dimension Based Measures
+           		InterestAmountOperatingLease
+                   	Dimension Values
+						OwnershipType value is "OA"
+           		InterestAmountPurchasedAsset
+                   	Dimension Values
+						OwnershipType value is "PA"
+             	InterestAmountFinancedAsset
+                 	Dimension Values
+                      	OwnershipType value is "FA"
+           		InterestAmountPurchasedAssetGASB
+                   	Dimension Values
+						OwnershipType value is "PG"
+				InterestAmountFinancedAssetGASB96
+					Dimension Values
+						OwnershipType value is "FS"
+             	InterestAmountFinancedAssetGASB
+                 	Dimension Values
+                      	OwnershipType value is "FG"						
+             	InterestAmountGASB87
+                 	Dimension Values
+                      	LeaseAccountingType value is "FG"
+				InterestAmountGASB96
+					Dimension Values
+						LeaseAccountingType value is "FS"
+           		InterestAmountASC842OL
+                   	Dimension Values
+						LeaseAccountingType value is "LT"
+           		InterestAmountASC842FL
+                   	Dimension Values
+						LeaseAccountingType value is "FA"						
+
+		LeaseExpense
+	    	measure name is LeaseExpense
+
+ 		Amount
+			measure name is Amount
+			Dimension Based Measures
+             	AmountGASB87
+                 	Dimension Values
+                      	LeaseAccountingType value is "FG"
+				AmountGASB96
+					Dimension Values
+						LeaseAccountingType value is "FS"
+           		AmountASC842OL
+                   	Dimension Values
+						LeaseAccountingType value is "LT"
+           		AmountASC842FL
+                   	Dimension Values
+						LeaseAccountingType value is "FA"						
+
+		PrincipalAmount
+			measure name is PrincipalAmount
+			Dimension Based Measures
+           		PrincipalAmountOperatingLease
+                   	Dimension Values
+						OwnershipType value is "OA"
+           		PrincipalAmountPurchasedAsset
+                   	Dimension Values
+						OwnershipType value is "PA"
+             	PrincipalAmountFinancedAsset
+                 	Dimension Values
+                      	OwnershipType value is "FA"
+           		PrincipalAmountPurchasedAssetGASB
+                   	Dimension Values
+						OwnershipType value is "PG"
+             	PrincipalAmountFinancedAssetGASB
+                 	Dimension Values
+                      	OwnershipType value is "FG"
+             	PrincipalAmountFinancedAssetGASB96
+                 	Dimension Values
+                      	OwnershipType value is "FS"
+
+		DerivedASC842ROUAssetAmount
+			measure name is DerivedASC842ROUAssetAmount
+
+		DerivedGASB87ROUAssetAmount
+			measure name is DerivedGASB87ROUAssetAmount
+		
+		DerivedGASB96ROUAssetAmount
+			measure name is DerivedGASB96ROUAssetAmount
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                Lease
+                LeasePaymentBalance.FiscalYear
+                LeasePaymentPeriodBalance
+                Vendor
+                LeasePaymentBalance.ExecutoryCostCode
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                Lease
+                LeasePaymentBalance.FiscalYear
+                LeasePaymentPeriodBalance
+                LeasePaymentBalance.ExecutoryCostCode
+                Vendor
+
+        ByCompanyLeaseVendorFiscalYearDueDate
+            indexed
+            Sort Order
+                Company
+                Lease
+                Vendor
+                LeasePaymentBalance.FiscalYear
+                LeasePaymentPeriodBalance
+                LeasePaymentBalance.ExecutoryCostCode
+                PaymentDueDate
+
+	Actions
+		Create is a Create Action
+			restricted
+			Entrance Rules
+				include SetOwnershipAndAccountingType
+			
+		Update is an Update Action
+			restricted
+
+			Entrance Rules
+				include SetOwnershipAndAccountingType
+		
+		UpdateLeasePaymentPeriodBalanceCube is a Set Action
+			restricted
+			completion message is "UpdateLeasePaymentPeriodBalanceCubeSubmitted"
+			Parameters
+				PrmUpdateLeasePaymentPeriodBalanceCube	is Boolean
+					default label is "UpdateLeasePaymentPeriodBalanceCube"
+			Action Rules
+				Set Rules	
+					Exit Rules
+						if (PrmUpdateLeasePaymentPeriodBalanceCube)
+							invoke Refresh LeasePaymentPeriodBalanceAnalyticCubeRel in background
+			
+		UpdateROU is an Update Action
+			restricted
+			bypass field rules
+			
+		Delete is a Delete Action
+			restricted
+				
+		Purge is a Purge Action
+			restricted
+			 
+		CreateLeaseAmortization is a Create Action
+			restricted
+			Entrance Rules
+				include SetOwnershipAndAccountingType
+
+		CalculateShortAndLongTermLiabilityAmounts is a Set Action
+			restricted
+			Parameters
+				PrmCompany						is a PayablesCompany
+				PrmLease						is like Lease
+				PrmVendor						is a Vendor
+				PrmPaymentDueDate				is Date
+
+			Set Is  
+				PrmCompany
+                PrmLease
+                PrmVendor
+
+
+			Local Fields
+				LocalActor									is an Actor
+				LocalBaseShortTermLiability					is an InternationalAmount
+				LocalBaseLongTermLiability					is an InternationalAmount
+				LocalBaseShortTermLiabilityReduction		is an InternationalAmount
+				LocalBaseLongTermLiabilityReduction			is an InternationalAmount
+			Instance Selection
+				where (Company 			= PrmCompany
+				and    Lease			= PrmLease
+				and    Vendor			= PrmVendor
+				and    PaymentDueDate	>= PrmPaymentDueDate
+				and    LeasePaymentBalance.ExecutoryCostCode not entered)
+				
+			Sort Order is ByCompanyLeaseVendorFiscalYearDueDate
+
+			Action Rules
+				Empty Set Rules
+					send notification
+						to LocalActor
+						description is "LeaseAmortization"
+						priority is high
+						detail is "Must_have_Lease_payments_period_balance_to_create"
+	
+				Set Rules
+					Entrance Rules
+						LocalActor 				= actor
+
+					Exit Rules
+
+
+				Instance Rules
+					LocalCalculateLongTermLiabilityDueDate 	= PaymentDueDate
+					LocalCalculateLongTermLiabilityDueDate 	+= 12 months
+					LocalBaseLongTermLiability 				= sum LongTermBaseCurrencyLiabilityRel.PrincipalAmount
+					LocalBaseShortTermLiability 			= LiabilityBalance - LocalBaseLongTermLiability
+					LocalBaseLongTermLiabilityReduction		= LongTermBaseCurrencyLiabilityReductionRel.PrincipalAmount
+					LocalBaseShortTermLiabilityReduction	= PrincipalAmount - LocalBaseLongTermLiabilityReduction
+					if (IsFinance) 
+						if (Amount != "0")
+							LocalBaseShortTermLiabilityReduction	= LocalBaseShortTermLiabilityReduction + InterestAmount
+					if (LocalBaseShortTermLiability 		= LocalBaseLongTermLiability)
+						LocalBaseLongTermLiability 			= "0"
+					invoke UpdateROU
+						invoked.ShortTermLiability			= LocalBaseShortTermLiability
+						invoked.LongTermLiability			= LocalBaseLongTermLiability
+						invoked.ShortTermLiabilityReduction	= LocalBaseShortTermLiabilityReduction
+						invoked.LongTermLiabilityReduction	= LocalBaseLongTermLiabilityReduction
+
+		ConversionOfShortAndLongTermLiabilityAmounts is a Set Action
+			restricted
+			Parameters
+				PrmConversionDate				is Date
+
+			Local Fields
+				LocalActor									is an Actor
+				LocalBaseShortTermLiability					is an InternationalAmount
+				LocalBaseLongTermLiability					is an InternationalAmount
+				LocalBaseShortTermLiabilityReduction		is an InternationalAmount
+				LocalBaseLongTermLiabilityReduction			is an InternationalAmount
+			
+			Instance Selection
+				where (Lease.Status.Released
+				and    Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+				and    PaymentDueDate	>= PrmConversionDate
+				and    LeasePaymentBalance.ExecutoryCostCode not entered)
+				
+			Sort Order is ByCompanyLeaseVendorFiscalYearDueDate
+
+			Action Rules
+				Empty Set Rules
+					send notification
+						to LocalActor
+						description is "LeaseAmortization"
+						priority is high
+						detail is "Must_have_Lease_payments_period_balance_to_create"
+	
+				Set Rules
+					Entrance Rules
+						LocalActor 				= actor
+
+					Exit Rules
+						invoke MassConversionBaseCurrencyTransaction Lease 	
+							invoked.PrmConversionDate   = PrmConversionDate
+
+				Instance Rules
+					LocalCalculateLongTermLiabilityDueDate 	= PaymentDueDate
+					LocalCalculateLongTermLiabilityDueDate 	+= 12 months
+					LocalBaseLongTermLiability 				= sum LongTermBaseCurrencyLiabilityRel.PrincipalAmount
+					LocalBaseShortTermLiability 			= LiabilityBalance - LocalBaseLongTermLiability
+					LocalBaseLongTermLiabilityReduction		= LongTermBaseCurrencyLiabilityReductionRel.PrincipalAmount
+					LocalBaseShortTermLiabilityReduction	= PrincipalAmount - LocalBaseLongTermLiabilityReduction
+					if (IsFinance) 
+						if (Amount != "0")
+							LocalBaseShortTermLiabilityReduction	= LocalBaseShortTermLiabilityReduction + InterestAmount
+					if (LocalBaseShortTermLiability 		= LocalBaseLongTermLiability)
+						LocalBaseLongTermLiability 			= "0"
+					invoke UpdateROU
+						invoked.ShortTermLiability			= LocalBaseShortTermLiability
+						invoked.LongTermLiability			= LocalBaseLongTermLiability
+						invoked.ShortTermLiabilityReduction	= LocalBaseShortTermLiabilityReduction
+						invoked.LongTermLiabilityReduction	= LocalBaseLongTermLiabilityReduction
+
+		SetNewDisclosureReportFields is a Set Action
+			restricted
+			completion message is "DisclosureReportUpdated"
+			Parameters
+
+			Local Fields
+				LocalActor				is an Actor
+
+			Instance Selection
+				where (OwnershipType not entered
+				or     LeaseAccountingType not entered)
+
+			Action Rules
+
+				Empty Set Rules
+					LocalActor 	= actor
+					send notification
+						to LocalActor
+						description is "SetNewDisclosureReportFields"
+						priority is high
+						detail is "There_are_no_records_to_update"					
+				Set Rules
+
+				Instance Rules
+					if (Lease.IsShortTermLease or Lease.IsMonthToMonthRenewal)
+						OwnershipType = "ST"
+						LeaseAccountingType = "ST"
+					else
+						if (Lease.LeaseAccountingMethod.ASC842)
+							if (Lease.IsLongTermOperatingLease)
+								OwnershipType = "OA"
+								LeaseAccountingType = "LT"
+							else
+								if (Lease.IsFinance)
+									LeaseAccountingType = "FA"
+									if (Lease.Ownership)
+										OwnershipType = "PA"
+									else
+										OwnershipType = "FA"
+						else
+							if (Lease.LeaseAccountingMethod.GASB87)
+								LeaseAccountingType = "FG"
+								if (Lease.Ownership)
+									OwnershipType = "PG"
+								else
+									OwnershipType = "FG"	
+							else
+								if (Lease.LeaseAccountingMethod.GASB96)
+									LeaseAccountingType = "FS"	
+									if (Lease.Ownership)
+										OwnershipType = "PG"
+									else
+										OwnershipType = "FS"				

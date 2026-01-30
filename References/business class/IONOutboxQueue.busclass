@@ -1,0 +1,1399 @@
+IONOutboxQueue is a BusinessClass
+    owned by la
+    prefix is IONQ
+    stored in environment
+    contains environment data
+	disable data area copy
+    default label is "IONQueue"
+
+    Ontology
+    	symbolic key is IONOutboxQueue
+
+	Patterns
+    	implements CRUD
+		implements CreateStamp
+		implements UpdateStamp
+		disable Auditing
+		disable AsOfDateProcessing
+		disable EffectiveDated
+
+    Persistent Fields
+    	ReplicationSet
+            delete ignored
+        RepSetBC
+            delete ignored
+		FromLogicalId is an IONLogicalId			
+		ToLogicalId is an IONLogicalId
+		BodType is Alpha size 200 
+			default label is "BOD_Type"
+		MessageId is an IONBODMessageId
+
+		AccountingEntity is Alpha size 250
+		ReferenceId is Alpha size 250
+
+		DocumentId is Alpha size 250
+
+		RevisionId is Alpha size 250
+
+		VariationId is Alpha size 250
+
+		LocationId is Alpha size 250
+		BodXML is Text
+			default label is "BOD_XML"
+		Message is BinaryObject
+		Encoding is Numeric size 1
+			restricted
+			States
+				NONE value is 0
+					default label is untranslatable
+				BASE64 value is 1
+					default label is untranslatable
+				GZIP64 value is 2
+					default label is untranslatable
+				GZIP value is 3
+					default label is untranslatable
+				DEFLATE value is 4
+					default label is untranslatable
+				DEFLATE64 value is 5
+					default label is untranslatable
+				
+    	Status is an IONOutboxQueueStatus
+
+        ExecuteTime					is TimeStamp
+        FailureCount 				is Numeric size 6
+        ErrorMessage 				is Text
+        	disable Auditing
+    	IONOutboxID is Numeric size 19
+    		restricted
+		IONConnection
+		NoAcknowledgement is Boolean
+		IONConnectionAction
+		AsyncActionTriggerRef is BusinessObjectReference to AsyncActionTrigger
+			restricted
+		IONAdditionalProperties
+			default label is "AdditionalProperties"
+		IONMessageType
+			default label is "MessageType"
+    	
+    Derived Fields
+    	DefaultFromLogicalId is a NativeField
+    		type is Alpha size 250
+    				
+    	DefaultConnection is a NativeField
+    		type is Numeric size 1
+    		
+    	DerivedMessageId is a StringField
+    		type is Alpha size 250 
+    		DefaultFromLogicalId "/" IONOutboxQueue
+   		
+        OutboxId is a DerivedField
+        	type is Numeric size 19
+        	return IONOutboxID
+
+		ExtendedStatus is a DerivedField
+			type is like IONOutboxQueueStatus
+			default label is "Status"
+			if (Status = Status.Sent
+			and IsOutboxProcessed)
+				if (NoAcknowledgement)
+					return IONOutboxQueueStatus.Processed
+				else
+					return IONOutboxQueueStatus.Received
+			else
+				if (Status.Received
+				and NoAcknowledgement)
+					return IONOutboxQueueStatus.Processed
+				else
+					return Status 
+						        	
+        IsOutboxProcessed is a NativeField        	    
+        	type is Boolean
+        	default label is "Processed"
+        	
+        TenantId is a NativeField
+        	type is Alpha size 50
+        	
+		UpperCaseDataArea is a NativeField
+			type is DataAreaName
+			restricted
+			
+		ProductLine is a NativeField
+			type is ProductLineName
+			restricted
+			
+		DocumentNameMaxSize is a NativeField
+			type is Numeric size 5
+			restricted
+			
+		IMSDocumentNameMaxSize is a NativeField
+			type is Numeric size 5
+			restricted
+			
+		IsFailedTrigger is a DerivedField
+			type is Boolean
+			default label is "FailedTrigger"
+			return IONConnectionRel.AsyncRequestOutRel.FailedTriggersExist 
+			
+		IsSuspended is a DerivedField
+			type is Boolean 
+			default label is "Suspended"
+			return not IONConnectionRel.AsyncRequestOutRel.IsAsyncActive 
+
+		IsNotScheduled is a DerivedField
+			type is Boolean
+			default label is "NotScheduled"
+			return IONConnectionRel.AsyncRequestOutRel.PendingScheduling 
+				 				
+		SuspendedMessage is a DerivedField
+			type is MessageField
+			return IONConnectionRel.AsyncRequestOutRel.SuspendedMessage 
+		
+		FailedTriggersExistMessage is a DerivedField
+			type is MessageField
+			return IONConnectionRel.AsyncRequestOutRel.FailedTriggersExistMessage 
+
+		RedAlertMessage is a DerivedField
+			type is MessageField
+			if (IsSuspended)
+				return SuspendedMessage
+			else
+			if (IsFailedTrigger)
+				return FailedTriggersExistMessage
+			else
+				return "FailedToSendMessage"
+			
+		HoldMessage is a MessageField
+			restricted
+			"FailedMessageOnHold"
+			
+		InvalidConnectionMessage is a MessageField
+			restricted
+			"InvalidConnection"
+			
+		YellowAlertMessage is a DerivedField
+			type is MessageField
+			if (Status.HoldFailed)
+				return HoldMessage
+			else
+				return IONConnectionRel.AsyncRequestOutRel.PendingSchedulingMessage 
+				
+		MessageMimeType is a DerivedField
+			type is MimeType
+			default label is "MIME_Type"
+			return BodXML mime type
+			
+		RetryDelay is a DerivedField
+			type is TimeStamp
+			restricted
+			return current timestamp + FailureCount minutes
+			
+		ValidFromLogicalId is a NativeField
+			type is Boolean
+			
+		BelongsToDataArea is a NativeField
+			type is Boolean
+
+		HoldFailedActorId is a NativeField
+            type is Alpha size 30
+
+    Conditions
+    	NotInProcess
+    		when (not AsyncActionTriggerRef exists 
+    		or AsyncActionTriggerRef.Status != AsyncTriggerStatus.InProgress)
+    		
+    	RedAlert
+    		when (IsFailedTrigger or IsSuspended or IsFailed)
+    		
+    	YellowAlert
+    		when (IsHold or IsNotScheduled)
+    		
+    	IsInvalidConnection
+    		default label is "InvalidConnection"
+    		when (IONConnection != 1 and IONConnection != 2)
+    		
+    	IsNew
+    		default label is "New"
+    		when (Status.New)
+
+    	IsHold
+    		default label is "HoldFailed"
+    		when (Status.HoldFailed)
+    		
+    	IsSent
+    		default label is "Sent"
+    		when ((Status.Sent
+    		or    Status.Received)
+    		and   not ExtendedStatus.Processed)
+    		
+
+
+
+    		
+    	IsProcessed
+    		default label is "Processed"
+    		restricted
+    		when (ExtendedStatus.Processed)
+    		
+    	IsCancelled
+    		default label is "Cancelled"
+    		restricted 
+    		when (Status.Cancelled)
+    		
+    	IsFailed
+    		default label is "Failed"
+    		when (Status.Failed)
+    	
+
+
+
+    		
+    	HasErrorMessage
+    		default label is "ErrorMessageEntered"
+    		when (ErrorMessage entered)
+    		
+		IsIOBox
+			restricted
+			when (IONConnectionRel.IsIOBox)
+			
+		IsIMS 
+			restricted
+			when (IONConnectionRel.IsIMS)
+			
+		HasFailures
+			restricted
+			when (FailureCount > 0)
+			
+		ChangeConnectionValid
+			restricted
+			when (Status.New or Status.HoldFailed or Status.Failed)
+			
+		IsReplication
+			restricted
+			when (IONMessageType.IsReplication)
+			
+		IsNewOrFailed
+			restricted
+			when (Status.New or Status.Failed)
+
+		IsNewOrFailedImsQueue
+			restricted
+			when (IsNewOrFailed and IsIMS)
+			 
+	Field Rules
+		IONConnection
+			required
+			initial value is DefaultConnection
+			default to DefaultConnection
+			constraint (IONConnection.Usage.Outbox)
+				"InvalidIONConnection"
+			
+		FromLogicalId
+			required
+			initial value is DefaultFromLogicalId
+			default to DefaultFromLogicalId
+
+		BodType
+			if (IsIOBox)
+				constraint (BodType = blank or BodType matches "([A-Za-z\*\%])+\.([A-Za-z\*\%])+")
+					"InvalidBOD_TypeMustBeForm_'noun.\verb'"
+				constraint (BodType size <= DocumentNameMaxSize)
+		    		"DocumentNameExceedsSizeLimit"
+			else
+				if (IONConnectionRel.DocumentNameRequired)
+					constraint (BodType != blank)
+						"DocumentNameRequired"
+				if (IsIMS)
+					constraint (BodType size <= IMSDocumentNameMaxSize)
+		    			"DocumentNameExceedsSizeLimit"
+		    			
+    	BodXML
+    		if (Message = blank) 
+    			required
+    		
+    	ToLogicalId
+    		required
+    		default to "lid://default"
+    		initial value is  "lid://default"
+    		
+    	MessageId
+    		required
+    		default to DerivedMessageId
+    		
+    	IONConnectionAction
+    		default to IONConnection.DefaultAction
+    		if (IONConnection.HasActions)
+    			required 
+    			
+	Relations
+		RetryAsyncActionRequestRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByNameGroup
+				related.Name = IONConnectionRel.CanonicalName  + "OutboxReset"
+			Instance Selection
+				where (related.DataArea = UpperCaseDataArea
+				and    related.ImplementingClass = "IONOutboxQueue"
+				and    related.AsyncAction = "ResetConnectionFailedBods"
+				and    related.SystemRequest = 1)
+				
+		IONOutboxConnectionsRel
+			one-to-many relation to IONConnection
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (IONConnection.Usage.Outbox)
+			
+		IONOutboxActionsRel
+			one-to-many relation to IONConnectionAction
+			Field Mapping uses symbolic key
+				related.IONConnection = IONConnection
+			Instance Selection
+				where (IONConnectionAction.Usage.Outbox)
+
+		IONConnectionRel
+			one-to-one relation to IONConnection
+			Field Mapping uses symbolic key
+				related.IONConnection = IONConnection
+				
+		IONConnections
+			one-to-many relation to IONConnection
+			Field Mapping uses symbolic key
+			
+ 		IONMessageTypes
+			one-to-many relation to IONMessageType
+			Field Mapping uses symbolic key
+			
+    Sets
+		ByStamp
+			indexed
+			Sort Order
+				create stamp
+				IONOutboxQueue
+
+		ByCompleteStamp
+			Sort Order
+				ExecuteTime
+				IONOutboxQueue
+	
+		ByBodType
+			indexed
+			Sort Order
+				BodType
+				Status
+				IONOutboxQueue	
+				
+		ByLogicalId
+			indexed
+			Sort Order
+				IONConnection				
+				FromLogicalId
+				Status
+				create stamp descending
+				IONOutboxQueue				
+				
+		ByLogicalIdMessageType
+			indexed
+			Sort Order
+				IONConnection
+				FromLogicalId
+				Status
+				IONMessageType
+				create stamp descending
+				IONOutboxQueue
+				
+		ByReplicationSet
+		    Sort Order
+				FromLogicalId
+				ReplicationSet
+				RepSetBC
+				create stamp
+				IONOutboxQueue
+
+    Actions
+    	CancelAllNew is a Set Action
+    		default label is "CancelAllNewMessages"
+    		run in background
+    		disable checkpoint
+    		Parameters
+				ParamIONConnection  is an IONConnection
+					default label is "IONConnection"
+				ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+
+			Parameter Rules
+				ParamIONConnection
+					required
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+    		
+    		Sort Order is ByLogicalId
+    				
+    		Instance Selection
+    			where (IONConnection = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+    			or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    Status.New
+				and    create stamp < LocalThruDate)
+    			
+    		Action Rules
+    			Instance Rules
+    				invoke Cancel
+
+		PurgeOrphanedMessages is a Set Action
+			run in background
+			disable checkpoint
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "Connection"					
+
+    		Instance Selection
+    			where (false)
+								
+			Action Rules
+				Empty Set Rules
+					if (ParamIONConnection = blank)					
+						for each IONConnections
+							invoke PurgeOrphanedMessagesByConnection
+								invoked.ParamIONConnection = each.IONConnection
+					else
+						invoke PurgeOrphanedMessagesByConnection
+							invoked.ParamIONConnection = ParamIONConnection
+			
+		PurgeOrphanedMessagesByConnection is a Set Action
+			restricted
+			disable checkpoint
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				
+			Parameter Rules
+				ParamIONConnection
+					required
+					
+			Instance Selection
+				where (IONConnection = ParamIONConnection)
+				
+			Action Rules
+				Instance Rules
+					if (not ValidFromLogicalId)
+						invoke PurgeInstance  
+						
+    	Purge is a Set Action
+			run in background
+			disable checkpoint
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "Connection"					
+				ParamMessageType is an IONMessageType
+					default label is "MessageType"
+				ParamDocumentName is Alpha size 100
+					default label is untranslatable:"MatchDocumentName"
+				ParamStatus              is Numeric size 1
+					default label is "Status"
+					States
+						Cancelled			value is 1
+		        		Sent				value is 4
+		        		Failed				value is 3
+		        		Received			value is 8
+        				Processed			value is 9
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+
+
+			Parameter Rules
+				ParamIONConnection
+					if (ParamDocumentName entered)
+						required
+							"MustEnterConnectionWithDocumentName"
+				
+				ParamStatus
+					required
+					
+				ThruDate
+					if (not ThruDate entered
+					and not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+    		Instance Selection
+    			where (false)
+								
+			Action Rules
+				Empty Set Rules
+					if (ParamDocumentName = blank)					
+						if (ParamIONConnection = blank)
+							for each IONConnections
+								invoke PurgeByConnection
+									invoked.ParamIONConnection = each.IONConnection
+									invoked.ParamMessageType   = ParamMessageType
+									invoked.ThruDate      = ThruDate
+									invoked.OffsetDays    = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+									
+						else
+							invoke PurgeByConnection
+								invoked.ParamIONConnection = ParamIONConnection
+								invoked.ParamMessageType   = ParamMessageType
+								invoked.ThruDate      = ThruDate
+								invoked.OffsetDays    = OffsetDays
+								invoked.ParamStatus        = ParamStatus
+					else
+						invoke PurgeByDocumentName
+								invoked.ParamIONConnection = ParamIONConnection
+								invoked.ParamMessageType   = ParamMessageType
+								invoked.ParamDocumentName  = ParamDocumentName
+								invoked.ThruDate      = ThruDate
+								invoked.OffsetDays    = OffsetDays
+								invoked.ParamStatus        = ParamStatus
+						
+		PurgeByConnection is a Set Action
+			restricted
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				ParamMessageType is an IONMessageType
+					default label is "MessageType"
+				ParamStatus              is Numeric size 1
+					default label is "Status"
+					States
+						Cancelled			value is 1
+		        		Sent				value is 4
+		        		Failed				value is 3
+		        		Received			value is 8
+        				Processed			value is 9
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+
+
+			Parameter Rules
+				ParamIONConnection
+					required
+				ParamStatus
+					required
+				ThruDate
+					if (not ThruDate entered
+					and not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Sort Order is ByLogicalId
+			
+    		Instance Selection
+    			where (false)
+								
+			Action Rules
+				Empty Set Rules
+					if (ParamMessageType = blank)
+						if (ParamIONConnection = 1)
+							if (ParamStatus = 8 or ParamStatus = 9)
+								invoke PurgeOutboxExtendedStatus
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = blank
+									invoked.ThruDate      	   = ThruDate
+									invoked.OffsetDays         = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+									
+								for each IONMessageTypes
+									invoke PurgeOutboxExtendedStatus
+										invoked.ParamIONConnection = ParamIONConnection
+										invoked.ParamMessageType   = each.IONMessageType
+										invoked.ThruDate      	   = ThruDate
+										invoked.OffsetDays         = OffsetDays
+										invoked.ParamStatus        = ParamStatus
+							else
+								invoke PurgeByConnectionMessageType
+										invoked.ParamIONConnection = ParamIONConnection
+										invoked.ParamMessageType   = blank
+										invoked.ThruDate      	   = ThruDate
+										invoked.OffsetDays         = OffsetDays
+										invoked.ParamStatus        = ParamStatus
+								for each IONMessageTypes
+									invoke PurgeByConnectionMessageType
+										invoked.ParamIONConnection = ParamIONConnection
+										invoked.ParamMessageType   = each.IONMessageType
+										invoked.ThruDate      	   = ThruDate
+										invoked.OffsetDays         = OffsetDays
+										invoked.ParamStatus        = ParamStatus
+						else
+							if (ParamStatus = 8 or ParamStatus = 9)
+								invoke PurgeByConnectionMessageTypeProcessed
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = blank
+									invoked.ThruDate      	   = ThruDate
+									invoked.OffsetDays         = OffsetDays
+								for each IONMessageTypes
+									invoke PurgeByConnectionMessageTypeProcessed
+										invoked.ParamIONConnection = ParamIONConnection
+										invoked.ParamMessageType   = each.IONMessageType
+										invoked.ThruDate      	   = ThruDate
+										invoked.OffsetDays         = OffsetDays
+							else
+								invoke PurgeByConnectionMessageType
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = blank
+									invoked.ThruDate           = ThruDate
+									invoked.OffsetDays         = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+									
+								for each IONMessageTypes
+									invoke PurgeByConnectionMessageType
+										invoked.ParamIONConnection = ParamIONConnection
+										invoked.ParamMessageType   = each.IONMessageType
+										invoked.ThruDate      	   = ThruDate
+										invoked.OffsetDays         = OffsetDays
+										invoked.ParamStatus        = ParamStatus
+					else
+						if (ParamIONConnection = 1)
+							if (ParamStatus = 8 or   ParamStatus = 9)
+								invoke PurgeOutboxExtendedStatus
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = ParamMessageType
+									invoked.ThruDate      	   = ThruDate
+									invoked.OffsetDays         = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+							else
+								invoke PurgeByConnectionMessageType
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = ParamMessageType
+									invoked.ThruDate           = ThruDate
+									invoked.OffsetDays         = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+						else
+							if (ParamStatus = 8 or   ParamStatus = 9)
+								invoke PurgeByConnectionMessageTypeProcessed
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = ParamMessageType
+									invoked.ThruDate      	   = ThruDate
+									invoked.OffsetDays         = OffsetDays
+							else
+								invoke PurgeByConnectionMessageType
+									invoked.ParamIONConnection = ParamIONConnection
+									invoked.ParamMessageType   = ParamMessageType
+									invoked.ThruDate           = ThruDate
+									invoked.OffsetDays         = OffsetDays
+									invoked.ParamStatus        = ParamStatus
+			
+		PurgeOutboxExtendedStatus is a Set Action
+			default label is untranslatable
+			restricted
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection  is an IONConnection
+					default label is "IONConnection"
+				ParamMessageType 	is an IONMessageType
+					default label is "MessageType"
+				ParamStatus         is Numeric size 1
+					default label is "Status"
+					States
+						Cancelled			value is 1
+		        		Sent				value is 4
+		        		Failed				value is 3
+		        		Received			value is 8
+        				Processed			value is 9
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+					
+				LocalIONConnection is an IONConnection
+					value is 1
+				
+
+
+			Parameter Rules
+				ParamIONConnection
+					required
+			
+				ParamStatus
+					required
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Sort Order is ByLogicalIdMessageType
+			
+    		Instance Selection
+    			
+    			where (IONConnection  = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    IONMessageType = ParamMessageType
+    			and    ExtendedStatus = ParamStatus
+				and    create stamp < LocalThruDate)
+								
+			Action Rules
+				Instance Rules
+					if (Status.Cancelled)
+						invoke Cancelled.PurgeRecord
+					if (Status.Sent)
+						invoke Sent.PurgeRecord
+					else
+					if (Status.Failed)
+						invoke Failed.PurgeRecord
+					else
+					if (Status.Received)
+						invoke Received.PurgeRecord
+					else
+					if (Status.Processed)
+						invoke Processed.PurgeRecord
+			
+			
+		PurgeByConnectionMessageTypeProcessed is a Set Action
+			restricted
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				ParamMessageType 	is an IONMessageType
+					default label is "MessageType"
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+					
+				
+
+
+			Parameter Rules
+				ParamIONConnection
+					required
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Sort Order is ByLogicalIdMessageType
+			
+    		Instance Selection
+    			
+    			where (IONConnection  = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    IONMessageType = ParamMessageType
+    			and    create stamp < LocalThruDate
+    			and   ((NoAcknowledgement 
+    			and     Status.Received)
+    			or     Status.Processed))
+								
+			Action Rules
+				Instance Rules
+					if (Status.Cancelled)
+						invoke Cancelled.PurgeRecord
+					if (Status.Sent)
+						invoke Sent.PurgeRecord
+					else
+					if (Status.Failed)
+						invoke Failed.PurgeRecord
+					else
+					if (Status.Received)
+						invoke Received.PurgeRecord
+					else
+					if (Status.Processed)
+						invoke Processed.PurgeRecord
+			
+			
+		PurgeByConnectionMessageType is a Set Action
+			restricted
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				ParamMessageType 	is an IONMessageType
+						default label is "MessageType"
+				ParamStatus         is Numeric size 1
+					default label is "Status"
+					States
+						Cancelled			value is 1
+		        		Sent				value is 4
+		        		Failed				value is 3
+		        		Received			value is 8
+        				Processed			value is 9
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+					
+				
+
+
+			Parameter Rules
+				ParamIONConnection
+					required
+				ParamStatus
+					required
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Sort Order is ByLogicalIdMessageType
+			
+    		Instance Selection
+    			
+    			where (IONConnection  = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    IONMessageType = ParamMessageType
+    			and    Status = ParamStatus
+				and    create stamp < LocalThruDate)
+								
+			Action Rules
+				Instance Rules
+					if (Status.Cancelled)
+						invoke Cancelled.PurgeRecord
+					if (Status.Sent)
+						invoke Sent.PurgeRecord
+					else
+					if (Status.HoldFailed)
+						invoke HoldFailed.PurgeRecord
+					else
+					if (Status.Received)
+						invoke Received.PurgeRecord
+					else
+					if (Status.Processed)
+						invoke Processed.PurgeRecord
+
+		PurgeByDocumentName is a Set Action
+			restricted
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				ParamMessageType is an IONMessageType
+					default label is "MessageType"
+				ParamDocumentName is Alpha size 100
+					default label is untranslatable:"MatchDocumentName"
+				ParamStatus              is Numeric size 1
+					default label is "Status"
+					States
+						Cancelled			value is 1
+		        		Sent				value is 4
+		        		Failed				value is 3
+		        		Received			value is 8
+        				Processed			value is 9
+        		ThruDate 			is Date
+				OffsetDays 			is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+
+
+			Parameter Rules
+				ParamIONConnection
+					required
+				ParamStatus
+					required
+					
+				ParamDocumentName
+					required 
+					
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not OffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (OffsetDays - 1)
+			
+				OffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Sort Order is ByLogicalIdMessageType
+			
+    		Instance Selection
+    			
+    			where (IONConnection  = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    IONMessageType = ParamMessageType
+    			and    Status         = ParamStatus
+				and    create stamp < LocalThruDate
+				and    BodType like ParamDocumentName)
+				
+								
+			Action Rules
+				Instance Rules
+					if (Status.Cancelled)
+						invoke Cancelled.PurgeRecord
+					if (Status.Sent)
+						invoke Sent.PurgeRecord
+					else
+					if (Status.Failed)
+						invoke Failed.PurgeRecord
+					else
+					if (Status.Received)
+						invoke Received.PurgeRecord
+					else
+					if (Status.Processed)
+						invoke Processed.PurgeRecord
+ 
+		CancelAllOnHold is a Set Action
+			default label is "CancelAllFailedMessages"
+			run in background
+			disable checkpoint
+			
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				
+			Parameter Rules
+				ParamIONConnection
+					required 
+					
+			Sort Order is ByLogicalId
+				
+	    	Instance Selection
+    			where (IONConnection = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    Status.HoldFailed)
+	
+			Action Rules
+				Instance Rules
+					invoke HoldFailed.Cancel
+		
+		CancelAllPending is a Set Action
+			default label is "CancelAllPendingMessages"
+			run in background
+			disable checkpoint
+			
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				
+			Parameter Rules
+				ParamIONConnection
+					required 
+					
+			Sort Order is ByLogicalId
+				
+	    	Instance Selection
+    			where (IONConnection = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    Status.Pending)
+	
+			Action Rules
+				Instance Rules
+					invoke Pending.Cancel
+
+
+		PurgeSentBods is a Set Action
+			restricted
+			disable checkpoint
+			run in background
+    		default label is "PurgeSentBOD\s"
+			Parameters
+				ThruDate 			is Date
+				PurgeOffsetDays 	is Numeric size 3
+				
+			Parameter Rules
+				ThruDate
+					if (not ThruDate entered
+					and not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+							
+			Instance Selection
+				where (false)
+				
+			Action Rules
+				Empty Set Rules
+					invoke Purge
+						invoked.ThruDate     = ThruDate
+						invoked.OffsetDays   = PurgeOffsetDays
+						invoked.ParamStatus  = Status.Processed
+		
+		ResetFailedBods is a Set Action
+			default label is "ResetFailedBOD\s"
+			run in background
+			disable checkpoint
+			restricted
+			
+	    	Instance Selection
+	    		where (false)
+								
+			Action Rules
+				Empty Set Rules
+					for each IONConnections
+						invoke ResetConnectionFailedBods in foreground
+							invoked.ParamIONConnection = each.IONConnection
+							
+		ResetConnectionFailedBods is a Set Action
+			default label is "ResetConnectionFailedBOD\s"
+			restricted 
+			run in background
+			disable checkpoint
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				
+			Parameter Rules
+				ParamIONConnection
+					required 
+					
+			Sort Order is ByLogicalId
+
+	    	Instance Selection
+    			where (IONConnection = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    Status.Failed)
+								
+			Action Rules
+				Instance Rules
+					make transition to New
+			
+		ResetHeldFailed is a Set Action
+			run in background
+			disable checkpoint
+			default label is "ResetAllFailedMessages"
+
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+			
+			Instance Selection
+				where (false)
+				
+			Action Rules
+				Empty Set Rules
+					if (ParamIONConnection entered)
+						invoke ResetConnectionHeldFailed in foreground
+							invoked.ParamIONConnection = ParamIONConnection						
+					else
+						for each IONConnections
+							invoke ResetConnectionHeldFailed in foreground
+								invoked.ParamIONConnection = each.IONConnection
+								
+		ResetConnectionHeldFailed is a Set Action
+			default label is untranslatable
+			run in background
+			disable checkpoint
+			restricted
+			
+			Parameters
+				ParamIONConnection is an IONConnection
+					default label is "IONConnection"
+				
+			Parameter Rules
+				ParamIONConnection
+					required 
+					
+			Sort Order is ByLogicalId
+					
+	    	Instance Selection
+    			where (IONConnection = ParamIONConnection
+    			and    (FromLogicalId = ParamIONConnection.LogicalId
+                or     FromLogicalId = ParamIONConnection.SecondaryLogicalId)
+    			and    Status.HoldFailed)
+								
+			Action Rules
+				Instance Rules
+					invoke HoldFailed.Reset
+
+		ChangeConnection is an Instance Action
+			valid when (ChangeConnectionValid)
+			
+			Parameters
+				NewIONConnection is an IONConnection
+				NewIONConnectionAction is an IONConnectionAction
+				
+			Parameter Rules
+				NewIONConnection required
+				
+			Action Rules
+				IONConnection = NewIONConnection
+				IONConnectionAction = NewIONConnectionAction
+				FromLogicalId = DefaultFromLogicalId
+
+		EndWorkUpdateAsyncRequest is an Instance Action
+			default label is untranslatable
+			restricted
+			manual update
+
+								
+		UpdateRetryAsyncRequest is an Instance Action
+			default label is untranslatable
+			restricted
+			
+			Action Rules
+				for each RetryAsyncActionRequestRel
+					invoke Update each
+						invoked.TimeToExec = RetryDelay
+						invoked.PendingScheduling = true
+						invoked.TranDisableAudit = true
+					
+		EndWorkUpdateRetryAsyncRequest is an Instance Action
+			default label is untranslatable
+			restricted
+			manual update
+
+			
+		PurgeInstance is a Purge Action
+			restricted
+			
+		ChangeConnectionAndAction is an Instance Action
+			restricted	
+			valid when (ChangeConnectionValid)
+			
+			Parameters
+				NewIONConnection is an IONConnection
+				NewIONConnectionAction is an IONConnectionAction
+				
+			Parameter Rules
+				NewIONConnection required
+				NewIONConnectionAction required
+				
+			Action Rules
+				IONConnection = NewIONConnection
+				IONConnectionAction = NewIONConnectionAction
+				
+		UpdateTriggerAndExecuteTime is an Instance Action
+			restricted
+			
+			Parameters
+				AsyncActionTrigger is UniqueID
+						
+			Action Rules
+				ExecuteTime = current timestamp
+				AsyncActionTriggerRef.BusinessClassName = "AsyncActionTrigger"
+				AsyncActionTriggerRef.BusinessObjectKey = AsyncActionTrigger
+			
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+				Entrance Rules
+					if (IONConnection = blank)
+						IONConnection = DefaultConnection
+			
+					if (FromLogicalId = blank)
+						FromLogicalId = DefaultFromLogicalId
+						
+					invoke EndWorkUpdateAsyncRequest
+				
+				Create is a Create Action
+					restricted
+
+				SendNow is an Instance Action
+					Action Rules
+						invoke SendNow IONConnectionRel
+							suppress manual transaction warning
+							invoked.RecordID = IONOutboxQueue
+							
+				Cancel is an Instance Action
+					Action Rules
+						make transition to Cancelled
+				
+				Complete is an Instance Action
+					restricted
+					
+					Parameters
+						Id is Numeric size 19
+						
+					Action Rules
+						IONOutboxID = Id
+						ErrorMessage	= ""
+						ExecuteTime = current timestamp
+						AsyncActionTriggerRef = blank
+						if (NoAcknowledgement)
+							make transition to Processed
+						else
+							if (not IONConnectionRel.IsIOBox)
+								make transition to Sent
+							else
+								make transition to Received
+				
+				Failed is an Instance Action
+					restricted
+				
+					Parameters
+						ParamMessage is Text
+							default label is "Message"
+
+					Local Fields
+                    		LocalActor is an Actor
+					
+					Action Rules
+						AsyncActionTriggerRef 	= blank
+						ErrorMessage		= ParamMessage
+						ExecuteTime 		= current timestamp
+						FailureCount 		= FailureCount + 1
+						LocalActor          = HoldFailedActorId
+
+						if (FailureCount >= IONConnection.MaxRetries)
+							make transition to HoldFailed
+							if (not HoldFailedActorId = blank)
+                                send notification
+                                    to LocalActor 
+                                    description is "IONOutboxMessageFailed"
+                                    detail is "CheckTheErrorOfMessageWithId<MessageId>InIONOutboxQueue"
+						else
+							make transition to Failed
+							invoke EndWorkUpdateRetryAsyncRequest
+
+				HoldFailed is an Instance Action
+                    restricted
+
+                    Parameters
+                        ParamMessage is Text
+                            default label is "Message"
+
+                    Action Rules
+                        AsyncActionTriggerRef 	= blank
+                        ErrorMessage		= ParamMessage
+                        ExecuteTime 		= current timestamp
+                        FailureCount 		= FailureCount + 1
+
+                        make transition to HoldFailed
+
+			Pending is a State			
+				Cancel is an Instance Action
+					Action Rules
+						make transition to Cancelled
+						
+			Cancelled is a State
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					restricted 
+				
+				Reset is an Instance Action
+					Action Rules
+						make transition to New
+						
+			HoldFailed is a State			
+				Cancel is an Instance Action
+					Action Rules
+						make transition to Cancelled
+						
+				Reset is an Instance Action
+					Action Rules
+						FailureCount = 0
+						make transition to New
+
+				PurgeRecord is a Purge Action
+					restricted
+						
+			Sent is a State
+				Accepted is an Instance Action
+					Action Rules
+						make transition to Processed
+						
+				PurgeRecord is a Purge Action
+					restricted
+					
+			Received is a State
+				Accepted is an Instance Action
+					Action Rules
+						make transition to Processed
+
+				PurgeRecord is a Purge Action
+					restricted
+			
+			Failed is a State
+				PlaceOnHold is an Instance Action
+					Action Rules
+						make transition to HoldFailed
+						
+				PurgeRecord is an Instance Action
+					restricted
+				
+
+
+
+
+
+
+
+
+
+
+
+
+
+			Processed is a State
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				

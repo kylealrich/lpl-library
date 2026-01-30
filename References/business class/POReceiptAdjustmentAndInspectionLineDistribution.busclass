@@ -1,0 +1,160 @@
+POReceiptAdjustmentAndInspectionLineDistribution is a BusinessClass
+	owned by po
+	prefix is RAILD
+	sql name is PORAdjInspLineDistribution
+
+    Ontology
+    	symbolic key is POReceiptAdjustmentAndInspectionLineDistribution
+
+	Persistent Fields
+
+		AssetInformation
+        DistributionPercent				is a TotalPercent
+        DistributionQuantity			is a Quantity
+        PostingType                 	is AlphaUpper size 2
+            States
+                Inventory           value is "I1"
+                Offset              value is "O1"
+                RniExpenseAccount   value is "E1"
+                ReceivedNotInvoiced value is "RN"
+                MatchedNotReceived  value is "MN"
+                AddOnCost           value is "A"
+
+	Transient Fields
+		BypassAccountEdit				is Boolean
+		DistributionAccount				is a TransactionCodeBlock
+			derive value from GLTransactionDetailRel.FinanceCodeBlock	
+		DistributionAmount				is an InternationalAmount
+			derive value from GLTransactionDetailRel.TransactionAmount 
+		GLTKeepRateOnly				    is Boolean
+		BypassActiveCodeBlockEdit	     
+		
+	Conditions
+		DistributionByQuantity
+			restricted
+			when (DistributionQuantity entered)
+		DistributionByPercent
+			restricted
+			when (DistributionPercent entered)
+		DistributionByAmount
+			restricted
+			when (DistributionAmount entered)
+
+
+	Field Rules
+		DistributionAccount
+
+
+
+
+		AssetInformation
+
+
+
+
+		DistributionPercent
+			if (DistributionQuantity not entered)
+				default to 100%
+
+			constraint (DistributionPercent > 0)
+				"DistributionPercentMustBeGreaterThanZero"
+			constraint (DistributionPercent <= 100%)
+				"DistributionPercentCannotBeGreaterThan100%"
+
+		DistributionQuantity
+			if (DistributionPercent entered)
+				cannot be entered
+					"CanEitherEnterDistributionQuantityOrDistributionPercent,NotBoth"
+
+
+
+
+			constraint (DistributionQuantity > 0)
+				"DistributionQuantityMustBeGreaterThanZero"
+
+
+
+	Rule Blocks
+	
+		CreateGLTransDetail
+			invoke Unreleased.Create GLTransactionDetail
+				fill in fields from this instance		 
+				invoked.OriginatingTransaction 	= reference to this instance
+				invoked.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				invoked.System					= "PO"
+				invoked.Reference				= "POReceiptAdjustmentAndInspectionLineDistribution"
+				invoked.AccountingEntity		= POReceiptAdjustmentAndInspectionLine.Company.AccountingEntity
+
+				invoked.TransactionDate			= POReceiptAdjustmentAndInspectionLine.UpdateDate		 
+				invoked.PostingDate				= current corporate date
+				invoked.FinanceCodeBlock		= DistributionAccount
+				invoked.ReportCurrencyAmount 	= DistributionAmount 
+				invoked.ReportCurrencyAmount.KeepRateOnly = GLTKeepRateOnly
+				invoked.ControlDocumentNumber 	= POReceiptAdjustmentAndInspectionLine.POReceiptAdjustmentAndInspection
+				invoked.DocumentNumber		  	= POReceiptAdjustmentAndInspectionLine.POReceiptAdjustmentAndInspection
+				invoked.Description			  	= POReceiptAdjustmentAndInspectionLine.PurchaseOrderReceiptLineRels.Description		
+				invoked.AutoReverse 			= false		
+
+		UpdateGLTransDetail		
+			invoke Unreleased.Update GLTransactionDetailRel
+				if (DistributionPercent entered) 
+		    		invoked.TransactionAmount = DistributionAmount
+		    	if (DistributionAmount entered)
+		    		invoked.TransactionAmount = DistributionAmount
+		    	if (DistributionQuantity entered)
+		    		invoked.TransactionAmount = DistributionAmount
+
+	Relations
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			delete cascades
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction = reference to this instance   
+
+	Actions
+		Create is a Create Action
+			Entrance Rules
+				BypassActiveCodeBlockEdit   = true
+			
+			Action Rules
+				BypassAccountEdit			= true
+				
+
+
+
+
+
+				
+				include CreateGLTransDetail 
+
+		Update is an Update Action
+			Entrance Rules
+				BypassActiveCodeBlockEdit = true
+			
+			Action Rules
+				BypassAccountEdit		= true
+				include UpdateGLTransDetail 
+		
+		Delete is a Delete Action
+			Action Rules
+				if (GLTransactionDetailRel exist) 
+					if (GLTransactionDetailRel.Status.Unreleased)
+						invoke Unreleased.Delete GLTransactionDetailRel
+					else
+						invoke Released.Delete GLTransactionDetailRel
+					
+		Release is an Instance Action
+			Action Rules
+				BypassAccountEdit		= false
+				invoke Unreleased.Release GLTransactionDetailRel 	
+					if (POReceiptAdjustmentAndInspectionLine.PurchaseOrderReceiptLine.IsNonInventory)
+						invoked.MoveToNotToBePosted = true
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke PurgeValidSubLedgerTrx GLTransactionDetailRel
+				
+				
+				

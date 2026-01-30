@@ -1,0 +1,1483 @@
+PayablesInvoiceSpreadAddOnCharge is a BusinessClass
+	owned by ma
+	sql name is PayInvSpreadAddOnCharge
+	prefix is ISAOC
+
+	Ontology
+		symbolic key is PayablesInvoiceSpreadAddOnCharge
+
+	Patterns
+		implements ContextualParent
+		implements StaticJava
+		disable AuditIndex
+		implements Archivable
+
+	Persistent Fields
+		PurchaseOrder
+		SpreadAmount				is an InternationalAmount
+		Vendor
+
+		SpreadMethod
+		TaxCode
+		Taxable						is Boolean
+
+		AddOnChargePercent
+		EnteredAddOnChargeAmount	is an InternationalAmount
+		CalculatedSpreadAmount		is an InternationalAmount
+		SpreadDifference			is an InternationalAmount
+		Accrual						is AlphaUpper size 1
+		TaxAmount					is an InternationalCost
+		Summarize					is Boolean
+		PurchaseFromLocation
+
+		GlobalDocumentType
+		PostingAccount				is a FinanceCodeBlock
+
+	Transient Fields
+		BypassInvoiceErrorChecking	is Boolean
+		BypassAllowUpdate			is Boolean
+		TransientCurrency			is a FromCurrency
+			derive value from PayablesInvoice.InvoiceCurrency 
+
+	Field Rules
+		PurchaseOrder
+			initial value is DerivedPurchaseOrder
+			cannot be changed
+		AddOnChargePercent
+			default to AddOnCharge.AddOnChargePercent
+			if (SpreadMethod.Rate)
+				required			
+					"MustEnterAddOnCostRate"
+			else	
+				cannot be entered
+					"RateCannotBeEnteredWhenNotSpreadingByRate"
+			
+		SpreadMethod
+			default to PurchaseOrderSpreadAddOnChargeRel.SpreadMethod
+			default to AddOnCharge.SpreadMethod
+			if (PurchaseOrderSpreadAddOnChargeRel exists)
+				constraint (SpreadMethod = PurchaseOrderSpreadAddOnChargeRel.SpreadMethod)
+					"SpreadMethodMustMatchPurchaseOrderAddOnChargeSpreadMethod"
+			else
+				constraint (SpreadMethod = AddOnCharge.SpreadMethod)
+					"SpreadMethodMustMatchAddOnChargeSpreadMethod"
+			required
+			cannot be changed			    
+			constraint (SpreadMethod.Amount
+			or          SpreadMethod.Rate
+			or          SpreadMethod.Quantity)
+				"AddOnChargeSpreadCanOnlyBeAmount,Quantity,OrRate"			
+			
+		SpreadAmount
+			if (SpreadMethod.Amount)
+				required
+					"MustEnterAddOnCostAmount"	
+				
+			if (SpreadMethod.Rate)
+				cannot be entered
+					"AmountCannotBeEnteredWhenSpreadingByRate"
+			
+		Vendor
+			default to PayablesInvoice.Vendor
+		TaxCode
+
+			default to PurchaseOrderSpreadAddOnChargeRel.TaxCode
+			default to AddOnCharge.TaxCode
+			if (action type.Create)
+				if (PayablesInvoice.TaxAdjustment.Calculate
+				or  PayablesInvoice.TaxAdjustment.IgnoreProductAndAOC)
+					initialize TaxCode
+				else
+				if (PayablesInvoice.TaxAdjustment.OverrideProductAndAOC)
+					if (CalculateTax.AccruedOrInvoiced.Invoiced
+					or !LocalTaxCode.TaxType.CalculatedRate)
+						TaxCode	= PayablesInvoice.TaxCode
+				else
+					if ((PayablesInvoice.TaxAdjustment.OverrideTaxablePOAndAOC
+					and  AddOnCharge.TaxCode entered)
+					and (CalculateTax.AccruedOrInvoiced.Invoiced
+					or  !LocalTaxCode.TaxType.CalculatedRate))
+						TaxCode	= PayablesInvoice.TaxCode 								
+
+
+			if (PayablesInvoice.TaxCode.TaxType.CalculatedRate)
+				constraint (PayablesInvoice.TaxCode = TaxCode)
+					"CalculatedRateTaxCodeNotAllowedWithOtherTaxCodes" 
+
+		Taxable
+			if (TaxCode entered)
+				Taxable = true
+			else
+				Taxable = false
+
+	Local Fields
+		AOCView								is a PayablesInvoiceAddOnCharge view
+		LocalPurchaseOrder					is a PurchaseOrder
+		LocalPurchaseOrderLine				is like PurchaseOrderLine
+		LocalContract						is like Contract
+		LocalContractLine					is like ContractLine
+		LocalCalcSpreadAmount				is an InternationalCost	
+		LocalTotalSpreadQuantity			is like Quantity			
+		LocalSpreadPercent					is Percent size 7.5	
+		LocalSpreadLineAmount				is an InternationalCost	
+		LocalTotalSpreadAmount				is an InternationalCost	
+		LocalTotalTaxAmount					is an InternationalCost
+		ThisTotalMatchedQuantity			is like Quantity			
+		RoundedValue   	
+	
+		LocalSpreadInvoicedTaxDifference	is an InternationalCost	
+		LocalSpreadAccruedTaxDifference		is an InternationalCost	
+		LocalSpreadDifference				is an InternationalCost	
+		LocalAOCCount						is Numeric 6				
+		LocalSpreadTaxDifference			is an InternationalCost	
+		LocalCalculatedTax					is an InternationalAmount
+		LocalContextItem					is an Item
+		UOMCalculation
+		LocalPayablesInvoiceAddOnCharge		is like PayablesInvoiceAddOnCharge
+
+		LocalTotalPOLineServiceCount		is Numeric 9
+		LocalTotalOpenPOLineCount			is Numeric 9
+		LocalTotalNonInventoryTypeCount		is Numeric 9
+
+		CalculateTax												
+		LocalCalculateTaxExecuted			is Alpha 1				
+		LocalCounter						is Numeric 3
+
+		LocalMatchInvoiceTax				is Numeric 3
+		LocalMatchedQuantity				is like Quantity			
+		LocalAccumInvoiceTax				is an InternationalAmount	
+		LocalAccumAccruedTax				is an InternationalAmount	
+
+
+
+		LocalTaxCode						is a TaxCode
+
+		LocalCalcUnitCost					is like InternationalCost
+		LocalExtendedUnitCost				is like InternationalCost	
+		LocalTaxable						is Boolean					
+		LocalInvoicedTax					is Boolean					
+		LocalTotalAccruedTaxAmount			is an InternationalAmount	
+		LocalTotalInvoicedTaxAmount			is an InternationalAmount	
+
+		LocalItem 							is like Item
+		NextSentence						is Boolean
+		LocalErrorMsg						is Alpha 200
+		LocalSpreadTotal					is an InternationalAmount	
+		LocalLineSpreadAmount				is an InternationalAmount	
+		LocalWithLineAOC					is Boolean					
+		LocalUserTaxEntity  				is a TaxEntity
+		LocalUserTaxCode					is a TaxCode
+
+	Context Fields		
+
+	Derived Fields
+		DerivedNumberOfDecimalsQuantity is a DerivedField
+			type is Numeric size 1
+			restricted
+			return InventoryCompanyRel.NumberOfDecimalsQuantity
+				
+		DerivedAOCDescription is a DerivedField 
+			type is Alpha size 60
+			return AddOnCharge.Description
+
+		DerivedNumberOfDecimalsCost is a DerivedField
+			type is Numeric size 1
+			restricted
+
+
+			if  (LocalPurchaseOrderLineRel exists
+			and (LocalPurchaseOrderLineRel.ItemType.NonStock
+			or   LocalPurchaseOrderLineRel.ItemType.Inventoried)
+			and  LocalPurchaseOrderLineRel.Item.NumberOfDecimalsCost entered)
+
+				return LocalPurchaseOrderLineRel.Item.NumberOfDecimalsCost
+			else
+
+				return InventoryCompanyRel.NumberOfDecimalsCost
+
+		DerivedRoundToQuantity			is a DerivedField
+			type is Unsigned Decimal 21.8
+			if (DerivedNumberOfDecimalsQuantity = 8)
+				return .00000001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 7)
+				return .0000001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 6)
+				return .000001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 5)
+				return .00001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 4)
+				return .0001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 3)
+				return .001
+			else
+			if (DerivedNumberOfDecimalsQuantity = 2)
+				return .01
+			else
+			if (DerivedNumberOfDecimalsQuantity = 1)
+				return .1
+			else
+			if (DerivedNumberOfDecimalsQuantity = 0)
+				return 1
+			else
+				return 0
+
+		DerivedRoundToCost			is a DerivedField
+			type is Unsigned Decimal 21.8
+			if (1 = 1)
+				return .00000001
+			else
+			if (DerivedNumberOfDecimalsCost = 8)
+				return .00000001
+			else
+			if (DerivedNumberOfDecimalsCost = 7)
+				return .0000001
+			else
+			if (DerivedNumberOfDecimalsCost = 6)
+				return .000001
+			else
+			if (DerivedNumberOfDecimalsCost = 5)
+				return .00001
+			else
+			if (DerivedNumberOfDecimalsCost = 4)
+				return .0001
+			else
+			if (DerivedNumberOfDecimalsCost = 3)
+				return .001
+			else
+			if (DerivedNumberOfDecimalsCost = 2)
+				return .01
+			else
+			if (DerivedNumberOfDecimalsCost = 1)
+				return .1
+			else
+			if (DerivedNumberOfDecimalsCost = 0)
+				return 1
+			else
+				return 1
+
+		OutputNumberOfDecimals is a DerivedField		
+			type is Numeric 1
+			if (PayablesInvoice.InvoiceCurrency entered)
+				return PayablesInvoice.InvoiceCurrency.NumberOfDecimals
+			else
+				return 3
+
+		DerivedRoundTo is a DerivedField
+			type is Decimal 5.4
+			restricted
+			if (OutputNumberOfDecimals = 2)
+				return .01
+			else
+			if (OutputNumberOfDecimals = 0)
+				return 1
+			else
+			if (OutputNumberOfDecimals = 3)
+				return .001
+			else
+			if (OutputNumberOfDecimals = 4)
+				return .0001
+
+		DerivedSumAOCDistributions is a DerivedField		
+			type is like InternationalAmount
+			return sum PayablesInvoiceAddOnChargesRel.TotalDistributionAmount
+
+		DerivedPurchaseOrder is a DerivedField 
+			type is like PurchaseOrder
+			if (PayablesInvoice.MultiplePurchaseOrders)
+				return blank
+			else
+				return PayablesInvoice.FirstPurchaseOrder
+		
+	Relations
+
+	   	TaxEntityRel				 
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				related.TaxEntity 				= Company.AccountingEntity
+				
+		PurchaseOrderSpreadAddOnChargesRel
+			one-to-many relation to PurchaseOrderSpreadAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company                                		= Company
+				related.PurchaseOrder								= PurchaseOrder
+		
+		PurchaseOrderSpreadAddOnChargeRel
+			one-to-one relation to PurchaseOrderSpreadAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company                                		= Company
+				related.PurchaseOrder								= PurchaseOrder
+				related.AddOnCharge 								= AddOnCharge
+
+
+		
+		PayablesInvoiceDetailsRel
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses symbolic key
+				related.Company 					= Company
+				related.PayablesInvoice 			= PayablesInvoice
+
+		InventoryCompanyRel
+			one-to-one relation to InventoryCompany
+			required
+			Field Mapping uses symbolic key
+				related.Company 					= Company
+
+		LocalItemRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup		= InventoryCompanyRel.ItemGroup
+				related.Item			= LocalItem
+		
+		PurchaseOrderAndLineAddOnChargesRel
+			one-to-many relation to PurchaseOrderAndLineAddOnCharge
+			Field Mapping uses Set5
+				related.Company						= Company
+				related.AddOnCharge					= AddOnCharge
+			Instance Selection
+				where (PurchaseOrder not entered
+				or     related.PurchaseOrder		= PurchaseOrder)
+
+		LocalPurchaseOrderLineRel
+			one-to-one relation to PurchaseOrderLine
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PurchaseOrder				= LocalPurchaseOrder
+				related.PurchaseOrderLine			= LocalPurchaseOrderLine
+
+		LocalPurchaseOrderAndLineAddOnChargeRel
+			one-to-one relation to PurchaseOrderAndLineAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PurchaseOrder				= LocalPurchaseOrder
+				related.PurchaseOrderLine			= LocalPurchaseOrderLine
+				related.AddOnCharge					= AddOnCharge
+
+		MatchPurchaseOrderInvoicesAnyPORel
+			one-to-many relation to MatchPurchaseOrderInvoice
+			Field Mapping uses Set2
+				related.Company						= Company
+				related.Vendor						= Vendor
+				related.PayablesInvoice				= PayablesInvoice
+
+		MatchPurchaseOrderInvoiceAnyVendorRel
+			one-to-many relation to MatchPurchaseOrderInvoice
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PayablesInvoice				= PayablesInvoice
+
+		PayablesInvoiceAddOnChargesRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PayablesInvoice				= PayablesInvoice
+			Instance Selection
+				where (related.AddOnCharge			= AddOnCharge
+				and   (PurchaseOrder not entered
+				or     related.PurchaseOrder		= PurchaseOrder))
+
+		LocalPayablesInvoiceAddOnChargesRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PayablesInvoice				= PayablesInvoice
+				related.PurchaseOrder				= LocalPurchaseOrder
+				related.PurchaseOrderLine			= LocalPurchaseOrderLine
+				related.Contract					= LocalContract
+				related.ContractLine				= LocalContractLine
+				related.AddOnCharge					= AddOnCharge
+
+		LocalPayablesInvoiceAddOnChargeExactRel
+			one-to-one relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PayablesInvoice				= PayablesInvoice
+				related.PurchaseOrder				= LocalPurchaseOrder
+				related.PurchaseOrderLine			= LocalPurchaseOrderLine
+				related.Contract	  				= LocalContract
+				related.ContractLine    			= LocalContractLine
+				related.AddOnCharge					= AddOnCharge
+				related.PayablesInvoiceAddOnCharge  = LocalPayablesInvoiceAddOnCharge 
+
+		EntityTaxCodeRel
+			classic name is TAXCODE
+			one-to-one relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= Company.FinanceEnterpriseGroup
+				related.TaxEntity 					= Company.AccountingEntity
+				related.TaxCode 					= TaxCode
+
+		OriginalInvoiceAddOnChargesRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PayablesInvoice				= PayablesInvoice.MatchInvoiceReferenceRel.OriginalInvoice
+			Instance Selection
+				where (related.AddOnCharge			= AddOnCharge
+				and   (PurchaseOrder not entered
+				or     related.PurchaseOrder		= PurchaseOrder))
+
+		UserTaxEntityRel
+    		one-to-one relation to TaxEntity
+    		Field Mapping uses symbolic key
+        		related.FinanceEnterpriseGroup = Company.FinanceEnterpriseGroup
+        		related.TaxEntity              = LocalUserTaxEntity
+
+		UserEntityTaxCodeRel
+    		one-to-one relation to EntityTaxCode
+    		Field Mapping uses symbolic key
+       	 		related.FinanceEnterpriseGroup = Company.FinanceEnterpriseGroup
+        		related.TaxEntity              = LocalUserTaxEntity
+        		related.TaxCode                = LocalUserTaxCode 
+
+		AocEntityTaxCodeRel
+    		one-to-one relation to EntityTaxCode
+    		Field Mapping uses symbolic key
+       	 		related.FinanceEnterpriseGroup = Company.FinanceEnterpriseGroup
+        		related.TaxEntity              = Company.AccountingEntity
+        		related.TaxCode                = LocalUserTaxCode 
+
+	Sets
+
+		ByAddOnChargePurchaseOrder
+			indexed
+			Sort Order
+				Company
+				AddOnCharge
+				PurchaseOrder
+				PayablesInvoice
+
+	Conditions
+		ValidatePO
+			restricted
+			when ((Vendor.ValidatePurchaseOrder.Yes)
+			or    (!Vendor.ValidatePurchaseOrder.No
+			and     Vendor.VendorClass.ValidatePurchaseOrder.Yes)
+			or    (!Vendor.ValidatePurchaseOrder.No
+			and    !Vendor.VendorClass.ValidatePurchaseOrder.No
+			and     Company.MatchCompanyRel.ValidatePurchaseOrder))
+
+		PayablesInvoiceSpreadAddOnChargeExists
+			restricted
+			when (PayablesInvoiceSpreadAddOnCharge exists)
+
+		AllowUpdate
+			restricted
+			when (PayablesInvoice.IsUpdateable
+			and   !PayablesInvoice.BackgroundProcessing.MatchInvoice)
+
+		SupplierAllowUpdate 
+			restricted
+			when (AllowUpdate
+			and   PayablesInvoice.SupplierCreatedInvoiceStatus = 1)
+
+		SupplierAllowDelete 
+			restricted 
+			when (PayablesInvoice.SupplierCreatedInvoiceStatus = 1)
+
+		CreditForRebill
+			restricted
+			when (PayablesInvoice.InvoiceType.CreditMemo
+			and   PayablesInvoice.InvoiceSource = "Y" 
+			and   PayablesInvoice.MatchInvoiceReferenceRel exists)
+																					
+		AllowCreditForRebill
+			when (PayablesInvoice.MatchInvoiceReference2Rel exists)
+
+
+
+
+		AOCDistributionsOutOfBalance		
+			when (!DerivedSumAOCDistributions = SpreadAmount
+			and !SpreadMethod.Rate
+			and PayablesInvoice.Status.Unreleased)
+
+		AddOnChargeLandedTax
+			restricted
+			when (AocEntityTaxCodeRel.LandedCost)
+
+	Rule Blocks
+
+		CreateAndUpdateRules
+
+
+			if (!PayablesInvoice.InvoiceType.CreditMemo)
+				if (AddOnCharge.AddOnChargeType.Cost)
+					constraint (SpreadAmount >= 0)
+						"CostTypeAddOnCharge;CannotEnterANegativeTotalOrUnitCost"	
+				else
+				if (AddOnCharge.AddOnChargeType.Allowance
+				and SpreadAmount > 0)
+					SpreadAmount *= -1
+
+			initialize LocalTotalTaxAmount
+			initialize LocalAccumAccruedTax
+			initialize LocalAccumInvoiceTax
+				
+			if  (!ValidatePO)
+				constraint (PayablesInvoice.InvoiceDetailExists
+				or          !PayablesInvoice.MatchProcessType.ReceiptMatch)
+					"CannotAdd;InvoiceDetailMustExistWhenNotValidatingPO"		
+				
+			if (PayablesInvoiceDetailsRel exists)
+
+				for each PayablesInvoiceDetailsRel
+					if  (PayablesInvoice.MatchProcessType.ServiceContract)
+						if (each.ContractLine.ServiceCode.Amount)
+							LocalTotalPOLineServiceCount 				+= 1
+						LocalTotalOpenPOLineCount 						+= 1
+						if (InventoryCompanyRel.CostingMethod.StandardCosting)
+							LocalTotalNonInventoryTypeCount 			+= 1	
+						LocalTotalSpreadQuantity 						+= each.MatchedQuantity
+						LocalTotalSpreadAmount 							+= each.TotalDistributionAmount
+					else
+					if   (each.MatchUnitCost not entered
+					and   SpreadMethod.Amount)
+						NextSentence = true
+					else
+					if  (PurchaseOrder entered
+					and  PurchaseOrder not = each.PurchaseOrder)
+						NextSentence = true
+					else
+					if (each.PurchaseOrderLine entered
+					and each.MatchedQuantity entered)
+						LocalPurchaseOrder 								= each.PurchaseOrder
+						LocalPurchaseOrderLine							= each.PurchaseOrderLine
+						LocalContract									= each.Contract
+						LocalContractLine								= each.ContractLine
+
+						if   (!LocalPurchaseOrderAndLineAddOnChargeRel exists
+						or   (!LocalPurchaseOrderAndLineAddOnChargeRel.Canceled
+						and   !LocalPurchaseOrderAndLineAddOnChargeRel.Closed.Yes))
+
+							if (each.PurchaseOrderLine.ServiceCode.Amount)
+								LocalTotalPOLineServiceCount 				+= 1
+							LocalTotalOpenPOLineCount 						+= 1
+							if (InventoryCompanyRel.CostingMethod.StandardCosting
+							and !each.PurchaseOrderLine.ItemType.Inventoried)
+								LocalTotalNonInventoryTypeCount 			+= 1	
+
+							LocalTotalSpreadQuantity 					+= each.MatchedQuantity
+							LocalTotalSpreadAmount 						+= each.TotalDistributionAmount
+
+			else
+			if (!PayablesInvoice.MatchProcessType.Service)
+
+				for each MatchPurchaseOrderInvoicesAnyPORel
+
+					if  (PurchaseOrder not entered
+					or   PurchaseOrder = each.PurchaseOrder)
+						for each each.PurchaseOrderLineRel
+
+							LocalPurchaseOrder 								= each.PurchaseOrder
+							LocalPurchaseOrderLine							= each.PurchaseOrderLine
+							LocalContract									= each.Contract
+							LocalContractLine								= each.ContractLine
+	
+							if   (each.ExcludeFromAddOnChargeSpread
+							or    each.QuantityToProcess not entered)
+								NextSentence = true
+							else
+							if   (each.EnteredUnitCost not entered
+							and   SpreadMethod.Amount)
+								NextSentence = true
+							else
+							if   (LocalPurchaseOrderAndLineAddOnChargeRel exists
+							and  (LocalPurchaseOrderAndLineAddOnChargeRel.Canceled
+							or    LocalPurchaseOrderAndLineAddOnChargeRel.Closed.Yes))
+								NextSentence = true
+							else
+
+								if (LocalPurchaseOrderAndLineAddOnChargeRel exists)
+									if (LocalPurchaseOrderAndLineAddOnChargeRel.ReceivedQuantity > LocalPurchaseOrderAndLineAddOnChargeRel.Quantity)
+										ThisTotalMatchedQuantity 			= (LocalPurchaseOrderAndLineAddOnChargeRel.ReceivedQuantity - LocalPurchaseOrderAndLineAddOnChargeRel.MatchedQuantity)
+									else
+										ThisTotalMatchedQuantity 			= (LocalPurchaseOrderAndLineAddOnChargeRel.Quantity - LocalPurchaseOrderAndLineAddOnChargeRel.MatchedQuantity)
+								else
+									if (each.ReceivedQuantity > each.Quantity)
+										ThisTotalMatchedQuantity 			= each.ReceivedQuantity
+									else
+										ThisTotalMatchedQuantity 			= each.Quantity - (each.CancelQuantity + each.WriteOffQuantity)
+	
+								if (ThisTotalMatchedQuantity entered
+								and each.ServiceCode.Amount)
+									LocalTotalPOLineServiceCount 			+= 1
+								LocalTotalOpenPOLineCount 					+= 1
+								
+								if (InventoryCompanyRel.CostingMethod.StandardCosting
+								and !each.ItemType.Inventoried)
+									LocalTotalNonInventoryTypeCount 		+= 1
+	
+								LocalTotalSpreadQuantity 				+= ThisTotalMatchedQuantity
+
+								if ((each.ItemType.Inventoried
+								or   each.ItemType.NonStock)
+								and (each.Item.CatchWeightCode.NotCatchWeight
+								or   each.Item.CatchWeightCode.IssueRequiresBoth
+								or   each.Item.CatchWeightCode not entered))
+									LocalContextItem						= each.Item
+									UOMCalculation.InputQuantity			= ThisTotalMatchedQuantity
+									UOMCalculation.InputUOMConversion		= each.EnteredBuyUOMMultiplier
+									UOMCalculation.InputToUOMConversion 	= each.VendorPriceUOMMultiplier
+									UOMCalculation.Method					= UOMCalculation.Method.ConvertToAlternate
+									LocalTotalSpreadAmount 					+= each.EnteredUnitCost * UOMCalculation.OutputQuantity	
+								else
+									LocalTotalSpreadAmount 					+= each.EnteredUnitCost * ThisTotalMatchedQuantity	
+
+				if (!SpreadMethod.Quantity)
+					constraint (LocalTotalSpreadAmount entered)
+						"CannotSpread;AmountTotalIsZero"		
+												
+
+
+
+			constraint (LocalTotalOpenPOLineCount entered)
+				"CannotSpread;NoLinesToSpreadAgainst"		
+						
+			if (InventoryCompanyRel.CostingMethod.StandardCosting)
+				constraint (LocalTotalNonInventoryTypeCount entered)
+					"StandardCostCompany;CannotHaveItemsWithAddOnCharges"		
+
+
+
+			invoke DeleteNoInvoiceUpdate PayablesInvoiceAddOnChargesRel
+			
+			if (PayablesInvoiceDetailsRel exists)
+
+				for each PayablesInvoiceDetailsRel
+
+					LocalPurchaseOrder 								= each.PurchaseOrder
+					LocalPurchaseOrderLine							= each.PurchaseOrderLine
+					LocalContract									= each.Contract
+					LocalContractLine								= each.ContractLine
+					if   (each.MatchUnitCost not entered
+					and   SpreadMethod.Amount)
+						NextSentence = true
+					else
+					if  (PurchaseOrder entered
+					and  PurchaseOrder not = LocalPurchaseOrder)
+						NextSentence = true  
+					else
+					if   ((each.PurchaseOrderLine entered
+					or     each.ContractLine entered)
+					and   each.MatchedQuantity entered
+					and  (!LocalPurchaseOrderAndLineAddOnChargeRel exists
+					or   (!LocalPurchaseOrderAndLineAddOnChargeRel.Canceled
+					and   !LocalPurchaseOrderAndLineAddOnChargeRel.Closed.Yes))
+					and   (!InventoryCompanyRel.CostingMethod.StandardCosting
+					or     !each.PurchaseOrderLine.ItemType.Inventoried))
+
+						LocalItem									= each.Item
+						LocalMatchedQuantity						= each.MatchedQuantity
+
+						if (SpreadMethod.Rate)
+							LocalSpreadPercent						= AddOnChargePercent
+						else
+						if (SpreadMethod.Quantity)
+							LocalSpreadPercent						= LocalMatchedQuantity / LocalTotalSpreadQuantity
+						else
+						if (SpreadMethod.Amount)
+							LocalSpreadPercent						= ((each.EnteredUnitCost * LocalMatchedQuantity) / LocalTotalSpreadAmount)
+
+						initialize RoundedValue				
+						if (SpreadMethod.Rate)
+							RoundedValue.RoundInput					= AddOnChargePercent * each.TotalDistributionAmount
+						else
+							RoundedValue.RoundInput					= LocalSpreadPercent * SpreadAmount
+
+						RoundedValue.RoundingType					= RoundedValue.RoundingType.Normal				
+						RoundedValue.RoundTo						= DerivedRoundTo  
+						LocalSpreadLineAmount  						= RoundedValue.RoundResult
+						if (AddOnCharge.AddOnChargeType.Allowance
+						and LocalSpreadLineAmount > 0)
+							LocalSpreadLineAmount					*= -1
+
+						initialize RoundedValue				
+						RoundedValue.RoundInput						= LocalSpreadLineAmount / LocalMatchedQuantity				
+
+						RoundedValue.RoundingType					= RoundedValue.RoundingType.Normal				
+						RoundedValue.RoundTo						= DerivedRoundToCost  
+						LocalCalcUnitCost							= RoundedValue.RoundResult
+
+
+						LocalExtendedUnitCost						= LocalCalcUnitCost * LocalMatchedQuantity
+
+						if (AddOnCharge.AddOnChargeType.Allowance
+						and LocalCalcUnitCost > 0)
+							LocalCalcUnitCost *= -1
+							LocalExtendedUnitCost *= -1
+
+
+
+						LocalTaxCode								= TaxCode
+						if (LocalPurchaseOrderAndLineAddOnChargeRel exists)
+							LocalTaxCode = LocalPurchaseOrderAndLineAddOnChargeRel.TaxCode
+							
+						if (PayablesInvoice.TaxAdjustment.Calculate
+						or 	PayablesInvoice.TaxAdjustment.IgnoreProductAndAOC)
+							initialize LocalTaxCode
+
+
+						
+
+
+
+
+
+						LocalPayablesInvoiceAddOnCharge					= each.PayablesInvoiceDetail
+						if (LocalPayablesInvoiceAddOnChargeExactRel exists)
+						
+							invoke Update LocalPayablesInvoiceAddOnChargeExactRel
+								invoked.EnteredUnitCost					= LocalCalcUnitCost
+								invoked.MatchUnitCost					= LocalCalcUnitCost
+								invoked.EnteredQuantity					= LocalMatchedQuantity
+								invoked.MatchedQuantity					= LocalMatchedQuantity
+								invoked.TotalDistributionAmount			= LocalSpreadLineAmount 
+								invoked.TotalAddOnChargeAmount			= LocalSpreadLineAmount 
+								invoked.AddOnChargeAmount				= LocalSpreadLineAmount 
+								initialize invoked.PurchaseOrderReceipt
+								initialize invoked.PurchaseOrderReceiptLine
+								invoked.TaxCode							= TaxCode
+								invoked.Taxable							= LocalTaxable
+							LocalCalcSpreadAmount 						+= LocalPayablesInvoiceAddOnChargeExactRel.TotalDistributionAmount
+							LocalTotalTaxAmount							+= LocalPayablesInvoiceAddOnChargeExactRel.TaxAmount
+							LocalAccumInvoiceTax						+= LocalPayablesInvoiceAddOnChargeExactRel.InvoicedTaxAmount
+							LocalAccumAccruedTax						+= LocalPayablesInvoiceAddOnChargeExactRel.AccruedTaxAmount
+							LocalAOCCount 								+= 1
+						else
+							invoke CreateFromSpread PayablesInvoiceAddOnCharge
+								assign result to AOCView
+								invoked.Company							= Company
+								invoked.PayablesInvoice					= PayablesInvoice
+								invoked.Vendor							= PayablesInvoice.Vendor
+								invoked.PurchaseOrder					= LocalPurchaseOrder
+								invoked.PurchaseOrderLine				= LocalPurchaseOrderLine
+								invoked.AddOnCharge						= AddOnCharge
+								invoked.PayablesInvoiceAddOnCharge		= each.PayablesInvoiceDetail
+								invoked.EnteredUnitCost					= LocalCalcUnitCost
+								invoked.MatchUnitCost					= LocalCalcUnitCost
+								invoked.EnteredQuantity					= LocalMatchedQuantity
+								invoked.MatchedQuantity					= LocalMatchedQuantity
+								invoked.TotalDistributionAmount			= LocalSpreadLineAmount
+								invoked.TotalAddOnChargeAmount			= LocalSpreadLineAmount 
+								invoked.AddOnChargeAmount				= LocalSpreadLineAmount 
+	
+								invoked.TaxCode							= TaxCode
+								invoked.Taxable							= LocalTaxable
+
+								invoked.RecordSource					= "LM"
+								invoked.Item							= each.Item
+								invoked.ItemType						= each.ItemType
+								invoked.Location						= each.Location
+								invoked.MatchDetailKey					= each.MatchDetailKey
+								invoked.Contract						= each.Contract
+								invoked.ContractLine					= each.ContractLine
+								invoked.PurchaseOrderReceipt			= each.PurchaseOrderReceipt
+								invoked.PurchaseOrderReceiptLine		= each.PurchaseOrderReceiptLine
+								invoked.CreatedDuringSpread				= 1
+								invoked.BypassInvoiceErrorChecking		= true
+
+
+
+							LocalCalcSpreadAmount 						+= AOCView.TotalDistributionAmount 
+
+							LocalTotalTaxAmount							+= AOCView.TaxAmount
+							LocalAccumInvoiceTax						+= AOCView.InvoicedTaxAmount
+							LocalAccumAccruedTax						+= AOCView.AccruedTaxAmount
+							LocalAOCCount 								+= 1
+
+
+			else
+			if (!PayablesInvoice.MatchProcessType.Service)
+
+
+				for each MatchPurchaseOrderInvoicesAnyPORel
+
+					if  (PurchaseOrder not entered
+					or   PurchaseOrder = each.PurchaseOrder)
+						for each each.PurchaseOrderLineRel
+
+							LocalPurchaseOrder 							= each.PurchaseOrder
+							LocalPurchaseOrderLine						= each.PurchaseOrderLine
+							LocalContract								= each.Contract
+							LocalContractLine							= each.ContractLine
+							if   (each.ExcludeFromAddOnChargeSpread
+							or    each.QuantityToProcess not entered)
+								NextSentence = true
+							else
+							if   (each.EnteredUnitCost not entered
+							and   SpreadMethod.Amount)
+								NextSentence = true
+							else
+							if   (LocalPurchaseOrderAndLineAddOnChargeRel exists
+							and  (LocalPurchaseOrderAndLineAddOnChargeRel.Canceled
+							or    LocalPurchaseOrderAndLineAddOnChargeRel.Closed.Yes))
+								NextSentence = true
+							else
+	
+
+
+
+								LocalItem								= each.Item
+								if (LocalPurchaseOrderAndLineAddOnChargeRel exists)
+									if (LocalPurchaseOrderAndLineAddOnChargeRel.ReceivedQuantity > LocalPurchaseOrderAndLineAddOnChargeRel.Quantity)
+										LocalMatchedQuantity 			= (LocalPurchaseOrderAndLineAddOnChargeRel.ReceivedQuantity - LocalPurchaseOrderAndLineAddOnChargeRel.MatchedQuantity)
+									else
+										LocalMatchedQuantity 			= (LocalPurchaseOrderAndLineAddOnChargeRel.Quantity - LocalPurchaseOrderAndLineAddOnChargeRel.MatchedQuantity)
+								else
+									if (each.ReceivedQuantity > each.Quantity)
+										LocalMatchedQuantity 			= each.ReceivedQuantity
+									else
+										LocalMatchedQuantity 			= each.Quantity - (each.CancelQuantity + each.WriteOffQuantity)
+	
+								if ((each.PurchaseOrderLine.ItemType	= ItemType.Inventoried
+								or   each.PurchaseOrderLine.ItemType 	= ItemType.NonStock)
+								and (each.Item.CatchWeightCode.NotCatchWeight
+								or   each.Item.CatchWeightCode.IssueRequiresBoth
+								or   each.Item.CatchWeightCode not entered)
+								and (LocalMatchedQuantity <= 0))
+									LocalContextItem					= each.Item
+									UOMCalculation.InputQuantity		= each.PurchaseOrderLine.Quantity
+									UOMCalculation.InputUOMConversion	= each.PurchaseOrderLine.EnteredBuyUOMMultiplier
+									UOMCalculation.InputToUOMConversion	= each.PurchaseOrderLine.VendorPriceUOMMultiplier
+									UOMCalculation.Method				= UOMCalculation.Method.ConvertToAlternate
+									LocalMatchedQuantity				= UOMCalculation.OutputQuantity
+	
+
+								if (SpreadMethod.Rate)
+									LocalSpreadPercent						= AddOnChargePercent
+								else
+								if (SpreadMethod.Quantity)
+									LocalSpreadPercent					= LocalMatchedQuantity / LocalTotalSpreadQuantity
+								else
+								if (SpreadMethod.Amount)
+									LocalSpreadPercent					= ((each.VendorBuyUnitCost * LocalMatchedQuantity) / LocalTotalSpreadAmount)
+
+
+
+
+								initialize RoundedValue				
+								if (SpreadMethod.Rate)
+									RoundedValue.RoundInput					= AddOnChargePercent * each.LineAmount
+								else
+									RoundedValue.RoundInput					= LocalSpreadPercent * SpreadAmount
+
+								RoundedValue.RoundingType					= RoundedValue.RoundingType.Normal				
+								RoundedValue.RoundTo						= DerivedRoundTo  
+								LocalSpreadLineAmount  						= RoundedValue.RoundResult
+
+								if (AddOnCharge.AddOnChargeType.Allowance
+								and LocalSpreadLineAmount > 0)
+									LocalSpreadLineAmount					*= -1
+
+								initialize RoundedValue				
+								RoundedValue.RoundInput						= LocalSpreadLineAmount / LocalMatchedQuantity				
+								RoundedValue.RoundingType					= RoundedValue.RoundingType.Normal				
+								RoundedValue.RoundTo						= DerivedRoundToCost  
+								LocalCalcUnitCost							= RoundedValue.RoundResult
+
+								LocalExtendedUnitCost						= LocalCalcUnitCost * LocalMatchedQuantity
+	
+								LocalTaxCode								= TaxCode
+								if (LocalPurchaseOrderAndLineAddOnChargeRel exists)
+									TaxCode = LocalPurchaseOrderAndLineAddOnChargeRel.TaxCode
+									
+								if (PayablesInvoice.TaxAdjustment.Calculate
+								or 	PayablesInvoice.TaxAdjustment.IgnoreProductAndAOC)
+									initialize LocalTaxCode
+
+	
+
+								if (LocalPayablesInvoiceAddOnChargesRel exists)
+									LocalPayablesInvoiceAddOnCharge		= first LocalPayablesInvoiceAddOnChargesRel.PayablesInvoiceAddOnCharge
+								
+									invoke Update LocalPayablesInvoiceAddOnChargeExactRel
+										invoked.EnteredUnitCost					= LocalCalcUnitCost
+										invoked.MatchUnitCost					= LocalCalcUnitCost
+										invoked.EnteredQuantity					= LocalMatchedQuantity
+										invoked.MatchedQuantity					= LocalMatchedQuantity
+										invoked.TotalDistributionAmount			= LocalSpreadLineAmount 
+										invoked.TotalAddOnChargeAmount			= LocalSpreadLineAmount 
+										invoked.AddOnChargeAmount				= LocalSpreadLineAmount 
+										initialize invoked.PurchaseOrderReceipt
+										initialize invoked.PurchaseOrderReceiptLine
+										invoked.TaxCode							= TaxCode
+										invoked.Taxable							= LocalTaxable
+									LocalCalcSpreadAmount 						+= LocalPayablesInvoiceAddOnChargeExactRel.TotalDistributionAmount
+									LocalTotalTaxAmount							+= LocalPayablesInvoiceAddOnChargeExactRel.TaxAmount
+									LocalAccumInvoiceTax						+= LocalPayablesInvoiceAddOnChargeExactRel.InvoicedTaxAmount
+									LocalAccumAccruedTax						+= LocalPayablesInvoiceAddOnChargeExactRel.AccruedTaxAmount
+									LocalAOCCount 								+= 1
+								else
+
+									invoke CreateFromSpread PayablesInvoiceAddOnCharge
+										assign result to AOCView
+										invoked.Company							= Company
+										invoked.PayablesInvoice					= PayablesInvoice
+										invoked.Vendor							= PayablesInvoice.Vendor
+										invoked.PurchaseOrder					= LocalPurchaseOrder
+										invoked.PurchaseOrderLine				= LocalPurchaseOrderLine
+										invoked.AddOnCharge						= AddOnCharge
+										invoked.PayablesInvoiceAddOnCharge		= 1
+										invoked.EnteredUnitCost					= LocalCalcUnitCost
+										invoked.MatchUnitCost					= LocalCalcUnitCost
+										invoked.EnteredQuantity					= LocalMatchedQuantity
+										invoked.MatchedQuantity					= LocalMatchedQuantity
+										invoked.TotalDistributionAmount			= LocalSpreadLineAmount 
+										invoked.TotalAddOnChargeAmount			= LocalSpreadLineAmount 
+										invoked.AddOnChargeAmount				= LocalSpreadLineAmount 
+			
+										invoked.TaxCode							= TaxCode
+										invoked.Taxable							= LocalTaxable
+		
+										invoked.RecordSource					= "LM"
+										invoked.Item							= each.Item
+										invoked.ItemType						= each.ItemType
+										invoked.MatchDetailKey					= each.MatchDetailKey
+										invoked.Location						= each.ShipToLocation
+										invoked.Contract						= each.Contract
+										invoked.ContractLine					= each.ContractLine
+										invoked.CreatedDuringSpread				= 1
+										invoked.BypassInvoiceErrorChecking		= true
+
+
+									LocalCalcSpreadAmount 						+= AOCView.TotalDistributionAmount 
+
+									LocalTotalTaxAmount							+= AOCView.TaxAmount
+									LocalAccumInvoiceTax						+= AOCView.InvoicedTaxAmount
+									LocalAccumAccruedTax						+= AOCView.AccruedTaxAmount
+									LocalAOCCount 								+= 1
+			
+
+			LocalSpreadDifference							= SpreadAmount - LocalCalcSpreadAmount
+
+
+			if (LocalSpreadDifference entered
+			and !SpreadMethod.Rate
+			and LocalAOCCount entered)
+				LocalCalcUnitCost = LocalSpreadDifference / first PayablesInvoiceAddOnChargesRel.EnteredQuantity
+
+				for each PayablesInvoiceAddOnChargesRel
+
+					if (each.TotalDistributionAmount + LocalSpreadDifference != 0)  
+						invoke FastUpdate each 
+							invoked.TotalDistributionAmount		+= LocalSpreadDifference
+							invoked.AddOnChargeAmount			+= LocalSpreadDifference
+							invoked.TotalAddOnChargeAmount		+= LocalSpreadDifference
+							invoked.EnteredUnitCost				+= LocalCalcUnitCost
+							invoked.MatchUnitCost				+= LocalCalcUnitCost
+							invoked.TransientDifference	 		= LocalSpreadDifference
+						end for each 
+
+
+
+				LocalCalcSpreadAmount					+= LocalSpreadDifference
+
+			initialize LocalSpreadTaxDifference
+			initialize LocalTotalAccruedTaxAmount
+			initialize LocalTotalInvoicedTaxAmount
+			initialize LocalSpreadInvoicedTaxDifference
+			initialize LocalSpreadAccruedTaxDifference
+			if  (TaxCode entered
+			and  !PayablesInvoice.DoOneSourceAfter
+			and  !PayablesInvoice.CallVertexByDocument
+			and  !SpreadMethod.Rate)
+
+				initialize CalculateTax
+				CalculateTax.TaxCode				= TaxCode
+				CalculateTax.TaxEntity				= Company.AccountingEntity
+				CalculateTax.TaxableAmount			= SpreadAmount
+				CalculateTax.Function				= CalculateTax.Function.CalculateTax
+				CalculateTax.System					= "AP"
+				initialize CalculateTax.ProductTaxCategory
+				CalculateTax.InvoiceDate			= PayablesInvoice.InvoiceDate
+				CalculateTax.PaymentDate			= PayablesInvoice.InvoiceDate
+				CalculateTax.TaxDate				= PayablesInvoice.InvoiceDate
+				CalculateTax.GeneralLedgerDate		= PayablesInvoice.InvoiceDate
+				CalculateTax.PostalAddress			= PurchaseOrder.DropshipAddress
+				CalculateTax.FromPostalAddress		= PayablesInvoice.Location.PostalAddress
+
+				if (PayablesInvoice.TaxEntityUsesVertex)
+					CalculateTax.VertexQuantumOption					= "C"	
+
+				if  (PayablesInvoice.TaxEntityUsesThirdPartyTax)
+					CalculateTax.InputReturnVertexTaxIn				= "D"	
+
+					CalculateTax.VATRegistrationCountry    	 			= TaxEntityRel.VATRegistrationCountry 			
+					CalculateTax.VATRegistrationNumber					= TaxEntityRel.VATRegistrationNumber			
+				if (PayablesInvoice.PurchaseFromLocation entered)
+					CalculateTax.FromPostalAddress					= PayablesInvoice.PurchaseFromLocation.VendorAddress 
+					CalculateTax.FromVATRegistrationCountry 		= PayablesInvoice.PurchaseFromLocation.VATRegistrationCountry			
+					CalculateTax.FromVATRegistrationNumber			= PayablesInvoice.PurchaseFromLocation.VATRegistrationNumber				
+					CalculateTax.FromTaxCode						= PayablesInvoice.PurchaseFromLocation.TaxCode
+				else
+				if (PurchaseOrder.PurchaseFromLocation entered)
+					CalculateTax.FromPostalAddress					= PurchaseOrder.PurchaseFromLocation.VendorAddress 
+					CalculateTax.FromVATRegistrationCountry 		= PurchaseOrder.PurchaseFromLocation.VATRegistrationCountry			
+					CalculateTax.FromVATRegistrationNumber			= PurchaseOrder.PurchaseFromLocation.VATRegistrationNumber				
+					CalculateTax.FromTaxCode						= PurchaseOrder.PurchaseFromLocation.TaxCode
+				else
+					CalculateTax.FromPostalAddress					= Vendor.VendorAddress		
+					CalculateTax.FromVATRegistrationCountry 		= Vendor.VATRegistrationCountry					
+					CalculateTax.FromVATRegistrationNumber			= Vendor.VATRegistrationNumber					
+					CalculateTax.FromTaxCode						= Vendor.TaxCode
+
+			   		CalculateTax.InvoiceCompany							= Company
+			   		CalculateTax.ProcessLevel							= PayablesInvoice.ProcessLevel 
+					CalculateTax.VendorGrp								= Company.VendorGroup
+					CalculateTax.Vendor									= Vendor 
+					if (PurchaseOrder.DropshipAddress entered)
+						CalculateTax.PostalAddress						= PurchaseOrder.DropshipAddress
+					else
+					if (PayablesInvoice.Location entered)
+						CalculateTax.PostalAddress						= PayablesInvoice.Location.PostalAddress	
+					else
+					if (PurchaseOrder entered
+					and PurchaseOrder.ShipToLocation entered)
+						CalculateTax.PostalAddress						= PurchaseOrder.ShipToLocation.PostalAddress	
+					else
+						CalculateTax.PostalAddress						= PayablesInvoice.ProcessLevel.PostalAddress	
+					CalculateTax.DefaultFilingCurrency 					= Company.Currency 
+					CalculateTax.TransactionCurrency 					= PayablesInvoice.InvoiceCurrency
+					CalculateTax.BaseCurrency 							= Company.Currency					
+					CalculateTax.ReceiptSite							= PayablesInvoice.ProcessLevel								
+
+				LocalCalculateTaxExecuted			= CalculateTax.ExecuteCalculateTax
+				constraint (CalculateTax.OutputErrorNumber not entered)
+					"<CalculateTax.OutputErrorMessage>"
+
+
+				LocalCounter = 1
+				while (LocalCounter <= 8
+				and    CalculateTax.TaxTable.TaxTableOutput[LocalCounter].TaxCode entered)
+					if (CalculateTax.TaxTable.TaxTableOutput[LocalCounter].AccrualFlag = "A")
+						LocalTotalAccruedTaxAmount		+= CalculateTax.TaxTable.TaxTableOutput[LocalCounter].TaxAmount5DP
+					else
+						LocalTotalInvoicedTaxAmount		+= CalculateTax.TaxTable.TaxTableOutput[LocalCounter].TaxAmount5DP
+						LocalCalculatedTax				+= CalculateTax.TaxTable.TaxTableOutput[LocalCounter].TaxAmount5DP
+
+					LocalCounter += 1
+					
+				round LocalTotalAccruedTaxAmount to nearest DerivedRoundTo
+				round LocalTotalInvoicedTaxAmount to nearest DerivedRoundTo
+				round LocalCalculatedTax to nearest DerivedRoundTo
+
+				LocalSpreadTaxDifference			= LocalCalculatedTax - LocalTotalTaxAmount
+				LocalSpreadInvoicedTaxDifference	= LocalTotalInvoicedTaxAmount - LocalAccumInvoiceTax
+				LocalSpreadAccruedTaxDifference		= LocalTotalAccruedTaxAmount - LocalAccumAccruedTax
+
+
+
+
+
+
+				if (LocalSpreadTaxDifference entered
+				or  LocalSpreadInvoicedTaxDifference entered
+				or  LocalSpreadAccruedTaxDifference entered)
+
+					for each PayablesInvoiceAddOnChargesRel
+						if (each.TaxAmount + LocalSpreadTaxDifference != 0  
+						or each.TaxAmount + LocalSpreadAccruedTaxDifference != 0)
+							invoke FastUpdate each 
+								invoked.TaxAmount				+= LocalSpreadTaxDifference
+								invoked.InvoicedTaxAmount		+= LocalSpreadInvoicedTaxDifference
+								invoked.AccruedTaxAmount		+= LocalSpreadAccruedTaxDifference
+								invoked.TransientTaxDifference 	= LocalSpreadTaxDifference
+								if (invoked.TransientTaxDifference	  = 0
+								and LocalSpreadAccruedTaxDifference  != 0)
+								    invoked.TransientTaxDifference 	  = LocalSpreadAccruedTaxDifference
+								initialize invoked.TransientDifference
+							end for each 	
+
+				initialize LocalAccumAccruedTax
+				initialize LocalAccumInvoiceTax
+				initialize LocalTotalTaxAmount
+				
+		440NewInvoiceDetailTaxLogic
+
+			if (LocalTaxCode.TaxType.CalculatedRate
+			and LocalTaxCode entered)
+				initialize CalculateTax
+				CalculateTax.Function	= CalculateTax.Function.Inquire
+				CalculateTax.System		= "AP"
+				CalculateTax.TaxEntity	= Company.AccountingEntity
+				CalculateTax.TaxCode	= LocalTaxCode
+				CalculateTax.TaxDate	= PayablesInvoice.DistributionDate
+				LocalCalculateTaxExecuted	= CalculateTax.ExecuteCalculateTax
+				constraint (CalculateTax.OutputErrorNumber not entered)
+					"<CalculateTax.OutputErrorMessage>"
+				if (CalculateTax.AccruedOrInvoiced.Invoiced)
+					LocalInvoicedTax	= true
+
+			if (PayablesInvoice.TaxAdjustment.OverrideProductAndAOC
+			or (PayablesInvoice.TaxAdjustment.OverrideTaxablePOAndAOC
+			and LocalPurchaseOrderAndLineAddOnChargeRel not exist))
+				if (LocalInvoicedTax
+				or !LocalTaxCode.TaxType.CalculatedRate
+				or  LocalTaxCode not entered)
+					LocalTaxCode = PayablesInvoice.TaxCode
+			else
+				if  (PayablesInvoice.TaxAdjustment.OverrideTaxablePOAndAOC
+				and (LocalInvoicedTax
+				or  !LocalTaxCode.TaxType.CalculatedRate)
+				and (LocalPurchaseOrderAndLineAddOnChargeRel exists
+				and  LocalPurchaseOrderAndLineAddOnChargeRel.TaxCode entered))
+					LocalTaxCode = PayablesInvoice.TaxCode
+					
+
+	Create Rules
+
+		constraint (AddOnCharge entered)
+			"AddOnChargeCodeRequired"									
+
+		constraint (!PayablesInvoice.MatchProcessType.Expense)
+			"InvoiceMustBePO,Dropship,OrAddOnChargeInvoice"		
+			
+		if (!BypassAllowUpdate)
+			constraint (AllowUpdate)
+				"InvoiceIsNotUpdateable"
+			
+		if  (PurchaseOrder entered)
+			constraint (MatchPurchaseOrderInvoiceAnyVendorRel exists)
+				"PurchaseOrderIsNotLinkedToThisInvoice"
+				
+			constraint (PurchaseOrder.Released)
+				"PurchaseOrderMustBeReleased"			
+				
+			constraint (!PurchaseOrder.Canceled)
+				"PurchaseOrderIsCanceled"				
+				
+			constraint (!PurchaseOrder.Closed.Yes)
+				"PurchaseOrderIsClosed"					
+
+		if  (PayablesInvoice.MatchProcessType.ServiceContract)
+			constraint (PayablesInvoice.PayablesInvoiceDetailRel exists)
+				"InvoiceDetailsMustExistForServiceContracts"		
+
+		constraint (!PayablesInvoice.BypassMatch)
+			"CannotSpreadAOCForAPayablesDetailInvoice"				
+
+		constraint (!PayablesInvoice.MatchProcessType.Expense)
+			"CannotSpreadAOCForAnExpenseInvoice;UseProrateActionOnInvoice"	
+
+
+
+
+		if (PayablesInvoice.AllowZeroCostInvoice)
+			constraint (PayablesInvoice.InvoiceAmount.CurrencyAmount entered
+			or          PayablesInvoice.MatchAmount entered)
+				"CannotUseSpreadAddOnChargeForAZeroCostInvoice"
+
+	Actions
+		Create is a Create Action
+			valid when (AllowUpdate)
+			Entrance Rules
+				if (!PayablesInvoice.MatchProcessType.AOCOnly)
+					constraint (PayablesInvoice.PayablesInvoiceDetailRel exists)
+            			"CannotAddSpreadAddOnChargeUnlessInvoiceLinesHaveBeenCreated"
+			
+        		if  (AddOnCharge.LandedAddOnCharge)
+            		LocalUserTaxCode = TaxCode 
+            		if (LocalUserTaxCode not entered)
+                		LocalUserTaxCode = PurchaseOrderSpreadAddOnChargeRel.TaxCode 
+            		if (LocalUserTaxCode not entered)
+                		LocalUserTaxCode = AddOnCharge.TaxCode 
+            		if  (LocalUserTaxCode not entered
+            		and  PayablesInvoice.TaxCode entered 
+            		and  PayablesInvoice.TaxAdjustment.OverrideProductAndAOC 
+            		or  (PayablesInvoice.TaxAdjustment.OverrideTaxablePOAndAOC))
+                		LocalUserTaxCode = PayablesInvoice.TaxCode 
+
+            		if (LocalUserTaxCode entered	
+					and AddOnChargeLandedTax)
+                		for each MatchPurchaseOrderInvoicesAnyPORel
+                    		if  (PurchaseOrder not entered
+                    		or   PurchaseOrder = each.PurchaseOrder)
+                        		for each each.PurchaseOrderLineRel
+                            		if (!each.ItemType.Inventoried)
+                                		for each each.PurchaseOrderLineDistributionsRel
+                                    		LocalUserTaxEntity = each.DistributionAccount.ToAccountingEntity
+                                    		constraint (UserTaxEntityRel exists)
+                                        		"TaxEntityDoesNotExistForEntity<LocalUserTaxEntity>OnPurchaseOrderLineDistribution"
+                                    		if (UserTaxEntityRel.UseTaxCodeAccounts)
+                                        		constraint (UserEntityTaxCodeRel exists)
+                                            		"EntityTaxCodeDoesNotExistForToAccountingEntity<LocalUserTaxEntity>OnPurchaseOrderLineDistribution"
+
+			Exit Rules
+				include CreateAndUpdateRules
+				if (!BypassInvoiceErrorChecking
+				and !PayablesInvoice.InterfaceInProcess)
+					invoke InvoiceUpdate PayablesInvoice
+
+		Update is an Update Action
+			valid when (AllowUpdate)
+			Action Rules
+				include CreateAndUpdateRules
+				invoke InvoiceUpdate PayablesInvoice
+
+		SupplierUpdate is an Update Action
+			valid when (SupplierAllowUpdate)
+			Action Rules
+				include CreateAndUpdateRules
+				invoke InvoiceUpdate PayablesInvoice
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+			valid when (AllowUpdate)
+			Action Rules
+				for each PayablesInvoiceAddOnChargesRel
+
+					if (each.IsInvoicedTax)	
+						invoke FastUpdate PayablesInvoice
+							invoked.POTaxAmount					-= each.TaxAmount
+					invoke DeleteNoInvoiceUpdate each 
+				invoke InvoiceUpdate PayablesInvoice
+
+		SupplierDelete is a Delete Action
+			default label is "Delete"
+			valid when (SupplierAllowUpdate)
+			Action Rules
+				for each PayablesInvoiceAddOnChargesRel
+
+					if (each.IsInvoicedTax)	
+						invoke FastUpdate PayablesInvoice
+							invoked.POTaxAmount					-= each.TaxAmount
+					invoke DeleteNoInvoiceUpdate each 
+				invoke InvoiceUpdate PayablesInvoice
+
+		DeleteNoInvoiceUpdate is a Delete Action
+			restricted
+
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		CreditForRebillSet is a Set Action
+			restricted
+			Parameters
+				PrmCompany			is a PayablesCompany
+				PrmInvoice			is a PayablesInvoice
+				MemoInvoice 		is a PayablesInvoice
+			Parameter Rules
+				PrmCompany
+					required
+				PrmInvoice
+					required
+				MemoInvoice
+					constraint (MemoInvoice.InvoiceSource.CreditForRebill)
+						"CreditForRebillOnlyAllowedForCreditForRebillInvoice"
+			Set Is  
+				PrmCompany
+				PrmInvoice
+
+			Instance Selection
+				where (Company			= PrmCompany
+				and    PayablesInvoice 	= PrmInvoice)
+
+			Action Rules
+
+				Empty Set Rules
+					invoke CreditForRebillSet PayablesInvoiceAddOnCharge
+						invoked.PrmCompany 		= PrmCompany
+						invoked.PrmInvoice 		= PrmInvoice					
+						invoked.MemoInvoice 	= MemoInvoice
+				
+				Set Rules
+					Exit Rules
+						invoke CreditForRebillSet PayablesInvoiceAddOnCharge
+							invoked.PrmCompany 		= PrmCompany
+							invoked.PrmInvoice 		= PrmInvoice					
+							invoked.MemoInvoice 	= MemoInvoice
+					
+
+				Instance Rules
+
+					invoke CreditForRebill
+						resume on error
+						invoked.MemoCompany		= PrmCompany
+						invoked.MemoInvoice 	= MemoInvoice
+												
+
+		CreditForRebill is an Instance Action
+			default label is "CreditForRebill"
+			valid when (AllowCreditForRebill)
+			Parameters
+				MemoCompany		is a PayablesCompany
+				MemoInvoice 	is a PayablesInvoice
+			Parameter Rules
+				MemoCompany
+					default to MemoInvoice.Company
+				MemoInvoice
+					constraint (MemoInvoice.InvoiceSource.CreditForRebill)
+						"CreditForRebillOnlyAllowedForCreditForRebillInvoice"
+
+			Action Rules
+				
+				invoke CreateForCreditRebill PayablesInvoiceSpreadAddOnCharge
+					fill in fields from this instance
+						except invoked.SpreadAmount
+						except invoked.EnteredAddOnChargeAmount
+						except invoked.CalculatedSpreadAmount
+						except invoked.TaxAmount
+					invoked.Company							= MemoCompany 
+					invoked.Vendor							= Vendor
+					invoked.PayablesInvoice					= MemoInvoice
+					invoked.PurchaseOrder					= PurchaseOrder
+					invoked.AddOnCharge						= AddOnCharge
+					invoked.AddOnChargePercent				= AddOnChargePercent
+					invoked.SpreadAmount					= SpreadAmount  * -1
+					invoked.EnteredAddOnChargeAmount		= EnteredAddOnChargeAmount * -1
+					invoked.CalculatedSpreadAmount			= CalculatedSpreadAmount * -1
+					invoked.TaxAmount						= TaxAmount * -1
+
+
+		CreateForCreditRebill is a Create Action
+			restricted
+			Action Rules
+				for each OriginalInvoiceAddOnChargesRel 
+					invoke MemoCreate PayablesInvoiceAddOnCharge
+						fill in fields from each
+						invoked.Company						= Company
+						invoked.PayablesInvoice				= PayablesInvoice
+						invoked.EnteredQuantity				= each.EnteredQuantity * -1
+						invoked.MatchedQuantity				= each.MatchedQuantity * -1
+
+						invoked.TotalDistributionAmount		= each.TotalDistributionAmount * -1
+						invoked.TotalAddOnChargeAmount		= each.TotalAddOnChargeAmount * -1 
+						invoked.AddOnChargeAmount			= each.AddOnChargeAmount * -1
+						invoked.TaxAmount					= each.TaxAmount * -1
+						invoked.CreatedDuringSpread			= 1
+						invoked.BypassInvoiceErrorChecking	= true
+									
+		RecalculateSpreadAOC is an Instance Action		
+			valid when (AOCDistributionsOutOfBalance)
+			confirmation required
+				"SpreadAmountWillBeRecalculatedOnRemainingDetailLines;OKToProceed?"
+			
+			Action Rules
+
+				if (PayablesInvoice.HasMultipleMatchPurchaseOrders
+				and PurchaseOrder entered)
+					initialize LocalSpreadTotal
+					for each PayablesInvoiceDetailsRel 
+						if (each.PurchaseOrder = PurchaseOrder)
+							LocalSpreadTotal += each.DerivedExtendedAmount
+				else 
+				if (SpreadMethod.Amount)
+					LocalSpreadTotal = sum PayablesInvoiceDetailsRel.DerivedExtendedAmount
+				else
+				if (SpreadMethod.Quantity)
+					LocalSpreadTotal = sum PayablesInvoiceDetailsRel.EnteredQuantity
+
+				for each PayablesInvoice.PayablesInvoiceDetailRel
+
+					if (PayablesInvoice.HasMultipleMatchPurchaseOrders
+					and PurchaseOrder entered 
+					and each.PurchaseOrder not = PurchaseOrder)
+						for each each.PayablesInvoiceAddOnChargesRel
+							if (each.AddOnCharge = AddOnCharge)
+								invoke Delete each
+					else
+					if  ((each.MatchUnitCost entered
+					or    !SpreadMethod.Amount)
+					and (each.PurchaseOrderLine entered
+					or each.ContractLine entered)	
+					and each.MatchedQuantity entered)
+
+						if (SpreadMethod.Amount)
+							LocalLineSpreadAmount   = ((each.DerivedExtendedAmount/LocalSpreadTotal) * SpreadAmount)
+						else
+						if (SpreadMethod.Quantity)
+							LocalLineSpreadAmount   = ((each.EnteredQuantity/LocalSpreadTotal)* SpreadAmount)
+
+						LocalWithLineAOC = false
+						if (each.ContractLine entered)		
+							LocalContractLine = each.ContractLine
+
+						for each each.PayablesInvoiceAddOnChargesRel
+							if (each.AddOnCharge = AddOnCharge			
+							and LocalContractLine = each.ContractLine)
+								LocalWithLineAOC = true
+								if (instance count of each.InvoiceDistributionsForPurchaseOrderLineRel = 1)
+									invoke Update each      
+										invoked.TotalAddOnChargeAmount      = LocalLineSpreadAmount
+										invoked.AddOnChargeAmount           = LocalLineSpreadAmount
+										invoked.TotalDistributionAmount     = LocalLineSpreadAmount
+										invoked.EnteredUnitCost             = (LocalLineSpreadAmount / each.EnteredQuantity)
+										invoked.MatchUnitCost               = (LocalLineSpreadAmount / each.EnteredQuantity)
+										if (each.LandedAddOnCharge)
+											invoked.LandedUnitCost          = (LocalLineSpreadAmount / each.EnteredQuantity)
+								else
+									invoke Delete each 
+									invoke Create PayablesInvoiceAddOnCharge
+										fill in fields from each
+											except invoked.EnteredUnitCost
+											except invoked.TaxUsageCode
+											except invoked.AccruedTaxAmount
+											except invoked.InvoicedTaxAmount
+											except invoked.TotalTaxAmount
+											except invoked.ReasonCode
+										invoked.PayablesInvoice         = PayablesInvoice
+										invoked.PurchaseOrderLine       = each.PurchaseOrderLine
+										invoked.PurchaseOrder           = each.PurchaseOrder
+										invoked.PurchaseFromLocation    = PurchaseFromLocation
+										invoked.AddOnCharge             = AddOnCharge
+										invoked.TotalAddOnChargeAmount  = LocalLineSpreadAmount
+										invoked.AddOnChargeAmount       = LocalLineSpreadAmount
+										invoked.TotalDistributionAmount = LocalLineSpreadAmount
+										invoked.TaxCode                 = TaxCode
+										invoked.Taxable                 = Taxable
+										invoked.TaxAmount               = TaxAmount
+
+								end for each
+
+						if (!LocalWithLineAOC)
+
+							invoke Create PayablesInvoiceAddOnCharge
+								fill in fields from each
+									except invoked.EnteredUnitCost
+									except invoked.TaxUsageCode
+									except invoked.AccruedTaxAmount
+									except invoked.InvoicedTaxAmount
+									except invoked.TotalTaxAmount
+									except invoked.ReasonCode
+								invoked.PayablesInvoice         = PayablesInvoice
+								invoked.PurchaseOrderLine       = each.PurchaseOrderLine
+								invoked.PurchaseOrder           = each.PurchaseOrder
+								invoked.Contract				= each.Contract			
+								invoked.ContractLine			= each.ContractLine		
+								invoked.PurchaseFromLocation    = PurchaseFromLocation
+								invoked.AddOnCharge             = AddOnCharge
+								invoked.TotalAddOnChargeAmount  = LocalLineSpreadAmount
+								invoked.AddOnChargeAmount       = LocalLineSpreadAmount
+								invoked.TotalDistributionAmount = LocalLineSpreadAmount
+								invoked.TaxCode                 = TaxCode
+								invoked.Taxable                 = Taxable
+								invoked.TaxAmount               = TaxAmount
+
+				LocalSpreadLineAmount = sum PayablesInvoiceAddOnChargesRel.TotalAddOnChargeAmount
+				LocalSpreadDifference = SpreadAmount - LocalSpreadLineAmount
+
+				if (LocalSpreadDifference entered)
+					for each PayablesInvoiceAddOnChargesRel
+						invoke Update each
+							invoked.TotalAddOnChargeAmount += LocalSpreadDifference
+							invoked.AddOnChargeAmount += LocalSpreadDifference
+							invoked.TotalDistributionAmount += LocalSpreadDifference
+							invoked.EnteredUnitCost = (each.TotalAddOnChargeAmount / each.EnteredQuantity)
+							invoked.MatchUnitCost 	= (each.TotalAddOnChargeAmount / each.EnteredQuantity)
+							if (invoked.LandedAddOnCharge)
+								invoked.LandedUnitCost = (LocalLineSpreadAmount / first PayablesInvoiceAddOnChargesRel.EnteredQuantity)
+
+						invoke UpdateErrorRecordsAction PayablesInvoice 
+						initialize LocalSpreadDifference
+                		end for each 

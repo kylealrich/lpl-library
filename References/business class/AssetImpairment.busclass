@@ -1,0 +1,444 @@
+AssetImpairment is a BusinessClass
+	owned by am
+	
+	prefix is AImp
+	
+	Ontology
+		symbolic key is AssetImpairment
+	
+    Patterns
+        implements StaticJava
+	
+	Persistent Fields
+		Description			
+		ImpairmentDate		is Date		
+		PostingDate			is Date	
+		Status				is Numeric 1
+    		States
+                Unreleased	value is blank
+                	default label is "Unreleased"
+                Released	value is 1
+                	default label is "Released"
+                PostRelease	value is 2
+                	default label is "Updating"
+		Operator			is an Actor
+		Attachment 			is an AlternateAttachment               	
+	
+	Local Fields
+		LocalBook 			is a Book
+		LocalAttributeCtr   is Numeric 2	
+	Field Rules
+		Description 
+			required
+		
+		ImpairmentDate
+			initial value is current corporate date
+			for each AssetBookRel	
+				constraint (ImpairmentDate >= each.InServiceDate)
+					"ImpairmentDateCannotBePriorToInServiceDate"
+				constraint (ImpairmentDate <= each.BookCalendarRel.CurrentPeriodDate)
+					"ImpairmentDateCannotBeGreaterThanTheCurrentPeriodEndDate"
+			
+			constraint (PriorImpairmentDate)
+				"ImpairmentDateCannotBePriorToPreviousImpairmentDate"
+			if (Status.Released)
+				cannot be changed
+					"OnceTheImpairmentIsReleasedTheImpairmentDateCannotBeChanged"
+					
+
+		PostingDate
+			default to ImpairmentDate
+			if (CompanySystemClosingControlRel exists
+			and CompanySystemClosingControlRel.Control = true)
+				constraint (PostingDate within CompanySystemClosingControlRel.ValidEntryDate)
+					"PostingDateIsOutsideSystemControlValidEntryDateRange"			
+						
+		Operator 
+			initial value is actor
+			
+	Relations
+					
+		CompanySystemClosingControlRel
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode		= "AM"
+				related.Company						= Asset.Company
+				
+		AssetBookRel
+			one-to-many relation to AssetBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+			Instance Selection	
+				where (related.HasRelatedImpairmentBook)
+				
+		ActiveBookRel
+			one-to-many relation to AssetBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+			Instance Selection	
+				where (related.HasRelatedImpairmentBook
+				and related.Active = true)
+				
+		AssetImpairmentBooksRel
+			one-to-many relation to AssetImpairmentBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.AssetImpairment			= AssetImpairment
+				
+		AssetImpairmentRel
+			one-to-many relation to AssetImpairment
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+			Instance Selection
+				where (related.AssetImpairment not = AssetImpairment
+				and related.ImpairmentDate		= ImpairmentDate)	
+				
+		ByAssetImpairmentDescendingRel
+			one-to-many relation to AssetImpairment
+			Field Mapping uses ByAssetImpairmentDescending
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+
+		InProgressAssetImpairmentBooksRel
+			one-to-many relation to AssetImpairmentBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.AssetImpairment			= AssetImpairment
+			Instance Selection
+				where (related.IsInProgress)					
+
+		ZeroAssetImpairmentBooksRel
+			one-to-many relation to AssetImpairmentBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.AssetImpairment			= AssetImpairment
+			Instance Selection
+				where (related.ImpairmentAmount = 0)
+		
+		PriorAssetImpairmentRel
+			one-to-many relation to AssetImpairment
+			Field Mapping uses ByAssetImpairmentDescending
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+			Instance Selection
+				where (related.AssetImpairment not = AssetImpairment)
+		
+		ImpairmentBookRel
+			one-to-one relation to AssetBook 
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= LocalBook
+		
+		BookRel
+			one-to-one relation to AssetBook
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= LocalBook
+		
+	Derived Fields
+		UnreleasedMessage	is a MessageField
+			restricted
+			"Unreleased"
+
+		ReleasedMessage	is a MessageField
+			restricted
+			"Released"
+
+		UpdatingMessage		is a MessageField
+			restricted
+			"UpdateInProgress"
+			
+		DerivedStatus is a DerivedField
+			type is MessageField
+			if (Status.Unreleased)
+				return UnreleasedMessage
+			else							
+			if (Status.Released)
+				return ReleasedMessage	
+			else
+			if (Status.PostRelease)
+				return UpdatingMessage
+													
+	Conditions	
+		ImpairmentAllowed
+			when (Asset.Status.Released
+			and Asset.AssetType.Impairment = true)
+			
+		IsUnreleased	
+			when (Status.Unreleased)
+		
+		AllowUpdate
+			restricted
+			when ((Status.Unreleased
+			and	 !InProgress)
+			or (Status.Released
+			and Asset.Status.Released)
+			or (Status.PostRelease
+			and Asset.Status.PostRelease
+			and UnReleasedTransactionsExist))
+			
+		AdjustmentInProgress
+
+			when (Asset.Status.PostRelease
+			and InProgressAssetImpairmentBooksRel exists			
+			and Status.Released)
+			
+		HasAttachment
+			restricted
+			when (Attachment entered)
+
+        UnReleasedTransactionsExist
+        	restricted
+      		when (any AssetImpairmentBooksRel.HasUnReleasedBookTransactions  
+      		or any AssetImpairmentBooksRel.HasUnReleasedTransactions)
+            
+      	ReleasedTransactionsExist    
+      		restricted
+      		when (any AssetImpairmentBooksRel.HasReleasedBookTransactions  
+      		or any AssetImpairmentBooksRel.HasReleasedTransactions)
+      		
+      	IsActiveImpairment
+      		when (AssetImpairment = first ByAssetImpairmentDescendingRel.AssetImpairment)
+      	
+      	HasZeroImpairmentBooks
+      		when (ZeroAssetImpairmentBooksRel exists)	
+      	
+      	PriorImpairmentDate
+      		when (first PriorAssetImpairmentRel.ImpairmentDate < ImpairmentDate)
+             	
+      	InProgress
+      		when (Asset.AssetProcess.Transfer
+      		or Asset.AssetProcess.Disposal
+      		or AdjustmentInProgress)
+      	
+      	AllowRelease
+      		when (UnReleasedTransactionsExist
+      		and !InProgress)	
+      	
+      	AllowReset
+      		when (IsUnreleased
+      		and !InProgress)
+      	
+      	AllowAdjustmentReset
+      		when (Status.PostRelease
+      		and	 UnReleasedTransactionsExist
+      		and  Asset.Status.PostRelease)
+      	
+      	HasAmountChanges
+      		when (any AssetImpairmentBooksRel.HasAmountChanged)
+      		
+      	ApprovalAllowRelease
+      		restricted
+      		when (AllowRelease
+      		and (!Asset.Company.NeedsApproval
+			or  (Asset.Company.NeedsApproval
+			and  Asset.ApprovalStatus.Approved)))
+		
+      	ApprovalAllowReset
+      		restricted
+      		when (AllowReset
+			and  !Asset.ApprovalStatus.Submitted)
+			
+		ApprovalAllowAdjustmentReset
+      		restricted
+      		when (AllowAdjustmentReset
+      		and (!Asset.Company.NeedsApproval
+			or  (Asset.Company.NeedsApproval
+			and  Asset.ApprovalStatus.Approved)))	
+          
+	Sets
+		Set7
+            indexed
+            Instance Selection
+                where (Status.Unreleased)
+            Sort Order
+                Asset
+		
+		UnreleasedAssetImpairment
+            Instance Selection
+				where (Status.Unreleased)
+            Sort Order
+            	FinanceEnterpriseGroup
+                Asset
+                AssetImpairment	
+
+		ByAssetImpairmentDescending
+            Sort Order
+            	FinanceEnterpriseGroup
+                Asset
+                AssetImpairment descending	                
+							
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+			
+	
+	Actions
+		Create is an Action
+			valid when (ImpairmentAllowed)
+			Entrance Rules
+				constraint (AssetImpairmentRel not exists)
+					"ImpairmentAlreadyExistsForImpairmentDate"
+				constraint (ActiveBookRel exists)
+					"ImpairmentCannotBeCreatedForInActiveBooks"
+						
+			Action Rules
+				invoke Released.ImpairAsset Asset
+					invoked.ProcessDate = ImpairmentDate
+			
+			Exit Rules
+				if(ActiveBookRel exists)
+					for each ActiveBookRel
+						invoke Create AssetImpairmentBook
+							fill in fields from this instance
+
+							invoked.Book							= each.Book
+							invoked.ImpairmentBook					= each.Book.ImpairmentBook
+							invoked.OriginalInServiceDate			= each.InServiceDate
+							invoked.OriginalConvention				= each.Convention	
+							invoked.OriginalBasis					= each.Basis
+							invoked.OriginalBookValue				= each.BookValue	
+							invoked.OriginalLife					= each.Life
+							invoked.OriginalMethod					= each.Method	
+							invoked.OriginalLifeRemaining			= each.LifeRemaining			
+							invoked.OriginalLifeToDateDepreciation	= each.LifeToDateDepreciation
+							invoked.OriginalYearToDateDepreciation	= each.YearToDateDepreciation
+							invoked.OriginalAccumulatedImpairment	= each.DerivedAccumulatedImpairment
+							invoked.OriginalRevalueReserve			= each.DerivedRevaluationReserve
+										
+		CreateFromTransfer	is a Create Action
+			restricted
+		
+		Unrelease is an Instance Action
+			restricted
+			Action Rules
+				Status = blank
+				
+
+		Release is an Instance Action
+			restricted
+			Action Rules
+			Exit Rules			
+				Status = 1
+				if (HasZeroImpairmentBooks)
+					for each ZeroAssetImpairmentBooksRel
+						LocalBook	= each.ImpairmentBook
+						if (each.ImpairmentAmount = 0)
+							invoke FastUpdate ImpairmentBookRel
+								initialize invoked.Basis
+								initialize invoked.LifeToDateDepreciation
+								initialize invoked.YearToDateDepreciation
+								invoked.FirstAndLastYear	= "C"
+
+		
+		ReleaseImpairment is an Instance Action
+			restricted
+			Action Rules	
+				invoke PostRelease.ReleaseImpairment Asset 	
+				
+						
+		ResetImpairment is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					invoke Delete AssetImpairmentBooksRel
+				else 
+					invoke PostRelease.ResetAdjustment Asset
+					Status = 1
+			Exit Rules
+				if (Status.Unreleased)
+					invoke Delete
+
+		SubmitForApproval is an Instance Action
+			restricted
+			Action Rules
+				invoke SubmitForApproval Asset
+								
+		ResetImpairmentAdjustment is an Instance Action
+			Action Rules
+				if (Status.PostRelease)
+					Status = 1
+				for each AssetImpairmentBooksRel
+					LocalBook	= each.ImpairmentBook
+					invoke UpdateFromTransfer each
+						invoked.ImpairmentAmount	=  BookRel.DerivedImpairment
+				invoke PostRelease.ResetAdjustment Asset
+				
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+													
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop
+
+		Update is an Action
+			valid when (AllowUpdate)
+			Action Rules
+				if (ImpairmentDate changed
+				and PostingDate not entered)
+					for each AssetImpairmentBooksRel
+						invoke UpdateTransactionPostingDate each
+							invoked.NewPostingDate = ImpairmentDate	
+				else
+				if (PostingDate entered
+				and PostingDate changed)
+					for each AssetImpairmentBooksRel
+						invoke UpdateTransactionPostingDate each
+							invoked.NewPostingDate = PostingDate	
+				if (Status.Released
+				and HasAmountChanges)
+					Status = 2
+				
+
+
+
+
+
+								
+		Delete is an Action
+			valid when (IsUnreleased)
+			
+			
+			Action Rules
+				if (AssetImpairmentBooksRel exists)
+					invoke Delete AssetImpairmentBooksRel	
+				invoke PostRelease.ResetImpairment Asset
+
+		NewPostingDateUpdate is an Update Action
+			restricted
+			

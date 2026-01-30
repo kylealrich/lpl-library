@@ -1,0 +1,223 @@
+ReceivableNonARPaymentDistributionImport is a BusinessClass
+	owned by ar
+	prefix is NRD
+	sql name is RNonARDistribImport
+
+	Ontology
+		symbolic key is ReceivableNonARPaymentDistributionImport
+			sql name is RNonARDistribImport
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		disable Auditing
+		disable EffectiveDated
+		disable DataTranslations
+
+
+	Persistent Fields
+		RunGroup
+		Company						is a ReceivableCompany
+		TransNbr					is a TransactionNumber
+		BatchNumber					is like ReceivablePaymentHeader
+
+		DistributionAccount			is a FinanceCodeBlock 
+			classic name for DistributionAccount.AccountingUnit is ACCT-UNIT
+			classic name for DistributionAccount.GeneralLedgerChartAccount is ACCOUNT
+			classic name for DistributionAccount.Project is ACTIVITY
+		TransactionAmount			is an InternationalAmount
+			classic name is ORIG-AMT
+				precision is DerivedNumberOfDecimals
+		Units						is a Unit
+		Description
+		TaxCode
+		TransactionTaxableAmount	is an InternationalAmount
+			classic name is ORIG-TAXABLE
+				precision is DerivedNumberOfDecimals
+		InterfaceRun				is a ReceivablesInterfaceResult
+			delete ignored
+		ReceivableGLDistribution
+			delete ignored
+		UNSPSCCode
+		TaxOriginCrossReference		is like ReceivableGLDistribution
+		ReceivableDistributionCategory
+
+	Context Fields
+		ContextNonARPaymentImport		is a ReceivableNonARPaymentImport
+
+	Transient Fields
+		UnitsAmount
+			derive value from Units
+		BypassProjectDateEdit
+
+	Local Fields
+		HeaderCurrency					is a Currency
+
+	Derived Fields
+		DerivedNumberOfDecimals is a ConditionalField
+			type is like OrigNd
+			restricted
+			if (ReceivableNonARPaymentImportHeaderRel exists)
+				ReceivableNonARPaymentImportHeaderRel.Currency.NumberOfDecimals
+			else
+				Company.Currency.NumberOfDecimals
+
+	Field Rules
+		RunGroup
+			required
+			default to ContextNonARPaymentImport.RunGroup
+		Company
+			required
+			default to ContextNonARPaymentImport.Company
+		TransNbr
+			required
+			default to ContextNonARPaymentImport.TransNbr
+		BatchNumber
+			required
+			default to ContextNonARPaymentImport.BatchNumber
+		DistributionAccount
+			if (ReceivableDistributionCategory not entered)
+				required
+		TransactionAmount
+			if (!IsZeroAmountTaxDistribution)
+				required
+					"TransactionAmountCannotBeZero"
+
+	Conditions
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		TaxEntityUsesOneSource
+			restricted
+			when (TaxEntityRel.ThirdParty.Sabrix)
+
+		TaxEntityUsesVertex
+			restricted
+			when (TaxEntityRel.ThirdParty.VertexOSeries)
+
+		VertexCallByTransaction
+			restricted
+			when (TaxEntityUsesVertex
+			and   TaxEntityRel.VertexCallMethod.ByTransaction)
+
+		IsZeroAmountTaxDistribution
+			restricted
+			when (TaxCode entered
+			and   TransactionTaxableAmount entered
+			and   TransactionAmount not entered)
+
+		ShowTaxOriginCrossReference
+			restricted
+			when (VertexCallByTransaction
+			or    TaxEntityUsesOneSource)
+
+	Relations
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		ReceivableNonARPaymentImportRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup				 = RunGroup
+				related.Company					 = Company
+				related.BatchNumber				 = ContextNonARPaymentImport.BatchNumber
+				related.TransNbr				 = ContextNonARPaymentImport.TransNbr
+
+		ReceivableNonARPaymentImportHeaderRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup				 = RunGroup
+				related.Company					 = Company
+				related.BatchNumber				 = BatchNumber
+				related.TransNbr				 = blank
+
+		TaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.TaxEntity				 = GeneralLedgerCompanyRel.AccountingEntity
+
+	Sets
+		ByRunGroup
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+				ReceivableNonARPaymentDistributionImport
+
+	Create Rules
+
+		if  (ContextNonARPaymentImport exists)
+			constraint (ReceivableNonARPaymentImportRel exists)
+				"InterfaceInvoiceDoesNotExist"
+
+	Actions
+		Create is a Create Action
+			Entrance Rules
+				if (RunGroup not entered)
+					RunGroup					= ContextNonARPaymentImport.RunGroup
+				
+				HeaderCurrency					= ReceivableNonARPaymentImportHeaderRel.Currency
+				BypassProjectDateEdit			= true
+				
+		Update is an Update Action
+			Action Rules
+				HeaderCurrency					= ReceivableNonARPaymentImportHeaderRel.Currency
+				BypassProjectDateEdit			= true
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+		DeleteAllDistributionsFromRunGroup is a Set Action
+			confirmation required
+			default label is "DeleteAllDistributionsFromRunGroup"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmRunGroup				is AlphaUpper 30
+					default label is "RunGroup"
+			
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+					
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup)
+
+			Action Rules
+				Instance Rules
+					invoke FastDelete
+
+		DeleteAllDistributionsFromRunGroupNoConfirmation is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmRunGroup				is AlphaUpper 30
+					default label is "RunGroup"
+			
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+					
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup)
+
+			Action Rules
+				Instance Rules
+					invoke FastDelete

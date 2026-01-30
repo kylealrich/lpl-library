@@ -1,0 +1,703 @@
+StudentActivityBankTransDetail is a BusinessClass
+    owned by studentactivities
+    prefix is ACDD
+
+    Ontology
+    	symbolic key is StudentActivityBankTransDetail
+
+ 	Patterns
+		implements ContextualParent
+
+    Persistent Fields
+		SchoolActivityAccount
+		GLAccount						is a FinanceCodeBlockFull
+		StudentRecord
+		BankTransDetailAmount			is an InternationalAmount
+		SignedTransactionDetailAmount	is an InternationalAmount
+		ReconciledVarianceAdjustment	is Boolean
+		BankAccountOffset				is Boolean
+		CorrectedPosting				is Boolean
+		TransactionDate					is Date
+		ClosedPeriod					is a StudentActivityClosedPeriod
+			delete ignored
+		Status							is Numeric 2
+			States
+				Entered		value is 0
+				Released	value is 1
+				Closed		value is 2
+				InProcess	value is 3
+
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+		
+	Context Fields
+		DateRangeFilter			is a DateRange
+		BankOffsetDetailFilter
+
+	Derived Fields
+		JournalDescription is a MessageField
+			"<StudentActivitySchool>_<SchoolActivityAccount>"			
+		
+		GLAccountRequiredMessage is a MessageField
+			"GLAccountRequired"
+			
+		CorrectedPostingMessage is a MessageField
+			"CorrectedPosting"
+
+		LineDescription is a ConditionalField
+			type is Alpha 20
+			if (GLAccountRequired
+			and GLAccount !entered)
+				GLAccountRequiredMessage
+			else
+			if (CorrectedPosting)
+				CorrectedPostingMessage
+			else
+				" "	
+
+	Sets
+		ByStudentActivityAccount
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				SchoolActivityAccount
+				Status
+
+		ByDistrictActivityAccount
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				SchoolActivityAccount.StudentActivityAccount
+				Status
+				StudentActivitySchool
+
+		ByClosedPeriod
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+				StudentActivitySchool
+	        	StudentActivityBankAccount
+				BankTransactionType
+				StudentActivityBankTransDetail
+
+		ByClosedPeriodBySchool
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				StudentActivitySchool
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+	        	StudentActivityBankAccount
+				BankTransactionType
+				StudentActivityBankTransDetail
+
+	Relations
+
+
+
+
+
+
+
+
+	Conditions
+		DetailsCanBeEntered
+			when (StudentActivityBankTransaction.Status.Entered
+			and   !BankTransactionType.NSFRecord)
+	
+		GLAccountRequired
+			when (BankTransactionType.Disbursement
+			and   SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Revenue
+			and   SchoolActivityAccount.GLAccount entered)
+	
+		GLAccountNotEntered
+			when (GLAccountRequired
+			and   GLAccount !entered)
+
+		PostingCanBeCorrected
+			when (!Status.Entered
+			and   !CorrectedPosting)
+
+
+
+			
+
+	Field Rules
+		SchoolActivityAccount
+			required
+			constraint (SchoolActivityAccount.StudentActivityAccount.ActivityLevel.Detail)
+				"ActivityMustBeDetailType"
+			if (!BankAccountOffset
+			and !SchoolActivityAccount	= StudentActivityBankAccount.NonSufficientFundsActivity)
+				constraint (!SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+					"CannotEnterAssetTypeActivities"
+			if (SchoolActivityAccount.GLAccount entered
+			or  StudentActivityBankTransaction.SchoolAccountCode entered)
+				constraint (StudentActivityBankAccount.BankAccountActivity.GLAccount entered)
+					"BankActivity<StudentActivityBankAccount.BankAccountActivity>MustHaveGLAccountInformationDefined"
+			
+		TransactionDate
+			force default to StudentActivityBankTransaction.TransactionDate
+
+		GLAccount
+			if (!GLAccountRequired
+			and !BankAccountOffset)
+				default to SchoolActivityAccount.GLAccount
+				default to StudentActivityBankTransaction.SchoolAccountCode.GLAccount
+			
+	
+		BankTransDetailAmount
+			if (BankAccountOffset)
+				if (StudentActivityBankTransaction.AmountType.BankCredit)
+					SignedTransactionDetailAmount	= BankTransDetailAmount
+				else
+					SignedTransactionDetailAmount	= (BankTransDetailAmount * -1)
+			else 	
+				if (StudentActivityBankTransaction.AmountType.BankCredit
+				or  SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+					SignedTransactionDetailAmount	= (BankTransDetailAmount * -1)
+				else
+					SignedTransactionDetailAmount	= BankTransDetailAmount
+
+	Actions
+		CorrectPosting is an Instance Action
+			valid when (PostingCanBeCorrected)
+			
+			Parameters
+				PrmActivity1	is a SchoolActivityAccount
+				PrmActivity2	is a SchoolActivityAccount
+				PrmActivity3	is a SchoolActivityAccount
+				PrmActivity4	is a SchoolActivityAccount
+				PrmAmount1		is an InternationalAmount
+				PrmAmount2		is an InternationalAmount
+				PrmAmount3		is an InternationalAmount
+				PrmAmount4		is an InternationalAmount
+				PrmGLAccount1	is a FinanceCodeBlockFull
+				PrmGLAccount2	is a FinanceCodeBlockFull
+				PrmGLAccount3	is a FinanceCodeBlockFull
+				PrmGLAccount4	is a FinanceCodeBlockFull
+				
+			Parameter Rules
+				PrmActivity1
+					required
+				PrmActivity2
+					constraint (PrmAmount2 entered)
+						"Line2RequiresAmount"
+				PrmActivity3
+					constraint (PrmAmount3 entered)
+						"Line3RequiresAmount"
+				PrmActivity4
+					constraint (PrmAmount4 entered)
+						"Line4RequiresAmount"
+				PrmAmount1
+					required
+				PrmAmount2
+					constraint (PrmActivity2 entered)
+						"Line2ActivityRequiredWithAmount"
+				PrmAmount3
+					constraint (PrmActivity3 entered)
+						"Line3ActivityRequiredWithAmount"
+				PrmAmount4
+					constraint (PrmActivity4 entered)
+						"Line4ActivityRequiredWithAmount"
+				PrmGLAccount1 
+					constraint (PrmActivity1.StudentActivityAccount.StudentActivityType.Revenue) 
+						"Line1GLAccountOnlyAllowedForRevenueTypeActivities" 
+					if (BankTransactionType.Disbursement 
+					and PrmActivity1.StudentActivityAccount.StudentActivityType.Revenue 
+					and PrmActivity1.GLAccount entered) 
+						required 
+							"Line1GLAccountInformationRequiredForRevenueTypeActivity<PrmActivity1>" 
+
+				PrmGLAccount2
+					constraint (PrmActivity2.StudentActivityAccount.StudentActivityType.Revenue)
+						"Line2GLAccountOnlyAllowedForRevenueTypeActivities"
+					if (BankTransactionType.Disbursement 
+					and PrmActivity2.StudentActivityAccount.StudentActivityType.Revenue 
+					and PrmActivity2.GLAccount entered) 
+						required
+							"Line2GLAccountInformationRequiredForRevenueTypeActivity<PrmActivity2>"
+				PrmGLAccount3
+					constraint (PrmActivity3.StudentActivityAccount.StudentActivityType.Revenue)
+						"Line3GLAccountOnlyAllowedForRevenueTypeActivities"
+					if (BankTransactionType.Disbursement 
+					and PrmActivity3.StudentActivityAccount.StudentActivityType.Revenue 
+					and PrmActivity3.GLAccount entered) 
+						required
+							"Line3LAccountInformationRequiredForRevenueTypeActivity<PrmActivity3>"
+				PrmGLAccount4
+					constraint (PrmActivity4.StudentActivityAccount.StudentActivityType.Revenue)
+						"Line4GLAccountOnlyAllowedForRevenueTypeActivities"
+					if (BankTransactionType.Disbursement 
+					and PrmActivity4.StudentActivityAccount.StudentActivityType.Revenue 
+					and PrmActivity4.GLAccount entered) 
+						required
+							"Lin4GLAccountInformationRequiredForRevenueTypeActivity<PrmActivity4>"
+			
+			Action Rules
+				constraint (PrmAmount1 + PrmAmount2 + PrmAmount3 + PrmAmount4 = BankTransDetailAmount)
+					"TotalDetailAmountsMustEqual<BankTransDetailAmount>"
+			
+				invoke Create StudentActivityBankTransDetail
+					invoked.StudentActivityDistrict			= StudentActivityDistrict
+					invoked.StudentActivitySchool			= StudentActivitySchool
+					invoked.StudentActivityBankTransaction	= StudentActivityBankTransaction
+					invoked.SchoolActivityAccount			= SchoolActivityAccount
+					invoked.BankTransDetailAmount			= (BankTransDetailAmount * -1)
+					invoked.GLAccount						= GLAccount
+					invoked.CorrectedPosting				= true
+
+				invoke Create StudentActivityBankTransDetail
+					invoked.StudentActivityDistrict			= StudentActivityDistrict
+					invoked.StudentActivitySchool			= StudentActivitySchool
+					invoked.StudentActivityBankTransaction	= StudentActivityBankTransaction
+					invoked.SchoolActivityAccount			= PrmActivity1
+					invoked.BankTransDetailAmount			= PrmAmount1
+					invoked.GLAccount						= PrmGLAccount1
+
+				if (PrmActivity2 entered)
+					invoke Create StudentActivityBankTransDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityBankTransaction	= StudentActivityBankTransaction
+						invoked.SchoolActivityAccount			= PrmActivity2
+						invoked.BankTransDetailAmount			= PrmAmount2
+						invoked.GLAccount						= PrmGLAccount2
+
+				if (PrmActivity3 entered)
+					invoke Create StudentActivityBankTransDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityBankTransaction	= StudentActivityBankTransaction
+						invoked.SchoolActivityAccount			= PrmActivity3
+						invoked.BankTransDetailAmount			= PrmAmount3
+						invoked.GLAccount						= PrmGLAccount3
+
+				if (PrmActivity4 entered)
+					invoke Create StudentActivityBankTransDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityBankTransaction	= StudentActivityBankTransaction
+						invoked.SchoolActivityAccount			= PrmActivity4
+						invoked.BankTransDetailAmount			= PrmAmount4
+						invoked.GLAccount						= PrmGLAccount4
+
+				CorrectedPosting	= true
+				invoke ReleaseUnreleasedDetails StudentActivityBankTransaction
+
+		
+		UpdateActivityCurrentBalances is an Instance Action
+			Parameters
+				CurrentBalanceAmount		is an InternationalAmount
+			
+			Local Fields
+				LocalCurrentReceipts		is an InternationalAmount
+				LocalCurrentDisbursements	is an InternationalAmount
+				LocalCurrentTransfers		is an InternationalAmount
+				
+			Action Rules
+				if (!BankTransactionType.Transfer)
+					if (StudentActivityBankTransaction.AmountType.BankDebit)
+						LocalCurrentDisbursements	= CurrentBalanceAmount
+					else
+						LocalCurrentReceipts		= CurrentBalanceAmount
+				else
+					if (StudentActivityBankTransaction.AmountType.BankDebit)
+						LocalCurrentTransfers		= (CurrentBalanceAmount *-1)
+					else
+						LocalCurrentTransfers		= CurrentBalanceAmount
+
+				invoke UpdateCurrentBalances SchoolActivityAccount
+					invoked.PrmCurrentReceipts		+= LocalCurrentReceipts
+					invoked.PrmCurrentDisbursements	+= LocalCurrentDisbursements
+					invoked.PrmCurrentTransfers		+= LocalCurrentTransfers
+					
+				invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+					invoked.PrmCurrentReceipts		+= LocalCurrentReceipts
+					invoked.PrmCurrentDisbursements	+= LocalCurrentDisbursements
+					invoked.PrmCurrentTransfers		+= LocalCurrentTransfers
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+					
+	StateCycles
+		StudentActivityBankTransDetailLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+					valid when (DetailsCanBeEntered)
+					Action Rules
+						constraint (!BankTransactionType.NSFRecord)
+							"DetailsNotAllowedForNSFRecords"
+					
+						constraint (!BankTransactionType.Deposit)
+							"DetailsNotAllowedForDeposits"
+					
+					Exit Rules
+						if (BankTransactionType.Disbursement
+						and StudentActivityBankAccount.CheckDocumentTemplate entered)
+							invoke CreateCheckRecord StudentActivityBankTransaction
+
+						if (StudentActivityBankTransaction.Status.Released)
+							invoke Release Entered this instance
+				
+				CreateNSFDetail is a Create Action
+					restricted
+
+				Update is an Update Action
+					Exit Rules
+						if (BankTransactionType.Disbursement
+						and StudentActivityBankAccount.CheckDocumentTemplate entered)
+							invoke CreateCheckRecord StudentActivityBankTransaction
+				
+						if (SchoolActivityAccount changed)
+							initialize GLAccount
+
+				Delete is a Delete Action
+					Exit Rules
+						if (BankTransactionType.Disbursement
+						and StudentActivityBankAccount.CheckDocumentTemplate entered)
+							invoke CreateCheckRecord StudentActivityBankTransaction
+
+				
+				UpdateSignedAmount is an Instance Action
+					restricted
+					
+					Action Rules		
+						if (StudentActivityBankTransaction.AmountType.BankCredit)
+							SignedTransactionDetailAmount	= (BankTransDetailAmount * -1)
+						else
+							SignedTransactionDetailAmount	= BankTransDetailAmount
+
+				Release is an Instance Action
+					restricted
+					Local Fields
+						LocalBankAccountActivity is a SchoolActivityAccount
+						
+					Action Rules
+						constraint (BankTransDetailAmount	entered)
+							"DetailAmountRequired"
+
+						if (GLAccountRequired)
+							constraint (GLAccount entered)
+								"GLAccountRequiredForRevenueTypeActivity<SchoolActivityAccount>"
+						
+						LocalBankAccountActivity	= StudentActivityBankAccount.BankAccountActivity
+						
+						if (!BankTransactionType.Deposit)
+							invoke CreateReleasedTransaction Released StudentActivityBankTransDetail
+								invoked.StudentActivityDistrict								= StudentActivityDistrict
+								invoked.StudentActivitySchool								= StudentActivitySchool
+								invoked.StudentActivityBankTransaction						= StudentActivityBankTransaction
+								invoked.SchoolActivityAccount								= LocalBankAccountActivity
+								if (SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+									invoked.BankTransDetailAmount							= (BankTransDetailAmount *-1)
+								else
+									invoked.BankTransDetailAmount							= BankTransDetailAmount
+								invoked.BankAccountOffset									= true
+								if (GLAccount entered)
+									invoked.GLAccount			= LocalBankAccountActivity.GLAccount
+					Exit Rules
+						invoke UpdateActivityCurrentBalances
+							invoked.CurrentBalanceAmount	= BankTransDetailAmount
+						
+
+						
+						make transition to Released
+
+					
+			InProcess is a State
+				CreateInProcessTransaction is a Create Action
+					restricted
+					
+				Release is an Instance Action
+					restricted
+					Exit Rules
+						invoke UpdateActivityCurrentBalances
+							invoked.CurrentBalanceAmount	= BankTransDetailAmount
+							
+						make transition to Released
+							
+			Released is a State
+				Delete is a Delete Action
+					restricted
+					Entrance Rules
+						invoke UpdateActivityCurrentBalances
+							invoked.CurrentBalanceAmount	= (BankTransDetailAmount *-1)
+						
+
+				Update is an Update Action
+					restricted
+					Exit Rules
+						invoke UpdateActivityCurrentBalances
+							invoked.CurrentBalanceAmount	= (BankTransDetailAmount - old BankTransDetailAmount)
+							
+
+				
+				CreateReleasedTransaction is a Create Action
+					restricted
+					Exit Rules
+						invoke UpdateActivityCurrentBalances
+							invoked.CurrentBalanceAmount	= BankTransDetailAmount
+							
+				CloseBankDetails is a Set Action
+					restricted
+					completion message is "BankTransactionCloseComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmCloseDate				is Date
+		
+					
+					Local Fields
+						StudentActivityCloseFields
+						CreateJournal						is Boolean
+					
+					Instance Selection
+						where (StudentActivityBankTransDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityBankTransDetail.StudentActivitySchool		= PrmStudentActivitySchool
+						and    StudentActivityBankTransDetail.TransactionDate			<= PrmCloseDate
+						and    StudentActivityBankTransDetail.Status.Released)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+						GLAccount
+					
+					Accumulators
+						TotalDisbursementAmount
+						TotalDepositAmount
+						TotalTransferAmount
+						PostingDisbursementAmount
+						PostingDepositAmount
+						PostingTransferAmount
+						TotalPostingAmount
+		
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendar				= StudentActivityDistrict.SchoolCalendar
+								StudentActivityCloseFields.SchoolCalendarGroup			= StudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.SchoolClosedPeriod			= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivityJournal		= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivitySchool		= StudentActivitySchool
+								
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								CreateJournal	= false
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodReceipts			+= TotalDepositAmount
+									invoked.PeriodDisbursements		+= TotalDisbursementAmount
+									invoked.PeriodTransfers			+= TotalTransferAmount
+									invoked.PostedReceipts			+= PostingDepositAmount
+									invoked.PostedDisbursements		+= PostingDisbursementAmount
+									invoked.PostedTransfers			+= PostingTransferAmount
+			
+								invoke Update StudentActivityCloseFields.StudentActivityBalanceDetail 
+									invoked.PeriodReceipts			+= TotalDepositAmount
+									invoked.PeriodDisbursements		+= TotalDisbursementAmount
+									invoked.PeriodTransfers			+= TotalTransferAmount
+									invoked.PostedReceipts			+= PostingDepositAmount
+									invoked.PostedDisbursements		+= PostingDisbursementAmount
+									invoked.PostedTransfers			+= PostingTransferAmount
+		
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentReceipts		-= TotalDepositAmount
+									invoked.PrmCurrentDisbursements	-= TotalDisbursementAmount
+									invoked.PrmCurrentTransfers		-= TotalTransferAmount
+							
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+							
+							Exit Rules
+								invoke Update StudentActivityCloseFields.SchoolActivityAccountBalance
+									invoked.PeriodReceipts			+= TotalDepositAmount
+									invoked.PeriodDisbursements		+= TotalDisbursementAmount
+									invoked.PeriodTransfers			+= TotalTransferAmount
+									invoked.PostedReceipts			+= PostingDepositAmount
+									invoked.PostedDisbursements		+= PostingDisbursementAmount
+									invoked.PostedTransfers			+= PostingTransferAmount
+
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentReceipts		-= TotalDepositAmount
+									invoked.PrmCurrentDisbursements	-= TotalDisbursementAmount
+									invoked.PrmCurrentTransfers		-= TotalTransferAmount
+							
+
+						GLAccount Set Rules
+							Entrance Rules
+								CreateJournal				= false
+
+							Exit Rules
+								if (CreateJournal)
+									invoke Create StudentActivityCloseFields.StudentActivityJournalDetail
+										invoked.StudentActivityDistrict		= StudentActivityDistrict
+										invoked.StudentActivitySchool		= StudentActivitySchool
+										invoked.StudentActivityClosedPeriod	= StudentActivityCloseFields.StudentActivityClosedPeriod
+										invoked.StudentActivityJournal		= StudentActivityCloseFields.StudentActivityJournal
+										invoked.GLAccount					= GLAccount
+										invoked.StudentActivityAccount		= StudentActivityCloseFields.StudentActivityAccount
+										invoked.PostingAmount				+= TotalPostingAmount
+										invoked.Description					= JournalDescription
+										invoked.OriginatingTransaction		= reference to this instance
+										invoked.System						= TransactionSystemCode.StudentActivity
+										invoked.CurrencyCode				= StudentActivityDistrict.AccountingEntity.FunctionalCurrency	
+										invoked.GLAccountingEntity			= StudentActivityDistrict.AccountingEntity
+										invoked.TransactionDate				= StudentActivityCloseFields.StudentActivityClosedPeriod.Date
+										
+						Instance Rules
+							if (!BankTransactionType.Transfer)
+								if (StudentActivityBankTransaction.AmountType.BankDebit)
+									TotalDisbursementAmount	+= BankTransDetailAmount
+									if (GLAccount entered)
+										PostingDisbursementAmount	+= SignedTransactionDetailAmount
+								else
+									TotalDepositAmount	+= BankTransDetailAmount
+									if (GLAccount entered)
+										PostingDepositAmount		+= SignedTransactionDetailAmount
+							else
+								if (StudentActivityBankTransaction.AmountType.BankDebit)
+									TotalTransferAmount	-= BankTransDetailAmount
+								else
+									TotalTransferAmount	+= BankTransDetailAmount
+								if (GLAccount entered)
+									PostingTransferAmount		+= SignedTransactionDetailAmount
+							
+							ClosedPeriod		= StudentActivityCloseFields.StudentActivityClosedPeriod
+							
+							if (GLAccount entered)
+								TotalPostingAmount						+= SignedTransactionDetailAmount
+								CreateJournal	= true
+								StudentActivityCloseFields.GLAccount	= GLAccount
+							
+							invoke CloseRecord StudentActivityBankTransaction
+		
+							make transition to Closed
+
+			Closed is a State
+				OpenBankDetails is a Set Action
+					restricted
+					completion message is "OpenBankTransactionComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmClosedPeriod				is a StudentActivityClosedPeriod
+		
+					Local Fields
+						StudentActivityCloseFields
+					
+					Instance Selection
+						where (StudentActivityBankTransDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityBankTransDetail.StudentActivitySchool		= PrmStudentActivitySchool
+						and    StudentActivityBankTransDetail.ClosedPeriod				= PrmClosedPeriod)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+					
+					Accumulators
+						TotalDisbursementAmount
+						TotalDepositAmount
+						TotalTransferAmount
+						PostingDisbursementAmount
+						PostingDepositAmount
+						PostingTransferAmount
+						TotalPostingAmount
+		
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendarGroup			= PrmStudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= PrmClosedPeriod
+						
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodReceipts			-= TotalDepositAmount
+									invoked.PeriodDisbursements		-= TotalDisbursementAmount
+									invoked.PeriodTransfers			-= TotalTransferAmount
+									invoked.PostedReceipts			-= PostingDepositAmount
+									invoked.PostedDisbursements		-= PostingDisbursementAmount
+									invoked.PostedTransfers			-= PostingTransferAmount
+			
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentReceipts		+= TotalDepositAmount
+									invoked.PrmCurrentDisbursements	+= TotalDisbursementAmount
+									invoked.PrmCurrentTransfers		+= TotalTransferAmount
+							
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+							
+							Exit Rules
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentReceipts		+= TotalDepositAmount
+									invoked.PrmCurrentDisbursements	+= TotalDisbursementAmount
+									invoked.PrmCurrentTransfers		+= TotalTransferAmount
+							
+
+						Instance Rules
+							if (!BankTransactionType.Transfer)
+								if (StudentActivityBankTransaction.AmountType.BankDebit)
+									TotalDisbursementAmount	+= BankTransDetailAmount
+									if (GLAccount entered)
+										PostingDisbursementAmount	+= SignedTransactionDetailAmount
+								else
+									TotalDepositAmount	+= BankTransDetailAmount
+									if (GLAccount entered)
+										PostingDepositAmount	+= SignedTransactionDetailAmount
+							else
+								if (StudentActivityBankTransaction.AmountType.BankDebit)
+									TotalTransferAmount	-= BankTransDetailAmount
+								else
+									TotalTransferAmount		+= BankTransDetailAmount
+								if (GLAccount entered)
+									PostingTransferAmount	+= SignedTransactionDetailAmount
+							
+							initialize ClosedPeriod
+							
+							if (GLAccount entered)
+								TotalPostingAmount	+= SignedTransactionDetailAmount
+							
+							if (TransactionDate	= StudentActivityBankTransaction.TransactionDate)
+								invoke OpenRecord StudentActivityBankTransaction
+		
+							make transition to Released
+				

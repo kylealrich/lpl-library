@@ -1,0 +1,449 @@
+ActionRequest is a BusinessClass
+    owned by la
+    prefix is USRA
+	disable data area copy
+	
+    Ontology
+    	symbolic key is ActionRequest
+
+    Patterns
+        disable EffectiveDated
+        disable AsOfDateProcessing
+        implements SurrogateAuditLog for ParameterView
+
+    Persistent Fields
+    	Status					is Numeric size 1
+    		States
+    			NotInProcess		value is 1
+    			InProcess			value is 2
+    			Rejected			value is 8
+    			Complete			value is 9
+    	BusinessObjectReference  is BusinessObjectReference
+    	BusinessClass
+    	BusinessAction 			
+    	ParameterView			is Text
+    	ProcessName				is Alpha size 50
+    	WorkUnit				is Numeric size 12 
+
+
+
+		Title					is Alpha size 100 
+			translatable  	
+		FinalizedStamp			is TimeStamp									
+
+	Local Fields
+		SkipCancel 			is Boolean
+		NotificationState 	is Alpha size 10
+		CreateActor 		is an Actor			
+		LocRequestRef		is BusinessObjectReference to ActionRequest				
+		
+    Conditions
+    	HasWorkUnit
+    		default label is "WorkUnitEntered"
+    		when (WorkUnit entered)
+
+    	IsOpen
+    		default label is "Open"
+    		when (Status.InProcess
+    		or Status.NotInProcess)
+
+  	Derived Fields
+  		FullBusinessClass is a StringField
+  			type is LPLName
+  			BusinessClass.PackageName
+  			"."
+  			BusinessClass
+
+  		MethodName is a StringField
+  			type is LPLName
+  			BusinessAction.MethodName
+
+  		StatusPending is a ConditionalField
+  			type is Alpha size 7
+  			if  (Status.InProcess
+  			and  WorkUnit = 0)
+  				"Pending"
+  			else
+  				""
+		NotificationDescription is a MessageField
+    		"ActionRequest\"<ProcessName>\"<NotificationState>."
+    		
+		NotificationsEnabled is a NativeField   
+			type is Boolean
+
+        HasProcessIndicator is a DerivedField
+            type is Boolean
+            default label is "ProcessIndicator"
+            if (PfiProcessIndicatorRel exists)
+                return true
+            return false
+
+
+
+
+
+
+
+
+
+
+
+
+	Rule Blocks
+		CreateNotificationBlock
+			if (NotificationsEnabled)
+				CreateActor = create stamp.actor     		
+				invoke Create UserNotification
+						invoked.Actor 			= create stamp.actor
+						invoked.Description		= this instance(locale of CreateActor.IsoLocale).NotificationDescription
+						invoked.SourceType 		= 5 
+						invoked.SourceObject 	= reference to ActionRequest
+				  				
+	Relations
+		WorkUnitRel							
+			one-to-one relation to PfiWorkunit 
+			Field Mapping uses symbolic key
+				related.PfiWorkunit			= WorkUnit
+	
+
+		NotificationRel
+			one-to-many relation to UserNotification
+			delete cascades
+			Field Mapping uses BySourceObject
+				related.SourceObject = LocRequestRef 
+
+
+
+
+        PfiProcessIndicatorRel
+            one-to-one relation to PfiProcessIndicator
+            Field Mapping uses symbolic key
+                related.PfiProcessIndicator = WorkUnit
+
+    Sets
+		ByStatus
+			no duplicates
+			indexed
+			Sort Order
+				Status
+				BusinessClass
+				BusinessAction
+				ActionRequest
+
+		ByCreateStamp
+			no duplicates
+			indexed
+			Sort Order
+
+				create stamp
+				BusinessClass
+				BusinessAction
+				ActionRequest
+
+		ByComplete
+			no duplicates
+			indexed
+			Sort Order
+				create stamp
+				BusinessClass
+				BusinessAction
+				ActionRequest
+			Instance Selection
+				where (Status.Complete)
+
+
+
+
+
+
+
+
+
+
+
+
+		ByBusClass
+			no duplicates
+			indexed
+			Sort Order
+				BusinessClass
+				BusinessAction
+
+				create stamp
+				ActionRequest
+
+		ByWorkUnit
+			no duplicates
+			indexed
+			Sort Order
+				WorkUnit
+			Instance Selection
+				where (HasWorkUnit)
+
+		ByReference
+			no duplicates
+			indexed
+			Sort Order
+				BusinessObjectReference.BusinessObjectKey
+				create stamp
+				ActionRequest
+
+	Field Rules
+		BusinessClass
+    		required
+		BusinessAction
+			required
+		ParameterView
+			required
+		ProcessName
+			required
+
+	Actions
+		Purge is a Set Action
+			Parameters
+				ThruDate 		 is Date
+				PurgeOffsetDays  is Numeric size 3
+				PhysicallyDelete is Boolean
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+			
+
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+						
+				PhysicallyDelete
+					if (PhysicallyDelete)
+						confirmation required
+							"ThisWillPermanentlyRemoveTheRecord.AreYouSure?"
+
+			Instance Selection
+				where ((Status.Complete
+				or      Status.Rejected)
+				and    FinalizedStamp < LocalThruDate)
+
+
+
+				
+			Action Rules
+
+				Instance Rules
+					if (Status.Complete)
+						if (PhysicallyDelete)
+							invoke Complete.Purge
+								resume on error
+						else
+							invoke Complete.Delete
+								resume on error
+					else
+						if (PhysicallyDelete)
+							invoke Rejected.Purge
+								resume on error
+						else
+							invoke Rejected.Delete
+								resume on error
+
+		PurgeWithDeletedRecords is a Set Action
+			Parameters
+				ThruDate 		 is Date
+				PurgeOffsetDays  is Numeric size 3
+				
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+			
+
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+						
+				
+			Instance Selection
+				include deleted records
+				where ((Status.Complete
+				or      Status.Rejected)
+				and    FinalizedStamp < LocalThruDate)
+
+			Sort Order is ByStatus
+
+			Action Rules
+
+				Instance Rules
+					if (Status.Complete)
+						invoke Complete.Purge
+							resume on error
+					else
+						invoke Rejected.Purge
+							resume on error
+				
+	StateCycles
+
+    	ActionRequestLifeCycle is a StateCycle
+			state field is Status
+
+			NotInProcess is a State
+				Entrance Rules
+					WorkUnit = 0
+					
+					if (Status changed) 
+						if (not NotificationState entered)
+							NotificationState = "Withdrawn"
+						include CreateNotificationBlock
+
+				Create is a Create Action
+					restricted
+
+
+				Initiate is a Create Action
+					restricted
+
+					Action Rules
+						invoke Create this instance
+						make transition to InProcess
+
+				Update is an Update Action 
+					Field Rules
+						BusinessClass
+							cannot be changed
+						BusinessAction
+							cannot be changed
+						ProcessName
+							cannot be changed
+						
+				UpdateParameters is an Update Action 
+				
+				View is an Update Action
+
+				Reject is an Instance Action
+					Action Rules
+						FinalizedStamp = current timestamp
+						make transition to Rejected
+
+				Delete is a Delete Action
+					Entrance Rules
+						LocRequestRef = reference to ActionRequest
+
+				Submit is an Instance Action
+					Action Rules
+						make transition to InProcess
+
+			InProcess is a State
+				Update is an Update Action 
+					Field Rules
+						BusinessClass
+							cannot be changed
+						BusinessAction
+							cannot be changed
+						ProcessName
+							cannot be changed
+
+				UpdateParameters is an Update Action 
+				
+				View is an Update Action
+
+				Withdraw is an Instance Action  
+					Action Rules
+						NotificationState = "Withdrawn"	
+						make transition to NotInProcess
+
+				Reject is an Instance Action 
+					restricted
+					Action Rules
+						FinalizedStamp = current timestamp
+						make transition to Rejected
+
+				ManualReject is an Instance Action 
+					Action Rules
+						FinalizedStamp = current timestamp
+						make transition to Rejected
+
+				ForceManualReject is an Instance Action 
+					confirmation required
+						"NoCancelRulesWillBeProcessedAndThisCouldResultInInconsistentData.AreYouSureYouWantToForceReject?"
+					Action Rules
+						
+						FinalizedStamp = current timestamp
+						make transition to Rejected
+						
+				Return is an Instance Action 
+					restricted
+					Action Rules
+						NotificationState = "Returned"
+						make transition to NotInProcess
+
+				ManualComplete is an Instance Action
+
+
+					Action Rules
+						FinalizedStamp = current timestamp
+						make transition to Complete
+
+				Complete is an Instance Action
+					restricted
+
+					Action Rules
+						FinalizedStamp = current timestamp
+						make transition to Complete
+
+			Rejected is a State
+				Entrance Rules   
+					NotificationState = "Rejected"
+					include CreateNotificationBlock
+
+
+				ViewParameters is an Update Action 
+				
+				View is an Update Action
+				
+				Delete is a Delete Action
+					Entrance Rules
+						LocRequestRef = reference to ActionRequest
+						
+				Purge is a Purge Action
+					confirmation required
+						"ThisWillPermanentlyRemoveTheRecord.AreYouSure?"
+					Entrance Rules
+						LocRequestRef = reference to ActionRequest						
+			
+			Complete is a State
+				Entrance Rules
+					NotificationState = "Completed"
+					include CreateNotificationBlock
+					
+				ViewParameters is an Update Action 
+				
+				View is an Update Action
+				
+				Delete is a Delete Action
+					Entrance Rules
+						LocRequestRef = reference to ActionRequest
+
+				Purge is a Purge Action
+					confirmation required
+						"ThisWillPermanentlyRemoveTheRecord.AreYouSure?"

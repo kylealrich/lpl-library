@@ -1,0 +1,195 @@
+IIHItemLocationExtended is a BusinessClass
+	owned by InventoryIntelligence
+	default label is "InventoryIntelligenceItemLocationExtended"
+	
+	prefix is IILE
+	
+	Ontology
+		symbolic key is IIHItemLocationExtended
+		
+	
+	Patterns
+
+		disable Auditing
+		disable AuditIndex
+		disable EffectiveDated
+
+		
+	Persistent Fields
+		RecommendationDate				is TimeStamp
+		RecommendedReorderPoint			is an UnsignedQuantity
+		RecommendedMaxOrder				is an UnsignedQuantity
+		RecommendedReorderQuantity		is like UnsignedQuantity
+		Processed						is Boolean
+		AnalysisType					is Alpha size 50
+		RecommendedAverageSOHChange		is Decimal size 31.6
+        RecommendedOrdersCountChange	is Decimal size 31.6
+        RecommendedTurnsCountChange		is Decimal size 31.6
+        TotalCostSavings				is Decimal size 31.6
+        EconomicOrderQuantityMaxOrder	is Decimal size 31.6
+        AnalysisDate					is a DateRange
+        TargetDaysBetweenOrders			is Decimal size 13.4
+    
+    Local Fields
+    	LocalLocationGroup				is a IIHLocationGroup
+
+	Field Rules
+	
+	Rule Blocks
+		InitializeRules
+			initialize RecommendationDate
+			initialize RecommendedReorderPoint
+			initialize RecommendedReorderQuantity
+			initialize RecommendedMaxOrder
+			initialize AnalysisType
+			initialize RecommendedAverageSOHChange
+			initialize RecommendedOrdersCountChange
+			initialize RecommendedTurnsCountChange
+			initialize TotalCostSavings
+			initialize EconomicOrderQuantityMaxOrder
+			initialize TargetDaysBetweenOrders
+			Processed = true
+	
+	Conditions
+		IsParLocation
+			when (InventoryLocation.LocationType = "P")
+			
+		IsPerpetualLocation
+			when (InventoryLocation.LocationType = blank)
+			
+		IsParOrExchangeCart
+            restricted
+            when (InventoryLocation.LocationType = "P"
+            or    InventoryLocation.LocationType = "E")
+	
+		HasNewROPRecommendation
+			when (RecommendedReorderPoint entered
+			and   RecommendedReorderPoint != ItemLocationRel.ReorderPoint)
+			
+		HasNewMaxOrderRecomendation
+			when (RecommendedMaxOrder entered
+			and   RecommendedMaxOrder != ItemLocationRel.MaximumOrderQuantity)
+		
+		InvokeRecommend
+			when ((IsParOrExchangeCart
+			and    HasNewROPRecommendation)
+			or    (IsPerpetualLocation
+			and   (HasNewROPRecommendation
+			or     HasNewMaxOrderRecomendation)))
+		
+		AllowInterface
+			when (!Processed)
+				
+	Relations
+		IIHItemLocationRel
+			one-to-one relation to IIHItemLocation
+			Field Mapping uses symbolic key
+				related.Company 			= Company
+				related.InventoryLocation 	= InventoryLocation
+				related.Item 				= Item
+	
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company 			= Company
+				related.InventoryLocation 	= InventoryLocation
+				related.Item 				= Item
+				
+		IIHLocationGroupMemberRel
+			one-to-one relation to IIHLocationGroupMember
+			Field Mapping uses ByLocationGroup
+				related.IIHLocationGroup  = LocalLocationGroup
+				related.Company 		  = Company
+				related.InventoryLocation = InventoryLocation
+				
+		IIHInventoryLocationRel
+		    one-to-one relation to IIHInventoryLocation
+		    Field Mapping uses symbolic key
+		        related.Company 				= Company
+		        related.IIHInventoryLocation 	= InventoryLocation
+		        
+	Actions
+		CreatePreliminary is a Create Action
+			restricted
+			Action Rules
+				include InitializeRules
+
+		Initialize is an Instance Action
+			Action Rules
+				include InitializeRules
+		
+		Create is an Action
+		Update is an Action
+		Delete is an Action
+		Purge is a Purge Action
+		
+
+
+
+
+
+
+
+		
+		InterfaceExtendedData is a Set Action
+			run in background
+			Sort Order
+		        Company
+		        InventoryLocation
+		        Item
+			Parameters
+				PrmFinanceEnterpriseGroup 	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmProcessResult 			is an InventoryIntelligenceProcessResult
+					default label is "ProcessResult"
+					context of PrmFinanceEnterpriseGroup
+				PrmCompany					is a InventoryCompany
+				PrmLocation					is a InventoryLocation
+				PrmLocationGroup			is a IIHLocationGroup
+					context of PrmFinanceEnterpriseGroup
+			Parameter Rules
+				PrmLocationGroup
+					LocalLocationGroup = PrmLocationGroup
+			Local Fields
+				LAnalysisDate 		is a DateRange
+				LRecommendationDate	is TimeStamp
+			Instance Selection
+
+				where   (PrmProcessResult not entered
+				or    (PrmProcessResult entered
+				and   !PrmProcessResult.Status.Failed)
+				and   (PrmLocation not entered or (Company = PrmCompany and InventoryLocation = PrmLocation))
+				and   (PrmLocationGroup not entered or IIHLocationGroupMemberRel exists))
+			Action Rules
+				Empty Set Rules
+				Set Rules
+					Entrance Rules
+						initialize LAnalysisDate
+						initialize LRecommendationDate
+					Exit Rules
+						if (PrmProcessResult exists)
+							invoke UpdateRunInfo PrmProcessResult
+								invoked.RunTimeStamp = LRecommendationDate
+								invoked.AnalysisDate = LAnalysisDate
+
+				InventoryLocation Set Rules
+		            Exit Rules
+		                invoke FastUpdate IIHInventoryLocationRel
+		                    invoked.AnalysisDate = LAnalysisDate
+				
+				Instance Rules
+					if (AllowInterface)
+						if (PrmProcessResult.Process.Recommendations
+						and InvokeRecommend)
+							if (LRecommendationDate not entered)
+								LRecommendationDate = RecommendationDate
+								LAnalysisDate = AnalysisDate
+							invoke Recommend IIHItemLocationRel
+								invoked.PrmUseExtendedData = true
+
+
+
+
+											
+
+					

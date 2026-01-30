@@ -1,0 +1,515 @@
+LocationItemUOMConversion is a Field
+
+    Representation
+        Group Fields
+        	InCompany			        is like InventoryCompany
+            InLocation			        is like InventoryLocation
+            InQuantity					is like Quantity
+            InUnitCost					is like InternationalCost
+            InUOM				        is like UnitOfMeasureEdit
+            DoRounding			        is Boolean
+			InItemLocation				is an ItemLocation
+			InputDecimal		 		is Numeric size 1
+			InLocationItemUOM			is a UnitOfMeasureEdit
+
+	Context Fields
+		ItemGroup
+		Item
+		ItemLocation
+
+	Transient Fields
+        OutputItemLocation				is an ItemLocation
+        OutputLocationStockUOM			is a UnitOfMeasureEdit
+		OutputFieldConverted			is Alpha size 30
+
+	Local Fields
+		ConvertQuantity					is a Quantity
+		ConvertUnitCost					is an InternationalCost
+		ConvertUOM						is a UnitOfMeasureEdit
+		RoundedValue
+		Execute							is Boolean
+		LocalErrorMessage				is Alpha size 200
+
+	Relations
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company           = InCompany
+				related.InventoryLocation = InLocation
+				related.Item              = Item
+
+		ItemUOMRel
+        	one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup  		= DerivedItemGroup
+				related.Item			= Item
+        		related.UnitOfMeasure   = DerivedUOM
+
+   		ItemRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup		= DerivedItemGroup
+				related.Item			= Item
+
+	Conditions
+		HasItemLocationStockUOM
+			when (DoLocationStockUOM)
+
+		HasSameStockUOM
+			restricted
+			when (OutputLocationStockUOM = ItemRel.StockUOM)	
+
+	Derived Fields
+		DerivedQtyRoundTo is a DerivedField
+			type is like Quantity
+			if (ItemRel.NumberOfDecimalsQuantity = 4
+			or  InputDecimal = 4)
+				return .0001
+			else
+			if (ItemRel.NumberOfDecimalsQuantity = 3
+			or  InputDecimal = 3)
+				return .001
+			else
+			if (ItemRel.NumberOfDecimalsQuantity = 2
+			or  InputDecimal = 2)
+				return .01
+			else
+			if (ItemRel.NumberOfDecimalsQuantity = 1
+			or  InputDecimal = 1)
+				return .1
+			else
+			if (ItemRel.NumberOfDecimalsQuantity = 0
+			or  InputDecimal = 0)
+				return 1
+			else
+				return 0
+
+		DerivedCostRoundTo is a DerivedField
+			type is like InternationalCost
+			if (ItemRel.NumberOfDecimalsCost = 8)
+				return .00000001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 7)
+				return .0000001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 6)
+				return .000001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 5)
+				return .00001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 4)
+				return .0001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 3)
+				return .001
+			else
+			if (ItemRel.NumberOfDecimalsCost = 2)
+				return .01
+			else
+			if (ItemRel.NumberOfDecimalsCost = 1)
+				return .1
+			else
+			if (ItemRel.NumberOfDecimalsCost = 0)
+				return 1
+			else
+				return 0
+
+		DerivedRoundQuantity									is a DerivedField
+			type is like Quantity
+            initialize RoundedValue
+            RoundedValue.RoundInput			= ConvertQuantity
+            RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+            RoundedValue.RoundTo			= DerivedQtyRoundTo
+            RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+            return RoundedValue.RoundResult
+
+		DerivedRoundCost										is a DerivedField
+			type is like InternationalCost
+            initialize RoundedValue
+            RoundedValue.RoundInput			= ConvertUnitCost
+            RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+            RoundedValue.RoundTo			= DerivedCostRoundTo
+            RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+            return RoundedValue.RoundResult
+
+ 		DerivedItemGroup										is a DerivedField 
+			type is AlphaUpper size 5
+			if (ItemGroup entered)
+				return ItemGroup
+			if (OutputItemLocation not entered)
+				Execute = DoLocationStockUOM
+			return OutputItemLocation.Company.ItemGroup
+
+ 		DoItemLocation											is a DerivedField 
+			type is Boolean
+			if (InItemLocation entered)
+				OutputItemLocation = InItemLocation
+			else
+			if (InCompany  entered
+			and InLocation entered)
+				OutputItemLocation = ItemLocationRel.ItemLocation
+			else
+			if (ItemLocation entered)
+				OutputItemLocation = ItemLocation
+			return true
+
+ 		DoLocationStockUOM										is a DerivedField 
+			type is Boolean
+			Execute = DoItemLocation
+			if (InLocationItemUOM entered)
+				OutputLocationStockUOM = InLocationItemUOM
+			else
+				OutputLocationStockUOM = OutputItemLocation.ItemLocationStockUOM.UnitOfMeasure
+	
+			if (OutputLocationStockUOM entered)
+				return true
+
+		OutputLocationStockUOMMultiplier 				 		is a DerivedField 
+			type is like UOMMultiplier
+			return OutputLocationStockUOM.ItemUOM.UOMConversion
+
+		OutputInUOMMultiplier									is a DerivedField 
+			type is like UOMMultiplier
+			return ItemUOMRel.UOMConversion
+
+		DerivedUOM												is a DerivedField
+			type is like UnitOfMeasure
+			if (InUOM entered)
+				return InUOM
+			else
+				return ItemRel.StockUOM
+
+		OutputQuantity											is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (DerivedUOM = OutputLocationStockUOM) 
+					ConvertQuantity = InQuantity
+				else
+                if (DerivedUOM = ItemRel.StockUOM) 
+					ConvertQuantity =  InQuantity 	/ OutputLocationStockUOMMultiplier
+                else
+                    ConvertQuantity = (InQuantity   * (OutputInUOMMultiplier / OutputLocationStockUOMMultiplier))
+
+                if (DoRounding)
+                    return DerivedRoundQuantity
+                else
+                    return ConvertQuantity 
+
+		OutputUnitCost											is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (DerivedUOM = OutputLocationStockUOM) 
+					ConvertUnitCost = InUnitCost
+				else
+                if (DerivedUOM = ItemRel.StockUOM) 
+					ConvertUnitCost =  InUnitCost 	* OutputLocationStockUOMMultiplier
+                else
+                    ConvertUnitCost = (InUnitCost   * (OutputLocationStockUOMMultiplier / OutputInUOMMultiplier))
+
+                if (DoRounding)
+                    return DerivedRoundCost
+                else
+                    return ConvertUnitCost        
+
+		AllocatableQuantity										is a DerivedField 
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.AllocatableQuantity
+				else
+
+					return OutputItemLocation.AllocatableQuantity	/ OutputLocationStockUOMMultiplier
+
+		AllocatedQuantity										is a DerivedField 
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.AllocatedQuantity
+				else
+
+					return OutputItemLocation.AllocatedQuantity		/ OutputLocationStockUOMMultiplier
+
+    	AvailableQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.AvailableQuantity
+				else
+					return OutputItemLocation.AvailableQuantity		/ OutputLocationStockUOMMultiplier
+
+		BackorderedQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.BackorderedQuantity
+				else
+					return OutputItemLocation.BackorderedQuantity	/ OutputLocationStockUOMMultiplier
+
+		DemandQuantity											is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				return (UnallocatedQuantity + AllocatedQuantity + InProcessQuantity + BackorderedQuantity)
+
+
+		InProcessQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.InProcessQuantity
+				else
+					return OutputItemLocation.InProcessQuantity		/ OutputLocationStockUOMMultiplier
+					
+		InspectionHoldQuantity									is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.InspectionHoldQuantity
+				else
+					return OutputItemLocation.InspectionHoldQuantity / OutputLocationStockUOMMultiplier
+
+		IntransitQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.IntransitQuantity
+				else
+					return OutputItemLocation.IntransitQuantity		/ OutputLocationStockUOMMultiplier
+					
+		KitchenInProcessQuantity								is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM
+			and ItemRel.ItemGroup.RecipeManagementInUse)
+				if (HasSameStockUOM)
+					return OutputItemLocation.KitchenInProcessQuantity
+				else
+					return OutputItemLocation.KitchenInProcessQuantity / OutputLocationStockUOMMultiplier
+
+		OnOrderQuantity											is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.OnOrderQuantity
+				else
+					return OutputItemLocation.OnOrderQuantity		/ OutputLocationStockUOMMultiplier
+
+		StockOnHandQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.StockOnHandQuantity
+				else
+					return OutputItemLocation.StockOnHandQuantity 	/ OutputLocationStockUOMMultiplier
+
+		UnallocatedQuantity										is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.UnallocatedQuantity
+				else
+					return OutputItemLocation.UnallocatedQuantity 	/ OutputLocationStockUOMMultiplier
+
+		WorkInProgressQuantity									is a DerivedField
+			type is like Quantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.WorkInProgressQuantity
+				else
+					return OutputItemLocation.WorkInProgressQuantity / OutputLocationStockUOMMultiplier
+
+		ReservedQuantity										is a DerivedField
+			type is like Quantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.ReservedQuantity
+				else
+					return OutputItemLocation.ReservedQuantity / OutputLocationStockUOMMultiplier
+
+		UnreservedQuantity										is a DerivedField
+			type is like Quantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.UnreservedQuantity
+				else
+					return OutputItemLocation.UnreservedQuantity / OutputLocationStockUOMMultiplier
+
+		ReorderPoint											is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.ReorderPoint
+				else
+					return OutputItemLocation.ReorderPoint 			/ OutputLocationStockUOMMultiplier
+
+		ReorderQuantity											is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.ReorderQuantity
+				else
+					return OutputItemLocation.ReorderQuantity 		/ OutputLocationStockUOMMultiplier
+
+		MaximumOrderQuantity									is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.MaximumOrderQuantity
+				else
+					return OutputItemLocation.MaximumOrderQuantity 	/ OutputLocationStockUOMMultiplier
+
+		MinimumOrderQuantity									is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.MinimumOrderQuantity
+				else
+					return OutputItemLocation.MinimumOrderQuantity 	/ OutputLocationStockUOMMultiplier
+
+		SafetyStock												is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.SafetyStock
+				else
+					return OutputItemLocation.SafetyStock			/ OutputLocationStockUOMMultiplier
+
+		EconomicOrderQuantity									is a DerivedField
+			type is like UnsignedQuantity
+				precision is ItemRel.NumberOfDecimalsQuantity
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.EconomicOrderQuantity
+				else
+					return OutputItemLocation.EconomicOrderQuantity / OutputLocationStockUOMMultiplier
+
+		AverageAddOnCost										is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.AverageAddOnCost
+				else
+					return OutputItemLocation.AverageAddOnCost		* OutputLocationStockUOMMultiplier
+
+		AverageCost												is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.DerivedItemAverageCost
+				else
+					return OutputItemLocation.DerivedItemAverageCost * OutputLocationStockUOMMultiplier
+
+		FutureStandardCost										is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.FutureStandardCost
+				else
+					return OutputItemLocation.FutureStandardCost 	* OutputLocationStockUOMMultiplier
+
+		LastIssueCost											is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.LastIssueCost
+				else
+					return OutputItemLocation.LastIssueCost			* OutputLocationStockUOMMultiplier
+
+		LastReceiptCost											is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.LastReceiptCost
+				else
+					return OutputItemLocation.LastReceiptCost 		* OutputLocationStockUOMMultiplier
+
+		MarketPrice												is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.MarketPrice
+				else
+					return OutputItemLocation.MarketPrice 			* OutputLocationStockUOMMultiplier
+
+		OverheadUnitCost										is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.OverheadUnitCost
+				else
+					return OutputItemLocation.OverheadUnitCost 		* OutputLocationStockUOMMultiplier
+
+		StandardCost											is a DerivedField
+			type is like InternationalCost
+				precision is ItemRel.NumberOfDecimalsCost
+			if (HasItemLocationStockUOM)
+				if (HasSameStockUOM)
+					return OutputItemLocation.StandardCost
+				else
+					return OutputItemLocation.StandardCost 			* OutputLocationStockUOMMultiplier
+
+		CleanConversion											is a DerivedField 
+			type is like Quantity
+			if (StockOnHandQuantity entered)
+				initialize RoundedValue
+				RoundedValue.RoundInput			= StockOnHandQuantity
+				RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+				RoundedValue.RoundTo			= DerivedQtyRoundTo
+				RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+				ConvertQuantity = RoundedValue.RoundResult
+				constraint (ConvertQuantity = StockOnHandQuantity)
+					"StockOnHandQuantity<ConvertMessage>"
+
+			if (AllocatedQuantity entered)
+				initialize RoundedValue
+				RoundedValue.RoundInput			= AllocatedQuantity
+				RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+				RoundedValue.RoundTo			= DerivedQtyRoundTo
+				RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+				ConvertQuantity = RoundedValue.RoundResult
+				constraint (ConvertQuantity = AllocatedQuantity)
+					"AllocatedQuantity<ConvertMessage>"
+
+			return 1
+
+		ConvertMessage is a MessageField
+			"_doesNotConvertCleanly"
+
+		NotCleanConversion										is a DerivedField 
+			type is Boolean
+			if (ItemRel.NumberOfDecimalsQuantity.0Decimals)
+				if (StockOnHandQuantity			decimals not = 0)
+					OutputFieldConverted = "Stock On Hand Quantity"
+					return true
+				else
+				if (AllocatedQuantity 			decimals not = 0)
+					OutputFieldConverted = "Allocated Quantity"
+					return true
+
+					

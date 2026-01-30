@@ -1,0 +1,311 @@
+IONInbox is a BusinessClass
+    owned by la
+    store using com.lawson.rdtech.framework.ion.IONInboxStorage
+
+    Ontology
+        symbolic key is IONInbox
+
+    Patterns
+    	disable UniqueID
+    	implements ReadOnly
+    	
+	Persistent Fields
+		CreateTimeStamp is TimeStamp
+		FromLogicalId is Alpha size 250
+		ToLogicalId is Alpha size 250
+		BodType is Alpha size 42 
+			default label is "BOD_Type"
+		MessageId is Alpha size 250
+		AccountingEntity is Alpha size 250
+		DocumentId is Alpha size 100
+		RevisionId is Alpha size 22
+		VariationId is Numeric size 19
+		LocationId is Alpha size 22
+		MessagePriority is Numeric size 9
+		HasProcessor is Boolean
+			default label is "ProcessorExists"
+		IONInboxState	
+		BodXML is Text
+			default label is "BOD_XML"
+		BodXMLError is Text
+			default label is "BOD_XML_Error"
+		
+	Conditions
+		CanProcess
+			default label is "BODProcessable"
+			when (IONInboxState.Unprocessed and HasLogicalIdMapping)
+			
+		HasErrors
+			default label is "ErrorOccurred"
+			when (XMLErrors or NoMapping)
+			
+		XMLErrors
+			when (BodXMLError != blank or not HasProcessor)
+			
+		ProcessingErrors
+			when (ProcessingError != blank)
+			
+		Processed
+			when (not IONInboxState.Pending 
+			and   not IONInboxState.Unprocessed 
+			and   not IONInboxState.BatchRevised) 
+		
+		Blue
+			when (IONInboxState.Pending)
+			
+		Green
+			when (IONInboxState.Processed 
+			or    IONInboxState.BatchProcessed) 
+			
+		Yellow
+			when (IONInboxState.VariationSkipped 
+			or    IONInboxState.VariationOutOfSequence 
+			or    IONInboxState.BatchSkipped 
+			or    IONInboxState.BatchRevised) 
+		
+		Red
+			when (IONInboxState.Failed
+			or    IONInboxState.BatchAborted
+			or    IONInboxState.BatchError
+			or    IONInboxState.BatchErrorPreviousBatchNumber)
+
+		MappingExists
+			when (LogicalIdConnectionRel exists)
+			
+		NoMapping
+			when (!LogicalIdConnectionRel exists)
+			
+		NoDataAreaMapping
+			when (!LogicalIdRel exists)
+			
+		HasLogicalIdMapping
+			default label is "LogicalIdRelationExists"
+			when (LogicalIdRel exists)
+			
+		PendingAction
+			restricted 
+			when (IONInboxState.Pending
+			and   LogicalIdRel exists)
+			
+		IsProcessed
+			restricted
+			when (IONInboxState > 0
+			and   not IONInboxState.Pending)
+			
+		IsUnProcessed
+			restricted
+			when (IONInboxState = 0)
+
+		IsFailed
+			restricted
+			when (IONInboxState < 0)
+
+		IsPending
+			restricted
+			when (IONInboxState.Pending)
+	
+	Derived Fields
+		ProcessingError is a DerivedField
+			type is Text
+			if (ProcessingErrorRel exists)
+				return first ProcessingErrorRel.ErrorMessage
+			else
+				return ""
+	
+		NoProcessorMessage is a MessageField
+			restricted
+			"NoProcessorDefinedForDocument"
+			
+		NoMappingMessage is a MessageField
+			restricted
+			"NoMappingForLogicalId"
+			
+		MessageError is a MessageField
+			restricted
+			"ErrorInMessage.UnableToProcess"
+			
+		RedAlertMessage is a DerivedField
+			type is MessageField
+			if (NoMapping)
+				return NoMappingMessage
+			else
+				if (not HasProcessor)
+					return NoProcessorMessage
+				else
+					return MessageError
+					
+		FormatedLogicalId is a DerivedField
+			type is Alpha size 250
+			default label is "FormattedLogicalId"
+			if (ToLogicalId contains "lid://")
+				return ToLogicalId
+			else
+				return "lid://" + ToLogicalId
+	
+	Relations
+		ProcessingErrorRel
+			one-to-many relation to IONInboxError
+			Field Mapping uses ByIONInbox 
+				related.IONInbox = IONInbox
+				
+		LogicalIdConnectionRel
+			one-to-many relation to LogicalId
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.LogicalId.IONConnection = 1
+				and    related.LogicalId.LogicalId = FormatedLogicalId) 
+
+		LogicalIdRel
+			one-to-one relation to LogicalId
+			Field Mapping uses symbolic key
+				related.LogicalId.LogicalId = FormatedLogicalId
+				related.LogicalId.DataAreaName = DataAreaRel.DataArea
+				related.LogicalId.IONConnection = 1
+				
+		DataAreaRel
+			one-to-one relation to DataArea
+			Field Mapping uses symbolic key
+				related.DataArea = parentcontext.dataarea
+				
+	Sets
+		ByStamp
+			Sort Order
+				CreateTimeStamp
+				IONInbox
+				
+		ByStatus
+			Sort Order
+				IONInboxState
+				CreateTimeStamp
+				IONInbox
+				
+		ProcessedByStamp
+			Sort Order
+				CreateTimeStamp
+				IONInbox
+				
+			Instance Selection
+				where (IsProcessed)
+
+		ProcessedById
+			Sort Order
+				IONInbox
+				
+			Instance Selection 
+				where (IsProcessed)
+
+		UnProcessedByStamp
+			Sort Order
+				CreateTimeStamp
+				IONInbox
+				
+			Instance Selection
+				where (IsUnProcessed)
+
+		UnProcessedById
+			Sort Order
+				IONInbox
+				
+			Instance Selection 
+				where (IsUnProcessed)
+
+		FailedByStamp
+			Sort Order
+				CreateTimeStamp
+				IONInbox
+				
+			Instance Selection
+				where (IsFailed)
+
+		FailedById
+			Sort Order
+				IONInbox
+				
+			Instance Selection 
+				where (IsFailed)
+							
+		PendingByStamp
+			Sort Order
+				CreateTimeStamp
+				IONInbox
+				
+			Instance Selection
+				where (IsPending)
+
+		PendingById
+			Sort Order
+				IONInbox
+				
+			Instance Selection 
+				where (IsPending)
+				
+	Actions
+	    PurgeProcessedBods is a Set Action	    	
+	    	run in background
+	    	default label is "PurgeProcessedBOD\s"
+	    	disable checkpoint
+	    	
+			Parameters
+				ThruDate 				is Date
+				PurgeOffsetDays 		is Numeric size 3
+				IncludeInError			is Boolean
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+				
+
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Instance Selection
+				where (false)
+			
+		ResetPending is a Set Action
+			run in background
+			disable checkpoint
+			
+			Instance Selection 
+				where (IONInboxState.Pending)
+				
+			Action Rules
+				Instance Rules
+					if (LogicalIdRel exists)
+						invoke Reset
+				
+		Reset is an Instance Action
+			valid when (PendingAction)
+			manual update	
+		
+		MakeProcessed is an Instance Action
+			restricted
+			valid when (PendingAction)
+			manual update 
+			
+		MakeFailed is an Instance Action
+			restricted 
+			valid when (PendingAction)
+			manual update
+				
+		GenerateConfirmBOD is an Instance Action
+			default label is untranslatable
+			restricted
+			manual update
+			
+			
+
+				 
+	

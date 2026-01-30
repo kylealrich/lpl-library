@@ -1,0 +1,132 @@
+LogisticDeliveryLine is a BusinessClass
+    owned by wh
+    prefix is WHLDM
+
+    Ontology
+        symbolic key is LogisticDeliveryLine
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+    
+    Persistent Fields
+        WarehouseShipment
+        OrderType
+        OrderNumber                 is a SourceDocumentNumeric
+        ShipTo                      is a RequestingLocation
+        TrackingNumber          
+        DeliveredDateAndTime        is TimeStamp
+        Delivered                   is Boolean
+
+    Field Rules
+        DeliveredDateAndTime
+            constraint (DeliveredDateAndTime <= current timestamp)
+                "DeliveryDateCannotBeGreaterThanCurrentDate"
+                    
+    Conditions
+        DeliveryCompleted
+            restricted
+            when(LogisticDelivery.DeliveryCompleted)
+
+    Relations
+        ShipmentLoadLineRel
+            one-to-many relation to ShipmentLoadLine
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.ShipmentLoadConsolidation   = VehicleTripLineRel.ShipmentLoadConsolidation
+                related.WarehouseShipment           = WarehouseShipment
+
+        VehicleTripRel
+            one-to-one relation to VehicleTrip
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.VehicleTrip                 = LogisticDelivery.VehicleTrip
+
+        VehicleTripLineRel
+            one-to-one relation to VehicleTripLine
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.VehicleTrip                 = LogisticDelivery.VehicleTrip
+                related.VehicleTripLine             = LogisticDelivery.VehicleTripLine
+                
+        VehicleTripLineNotDeliveredRel
+            one-to-many relation to VehicleTripLine
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.VehicleTrip                 = LogisticDelivery.VehicleTrip
+            Instance Selection
+                where (not related.Delivered)
+        
+        ShipmentLoadConsolidationRel
+            one-to-one relation to ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.ShipmentLoadConsolidation = VehicleTripLineRel.ShipmentLoadConsolidation
+
+        LogisticDeliveryLineNotDeliveredRel 
+            one-to-many relation to LogisticDeliveryLine
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.LogisticDelivery            = LogisticDelivery
+            Instance Selection
+                where (not related.Delivered)
+    
+    Actions
+        Create is a Create Action
+
+        Update is an Update Action 
+            valid when(not Delivered)
+
+        Delete is a Delete Action
+            valid when(not DeliveryCompleted)
+
+        Confirm is an Instance Action
+            completion message is "Delivery_Confirmed"
+            valid when (not Delivered)
+            Entrance Rules
+                if (not VehicleTripRel.Status.InTransit)
+                    invoke Started.InTransit  VehicleTripRel
+                if(LogisticDelivery.DeliveryStatus.NotYetDelivered)
+                    invoke NotYetDelivered.TransitionToDeliveryInProgress LogisticDelivery
+            Action Rules
+                Delivered = true  
+                if (DeliveredDateAndTime not entered)
+                    DeliveredDateAndTime = current timestamp
+            Exit Rules
+                if (LogisticDelivery.DeliveryStatus.DeliveryInProgress)
+                    invoke DeliveryInProgress.TransitionToPartiallyDelivered LogisticDelivery
+
+                if(LogisticDeliveryLineNotDeliveredRel not exists)
+                    invoke PartiallyDelivered.TransitionToDelivered LogisticDelivery
+                    invoke Update VehicleTripLineRel
+                        invoked.Delivered = true
+                    invoke Released.CloseShipmentLoad ShipmentLoadConsolidationRel
+            
+                if (VehicleTripLineNotDeliveredRel not exists)
+                    invoke InTransit.Complete VehicleTripRel
+
+        ConfirmAllDeliveryLines is a Set Action
+            completion message is "Delivered"
+            valid when (not DeliveryCompleted)
+            Parameters
+                PrmCompany                      is an InventoryCompany
+                PrmInventoryLocation            is an InventoryLocation
+                PrmDeliveryLogistics            is a  LogisticDelivery
+                PrmVehicleTrip                  is a  VehicleTrip
+
+            Instance Selection
+                where (Company                              =  PrmCompany 
+                and    InventoryLocation                    =  PrmInventoryLocation
+                and    LogisticDelivery                     =  PrmDeliveryLogistics 
+                and    LogisticDelivery.VehicleTrip         =  PrmVehicleTrip
+                and    not Delivered)
+
+            Action Rules 
+                Instance Rules
+                    invoke Confirm 

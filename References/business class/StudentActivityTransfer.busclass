@@ -1,0 +1,141 @@
+StudentActivityTransfer is a BusinessClass
+    owned by studentactivities
+    prefix is SATR
+
+    Ontology
+    	symbolic key is StudentActivityTransfer
+
+    Persistent Fields
+		FromActivity		is a SchoolActivityAccount
+		TransferAmount		is an InternationalAmount
+		TransferDate		is Date
+		Description			is Alpha 500
+		Status				is Numeric 2
+			States
+				Entered			value is 0
+				Released		value is 1		
+			
+		
+	Derived Fields
+		OutOfBalanceAmount is a DerivedField
+			type is like InternationalAmount
+			if (FromActivity.StudentActivityAccount.StudentActivityType.Asset)
+				return (TransferAmount + sum NonAssetTypeTransferDetailRel.TransferDetailAmount - sum AssetTypeTransferDetailRel.TransferDetailAmount)
+			else
+				return (TransferAmount - sum NonAssetTypeTransferDetailRel.TransferDetailAmount + sum AssetTypeTransferDetailRel.TransferDetailAmount)
+			
+	Transient Fields
+		TransferToActivity	is a SchoolActivityAccount
+		TransferToAmount	is an InternationalAmount
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+
+	Sets
+
+	Relations
+		StudentActivityTransferDetailRel is a StudentActivityTransferDetail set
+			Instance Selection
+				where (!related.TransferOffset)
+
+		BankAccountActivityRel
+			one-to-many relation to StudentActivityBankAccount
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+			Instance Selection
+				where (related.BankAccountActivity	= FromActivity)
+
+		AssetTypeTransferDetailRel is a StudentActivityTransferDetail set
+			Instance Selection
+				where (related.SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+
+		NonAssetTypeTransferDetailRel is a StudentActivityTransferDetail set
+			Instance Selection
+				where (!related.SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+
+
+
+
+
+
+
+		
+
+	Conditions
+		TransactionExists
+			when (StudentActivityTransfer exists)
+
+		TransferFromEqualsDetailActivity
+			when (FromActivity = any StudentActivityTransferDetail set.SchoolActivityAccount)		
+
+
+
+
+	Field Rules
+		TransferAmount
+			required
+			if (!FromActivity.StudentActivityAccount.StudentActivityType.Asset)
+				constraint (TransferAmount > 0)
+					"TransferAmountMustBeGreaterThanZero"
+			
+		TransferDate
+			initial value is current corporate date
+			default to current corporate date
+
+		FromActivity
+			constraint (!BankAccountActivityRel exists)
+				"CannotEnterActivityAssignedToBankAccount"
+			constraint (FromActivity.StudentActivityAccount.ActivityLevel.Detail)
+				"FromActivityMustBeDetailType"
+			if (StudentActivityTransferDetail set exists)
+				constraint (!TransferFromEqualsDetailActivity)
+					"CannotEnterAnActivityThatIsTheSameAsAnyToActivity"
+
+	StateCycles
+		ActivityTransferLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+					Exit Rules
+						if (TransferToActivity entered)
+							invoke Create Entered StudentActivityTransferDetail
+								invoked.StudentActivityDistrict			= StudentActivityDistrict
+								invoked.StudentActivitySchool			= StudentActivitySchool
+								invoked.StudentActivityTransfer			= StudentActivityTransfer
+								invoked.SchoolActivityAccount			= TransferToActivity
+								invoked.TransferDetailAmount			= TransferToAmount
+					
+							initialize TransferToActivity
+							initialize TransferToAmount	
+
+
+				Update is an Update Action
+					Exit Rules
+						if (TransferDate changed)
+							invoke Update Entered StudentActivityTransferDetail set
+								invoked.TransferDate	= TransferDate
+				
+				Delete is a Delete Action
+				
+				Release is an Instance Action
+					
+					Action Rules
+						constraint (OutOfBalanceAmount = 0)
+							"TransferIsOutOfBalance"
+						
+						invoke Create Entered StudentActivityTransferDetail
+							invoked.StudentActivityDistrict	= StudentActivityDistrict
+							invoked.StudentActivitySchool	= StudentActivitySchool
+							invoked.StudentActivityTransfer	= StudentActivityTransfer
+							invoked.SchoolActivityAccount	= FromActivity
+							invoked.TransferDetailAmount	-= TransferAmount
+							invoked.TransferOffset			= true
+					
+						invoke Release Entered StudentActivityTransferDetail set		
+					
+					Exit Rules
+						make transition to Released
+
+			Released is a State

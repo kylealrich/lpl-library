@@ -1,0 +1,241 @@
+PayToVendor is a BusinessClass
+	owned by ap
+	prefix is VPY
+	classic name is APVENPAY
+
+	Ontology
+		symbolic key is PayToVendor
+			classic set name is VPYSET1
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+		PayType is AlphaUpper size 1
+			States
+				PayToVendor		value is "P"
+				FactorVendor	value is "F"
+		Default is Boolean
+
+	Derived Fields
+		DefaultMessage			is a MessageField
+			"Default"
+
+
+
+
+
+
+
+
+
+
+
+
+	Sets
+		Set2
+			indexed
+			Sort Order
+				VendorGroup
+				PayVendor
+				Vendor
+
+	Conditions
+		VendorComments1RelExists
+			classic name is COMMENT1-EXIST
+			restricted
+			when (first VendorComments1Rel exists)
+
+		VendorComments2RelExists
+			classic name is COMMENT2-EXIST
+			restricted
+			when (first VendorComments2Rel exists)
+
+		VendorLocation1RelExists
+			classic name is LOC1-EXIST
+			restricted
+			when (first VendorLocation1Rel exists)
+
+		VendorLocation2RelExists
+			classic name is LOC2-EXIST
+			restricted
+			when (first VendorLocation2Rel exists)
+
+		IsOnHold
+			restricted
+			when (PayVendor.OnHold)
+
+		IsNotVendor
+			restricted
+			when (PayVendor != Vendor)
+
+		RecordExists
+			restricted
+			when (PayToVendor exists)
+
+	Relations
+		DefaultPayVendorRel
+			one-to-many relation to PayToVendor
+			Field Mapping uses symbolic key
+				related.VendorGroup = VendorGroup
+				related.Vendor		= Vendor
+			Instance Selection
+				where (related.Default
+				and    related.PayVendor	!= PayVendor)
+
+		VendorPayVendorRel
+			one-to-one relation to PayToVendor
+			Field Mapping uses symbolic key
+				related.VendorGroup = VendorGroup
+				related.Vendor		= Vendor
+				related.PayVendor	= Vendor
+
+		CurrentAddressRel
+			classic name is ADDRESS1
+			one-to-one relation to VendorAddress
+			Field Mapping uses symbolic key
+				related.VendorGroup                     = VendorGroup
+				related.Vendor                          = PayVendor
+				related.VendorLocation                  = blank
+				related.VendorContact.VendorContactCode = blank
+				related.VendorContact.ContactLevel      = blank
+
+		Address2Rel
+			classic name is ADDRESS2
+			one-to-one relation to VendorAddress
+			Field Mapping uses symbolic key
+				related.VendorGroup                     = VendorGroup
+				related.Vendor                          = Vendor
+				related.VendorLocation                  = blank
+				related.VendorContact.VendorContactCode = blank
+				related.VendorContact.ContactLevel      = blank
+
+		PayablesOnHoldRel
+			classic name is APHLDINV1
+			one-to-many relation to PayablesOnHold
+
+			Field Mapping uses Set5
+				related.HoldRecordType = "V"
+				related.VendorGroup    = VendorGroup
+				related.Company        = blank
+				related.Vendor         = PayVendor
+
+		PayablesOnHold2Rel
+			classic name is APHLDINV2
+			one-to-many relation to PayablesOnHold
+
+			Field Mapping uses Set5
+				related.HoldRecordType = "V"
+				related.VendorGroup    = VendorGroup
+				related.Company        = blank
+				related.Vendor         = Vendor
+
+		VendorComments1Rel
+			classic name is APVCOMMENTS1
+			one-to-many relation to Apcomments
+			Field Mapping uses Set2
+				related.VendorCommentType = "V"
+				related.VendorGroup       = VendorGroup
+				related.Vendor            = PayVendor
+				related.VendorLocation    = blank
+
+		VendorComments2Rel
+			classic name is APVCOMMENTS2
+			one-to-many relation to Apcomments
+			Field Mapping uses Set2
+				related.VendorCommentType = "V"
+				related.VendorGroup       = VendorGroup
+				related.Vendor            = Vendor
+				related.VendorLocation    = blank
+
+		VendorLocation1Rel
+			classic name is APVENLOC1
+			one-to-many relation to VendorLocation
+
+			Field Mapping uses symbolic key
+				related.VendorGroup = VendorGroup
+				related.Vendor      = PayVendor
+
+		VendorLocation2Rel
+			classic name is APVENLOC2
+			one-to-many relation to VendorLocation
+
+			Field Mapping uses symbolic key
+				related.VendorGroup = VendorGroup
+				related.Vendor      = Vendor
+
+	Rule Blocks
+		DefaultChanged
+			if (Default)
+				if (PayVendor != Vendor)
+					constraint (!PayVendor.VendorStatus.Inactive)
+						"CannotAssignDefaultToPayVendorThatIsNotActive"
+				invoke UpdateDefault DefaultPayVendorRel
+					invoked.Default = false
+				invoke SetDefaultPayVendor Vendor
+					invoked.PrmPayVendor = PayVendor
+			else
+				constraint (Vendor != PayVendor)
+					"MustDefineOtherPayVendorAsDefault"
+				invoke UpdateDefault VendorPayVendorRel
+					invoked.Default = true
+				invoke SetDefaultPayVendor Vendor
+					invoked.PrmPayVendor = Vendor
+
+	Actions
+		Create is a Create Action
+			Field Rules
+				Vendor
+					constraint (Address2Rel exists)
+						"VendorDoesNotHaveCurrentAddressDefined"
+
+				PayVendor
+					if (PayVendor != Vendor)
+						constraint (!PayVendor.VendorStatus.Inactive)
+							"VendorIsNotActive"
+					constraint (CurrentAddressRel exists)
+						"PayVendorDoesNotHaveCurrentAddressDefined"
+
+			Exit Rules
+				if (Default)
+					if (DefaultPayVendorRel exists)
+						invoke UpdateDefault DefaultPayVendorRel
+							invoked.Default	= false
+					invoke SetDefaultPayVendor Vendor
+						invoked.PrmPayVendor   = PayVendor
+
+		CreateFromVendor is a Create Action					
+			restricted
+
+		Update is an Update Action
+			Action Rules
+				if (Default changed)
+					include DefaultChanged
+
+		UpdateDefault is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			valid when (IsNotVendor)
+			Entrance Rules
+				if (Default)
+					confirmation required
+						"Warning,DeletingADefaultPayVendor,Vendor<Vendor>WillBeSetAsDefault;Proceed?"
+
+					invoke UpdateDefault VendorPayVendorRel
+						invoked.Default	= true
+					invoke SetDefaultPayVendor Vendor
+						invoked.PrmPayVendor   = Vendor
+
+		DeleteFromVendor is a Delete Action
+			restricted
+
+		MakeDefault is an Action
+			valid when (not Default)
+			Action Rules
+				Default = true
+				include DefaultChanged
+				
+		Purge is a Purge Action
+			restricted

@@ -1,0 +1,200 @@
+TransferPricingGlobalEntity is a BusinessClass
+	default label is "BillToEntity"
+	owned by transpricing
+	
+	prefix is TPGE
+	
+	Ontology
+		symbolic key is TransferPricingGlobalEntity
+		
+	
+	Patterns
+		implements TemplateDriven by AccountingEntity
+			create instance
+				when (Company entered)
+	
+	Persistent Fields
+		Company 								is a PayablesCompany
+			default label is "PayablesCompany"
+		ReceivablesRevenueAccountOverride		is a TransferPricingCodeBlockWithoutAU
+		PayablesExpenseAccountOverride			is a TransferPricingCodeBlock
+		
+	Context Fields
+		TransferPricing
+	
+	Local Fields
+		LocalAccountingEntity					is an AccountingEntity
+		LocalCompany							is a Company
+		LocalPayablesCompany					is a PayablesCompany
+		LocalChildEntity 						is an AccountingEntity
+	Derived Fields
+		GlobalEntityDescriptionTitle is a MessageField
+			restricted
+			"Global_Bill_To_Entities<TransferPricingGlobalEntity.Company>_-_<TransferPricingGlobalEntity.Company.Name>"
+
+		GlobalEntityText		is a MessageField
+			restricted
+			"Global_Bill_To_Entities"
+
+		GlobalEntityTitle		is a DerivedField
+			type is MessageField
+			if (GlobalEntityExists)
+				return GlobalEntityDescriptionTitle
+			else
+				return GlobalEntityText		
+	Conditions
+		ValidIntercompanyBillingSetup
+			restricted
+			when (Company not entered
+    		or    AccountingEntity not entered
+			or   (GeneralLedgerCompanyValidationRel.IntercompanyBilling
+			and   PayablesCompanyValidationRel.Company.IsAValidIntercompanyBillingCompany
+			and	  ReceivableCompanyValidationRel.Company.IsAValidIntercompanyBillingCompany))
+
+		HasAdditionalEntities
+			default label is "CombinedEntities"
+			when (TransferPricingGlobalAdditionalEntity set exists)
+		
+		ExistsAsCombinedEntity
+			restricted
+			when (EquivalentTransferPricingGlobalAdditionalEntityRel exists)
+	
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+		
+		GlobalEntityExists
+			when (TransferPricingGlobalEntity exists)
+	Field Rules
+		Company
+			required
+			constraint (Company.AccountingEntity = AccountingEntity)
+      			"BillToEntityOf<AccountingEntity>DoesNotMatchThePayablesCompanyAccountingEntityOf<Company.AccountingEntity>"
+			
+		AccountingEntity
+			constraint (not ExistsAsCombinedEntity)
+				"<AccountingEntity>ExistsAsACombinedEntity"
+		
+		PayablesExpenseAccountOverride
+			if (PayablesExpenseAccountOverride.ToAccountingEntity not entered)
+				PayablesExpenseAccountOverride.ToAccountingEntity = Company.AccountingEntity
+	
+	Relations
+     	CurrentTransferPricingAccountingEntityRel
+    		one-to-one relation to TransferPricingGlobalEntity
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup 	= actor.context.FinanceEnterpriseGroup
+    			related.AccountingEntity		= LocalAccountingEntity
+
+     	AccountingEntitiesRel
+    		one-to-many relation to AccountingEntity
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup 	= actor.context.FinanceEnterpriseGroup
+    		Instance Selection
+    			where (related.PostingEntity)
+    			
+    	GeneralLedgerCompanyRel
+    		one-to-many relation to GeneralLedgerCompany
+    		Field Mapping uses ByAccountingEntity
+    			related.FinanceEnterpriseGroup 	= actor.context.FinanceEnterpriseGroup
+    			related.AccountingEntity		= LocalAccountingEntity
+    		Instance Selection
+    			where (related.IntercompanyBilling)
+	
+		PayablesCompanyRel
+			one-to-one relation to PayablesCompany
+			Field Mapping uses symbolic key
+				related.Company					= LocalCompany
+				
+		GeneralLedgerCompanyValidationRel
+    		one-to-one relation to GeneralLedgerCompany
+    		Field Mapping uses ByAccountingEntity
+    			related.FinanceEnterpriseGroup 	= actor.context.FinanceEnterpriseGroup
+    			related.AccountingEntity		= AccountingEntity
+    			related.Company					= Company
+		
+		PayablesCompanyValidationRel
+			one-to-one relation to PayablesCompany
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				
+		ReceivableCompanyValidationRel
+			one-to-one relation to ReceivableCompany
+			Field Mapping uses symbolic key
+				related.Company					= Company
+		
+		TransferPricingEntityWeightRel
+			one-to-many relation to TransferPricingEntityWeight
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.AccountingEntity = AccountingEntity
+				and    related.TransferPricing.AllEntities)
+
+		EquivalentTransferPricingGlobalAdditionalEntityRel
+			one-to-many relation to TransferPricingGlobalAdditionalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.AdditionalEntity = AccountingEntity)
+				
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntityGroup	= actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity		= AccountingEntity
+	
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			Action Rules
+				if (not LocalChildEntity entered)
+					constraint (TransferPricingEntityWeightRel not exists)
+						"CannotDelete;RechargeWeightsExist"
+		
+		AddAllEntities is a Set Action
+			Instance Selection
+				where (false)
+				
+			Action Rules
+				Empty Set Rules
+					for each AccountingEntitiesRel
+						LocalAccountingEntity = each.AccountingEntity
+						initialize LocalPayablesCompany
+						if (CurrentTransferPricingAccountingEntityRel not exists)
+							if (GeneralLedgerCompanyRel exists)
+								LocalCompany = first GeneralLedgerCompanyRel.Company
+								if (PayablesCompanyRel exists)
+									LocalPayablesCompany = PayablesCompanyRel.Company 
+									invoke Create TransferPricingGlobalEntity
+										invoked.FinanceEnterpriseGroup		= actor.context.FinanceEnterpriseGroup
+										invoked.AccountingEntity			= LocalAccountingEntity
+										invoked.Company						= LocalPayablesCompany
+								
+		AddBillToEntity is an Instance Action
+			Action Rules
+				invoke Create TransferPricingEntity
+					fill in fields from this instance
+						except invoked.TransferPricingGlobalEntity
+					invoked.TransferPricing = TransferPricing					
+									
+		CombineEntity is an Instance Action
+			Parameters
+				PrmParentEntity 	is an AccountingEntity
+			Action Rules
+				LocalChildEntity 	= AccountingEntity
+				
+				constraint (not PrmParentEntity = LocalChildEntity)
+					"ParentEntityMustBeDifferentFromThisEntity"
+				
+				invoke Delete
+			Exit Rules	
+				invoke Create TransferPricingGlobalAdditionalEntity
+					invoked.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+					invoked.AccountingEntity		= PrmParentEntity
+					invoked.AdditionalEntity		= LocalChildEntity
+		

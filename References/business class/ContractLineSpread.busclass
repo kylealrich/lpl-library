@@ -1,0 +1,183 @@
+ContractLineSpread is a BusinessClass
+	owned by po
+	prefix is CLCS
+
+	Ontology
+		part of ContractLine
+			relative key is ContractLineSpread is a SequenceNumber
+
+	Patterns
+		implements StaticJava
+
+	Persistent Fields
+		SpreadDate			is Date
+		SpreadAmount		is an UnsignedInternationalAmount
+		UsedAmount			is an InternationalAmount
+		EntityYearPeriod	is a GeneralLedgerCalendarPeriod
+
+	Local Fields
+		LocalSpreadDate is Date
+
+	Derived Fields
+		DerivedEntityCalendarPeriod is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			restricted
+			return first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+
+		NewDerivedEntityCalendarPeriod is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			restricted
+			return first NewGeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+
+		NewDerivedEntityCalendarPeriodYear is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			restricted
+			return first NewGeneralLedgerCalendarPeriodRel.Year
+
+		ReadOnlyUsedAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "UsedAmount"
+			return UsedAmount
+
+	Field Rules
+		ContractLineSpread
+			autosequence
+		SpreadAmount
+			required
+			if (UsedAmount != 0)
+				constraint (SpreadAmount >= UsedAmount)
+					"CannotLowerCommitmentAmountBelowTheUsedAmount"
+
+		SpreadDate
+			required
+
+			constraint (SpreadDate >= Contract.EffectiveDate)
+				"ContractNotEffectiveForThisSpreadDate"
+
+			if (Contract.ExpirationDate != 0)
+				constraint (SpreadDate <= Contract.ExpirationDate)
+					"ContractNotEffectiveForThisSpreadDate"
+
+			constraint (!ContractLineSpreadDateRel exists)
+				"SpreadAlreadyExistsForThisDate"
+
+			if (SpreadDate changed)
+				constraint (UsedAmount = 0)
+					"CannotChangeTheDateOnASpreadThatHasAUsedAmount"
+
+			LocalSpreadDate = SpreadDate
+
+		EntityYearPeriod
+			force default to DerivedEntityCalendarPeriod
+
+	Conditions
+		AvailableToUpdate
+			restricted
+			when (ContractLine.CanAddLine
+			and  !ContractLine.ContractLineState.Closed)
+
+	Relations
+		ContractLineSpreadDateRel
+			one-to-many relation to ContractLineSpread
+			Field Mapping uses part of key
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+				related.ContractLine	= ContractLine
+			Instance Selection
+				where (related.ContractLineSpread	!= ContractLineSpread
+				and	   related.SpreadDate 			 = SpreadDate)
+
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date not < SpreadDate
+				and	   related.PeriodType.EndDate)
+
+		NewGeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date			not < LocalSpreadDate
+				and	   related.PeriodType.EndDate)
+
+		ContractYearlySpreadRel
+			one-to-many relation to ContractLineSpread
+			Field Mapping uses part of key
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+			Instance Selection
+				where (related.EntityYearPeriod.Year	 = NewDerivedEntityCalendarPeriodYear
+				and	   related.ContractLineSpread		!= ContractLineSpread)
+
+		ContractPeriodSpreadRel
+			one-to-many relation to ContractLineSpread
+			Field Mapping uses part of key
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+			Instance Selection
+				where (related.EntityYearPeriod		 = NewDerivedEntityCalendarPeriod
+				and	   related.ContractLineSpread	!= ContractLineSpread)
+
+	Sets
+		BySpreadDate
+			Sort Order
+				SpreadDate
+				ContractGroup
+				Contract
+				ContractLine
+
+	Actions
+		Create is a Create Action
+			valid when (AvailableToUpdate)
+
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+
+			Action Rules
+				if (Contract.HasBeenActivated)
+					constraint (Contract.AmountOrdered = 0)
+						"CannotAddALineSpreadWhenContractAmount-OrderedIsGreaterThanZero"
+					if (ContractLine.HasBeenActivated)
+						constraint (ContractLine.AmountOrdered = 0)
+							"CannotAddALineSpreadWhenContractLineAmount-OrderedIsGreaterThanZero"
+
+		Update is an Update Action
+			valid when (AvailableToUpdate)
+
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+
+		Delete is a Delete Action
+			valid when (AvailableToUpdate)
+
+			Action Rules
+				constraint (UsedAmount = 0)
+					"CannotDeleteASpreadThatHasAUsedAmount"
+
+		ReValidateSpreadDate is an Instance Action
+			restricted
+
+			Action Rules
+				constraint (SpreadDate >= Contract.EffectiveDate)
+					"ContractNoLongerEffectiveForSpreadDate:<SpreadDate>"
+
+				if (Contract.ExpirationDate != 0)
+					constraint (SpreadDate <= Contract.ExpirationDate)
+						"ContractNoLongerEffectiveForThisSpreadDate:<SpreadDate>"
+
+		UpdateUsedAmount is an Instance Action
+			restricted
+
+			Parameters
+				InUsedAmount is a CurrencyAmount
+
+			Action Rules
+
+				UsedAmount = UsedAmount + InUsedAmount

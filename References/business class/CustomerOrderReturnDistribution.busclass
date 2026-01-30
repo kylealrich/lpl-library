@@ -1,0 +1,133 @@
+CustomerOrderReturnDistribution is a BusinessClass
+	owned by oe
+	prefix is COD
+	sql name is OrderReturnDistribution
+	
+	Ontology
+		symbolic key is CustomerOrderReturnDistribution
+		
+	Patterns
+    	implements StaticJava
+	    disable AuditIndex
+	
+	Persistent Fields
+		GeneralLedgerDate         	 	is an ExchangeDate
+			default label is "GlobalLedgerDate"
+	    DistributionAccount 		 	is a FinanceCodeBlock
+       	Currency						is a FromCurrency
+	    CurrencyAmount
+       	BaseAmount                   	is an InternationalAmount
+	
+	Field Rules
+	
+	Relations
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction = reference to this instance 
+		
+	Actions
+		Create is a Create Action
+		
+		Delete is a Delete Action
+		
+		Purge is a Purge Action
+			restricted
+		
+		CreateFromBatch is a Create Action
+			restricted
+			Parameters
+				PrmJournalizeGroup      	is a JournalizeGroup
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+				PrmAccountingEntity			is a AccountingEntity
+				PrmTransactionAmount		is an InternationalAmount
+				PrmReportCurrencyAmount     is an InternationalAmount
+				PrmFinanceCodeBlock		    is like FinanceCodeBlock 
+				PrmTransactionDate			is Date
+				PrmPostingDate				is Date
+				PrmCurrencyCode				is like Currency
+				
+			Action Rules
+				invoke Create this instance
+				invoke Create GLTransactionDetail
+					fill in fields from this instance		 
+					invoked.OriginatingTransaction 	= reference to this instance
+					invoked.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+					invoked.System					= "OE"
+					invoked.Reference			    = "CustomerOrderReturn " + CustomerOrderReturn
+					invoked.AccountingEntity		= PrmAccountingEntity
+					invoked.TransactionAmount		= PrmTransactionAmount
+					invoked.CurrencyCode			= PrmCurrencyCode
+					invoked.TransactionDate			= CustomerOrderReturn.Date
+					invoked.PostingDate				= PrmPostingDate
+					invoked.FinanceCodeBlock		= PrmFinanceCodeBlock
+					invoked.Description				= "Item " + CustomerOrderReturnLine.Item
+					invoked.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount	= PrmReportCurrencyAmount
+					invoked.ReportCurrencyAmount.KeepRateOnly = true
+					invoked.GeneralLedgerEvent 		= "CR"
+					invoked.AutoReverse 			= false
+					invoked.JournalizeGroup         = PrmJournalizeGroup		
+			Exit Rules
+				invoke Unreleased.Release GLTransactionDetailRel
+		
+		JournalizeDistributionsForBatch is an Instance Action
+			restricted
+			Parameters
+				PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+				PrmBillingCompany		is a BillingCompany
+				PrmPostThruDate			is Date
+				PrmJournalizeGroup      is like JournalizeGroup
+			Action Rules
+				invoke JournalizeDistributions CustomerOrderReturnDistribution
+					invoked.PrmEnterpriseGroup = PrmEnterpriseGroup
+					invoked.PrmBillingCompany  = PrmBillingCompany
+					invoked.PrmPostThruDate	   = PrmPostThruDate
+					invoked.PrmJournalizeGroup = PrmJournalizeGroup
+					
+		JournalizeDistributions is a Set Action		
+			restricted
+			completion message is "CustomerOrderReturnDistributionPostingCompleteForJournalizeGroup...:<MyJournalizeGroup>"
+			run in background
+			Parameters
+				PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmBillingCompany	    is a BillingCompany
+					default label is "BillingCompany"
+				PrmPostThruDate			is Date
+					default label is "PostThruDate"
+				PrmJournalizeGroup      is like JournalizeGroup
+			Parameter Rules
+				PrmEnterpriseGroup
+					initial value is Company.FinanceEnterpriseGroup
+					required
+				PrmBillingCompany 	 
+					required
+				PrmPostThruDate		 
+					required	
+
+			Local Fields	
+    			LocalSystemCode            	is a GeneralLedgerSystemCode
+    				context of PrmEnterpriseGroup
+				MyJournalizeGroup 			is like JournalizeGroup 
+
+			Instance Selection
+				where (Company = PrmBillingCompany
+				and    GLTransactionDetailRel.JournalizeGroup = PrmJournalizeGroup
+				and    GeneralLedgerDate <= PrmPostThruDate)
+
+			Sort Order  
+				Company
+				CustomerOrderReturn.BillingProcessLevel
+				GeneralLedgerDate
+
+			Action Rules								
+				Set Rules
+					Entrance Rules
+						MyJournalizeGroup = PrmJournalizeGroup
+    					LocalSystemCode = "OE"
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmEnterpriseGroup in background
+							invoked.PrmJournalizeGroup = MyJournalizeGroup
+
+				Instance Rules

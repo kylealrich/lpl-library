@@ -1,0 +1,627 @@
+InboundCXMLPOAcknowledgement is a BusinessClass
+	owned by cxml
+
+	prefix is Inbo
+
+	Ontology
+		symbolic key is InboundCXMLPOAcknowledgement
+
+	Patterns
+		implements CRUD
+
+	Persistent Fields
+		RunGroup
+		ProcessStatus			is AlphaUpper size 10
+			default label is "Status"
+			States
+				New				value is "0"
+				Error			value is "1"
+				Success			value is "2"
+				Warning			value is "3"
+		ResponseXML				is XMLDocument
+			default label is "Data"
+		LastUpdatedTimeStamp	is TimeStamp
+			default label is "LastUpdated"
+		StatusMessage			is Text
+			default label is "Status"
+		DocumentNumber			is Alpha size 22
+
+	Local Fields
+		LocalLineIndex			is Numeric size 3
+		LocalLineCount			is Numeric size 3
+		LocalExtrinsicIndex		is Numeric size 3
+		LocalExtrinsicCount		is Numeric size 3
+		LocalSequenceNumber		is Numeric size 3
+		LocalItemIndex			is Numeric size 3
+		LocalItemCount			is Numeric size 3
+
+		LocalDate				is Alpha size 25
+		LocalMonth				is Alpha size 2
+		LocalDay				is Alpha size 2
+		LocalYear				is Alpha size 4
+
+		LocalTime				is Alpha size 8
+		LocalHour				is Alpha size 2
+		LocalMinute				is Alpha size 2
+		LocalSecond				is Alpha size 2
+		LocalTimeStamp			is Alpha size 25
+
+		LocalCompany				is like Company
+		LocalPurchaseOrder			is like PurchaseOrder
+		LocalVendor					is like Vendor
+		LocalCount				is Numeric size 2
+
+		LocalCXMLCompany		is Alpha size 29
+		LocalCXMLPO				is Alpha size 29
+		LocalConfirmationID		is Alpha size 50
+		LocalPayloadID			is Alpha size 100
+		
+		LocalDelimiter			is Alpha size 1
+		
+		LocalActor				is an Actor
+		
+	Derived Fields
+		DerivedNoticeDate is a DerivedField
+			type is Alpha size 10
+			restricted
+			LocalDate = (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@noticeDate")
+
+			if (LocalDate != "")
+				LocalDay		= LocalDate[9:10]
+				LocalMonth		= LocalDate[6:7]
+				LocalYear		= LocalDate[1:4]
+				return LocalYear + LocalMonth + LocalDay
+			else
+				return blank
+
+		DerivedOrderDate is a DerivedField
+			type is Alpha size 10
+			restricted
+			LocalDate = (ResponseXML select "/cXML/Request/ConfirmationRequest/OrderReference/@orderDate")
+
+			if (LocalDate != "")
+				LocalDay		= LocalDate[9:10]
+				LocalMonth		= LocalDate[6:7]
+				LocalYear		= LocalDate[1:4]
+				return LocalYear + LocalMonth + LocalDay
+			else
+				return blank
+
+		DerivedDeliveryDate is a DerivedField
+			type is Alpha size 10
+			restricted
+			LocalDate = (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@deliveryDate")
+
+			if (LocalDate != "")
+				LocalDay		= LocalDate[9:10]
+				LocalMonth		= LocalDate[6:7]
+				LocalYear		= LocalDate[1:4]
+				return LocalYear + LocalMonth + LocalDay
+			else
+				return blank
+
+		DerivedCompany is a DerivedField
+			type is like Company
+			restricted
+			LocalCXMLCompany = (ResponseXML select "/cXML/Request/ConfirmationRequest/OrderReference/@orderID")
+			if (LocalPayloadID != ""
+				and PurchaseOrderRevisionsRel exist)
+				return PurchaseOrderRevisionsRel.Company
+			else
+				LocalCount = 0
+				if (LocalCXMLCompany != "")
+					while (LocalCount < 29)
+						LocalCount = LocalCount + 1
+						if (LocalCXMLCompany[LocalCount:LocalCount] = LocalDelimiter)
+							LocalCount = LocalCount - 1
+							return LocalCXMLCompany[1:LocalCount]
+							end while
+
+		DerivedPurchaseOrder is a DerivedField
+			type is like PurchaseOrder
+			restricted
+			LocalCXMLPO = (ResponseXML select "/cXML/Request/ConfirmationRequest/OrderReference/@orderID")
+			if (LocalPayloadID != ""
+				and PurchaseOrderRevisionsRel exist)
+				return PurchaseOrderRevisionsRel.PurchaseOrder
+			else
+				LocalCount = 29
+				if (LocalCXMLPO != "")
+					while (LocalCount > 0)
+						LocalCount = LocalCount - 1
+						if (LocalCXMLPO[LocalCount:LocalCount] = LocalDelimiter)
+							LocalCount = LocalCount + 1
+							return LocalCXMLPO[LocalCount:29]
+							end while
+
+		DerivedTransmissionTime is a DerivedField
+			type is Alpha size 8
+			restricted
+			LocalTimeStamp = (ResponseXML select "/cXML/@timestamp")
+
+			if (LocalTimeStamp != "")
+				LocalHour		= LocalTimeStamp[12:13]
+				LocalMinute		= LocalTimeStamp[15:16]
+				LocalSecond		= LocalTimeStamp[18:19]
+				return LocalHour + LocalMinute + LocalSecond
+			else
+				return blank
+
+
+		DerivedTransmissionDate is a DerivedField
+			type is Alpha size 10
+			restricted
+			LocalTimeStamp = (ResponseXML select "/cXML/@timestamp")
+
+			if (LocalTimeStamp != "")
+				LocalDay		= LocalDate[9:10]
+				LocalMonth		= LocalDate[6:7]
+				LocalYear		= LocalDate[1:4]
+				return LocalYear + LocalMonth + LocalDay
+			else
+				return blank
+			
+	Field Rules
+		ProcessStatus
+			default to ProcessStatus.New
+		RunGroup
+			default to ResponseXML select "/cXML/Header/To/Credential[1]/Identity"
+		LastUpdatedTimeStamp
+            default to current timestamp
+            initial value is current timestamp
+        LocalDelimiter
+        	default to "-"
+        LocalPayloadID
+        	default to ResponseXML select "/cXML/Request/ConfirmationRequest/OrderReference/DocumentReference/@payloadID"
+        DocumentNumber
+        	default to ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@confirmID"
+
+	Sets
+		ByLastUpdated
+			duplicates
+			Sort Order
+				LastUpdatedTimeStamp
+				RunGroup
+				ProcessStatus
+
+	Conditions
+		ItemAccepted
+			when (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/@type" = "accept")
+		ItemRejected
+			when (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/@type" = "reject")
+		CompanyNotPopulated
+			when LocalCompany = ""
+		PurchaseOrderNotPopulated
+			when LocalPurchaseOrder = ""
+		VendorNotPopulated
+			when LocalVendor = ""
+
+		NotifyError
+		    when ((CXMLConfigurationRel.NotificationLevel.Error
+		    or CXMLConfigurationRel.NotificationLevel.Both)
+		    and ProcessStatus.Error or ProcessStatus.Warning)
+		NotifySuccess
+		    when ((CXMLConfigurationRel.NotificationLevel.Success
+		    or CXMLConfigurationRel.NotificationLevel.Both)
+		    and ProcessStatus.Success)
+		EmailNotification
+		    when (CXMLConfigurationRel.NotificationType.Email
+		    or CXMLConfigurationRel.NotificationType.Both)
+		UserNotification
+		    when (CXMLConfigurationRel.NotificationType.User
+		    or CXMLConfigurationRel.NotificationType.Both)
+		
+	Relations
+		PurchaseOrderRel
+			one-to-one relation to PurchaseOrder
+			Field Mapping uses symbolic key
+				related.Company				= LocalCompany
+				related.PurchaseOrder		= LocalPurchaseOrder
+				
+		PurchaseOrderRevisionsRel
+			one-to-many relation to PurchaseOrderRevision
+			Field Mapping uses ByStatusUpdate
+				related.TransmissionPayloadID 	= LocalPayloadID
+				
+		CXMLConfigurationRel
+			one-to-many relation to CXMLConfiguration
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Default)
+				
+	Rule Blocks
+	
+		CreateRecordType01
+		
+			LocalCompany 				= DerivedCompany
+			LocalPurchaseOrder 			= DerivedPurchaseOrder
+			LocalVendor 				= PurchaseOrderRel.Vendor
+			LocalConfirmationID			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@confirmID"
+			
+
+			invoke Create PurchaseOrderEDIAcknowledgement
+		        invoked.RunGroup							= RunGroup
+		        invoked.EDINumber                 			= ""
+
+				if (CompanyNotPopulated)
+					StatusMessage += "Company was not populated. "
+					ProcessStatus = ProcessStatus.Error 
+		        invoked.Company                 			= LocalCompany
+
+		        invoked.InterchgControl                 	= ""
+		        invoked.GroupControl                 		= ""
+		        invoked.TxnSetControl                 		= ""
+
+				if (PurchaseOrderNotPopulated)
+		        	StatusMessage += "Purchase Order was not populated. "
+		        	ProcessStatus = ProcessStatus.Error             
+		        invoked.PurchaseOrder                 		= LocalPurchaseOrder
+
+		        invoked.PORelease                 			= ""
+		        invoked.POCode                 				= ""
+		        invoked.RecordId                 			= "01"
+		        invoked.EdiSegment                  		= ""
+				invoked.TransactionSetPurpose	         	= ""
+
+				if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@type" = "accept")
+					invoked.AcknowledgementType					= "AT"
+				else
+				if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@type" = "reject")
+					invoked.AcknowledgementType					= "RD"
+
+
+
+				else
+				if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@type" = "detail")
+					invoked.AcknowledgementType					= "AC"
+
+				invoked.PurchaseOrderDate		           	= DerivedOrderDate
+			    invoked.AcknowledgementDate		     		= DerivedNoticeDate
+				invoked.TransmissionStatus		      		= "1"
+				invoked.TransmissionDate					= current timestamp
+				invoked.NumberOfTransmissionAttempts   		= ""
+				invoked.CompanyGLN				      		= ""
+
+		CreateRecordType40
+
+
+			invoke Create PurchaseOrderEDIAcknowledgement
+		        invoked.RunGroup							= RunGroup
+		        invoked.EDINumber   						= ""
+		        invoked.Company             				= LocalCompany
+		        invoked.InterchgControl         			= ""
+		        invoked.GroupControl        				= ""
+		        invoked.TxnSetControl      					= ""
+		        invoked.PurchaseOrder             			= LocalPurchaseOrder
+		        invoked.PORelease                 			= ""
+		        invoked.POCode                    			= ""
+		        invoked.RecordId                  			= "40"
+		        invoked.EdiSegment         					= ""
+
+				if (VendorNotPopulated)
+		        	StatusMessage += "Vendor was not populated. "
+		        	ProcessStatus = ProcessStatus.Error  
+	    		invoked.Vendor								= LocalVendor
+
+				invoked.VendorGLN							= ""
+
+		CreateRecordType45
+
+
+			invoke Create PurchaseOrderEDIAcknowledgement
+		        invoked.RunGroup							= RunGroup
+		        invoked.EDINumber                			= ""
+		        invoked.Company                  			= LocalCompany
+		        invoked.InterchgControl          			= ""
+		        invoked.GroupControl             			= ""
+		        invoked.TxnSetControl           			= ""
+		        invoked.PurchaseOrder          				= LocalPurchaseOrder
+		        invoked.PORelease             				= ""
+		        invoked.POCode                    			= ""
+		        invoked.RecordId                  			= "45"
+		        invoked.EdiSegment                			= ""
+				invoked.PurchaseFromLocation	  			= PurchaseOrderRel.PurchaseFromLocation
+				invoked.PurchaseFromLocationGLN	  			= ""
+
+		CreateRecordType55
+
+
+			if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/Comments" != "")
+				invoke Create PurchaseOrderEDIAcknowledgement
+			        invoked.RunGroup							= RunGroup
+			        invoked.EDINumber                			= ""
+			        invoked.Company                   			= LocalCompany
+			        invoked.InterchgControl           			= ""
+			        invoked.GroupControl           				= ""
+			        invoked.TxnSetControl          				= ""
+			        invoked.PurchaseOrder          				= LocalPurchaseOrder
+			        invoked.PORelease              				= ""
+			        invoked.POCode                 				= ""
+			        invoked.RecordId               				= "55"
+			        invoked.EdiSegment							= ""
+					invoked.Comments		          			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/Comments"
+
+		CreateRecordType60
+
+			LocalLineIndex 			+= 1
+
+			LocalLineCount 			= ResponseXML select "count(/cXML/Request/ConfirmationRequest/ConfirmationItem)"
+
+			while (LocalLineIndex <= LocalLineCount)
+
+				LocalItemIndex 		= 0
+
+
+				invoke Create PurchaseOrderEDIAcknowledgement
+			        invoked.RunGroup							= RunGroup
+			        invoked.EDINumber                			= ""
+			        invoked.Company                   			= LocalCompany
+			        invoked.InterchgControl           			= ""
+			        invoked.GroupControl              			= ""
+			        invoked.TxnSetControl             			= ""
+			        invoked.PurchaseOrder             			= LocalPurchaseOrder
+			        invoked.PORelease                 			= ""
+			        invoked.POCode                    			= ""
+			        invoked.RecordId                  			= "60"
+			        invoked.EdiSegment							= ""
+			        invoked.PurchaseOrderLine		  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@lineNumber"
+					invoked.MatchDetailKey			  			= ""
+					invoked.Item					  			= ""
+					invoked.VendorItem				  			= ""
+					invoked.ItemGTIN    			  			= ""
+					invoked.UnitOfMeasure			  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/UnitOfMeasure"
+					invoked.EnteredUnitCost			  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/UnitPrice/Money"
+					invoked.Quantity				  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@quantity"
+
+
+
+				if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/UnitPrice/Money" != "")
+				    invoke Create PurchaseOrderEDIAcknowledgement
+				        invoked.RunGroup                            = RunGroup
+				        invoked.EDINumber                           = ""
+				        invoked.Company                             = LocalCompany
+				        invoked.InterchgControl                     = ""
+				        invoked.GroupControl                        = ""
+				        invoked.TxnSetControl                       = ""
+				        invoked.PurchaseOrder                       = LocalPurchaseOrder
+				        invoked.PORelease                           = ""
+				        invoked.POCode                              = ""
+				        invoked.RecordId                            = "63"
+				        invoked.EdiSegment                          = ""
+				        invoked.PurchaseOrderLine                   = ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@lineNumber"
+				        invoked.UnitOfMeasure                       = ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/UnitOfMeasure"
+				        invoked.EnteredUnitCost                     = ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/UnitPrice/Money"
+				        invoked.Quantity                            = ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@quantity"
+
+
+				LocalItemIndex		+= 1
+				LocalItemCount		= ResponseXML select "count(/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus)"
+
+				while (LocalItemIndex <= LocalItemCount)
+
+
+
+					if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@deliveryDate" != "")
+						invoke Create PurchaseOrderEDIAcknowledgement
+					        invoked.RunGroup							= RunGroup
+					        invoked.EDINumber                			= ""
+					        invoked.Company                   			= LocalCompany
+					        invoked.InterchgControl           			= ""
+					        invoked.GroupControl              			= ""
+					        invoked.TxnSetControl             			= ""
+					        invoked.PurchaseOrder             			= LocalPurchaseOrder
+					        invoked.PORelease                 			= ""
+					        invoked.POCode                   			= ""
+					        invoked.RecordId                 			= "70"
+					        invoked.EdiSegment							= ""
+					        invoked.PurchaseOrderLine		  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@lineNumber"
+				        	invoked.EarlyDeliveryDate		          	= DerivedDeliveryDate
+
+
+
+					invoke Create PurchaseOrderEDIAcknowledgement
+				        invoked.RunGroup							= RunGroup
+				        invoked.EDINumber               			= ""
+				        invoked.Company                 			= LocalCompany
+				        invoked.InterchgControl         			= ""
+				        invoked.GroupControl            			= ""
+				        invoked.TxnSetControl           			= ""
+				        invoked.PurchaseOrder           			= LocalPurchaseOrder
+				        invoked.PORelease               			= ""
+				        invoked.POCode                  			= ""
+				        invoked.RecordId                			= "75"
+				        invoked.EdiSegment							= ""
+				        invoked.PurchaseOrderLine		  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@lineNumber"
+
+						if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@type" = "accept")
+							invoked.LineStatus						= "IA"
+						else
+						if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@type" = "reject")
+							invoked.LineStatus						= "IR"
+						else
+				        if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@type" = "backordered")
+							invoked.LineStatus						= "IB"
+						else
+				        if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@type" = "detail"
+				        	or
+				        	ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@type" = "unknown")
+							invoked.LineStatus						= "IC"
+
+						invoked.AcknowledgementStatusDate 			= ""
+						invoked.DateQualifier			  			= ""
+						invoked.Item					  			= ""
+						invoked.VendorItem				  			= ""
+						invoked.ItemGTIN    			  			= ""
+						invoked.UnitOfMeasure			  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/UnitOfMeasure"
+						invoked.Quantity				  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus[<LocalItemIndex>]/@quantity"
+
+					LocalItemIndex += 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				if (ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/Comments" != "")
+					invoke Create PurchaseOrderEDIAcknowledgement
+				        invoked.RunGroup							= RunGroup
+				        invoked.EDINumber                			= ""
+				        invoked.Company                   			= LocalCompany
+				        invoked.InterchgControl           			= ""
+				        invoked.GroupControl              			= ""
+				        invoked.TxnSetControl             			= ""
+				        invoked.PurchaseOrder             			= LocalPurchaseOrder
+				        invoked.PORelease                 			= ""
+				        invoked.POCode                   			= ""
+				        invoked.RecordId                 			= "90"
+				        invoked.EdiSegment							= ""
+				        invoked.PurchaseOrderLine		  			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/@lineNumber"
+			        	invoked.Comments		          			= ResponseXML select "/cXML/Request/ConfirmationRequest/ConfirmationItem[<LocalLineIndex>]/ConfirmationStatus/Comments"
+
+				LocalLineIndex += 1
+				
+		SendNotification
+		    if (EmailNotification)
+		        send email
+		            to CXMLConfigurationRel.ToNotificationEmail
+		            from CXMLConfigurationRel.FromNotificationEmail
+		            subject "CXML_PO_Acknowledgement_<ProcessStatus>:_-_Order_ID:<DocumentNumber>_|_Vendor:<PurchaseOrderRel.Vendor.VendorName>"
+		            Contents
+		                "Acknowledgement:<LocalConfirmationID>"
+		                "Company:<LocalCompany>"
+		                "PurchaseOrder:<LocalPurchaseOrder>"
+		                "Vendor:<PurchaseOrderRel.Vendor.VendorName>"
+		                "Status:<ProcessStatus>_-_<StatusMessage>"
+		    if (UserNotification and ProcessStatus.Success)
+		        LocalActor = actor
+		        send notification
+		            to LocalActor
+		            description is "CXML_PO_Acknowledgement_<ProcessStatus>:_-_Order_ID:<DocumentNumber>_|_Vendor:<PurchaseOrderRel.Vendor.VendorName>"
+		            priority is low
+		            detail is "Order_ID:<DocumentNumber>_|_Company:<LocalCompany>_|_PurchaseOrder:<LocalPurchaseOrder>_|_Vendor:<LocalVendor>_|_Status:<ProcessStatus>_-_<StatusMessage>"
+			if (UserNotification and (ProcessStatus.Error or ProcessStatus.Warning))
+		        LocalActor = actor
+		        send notification
+		            to LocalActor
+		            description is "CXML_PO_Acknowledgement_<ProcessStatus>:_-_Order_ID:<DocumentNumber>_|_Vendor:<PurchaseOrderRel.Vendor.VendorName>"
+		            priority is high
+		            detail is "Order_ID:<DocumentNumber>_|_Company:<LocalCompany>_|_PurchaseOrder:<LocalPurchaseOrder>_|_Vendor:<LocalVendor>_|_Status:<ProcessStatus>_-_<StatusMessage>"
+		   
+	Actions
+		Create is a Create Action
+
+			Exit Rules
+				if (ProcessStatus.New)
+					invoke TranslateInboundAcknowledgementCXML
+						resume on error
+							ProcessStatus = ProcessStatus.Error
+							StatusMessage += error message
+					if (NotifyError)
+						include SendNotification
+		
+		Delete is a Delete Action
+		Update is an Update Action
+			Action Rules
+                LastUpdatedTimeStamp = current timestamp
+
+		TranslateInboundAcknowledgementCXML is an Instance Action
+			restricted
+			Action Rules
+				StatusMessage = ""
+				include CreateRecordType01
+				include CreateRecordType40
+				include CreateRecordType45
+				include CreateRecordType55
+				include CreateRecordType60
+				if (StatusMessage = "")
+					ProcessStatus = ProcessStatus.Success
+					StatusMessage = "Record successfully translated"
+					if (NotifySuccess)
+						include SendNotification
+				LastUpdatedTimeStamp = current timestamp
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

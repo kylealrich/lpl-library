@@ -1,0 +1,487 @@
+ReceivablePaymentApplyReverseHeader is a BusinessClass
+	owned by ar
+	prefix is ARV
+	sql name is RPaymentApplyReverseHeader
+	classic name is ARPMTRVHDR
+
+	Ontology
+		symbolic key is ReceivablePaymentApplyReverseHeader
+			classic set name is ARVSET1
+			classic name for ReceivablePaymentApplyReverseHeader.CreditBatchNumber is CR-BATCH-NBR
+			classic name for ReceivablePaymentApplyReverseHeader.CreditPaymentSequence is CR-PAYMENT-SEQ
+			classic name for Company is CR-COMPANY
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		implements Archivable
+
+
+	Persistent Fields
+
+		CreditCustomer						is a Customer
+			classic name is CR-CUSTOMER
+		CreditTransactionNumber				is a CrTransNbr
+			classic name is CR-TRANS-NBR
+		ReceivableOperator
+			classic name is OPR-CODE
+		GeneralLedgerDate					is Date
+			classic name is GL-DATE
+			default label is "GlobalLedgerDate"
+		BankTransactionCode
+
+
+	Transient Fields
+
+		TransientReceivableOperator			is like ReceivableOperator
+			derive value from ReceivableOperator
+
+
+	Local Fields
+
+		InvoicePaid							is Boolean
+		LocalBaseDebitCreditAdjustAmount	is an InternationalAmount
+		LocalBackgroundGroupAsyncId			is an AsyncActionRequest
+
+		SumOfReceivablePaymentApplyReverseDetailCreditRelAmountsDone	is Boolean	
+		SumOfReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelApplicationAmountCurrencyAmount	is an InternationalAmount	
+		SumOfReceivablePaymentApplyReverseDetailDebitRelAmountsDone		is Boolean	
+		SumOfReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelApplicationAmountCurrencyAmount		is an InternationalAmount	
+
+
+
+	Field Rules
+
+		CreditCustomer
+			required
+
+		ReceivableOperator
+			if (Company.TransactionOperatorRequired)
+				constraint (ReceivableOperatorRel exists)
+					"OperatorDoesNotExist"
+				constraint (ReceivableOperatorRel.ActiveStatus.Active)
+					"OperatorIsNotActive"
+
+		TransientReceivableOperator
+			ReceivableOperator = TransientReceivableOperator
+			if (Company.TransactionOperatorRequired)
+				constraint (TransientReceivableOperator entered)
+					"OperatorRequired"	
+				constraint (ReceivableOperatorRel exists)
+					"OperatorDoesNotExist"
+				constraint (ReceivableOperatorRel.ActiveStatus.Active)
+					"OperatorIsNotActive"
+			if (TransientReceivableOperator not entered)
+				default to actor
+
+		GeneralLedgerDate
+			required
+			cannot be changed
+			if (CompanySystemClosingControlRel.Control and Company.VerifyGLDateWithinGLDateRange)
+				constraint (GeneralLedgerDate within CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDate<GeneralLedgerDate>IsNotWithinValidEntryDatesForCompany<Company>;ValidDateRangeIs<CompanySystemClosingControlRel.ValidEntryDate.Begin>-<CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+
+
+	Rule Blocks
+
+		CommonEdits
+			constraint (!ReceivablePaymentRel.CompanyCustomerRel.ReceivableProcessingMethod.BalanceForward)
+				"CustomerIsBalanceForward-PaymentCannotBeReversed"
+
+
+
+
+
+			constraint (ReceivablePaymentRel.Status > 1)
+				"Payment<ReceivablePaymentRel.PaymentNumber>UnreleasedOrHasUnpostedApplication-NotEligibleForReversal" 
+
+			if (ReceivablePaymentRel.Status.Historical) 
+				constraint (Company.AllowHistoricalApplicationReversal)
+					"PaymentIsHistorical-PaymentCompanyDoesNotAllowHistoricalApplicationReversal"					
+
+			constraint (!ReceivablePaymentRel.Cancelled)
+				"PaymentCancelled-NotEligibleForReversal"
+
+			constraint (ReceivablePaymentRel.TypeOfPayment.CustomerPayment)
+				"NonARPayment-NotEligibleForReversal"
+
+			if (ReceivablePaymentRel.TransferredToCustomer not entered)
+				constraint (ReceivablePaymentRel.CancelDate not entered)
+					"PaymentCancelled-NotEligibleForReversal"
+
+
+			for each ReceivableApplicationRel
+
+
+				if (each.ReceivableApplication.TransType	 = "P"
+				and each.CreditTransaction.CreditType		 = "P"
+				and !InvoicePaid)
+					constraint (!each.ReceivableApplicationAdjustmentForReversalRel.ReceivableAdjustType.CreditMemoOrigin)
+						"TransactionIneligiblePaymentTurnedToCredit"
+				else
+				if (each.ReceivableApplication.TransType	 = "I"
+				and each.CreditTransaction.CreditType 		 = "P"
+				and ReceivablePaymentRel.PaymentOpen != 0)
+					InvoicePaid = true
+
+			if (Company.VendorCreateAndInterfaceToAP = false)
+				constraint (!ReceivablePaymentRel.HasAPTransfers
+				or			ReceivablePaymentRel.ARToAPApplicationSelectRel.Status.Released)
+					"UnreleasedAccountsReceivableToAccountsPayableInterfaceRecords"
+
+
+
+
+			constraint (!HasReceivableInvoiceApplyReverseDetail)
+				"ReceivableInvoiceReversalAlreadyPendingForThisPayment"
+
+			if ((initiating action != "IntercompanyBillingSettlementHeader.ReverseSettlementInitialActionNotInBackgroundInvokedActionsNotInBackground"))			
+				constraint (!ReceivablePaymentRel.HasRTMs)
+					"CannotAddApplicationForRTMPayment"
+
+			constraint (PostedApplicationsAvailableToReverseRel exists)
+				"NoApplicationsAvailableToReverse"
+
+			if (ReceivablePaymentRel.AppliedAmount entered
+			and ReceivablePaymentRel.CreditAppliedAmount entered)
+				constraint (ReceivablePaymentRel.TransientPaymentReversalNewOpenAmount >= 0)
+					"CannotReverseCreditMemoApplicationsWithoutFirstReversingInvoiceApplications.NewOpenAmount<ReceivablePaymentRel.TransientPaymentReversalNewOpenAmount>IsLessThanZero."
+
+		SumReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelAmounts	
+			if (!SumOfReceivablePaymentApplyReverseDetailCreditRelAmountsDone)	
+				initialize SumOfReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelApplicationAmountCurrencyAmount	
+					for each ReceivablePaymentApplyReverseDetailCreditRel
+						SumOfReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelApplicationAmountCurrencyAmount	 += each.ReceivableApplicationRel.CreditTransaction.CreditApplicationAmount.CurrencyAmount	
+				SumOfReceivablePaymentApplyReverseDetailCreditRelAmountsDone = true	
+
+		SumReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelAmounts	
+			if (!SumOfReceivablePaymentApplyReverseDetailDebitRelAmountsDone)	
+				initialize SumOfReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelApplicationAmountCurrencyAmount	
+					for each ReceivablePaymentApplyReverseDetailDebitRel
+						SumOfReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelApplicationAmountCurrencyAmount	 += each.ReceivableApplicationRel.CreditTransaction.CreditApplicationAmount.CurrencyAmount	
+				SumOfReceivablePaymentApplyReverseDetailDebitRelAmountsDone = true	
+
+
+
+
+	Derived Fields
+
+		ReverseDetailCreditApplicationAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			include SumReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelAmounts	
+
+			return (SumOfReceivablePaymentApplyReverseDetailCreditRelReceivableApplicationRelApplicationAmountCurrencyAmount)	
+
+		ReverseDetailDebitApplicationAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			include SumReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelAmounts	
+
+			return (SumOfReceivablePaymentApplyReverseDetailDebitRelReceivableApplicationRelApplicationAmountCurrencyAmount)	
+
+		DetailCount is a ComputeField
+			type is Numeric 7
+			(instance count of ReceivablePaymentApplyReverseDetailRel)
+
+		DetailPostedApplicationCountNotReversed is a ComputeField
+			type is Numeric 7
+			(instance count of ReceivablePaymentRel.PostedApplicationsAvailableToReverseRel)
+
+
+
+	Conditions
+
+
+
+
+
+
+
+		HasReceivableInvoiceApplyReverseDetail
+			restricted
+			when (ReceivableInvoiceApplyReverseDetailRel exists)
+
+		HasReceivablePaymentApplyReverseDetail	
+			restricted
+			when (ReceivablePaymentApplyReverseDetailRel exists)
+
+		PaymentExists
+			restricted
+			when (ReceivablePaymentRel exists)
+
+
+
+	Relations
+
+
+		CompanySystemClosingControlRel	
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode	 = "AR"
+				related.Company					 = Company
+
+
+
+		ReceivablePaymentApplyReverseDetailRel
+			classic name is ARPMTRVDTL
+			one-to-many relation to ReceivablePaymentApplyReverseDetail
+			delete cascades
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablePaymentApplyReverseDetail.CreditCompany		 = Company
+				and   related.ReceivablePaymentApplyReverseDetail.CreditBatchNumber		 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				and   related.ReceivablePaymentApplyReverseDetail.CreditPaymentSequence	 = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence)
+
+		ReceivablePaymentApplyReverseDetailCreditRel
+			classic name is ARPMTRVDTL
+			one-to-many relation to ReceivablePaymentApplyReverseDetail
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablePaymentApplyReverseDetail.CreditCompany		 = Company
+				and   related.ReceivablePaymentApplyReverseDetail.CreditBatchNumber		 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				and   related.ReceivablePaymentApplyReverseDetail.CreditPaymentSequence	 = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+				and   (related.TransactionType.CreditMemo or related.TransactionType.CustomerPayment))
+
+		ReceivablePaymentApplyReverseDetailDebitRel
+			classic name is ARPMTRVDTL
+			one-to-many relation to ReceivablePaymentApplyReverseDetail
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablePaymentApplyReverseDetail.CreditCompany		 = Company
+				and   related.ReceivablePaymentApplyReverseDetail.CreditBatchNumber		 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				and   related.ReceivablePaymentApplyReverseDetail.CreditPaymentSequence	 = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+				and   (related.TransactionType.DebitMemo or related.TransactionType.Invoice))
+
+
+
+
+
+
+
+		ReceivablePaymentRel
+			classic name is ARPAYMENT
+			one-to-one relation to ReceivablePayment
+			Field Mapping uses symbolic key
+				related.Company					 = Company
+				related.ReceivablePaymentHeader	 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				related.ReceivablePayment		 = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+
+		ReceivablePaymentCustomerNumberRel
+			classic name is ARPAYMENT
+			one-to-one relation to ReceivablePayment
+			Field Mapping uses Set2
+				related.Company					 = Company
+				related.ReceivablePaymentHeader	 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				related.TypeOfPayment			 = "P"
+				related.PaymentNumber			 = CreditTransactionNumber
+				related.Customer				 = CreditCustomer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		ReceivableInvoiceApplyReverseDetailRel
+			classic name is ARTRNRVDTL
+			one-to-many relation to ReceivableInvoiceApplyReverseDetail
+			required
+			Field Mapping uses Set2
+				related.CreditCompany 			 = Company
+				related.CreditBatchNumber		 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				related.CreditTransactionType	 = "P"
+			Instance Selection
+				where (related.CreditPaymentSequence = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence)
+
+		ReceivableOperatorRel
+			one-to-one relation to ReceivableOperator
+			Field Mapping uses symbolic key
+				related.Company					 = Company
+				related.ReceivableOperator		 = ReceivableOperator
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		ReceivablePaymentApplyReverseDetailCreditMemoRel is a ReceivablePaymentApplyReverseDetail set
+			Instance Selection
+				where (related.TransactionType.CreditMemo)
+
+		PostedApplicationsAvailableToReverseRel
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses Set2
+				related.CreditTransaction.CreditCompany		= Company
+				related.CreditTransaction.CreditBatch		= ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				related.CreditTransaction.CreditSequence	= ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+			Instance Selection
+				where (related.PostedCanBeReversed)
+
+		ReceivableApplicationRel
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses Set2
+				related.CreditTransaction.CreditCompany					 = Company
+				related.CreditTransaction.CreditBatch					 = ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+				related.CreditTransaction.CreditSequence				 = ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+
+
+
+	Create Rules
+
+		constraint (ReceivablePaymentRel exists)
+			"PaymentDoesNotExist"
+
+		CreditCustomer				= ReceivablePaymentRel.Customer
+
+		CreditTransactionNumber 	= ReceivablePaymentRel.PaymentNumber
+
+
+
+	Actions
+
+		Create is a Create Action
+			Entrance Rules 
+				if ((initiating action != "IntercompanyBillingSettlementHeader.ReverseSettlementInitialActionNotInBackgroundInvokedActionsNotInBackground"))
+					constraint (!ReceivablePaymentRel.ReceivablePaymentHeader.Origin.IntercompanyBilling)
+						"CannotReverseIntercompanyBillingSettlementApplication;MustReverseRelatedSettlementInIntercompanyBillingSystem"
+			Action Rules
+				include CommonEdits
+
+		Update is an Update Action
+			Action Rules
+				include CommonEdits
+
+
+		Delete is a Delete Action
+			Action Rules
+				invoke Delete ReceivablePaymentApplyReverseDetailRel
+
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge ReceivablePaymentApplyReverseDetailRel
+
+
+		DeleteFromReverse is an Instance Action
+			restricted
+			run in background
+			Action Rules
+				invoke Delete
+				if (ReceivablePaymentRel.BackgroundProcessing.ReversalProcessing)
+					invoke FastUpdate ReceivablePaymentRel
+						initialize invoked.BackgroundProcessing
+
+		Release is an Instance Action
+			restricted	
+
+			valid when (HasReceivablePaymentApplyReverseDetail)	//IEFIN-74079 Adding appropriate "valid when" clause.  However, this action is restricted and would only get invoked via another action.
+			Action Rules
+				if (HasReceivablePaymentApplyReverseDetail)	//IEFIN-74079 - Adding "if" should cover when the "valid when" clause gets ignored when action is invoked by another action.  Since this action is restricted, it would always be invoked by another action.
+					include CommonEdits
+					constraint (ReceivablePaymentApplyReverseDetailRel exists)
+						"NoDetailsSelected-CannotRelease"
+
+					if (ReceivablePaymentRel.CreditAppliedAmount entered)
+						initialize LocalBaseDebitCreditAdjustAmount
+						if (ReceivablePaymentApplyReverseDetailCreditMemoRel exists)
+							for each ReceivablePaymentRel.PostedApplicationsAvailableToReverseRel
+								if (each.ApplicationAmount.CurrencyAmount not entered )
+									LocalBaseDebitCreditAdjustAmount += (each.ApplicationAmount.FunctionalAmount.EnteredCurrencyAmount)
+							constraint(LocalBaseDebitCreditAdjustAmount <= ReceivablePaymentRel.TransactionAmount)
+								"ReversalForAdjustmentsRequired"
+
+					if (ReceivablePaymentRel.IsZeroPayment)
+						constraint (DetailCount = DetailPostedApplicationCountNotReversed)
+							"AllApplicationsMustBeSelectedForReversalForAZeroAmountPayment"
+
+					constraint (!ReceivablePaymentRel.BackgroundProcessing.ReversalProcessing)
+						"ReversalProcessingIsOngoing;CheckAsync"
+					constraint (ReceivablePaymentRel.BackgroundProcessing not entered)
+						"BackgroundProcessRunning;CheckAsync"
+
+					if (instance count of ReceivablePaymentApplyReverseDetailRel <= ReceivablePaymentRel.NumberOfLinesForSetAction)
+						invoke ReverseSet ReceivablePaymentApplyReverseDetail in foreground
+							invoked.PrmCompany					= Company
+							invoked.PrmCreditBatchNumber		= ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+							invoked.PrmCreditPaymentSequence	= ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+							invoked.PrmBankTransactionCode		= BankTransactionCode
+						invoke DeleteFromReverse in foreground
+					else
+						invoke FastUpdate ReceivablePaymentRel
+							invoked.BackgroundProcessing		= 3
+						invoke ReverseSet ReceivablePaymentApplyReverseDetail in background
+							assign async action background group id to LocalBackgroundGroupAsyncId
+							invoked.PrmCompany					= Company
+							invoked.PrmCreditBatchNumber		= ReceivablePaymentApplyReverseHeader.CreditBatchNumber
+							invoked.PrmCreditPaymentSequence	= ReceivablePaymentApplyReverseHeader.CreditPaymentSequence
+							invoked.PrmBankTransactionCode		= BankTransactionCode
+						invoke DeleteFromReverse in background	
+							run after action background group LocalBackgroundGroupAsyncId	
+					
+					if (ReceivablePaymentRel.IsZeroPayment)
+						invoke FastUpdate ReceivablePaymentRel
+							invoked.Status = 2
+			Exit Rules
+
+
+		SelectAll is an Instance Action
+			valid when (ReceivablePaymentRel.PostedApplicationsAvailableToReverse) 
+			Action Rules
+				for each ReceivablePaymentRel.PostedApplicationsAvailableToReverseRel
+					if (!each.SelectedForReversal)
+						invoke ApplicationPosted.SelectForReversal each
+
+		ReleaseForIntercompanySettlementReversal is an Instance Action	
+			restricted	
+
+			Action Rules
+
+				include CommonEdits
+				constraint (ReceivablePaymentApplyReverseDetailRel exists)
+					"NoDetailsSelected-CannotRelease"
+
+				if (ReceivablePaymentRel.CreditAppliedAmount entered)
+					initialize LocalBaseDebitCreditAdjustAmount
+					if (ReceivablePaymentApplyReverseDetailCreditMemoRel exists)
+						for each ReceivablePaymentRel.PostedApplicationsAvailableToReverseRel
+							if (each.ApplicationAmount.CurrencyAmount not entered )
+								LocalBaseDebitCreditAdjustAmount += (each.ApplicationAmount.FunctionalAmount.EnteredCurrencyAmount)
+						constraint(LocalBaseDebitCreditAdjustAmount <= ReceivablePaymentRel.TransactionAmount)
+							"ReversalForAdjustmentsRequired"
+
+				for each ReceivablePaymentApplyReverseDetailRel
+					invoke ReverseForIntercompanySettlementReversal each	
+
+				if (ReceivablePaymentRel.IsZeroPayment)
+					invoke FastUpdate ReceivablePaymentRel
+						invoked.Status = 2
+
+				invoke Delete
+			Exit Rules
+
+

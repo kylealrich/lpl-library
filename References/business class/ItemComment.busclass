@@ -1,0 +1,150 @@
+ItemComment is a BusinessClass
+    owned by ic
+    prefix is ICO
+    classic name is ITCOMMENT
+
+    Ontology
+        symbolic key is ItemComment
+            classic set name is ICOSET1
+            classic name for ItemComment.InventorySequence is SEQ
+
+    Patterns
+        implements StaticJava
+
+        disable AuditIndex
+
+    Persistent Fields
+
+        Comment
+        BeginDate       is Date
+        EndDate         is Date
+        ItemCommentType
+            classic name is COM-TYPE
+
+	Context Fields
+		PurchasingCompany
+		PurchaseOrder
+		PurchaseOrderLine
+
+	Local Fields
+		
+		TempCounter1				is Numeric 2
+		LocalCommentTypeExists		is Boolean
+		
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforItemComment"
+		
+		ContextMessageText is a MessageField
+			restricted
+			"ItemCommentsForItem<Item>InCompany<ItemGroup>"
+			
+		DerivedPrintPurchaseOrder	is a DerivedField
+			type is Boolean
+			initialize TempCounter1
+			while (TempCounter1 < 10)
+				TempCounter1 += 1
+				if (ItemCommentType = PurchasingCompany.ItemGroupRel.ItemCommentTypeArray.ItemCommentTypeGroup[TempCounter1].ItemCommentType)
+					if (PurchasingCompany.ItemCommentTypePOOptionArray.ItemCommentTypePOOption[TempCounter1].ReportOptionPurchaseOrder.PrintComments)
+						return true
+					end while
+			return false
+			
+		DerivedPrintOpenPurchaseOrder	is a DerivedField
+			type is Boolean
+			initialize TempCounter1
+			while (TempCounter1 < 10)
+				TempCounter1 += 1
+				if (ItemCommentType = PurchasingCompany.ItemGroupRel.ItemCommentTypeArray.ItemCommentTypeGroup[TempCounter1].ItemCommentType)
+					if (PurchasingCompany.ItemCommentTypePOOptionArray.ItemCommentTypePOOption[TempCounter1].ReportOptionOpenPO.PrintComments)
+						return true
+					end while
+			return false
+			
+		DerivedPrintUnreleasedPurchaseOrder	is a DerivedField
+			type is Boolean
+			initialize TempCounter1
+			while (TempCounter1 < 10)
+				TempCounter1 += 1
+				if (ItemCommentType = PurchasingCompany.ItemGroupRel.ItemCommentTypeArray.ItemCommentTypeGroup[TempCounter1].ItemCommentType)
+					if (PurchasingCompany.ItemCommentTypePOOptionArray.ItemCommentTypePOOption[TempCounter1].ReportOptionUnreleasedPO.PrintComments)
+						return true
+					end while
+			return false
+			
+	Conditions
+		IsValidForPrinting
+			restricted
+			when ((DerivedPrintPurchaseOrder
+			or   (DerivedPrintOpenPurchaseOrder and PurchaseOrderLine.DerivedStatus = "Released")
+			or   (DerivedPrintUnreleasedPurchaseOrder and PurchaseOrderLine.DerivedStatus = "Unreleased"))
+			and  (BeginDate not entered or (PurchaseOrder.PurchaseOrderDate >= BeginDate))
+			and  (EndDate not entered or (PurchaseOrder.PurchaseOrderDate <= EndDate)))
+
+		IsCommentNotExpired
+			restricted
+			when ((BeginDate not entered or (current corporate date >= BeginDate))
+			and  (EndDate not entered or (current corporate date <= EndDate)))
+
+	Relations
+		
+		BaseLanguageCommentRel
+			one-to-many relation to ItemComment
+			Field Mapping uses symbolic key
+				related.ItemGroup	= ItemGroup
+				related.Item		= Item
+			Instance Selection
+				where (related.ItemComment.LanguageCode not entered)
+
+		NonBaseLanguageCommentRel
+			one-to-many relation to ItemComment
+			Field Mapping uses symbolic key
+				related.ItemGroup	= ItemGroup
+				related.Item		= Item
+			Instance Selection
+				where (related.ItemComment.LanguageCode entered)
+
+		ItemCommentAttachmentRel is an ItemCommentAttachment set
+
+	Field Rules
+		
+		ItemComment
+			if (ItemComment.LanguageCode entered)
+				constraint (BaseLanguageCommentRel exists)
+					"MustAddBaseLanguageComment_(BlankLanguageCode)BeforeAddingCommentsForOtherLanguages"
+
+		ItemCommentType
+			if (ItemCommentType entered)
+				initialize LocalCommentTypeExists
+				initialize TempCounter1
+				while (TempCounter1 < 10)
+					TempCounter1 += 1
+					if (ItemCommentType = ItemGroup.ItemCommentTypeArray.ItemCommentTypeGroup[TempCounter1].ItemCommentType)
+						LocalCommentTypeExists = true
+
+				constraint (LocalCommentTypeExists)
+					"ItemCommentTypeDoesNotExist"
+
+		EndDate
+			constraint (EndDate > BeginDate)
+				"EndDateMustBeGreaterThanBeginDate"
+
+		Comment
+			required
+
+	Actions
+		
+		Create is a Create Action
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+			Entrance Rules
+				if (ItemComment.LanguageCode not entered)
+					constraint (NonBaseLanguageCommentRel not exists)
+						"CommentsForNonBaseLanguagesMustBeDeletedBeforeDeletingBaseLanguage_(BlankLanguageCode)Comment"
+
+	Action Exit Rules
+		invoke ItemDetailChanged Item 

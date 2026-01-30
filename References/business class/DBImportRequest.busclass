@@ -1,0 +1,311 @@
+DBImportRequest is a BusinessClass
+    owned by la
+    prefix is IR
+
+    Ontology
+        symbolic key is DBImportRequest
+
+    Patterns
+    	disable Auditing
+    	disable EffectiveDated
+    	implements CreateStamp
+    	implements UpdateStamp
+
+    Persistent Fields
+    	ImportData         is Text
+
+
+
+
+    	Status is Numeric 1
+    		States
+    			New       value is 0    
+    			Pending   value is 2
+    			Complete  value is 8
+    	StartTime          is TimeStamp
+    	EndTime            is TimeStamp
+		NumberOfRecords	   is Numeric size 9
+		NumberOfExceptions is Numeric size 9
+		RunLog             is Text
+		BadRecordLog       is Text
+		AsyncID	   		   is UniqueID 
+		
+
+
+
+
+
+
+				
+	Local Fields
+		LocDateForStart is Date
+
+	Conditions
+		ErrorsExist
+			when (NumberOfExceptions > 0)
+			
+		RaiseAlert
+			when (ErrorsExist or BadRecordLog entered)
+		
+		RaiseRequestAlert
+			when ((Status.New or Status.Pending) and (not ActionRequestRel exists or ActionRequestRel.FailedTriggersExist))		
+			
+		ActionRequestExists
+			when (ActionRequestRel exists)
+			
+		ActionRequestActive
+			default label is "DBImportInProcess"
+			when (AsyncID entered and not ActionRequestRel.SuccessfullyCompleted)
+		
+		UserCanProcess
+			restricted
+			when ((Status.New or Status.Pending) and (not ActionRequestRel exists or (not ActionRequestRel.PendingScheduling and not ActionRequestRel.InProgress and not ActionRequestRel.FailedTriggersExist)))		
+			
+		CanRetry
+			default label is "ImportationCanBeRetried"
+			when (NumberOfExceptions > 0 and BadRecordLog entered)
+			
+	Derived Fields
+		ImportDataMimeType is a DerivedField
+			type is MimeType
+			restricted
+
+			
+			return "text/csv"
+			
+
+
+
+
+
+			
+		RunOutSideActionGroup is a NativeField
+			type is Boolean
+			default label is untranslatable
+			restricted
+	
+		StartOfDay is a NativeField
+			type is TimeStamp
+			restricted
+			
+		ElapsedTime is a DerivedField
+			type is Numeric size 6
+			if (Status.New)
+				return 0
+				
+			if (Status.Pending)
+				return (current timestamp - StartTime)
+
+			return (EndTime - StartTime)
+			
+		DaysInElapsedTime is a DerivedField    
+            type is Numeric 6
+            default label is "LastDaysInElapsedTime"
+            DaysInElapsedTime = ((ElapsedTime / 86400) - .5)
+            if (DaysInElapsedTime < 0)
+                DaysInElapsedTime = 0
+
+        HoursInElapsedTime is a DerivedField    
+            type is Numeric 2
+            default label is "LastHoursInElapsedTime"
+            HoursInElapsedTime = (((ElapsedTime - (DaysInElapsedTime * 86400)) / 3600) - .5)
+            if (HoursInElapsedTime < 0)
+                HoursInElapsedTime = 0
+
+        MinutesInElapsedTime is a DerivedField  
+            type is Numeric 2
+            default label is "LastMinutesInElapsedTime"
+            MinutesInElapsedTime = ((((ElapsedTime - (DaysInElapsedTime * 86400)) - (HoursInElapsedTime * 3600)) / 60) - .5)
+            if (MinutesInElapsedTime < 0)
+                MinutesInElapsedTime = 0
+
+        SecondsInElapsedTime is a DerivedField  
+            type is Numeric 2
+            default label is "LastSecondsInElapsedTime"
+            SecondsInElapsedTime = ((((ElapsedTime - (DaysInElapsedTime * 86400)) - (HoursInElapsedTime * 3600)) - (MinutesInElapsedTime * 60)) - .5)
+            if (SecondsInElapsedTime < 0)
+                SecondsInElapsedTime = 0		
+                
+
+
+        DaysHoursMinutesSecondsInElapsedTime is a MessageField
+            "<DaysInElapsedTime>Days<HoursInElapsedTime>Hours<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+
+        HoursMinutesSecondsInElapsedTime is a MessageField
+            "<HoursInElapsedTime>Hours<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+
+        MinutesSecondsInElapsedTime is a MessageField
+            "<MinutesInElapsedTime>Minutes<SecondsInElapsedTime>Seconds"
+            
+		SecondsInElapsedTimeMessage is a MessageField
+        	"<SecondsInElapsedTime>Seconds"
+            
+        OneSecondInElapsedTimeMessage is a MessageField
+            "1Second"
+
+        ElapsedTimeComponentsText is a DerivedField
+        	type is Alpha size 40
+        	default label is "ElapsedTime"
+        	if (Status.New)
+        		return ""
+        	else
+            if (DaysInElapsedTime > 0)
+                return DaysHoursMinutesSecondsInElapsedTime
+            else
+            if (HoursInElapsedTime > 0)
+                return HoursMinutesSecondsInElapsedTime
+            else
+            if (MinutesInElapsedTime > 0)
+                return MinutesSecondsInElapsedTime
+            else
+            if (SecondsInElapsedTime > 0)
+                return SecondsInElapsedTimeMessage
+            else
+            if (StartTime != blank)
+            	return "< " + OneSecondInElapsedTimeMessage 
+            	
+		RequestMissingText is a MessageField
+			"RequestMissing.PerformProcessImportActionToReschedule."            	
+			
+		RequestFailedText is a MessageField
+			"RequestFailed.SeeRequestForDetails."	
+			
+		RequestAlertMessage is a DerivedField		
+			type is Alpha 60
+			if (not ActionRequestRel exists)
+				return RequestMissingText
+			 
+			if (ActionRequestRel.FailedTriggersExist)
+				return RequestFailedText
+
+			return blank					
+			
+	Relations
+		ActionRequestRel
+			one-to-one relation to AsyncActionRequest
+			Field Mapping uses symbolic key
+				related.AsyncActionRequest = AsyncID  
+				
+	Sets
+		ByStatus
+			indexed
+			Sort Order
+				Status
+				BusinessClass
+				DBImportRequest
+		
+		ByAsyncID
+			indexed
+			Sort Order
+				AsyncID
+				DBImportRequest		    
+	
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				if (RunOutSideActionGroup)
+					invoke ProcessImport in background
+						run outside of action background group
+						assign async action request id to AsyncID
+				else
+					invoke ProcessImport in background
+						assign async action request id to AsyncID
+			
+		ProcessImport is an Instance Action
+			valid when (Status.New)
+			run in background
+			restricted
+			
+			Entrance Rules
+				Status = Status.Pending
+			Action Rules
+				StartTime = system current timestamp
+			
+
+
+			
+			Exit Rules
+				EndTime = system current timestamp
+				Status = Status.Complete
+				
+		UserProcessImport is an Instance Action
+			default label is "ProcessImport"
+			valid when (UserCanProcess)
+			completion message is "ProcessImportScheduled."
+			
+			Action Rules
+				Status = Status.New
+				invoke ProcessImport in background
+					assign async action request id to AsyncID
+			
+		Delete is a Delete Action
+			Action Rules
+				if (not Status.Complete)
+					constraint (not ActionRequestRel.PendingScheduling)
+						"PendingAsyncActionMustCompleteOrBeRemovedBeforeDeleteIsAllowed."
+						
+					constraint (not ActionRequestRel.InProgress)
+						"DB_Import_RequestIsInProgressInTheBackground."
+					
+				if (Status.New)
+					confirmation required
+						"AreYouSureYouWantToDeleteThisUnprocessedImport?"
+						
+				if (Status.Pending)
+					confirmation required
+						"AreYouSureYouWantToDeleteThisIncompleteImport?"
+						
+		RetryErrors is an Instance Action
+			valid when (CanRetry)
+			confirmation required
+				"ThisWillCreateANewDB_Import_RequestUsingTheBadRecordLogAsInput.AreYouSureYouWantToContinue?"
+			Action Rules
+				invoke Create DBImportRequest
+					invoked.BusinessClass = BusinessClass
+					invoked.ImportData    = BadRecordLog
+					invoked.Status        = Status.New					
+	
+		PurgeCompletedRequests is a Set Action
+			Parameters
+				ThruCompletedDate   is Date
+				PurgeOffsetDays 	is Numeric size 3
+				KeepErrors			is Boolean
+				
+			Local Fields
+				LocalThruTime 		is TimeStamp
+					
+
+			Parameter Rules
+				ThruCompletedDate
+					if (ThruCompletedDate entered)
+						LocDateForStart = (ThruCompletedDate + 1 day)
+						LocalThruTime = StartOfDay
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocDateForStart  = current date - (PurgeOffsetDays - 1)
+						LocalThruTime = StartOfDay
+			
+				PurgeOffsetDays
+					constraint (not ThruCompletedDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Instance Selection
+				where (Status.Complete
+				and    EndTime < LocalThruTime
+				and    (not KeepErrors or not RaiseAlert)) 
+				
+			Sort Order
+				Status
+				EndTime
+				BusinessClass
+				DBImportRequest
+				
+			Action Rules
+
+				Instance Rules
+					invoke Delete
+	

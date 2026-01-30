@@ -1,0 +1,199 @@
+ContractLineComment is a BusinessClass
+	owned by po
+	prefix is CLCM
+
+	Ontology
+		part of ContractLine
+			relative key is SequenceNumber
+
+	Persistent Fields
+		CommentTitle		is a CommentName
+			default label is "Title"
+		ContractCommentType	is Numeric size 2
+			States
+				Manual	value is 1
+				Event	value is 2
+		CommentUsedFor		is Numeric size 1
+			States
+				DisplayOnly				value is 1
+				PrintOnPurchaseOrder	value is 2
+				DisplayOnInvoice		value is 3
+		Description			is RichText
+		Attachment			is an AlternateAttachment
+		SSComment			is Boolean
+		EmailAttachment		is Boolean
+		SupplierCanView
+		PrintOnContract		is Boolean
+
+	Local Fields
+		LocalAttributeCtr	is Numeric 2
+
+	Field Groups
+		NonUpdatableFields
+			CommentTitle
+			ContractCommentType
+			Description
+			Attachment
+
+	Conditions
+		LineCommentExists
+			restricted
+			when (SequenceNumber > 0)
+		EligibleForSourcing
+			restricted
+			when (Contract.SourcingEligible)
+		CommentTypeManualAndContractNotClosed
+			restricted
+			when (ContractCommentType.Manual
+			and   !ContractLine.ContractLineState.Closed)
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		LineCommentTypeEntered
+			restricted
+			when (ContractCommentType entered)
+		PrintOnPoOnlyLineComment
+			when (CommentUsedFor.PrintOnPurchaseOrder)
+		
+		EmailAttachmentExists
+			restricted
+			when (NotificationAttachmentRel exists)
+
+	Relations
+		NotificationAttachmentRel
+			one-to-many relation to ContractNotificationEmailAttachment
+			Field Mapping uses ByLineComment
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+				related.LineNumber		= ContractLine
+				related.SequenceNumber	= SequenceNumber
+
+	Sets
+		ByTitleAttachment
+			duplicates
+			Sort Order
+				ContractGroup
+				Contract
+				ContractLine
+				CommentTitle
+				Attachment.Title
+
+		BySequenceNumber
+			Sort Order
+				ContractGroup
+				Contract
+				ContractLine
+				ContractCommentType descending
+				SequenceNumber
+
+	Field Rules
+		SequenceNumber
+			autosequence
+				minimize contention
+
+		ContractCommentType
+			default to "1"	
+
+		CommentUsedFor
+			default to CommentUsedFor.DisplayOnly
+
+			if (CommentUsedFor.PrintOnPurchaseOrder
+			or  CommentUsedFor.DisplayOnInvoice)
+				constraint (Contract.HasAPurchaseType)
+					"CannotEnterAPrintOnPurchaseOrderOrDisplayOnInvoiceTypeForNonPurchaseTypeContracts"
+
+		CommentTitle
+			required
+
+		Description
+			default to CommentTitle
+
+		Attachment
+			if (EmailAttachmentExists)
+				cannot be changed
+					"CannotChangeWhenReferencedAsAnAttachmentToANotificationEmail"
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+	Actions
+		Create is a Create Action
+			valid when (!ContractLine.ContractLineState.Closed)
+
+			Field Rules
+				SSComment
+					if (!Contract.CreateByCopy)
+						default to true
+
+				EmailAttachment
+					if (Attachment entered)
+						default to true
+					constraint (Attachment entered)
+						"MustEnterAttachmentWhenUsingEmailOption"
+
+				SupplierCanView
+					if (Contract.ContractSubclassification entered)
+						default to Contract.ContractSubclassification.SupplierCanView
+					else
+						default to Contract.ContractClassification.SupplierCanView
+
+		Update is an Update Action
+			valid when (!ContractLine.ContractLineState.Closed)
+
+			Field Rules
+				EmailAttachment
+					if (!old Attachment entered
+					and Attachment entered)
+						default to true
+					constraint (Attachment entered)
+						"MustEnterAttachmentWhenUsingEmailOption"
+
+			Action Rules
+				if (ContractCommentType.Event)
+					constraint (NonUpdatableFields not changed)
+						"OnlyThe-SendCommentToSourcingOrCommentUsedFor-FieldsCanBeChangedOnAnEventTypeComment"
+
+		Delete is a Delete Action
+			valid when (CommentTypeManualAndContractNotClosed)
+
+			Action Rules
+				constraint (!EmailAttachmentExists)
+					"CannotDelete;ReferencedAsAnAttachmentToANotificationEmail"
+
+		Purge is a Purge Action
+			restricted
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

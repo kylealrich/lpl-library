@@ -1,0 +1,323 @@
+PurchaseOrderLineComment is a BusinessClass
+	owned by po
+	prefix is PLCMT
+	
+	Ontology
+		part of PurchaseOrderLine
+			delete cascades
+			relative key is SequenceNumber
+			
+	Patterns
+		implements StaticJava
+		implements Archivable
+	
+	Persistent Fields
+    	CommentTitle					is a CommentName
+    	CommentType						is AlphaUpper size 1
+    		States
+                PrintOnInternalDocuments	value is "I"
+                PrintOnReceivingDocument	value is "R"
+                PrintOnPurchaseOrder		value is "P"
+                InvoiceComments				value is "N"
+                PrintOnDeliveryTicket		value is "D"
+				DisplayOnlyOnInternalDocuments value is "S"
+                DisplayOnly					value is "O"
+				Acknowledgement				value is "A"
+                Asset						value is "4"
+    	CommentText
+		Attachment						is an AlternateAttachment
+		SupplierCanView                 is Boolean
+			default label is "AllowSupplierToViewInPortal"
+		SendToVendor					is Boolean
+		AttachmentSent					is Boolean
+			protected
+	
+	Transient Fields
+		TransientPrintOnInternalDocuments	is Boolean
+			default label is "PrintOnInternalDocuments"
+		TransientPrintOnReceivingDocument	is Boolean
+			default label is "PrintOnReceivingDocument"
+		TransientPrintOnPurchaseOrder		is Boolean
+			default label is "PrintOnPurchaseOrder"
+		TransientInvoiceComments			is Boolean
+			default label is "InvoiceComments"
+		TransientPrintOnDeliveryTicket		is Boolean
+			default label is "PrintOnDeliveryTicket"
+		TransientDisplayOnlyOnInternalDocuments is Boolean
+			default label is "DisplayOnlyOnInternalDocuments"	
+		TransientDisplayOnly				is Boolean
+			default label is "DisplayOnly"	
+		TransientAssetComment				is Boolean
+			default label is "AssetComment"		
+			
+	Local Fields
+		ReplaceLineBreak
+		LocalCommentType		is like CommentType
+		LocalSupplierCanView	is Boolean
+		LocalSendToVendor		is Boolean						
+		LocalAttributeCtr   is Numeric 2
+
+	Rule Blocks
+		ProcessPurchaseOrderLineComments
+			if (CommentType.PrintOnPurchaseOrder
+			and PurchaseOrderLine.PurchaseOrderLineLifeCycleState.Released)
+				invoke Released.Update PurchaseOrderLine
+
+		CreateComment
+			invoke SystemCreateLine PurchaseOrderLineComment
+				invoked.Company				= Company
+				invoked.PurchaseOrder		= PurchaseOrder
+				invoked.PurchaseOrderLine	= PurchaseOrderLine
+				invoked.CommentTitle		= CommentTitle
+				invoked.CommentText			= CommentText
+				invoked.Attachment.File		= Attachment.File
+				invoked.Attachment.MimeType	= Attachment.MimeType
+				invoked.Attachment.Title	= Attachment.Title
+				invoked.CommentType			= LocalCommentType
+				invoked.SupplierCanView		= LocalSupplierCanView
+				invoked.SendToVendor		= LocalSendToVendor
+
+	Field Rules
+		SequenceNumber
+			autosequence
+				minimize contention
+			
+		CommentType
+			required
+
+		CommentTitle
+			required
+		
+		SendToVendor	
+			if (not CommentType.PrintOnPurchaseOrder 
+			and SendToVendor)
+				initialize SendToVendor
+		
+		SupplierCanView
+			if (not CommentType.PrintOnPurchaseOrder
+			and SupplierCanView)
+				initialize SupplierCanView
+		
+		AttachmentSent
+			initialize AttachmentSent
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+	
+	Derived Fields
+		DerivedCommentText is a DerivedField
+			type is Text
+			initialize ReplaceLineBreak
+			ReplaceLineBreak.Value    	= CommentText
+			ReplaceLineBreak.ReplaceTo	= "|"
+			return ReplaceLineBreak.Execute
+			
+		DerivedInitialCommentType	is a DerivedField
+			type is like CommentType
+			restricted
+			if (CommentType entered)
+				return CommentType
+			else
+			if (TransientPrintOnInternalDocuments)
+				return CommentType.PrintOnInternalDocuments	
+			else
+			if (TransientPrintOnReceivingDocument)
+				return CommentType.PrintOnReceivingDocument
+			else
+			if (TransientPrintOnPurchaseOrder)
+				return CommentType.PrintOnPurchaseOrder
+			else
+			if (TransientPrintOnDeliveryTicket)
+				return CommentType.PrintOnDeliveryTicket
+			else
+			if (TransientInvoiceComments)
+				return CommentType.InvoiceComments
+			else
+			if (TransientDisplayOnlyOnInternalDocuments)
+				return CommentType.DisplayOnlyOnInternalDocuments
+			else
+			if (TransientDisplayOnly)
+				return CommentType.DisplayOnly					
+			else
+			if (TransientAssetComment)
+				return CommentType.Asset	
+				
+	Relations
+
+    Conditions
+    	IsCommentTypeSelected
+    		restricted
+    		when (TransientPrintOnInternalDocuments
+    		or	  TransientPrintOnReceivingDocument
+    		or    TransientPrintOnPurchaseOrder
+    		or    TransientInvoiceComments
+    		or    TransientPrintOnDeliveryTicket
+			or	  TransientDisplayOnlyOnInternalDocuments
+    		or    TransientDisplayOnly
+    		or	  TransientAssetComment)
+    		
+    	HasAttachment
+    		restricted
+    		when (Attachment entered)
+
+	Sets
+  		ByCommentType
+  			Sort Order
+  				Company	
+  				PurchaseOrder
+  				PurchaseOrderLine
+				CommentType
+				SequenceNumber
+
+	Actions
+	
+		SystemCreateLine is a Create Action
+			restricted
+
+		Create is a Create Action
+			valid when (not PurchaseOrderLine.RestrictPOLineChanges)
+			Action Rules
+				include ProcessPurchaseOrderLineComments
+				
+				if (CommentType not entered)
+					constraint (IsCommentTypeSelected)
+						"CommentTypeIsRequired"
+				else
+					constraint(not IsCommentTypeSelected)
+						"CannotEnterBothCommentTypeAndTransientCommentTypes"
+				
+				initialize LocalSupplierCanView
+				initialize LocalSendToVendor
+				
+				LocalSupplierCanView	= SupplierCanView
+				LocalSendToVendor		= SendToVendor
+				
+				invoke SystemCreateLine this instance
+					invoked.CommentType	= DerivedInitialCommentType
+			
+			Exit Rules
+				initialize LocalCommentType
+				if (TransientPrintOnInternalDocuments
+				and not CommentType.PrintOnInternalDocuments)
+					LocalCommentType = CommentType.PrintOnInternalDocuments
+					include CreateComment
+						
+				if (TransientPrintOnReceivingDocument
+				and not CommentType.PrintOnReceivingDocument)
+					LocalCommentType = CommentType.PrintOnReceivingDocument
+					include CreateComment 					
+							
+				if (TransientPrintOnPurchaseOrder
+				and not CommentType.PrintOnPurchaseOrder)
+					LocalCommentType = CommentType.PrintOnPurchaseOrder
+					include CreateComment
+						
+				if (TransientPrintOnDeliveryTicket
+				and not CommentType.PrintOnDeliveryTicket)
+					LocalCommentType = CommentType.PrintOnDeliveryTicket
+					include CreateComment
+						
+				if (TransientInvoiceComments
+				and not CommentType.InvoiceComments)
+					LocalCommentType = CommentType.InvoiceComments
+					include CreateComment
+				
+				if (TransientDisplayOnlyOnInternalDocuments
+				and not CommentType.DisplayOnlyOnInternalDocuments)
+					LocalCommentType = CommentType.DisplayOnlyOnInternalDocuments
+					include CreateComment			
+
+				if (TransientDisplayOnly
+				and not CommentType.DisplayOnly)
+					LocalCommentType = CommentType.DisplayOnly
+					include CreateComment			
+							
+				if (TransientAssetComment
+				and not CommentType.Asset)
+					LocalCommentType = CommentType.Asset
+					include CreateComment					
+
+		Update is an Update Action
+			valid when (not PurchaseOrderLine.RestrictPOLineChanges)
+			Action Rules
+				include ProcessPurchaseOrderLineComments
+				
+		Delete is a Delete Action
+			valid when (not PurchaseOrderLine.RestrictPOLineChanges)
+			Action Rules
+				include ProcessPurchaseOrderLineComments
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+			
+
+
+
+
+
+		BatchCopyPurchaseOrderLineComment is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is a PurchasingCompany
+				PrmPurchaseOrder			is like PurchaseOrder 
+				PrmCopyFromPurchaseOrder	is a PurchaseOrder
+				PrmCopyIgnoreCancelQuantity	is Boolean
+
+			Instance Selection
+				where	(Company			= PrmCompany
+				and		 PurchaseOrder	= PrmCopyFromPurchaseOrder
+				and      CommentType != "A" 
+				and		 (PurchaseOrderLine.HeaderIsFullyCanceledOrLineCanBeCopied
+				or		 PrmCopyIgnoreCancelQuantity and PurchaseOrderLine.ForIgnoreCancelQuantity))
+
+			Action Rules
+				Instance Rules
+					invoke SystemCreateLine
+						resume on error
+						fill in fields from this instance
+							except invoked.AttachmentSent
+						invoked.PurchaseOrder = PrmPurchaseOrder
+
+
+		Purge is a Purge Action
+			restricted
+			Action Rules
+				Attachment.LocalPurgeTriggered = true
+		
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop
+				

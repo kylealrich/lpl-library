@@ -1,0 +1,613 @@
+ProjectAssignmentLaborTransaction is a BusinessClass
+	sql name is "ProjectAssignLaborTrans"
+	owned by Projects
+	prefix is Pralt
+	
+	Ontology
+		part of ProjectAssignmentLabor
+			relative key is SequenceNumber is Numeric size 4
+	
+	Patterns
+		disable Auditing
+	
+	Persistent Fields
+		GLTransactionDetail
+
+	Derived Fields
+		DerivedRoundTo is a DerivedField
+    		type is Decimal 5.4
+    		restricted
+    		if (Project.Currency.NumberOfDecimals = 2)
+    			return .01
+    		else
+    		if (Project.Currency.NumberOfDecimals = 0)
+    			return 1
+    		else
+    		if (Project.Currency.NumberOfDecimals = 3)
+    			return .001
+    		else
+    		if (Project.Currency.NumberOfDecimals = 4)
+    			return .0001
+
+	Conditions
+		IsOverage
+			restricted
+			when (GLTransactionDetail.FinanceCodeBlock.Project != Project)
+
+	Relations
+		ProjectBurdenCodeRel
+			one-to-one relation to ProjectBurdenCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectBurdenCode		= ProjectAssignment.BurdenCode
+				related.EffectiveDate			<= GLTransactionDetail.TransactionDate
+				
+		BaseLaborTransactionRel
+			one-to-many relation to ProjectAssignmentLaborTransaction
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Project					= Project
+				related.Employee				= Employee
+				related.ProjectAssignment		= ProjectAssignment
+				related.LaborPeriod				= LaborPeriod
+				related.SequenceNumber			< SequenceNumber
+			Instance Selection
+				where (related.GLTransactionDetail.GeneralLedgerEvent != "BD")
+
+		EmployeeRel
+			one-to-one relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization	= FinanceEnterpriseGroup.HROrganization
+				related.Employee		= Employee
+
+		ProjectAssignmentSplitRel
+			one-to-one relation to ProjectAssignmentSplit
+			Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Project					= Project
+    			related.Employee				= Employee
+    			related.ProjectAssignment		= ProjectAssignment
+    			related.SequenceNumber			= LaborPeriod.SequenceNumber
+
+	Field Rules
+		SequenceNumber
+			autosequence
+			
+	Sets
+	
+	Actions
+		Create is a Create Action
+			restricted
+		
+		Delete is a Delete Action	
+			restricted
+
+		RecalculateFringeBurdens is a Set Action
+			restricted
+        	Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+        			default label is "FinanceEnterpriseGroup"
+        		EmployeeGroup				is an Employee group
+        		PrmProjectLaborSchedule		is a ProjectLaborSchedule
+        			default label is "LaborSchedule"
+        		FromProjectSchedulePeriod	is a ProjectSchedulePeriod
+        			default label is "FromPeriod"
+        		ToProjectSchedulePeriod		is a ProjectSchedulePeriod
+        			default label is "ToPeriod"
+        		PrmProjectBurdenCode		is a ProjectBurdenCode
+        			default label is "BurdenCode"
+        		PrmPostingProject			is a Project
+        			default label is "PostingProject"
+        		PrmPostingDate				is Date
+        			default label is "PostingDate"
+				FringeOffsetCodeBlock		is a FinanceCodeBlockOverage
+					default label is "OverrideFringeOffsetFinanceStructure"
+        	Parameter Rules
+        		PrmFinanceEnterpriseGroup
+        			required
+				PrmProjectLaborSchedule
+					required
+				FromProjectSchedulePeriod
+					required
+    				constraint (current corporate date >= FromProjectSchedulePeriod.DateRange.End)
+    					"FromPeriodEndingDateMustBePriorToCurrentDate"
+				ToProjectSchedulePeriod
+					constraint (ToProjectSchedulePeriod >= FromProjectSchedulePeriod)
+						"ToPeriodMustBeAfterFromPeriod"
+    				constraint (current corporate date >= FromProjectSchedulePeriod.DateRange.End)
+    					"ToPeriodEndingDateMustBePriorToCurrentDate"
+    				default to FromProjectSchedulePeriod
+				PrmPostingProject
+					constraint (PrmPostingProject.ProjectType.Posting)
+						"ProjectTypeMustBePosting"
+					constraint (!PrmPostingProject.FringeBurden.No)
+						"ProjectDoesNotAllowFringeBurdens"
+    			PrmPostingDate
+    				required
+        	Local Fields
+        		NewGLTransactionDetail	is a GLTransactionDetail view
+				LocalBasisAmount		is like InternationalAmount
+				LocalBurdenAmount		is like InternationalAmount
+				LocalDifference			is like InternationalAmount
+				RecordCreated			is Boolean
+				ErrorFound				is Boolean
+				LocalErrorMessage		is Text
+				JournalizeGroupTable
+				Counter					is Numeric size 4
+
+        	Instance Selection
+        		where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+        		and    ProjectAssignmentLabor.ProjectLaborSchedule = PrmProjectLaborSchedule
+        		and    LaborPeriod.Period >= FromProjectSchedulePeriod
+        		and    LaborPeriod.Period <= ToProjectSchedulePeriod
+        		and    GLTransactionDetail.GeneralLedgerEvent = "BD"
+        		and   !Project.FringeBurden.No
+        		and   (ProjectAssignment.BurdenCode = PrmProjectBurdenCode
+        		or     PrmProjectBurdenCode not entered)
+        		and   (Project = PrmPostingProject
+        		or     PrmPostingProject not entered)
+        		and   !Employee.ExcludeFromLabor
+        		and   (EmployeeRel.Employee within EmployeeGroup
+        		or     EmployeeGroup not entered))
+        		
+			Action Rules
+				Set Rules
+					Exit Rules
+						if (RecordCreated)
+							Counter = 1
+							while (Counter < 1000)
+								if (JournalizeGroupTable.JournalizeGroup[Counter] not entered)
+									end while
+								else
+									invoke InitiateJournalizeForRunGroup PrmFinanceEnterpriseGroup in background
+										invoked.PrmJournalizeGroup	= JournalizeGroupTable.JournalizeGroup[Counter]
+								Counter += 1
+
+				Instance Rules
+					initialize LocalErrorMessage
+					initialize LocalDifference
+					LocalBasisAmount = last BaseLaborTransactionRel.GLTransactionDetail.TransactionAmount
+					LocalBurdenAmount = LocalBasisAmount * ProjectBurdenCodeRel.Rate
+					round LocalBurdenAmount to nearest DerivedRoundTo
+					if (LocalBurdenAmount entered
+					and LocalBurdenAmount != GLTransactionDetail.TransactionAmount)
+						LocalDifference = LocalBurdenAmount - GLTransactionDetail.TransactionAmount
+						RecordCreated = true
+						ErrorFound = false							
+						invoke Released.Create GLTransactionDetail
+							resume on error
+								ErrorFound = true
+								LocalErrorMessage = error message
+							fill in fields from GLTransactionDetail
+								except invoked.ReportCurrencyAmount
+								except invoked.OriginatingTransaction
+								except invoked.UnitsAmount
+								except invoked.AutoReverse
+							invoked.TransactionAmount	= GLTransactionDetail.TransactionAmount * -1
+							invoked.PostingDate			= PrmPostingDate
+							invoked.Billed				= 0
+							invoked.RevenueRecognized	= 0
+							invoked.Capitalize			= 0
+							invoked.IndirectBurden		= 0
+							invoked.GeneralLedgerEvent	= "PJ"
+						if (FringeOffsetCodeBlock entered)
+							ErrorFound = false							
+							invoke Released.Create GLTransactionDetail
+								resume on error
+									ErrorFound = true
+									LocalErrorMessage = error message
+								fill in fields from GLTransactionDetail
+									except invoked.ReportCurrencyAmount
+									except invoked.OriginatingTransaction
+									except invoked.UnitsAmount
+									except invoked.AutoReverse
+								invoked.TransactionAmount 		 = GLTransactionDetail.TransactionAmount
+								invoked.PostingDate				 = PrmPostingDate
+								invoked.LaborDistribution		 = 2
+								if (FringeOffsetCodeBlock.ToAccountingEntity entered)
+									invoked.FinanceCodeBlock.ToAccountingEntity	 		= FringeOffsetCodeBlock.ToAccountingEntity
+								if (FringeOffsetCodeBlock.AccountingUnit entered)
+									invoked.FinanceCodeBlock.AccountingUnit	 	 		= FringeOffsetCodeBlock.AccountingUnit
+								if (FringeOffsetCodeBlock.GeneralLedgerChartAccount entered)
+									invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= FringeOffsetCodeBlock.GeneralLedgerChartAccount
+								if (FringeOffsetCodeBlock.Project entered)
+									invoked.FinanceCodeBlock.Project			 		= FringeOffsetCodeBlock.Project
+								if (FringeOffsetCodeBlock.FinanceDimension1 entered)
+									invoked.FinanceCodeBlock.FinanceDimension1	 		= FringeOffsetCodeBlock.FinanceDimension1
+								if (FringeOffsetCodeBlock.FinanceDimension2 entered)
+									invoked.FinanceCodeBlock.FinanceDimension2	 		= FringeOffsetCodeBlock.FinanceDimension2
+								if (FringeOffsetCodeBlock.FinanceDimension3 entered)
+									invoked.FinanceCodeBlock.FinanceDimension3	 		= FringeOffsetCodeBlock.FinanceDimension3
+								if (FringeOffsetCodeBlock.FinanceDimension4 entered)
+									invoked.FinanceCodeBlock.FinanceDimension4	 		= FringeOffsetCodeBlock.FinanceDimension4
+								if (FringeOffsetCodeBlock.FinanceDimension5 entered)
+									invoked.FinanceCodeBlock.FinanceDimension5	 		= FringeOffsetCodeBlock.FinanceDimension5
+								if (FringeOffsetCodeBlock.FinanceDimension6 entered)
+									invoked.FinanceCodeBlock.FinanceDimension6	 		= FringeOffsetCodeBlock.FinanceDimension6
+								if (FringeOffsetCodeBlock.FinanceDimension7 entered)
+									invoked.FinanceCodeBlock.FinanceDimension7	 		= FringeOffsetCodeBlock.FinanceDimension7
+								if (FringeOffsetCodeBlock.FinanceDimension8 entered)
+									invoked.FinanceCodeBlock.FinanceDimension8	 		= FringeOffsetCodeBlock.FinanceDimension8
+								if (FringeOffsetCodeBlock.FinanceDimension9 entered)
+									invoked.FinanceCodeBlock.FinanceDimension9	 		= FringeOffsetCodeBlock.FinanceDimension9
+								if (FringeOffsetCodeBlock.FinanceDimension10	entered)
+									invoked.FinanceCodeBlock.FinanceDimension10 	 	= FringeOffsetCodeBlock.FinanceDimension10											
+								invoked.GeneralLedgerEvent	= "PJ"
+								invoked.Billed				= 0
+								invoked.RevenueRecognized	= 0
+								invoked.Capitalize			= 0
+								invoked.IndirectBurden		= 0
+						if (FringeOffsetCodeBlock not entered
+						or  ErrorFound)
+							ErrorFound = false
+							invoke Released.Create GLTransactionDetail
+								resume on error
+									ErrorFound = true
+									LocalErrorMessage = error message
+								fill in fields from GLTransactionDetail
+									except invoked.ReportCurrencyAmount
+									except invoked.OriginatingTransaction
+									except invoked.UnitsAmount
+									except invoked.AutoReverse
+								invoked.TransactionAmount 		 = GLTransactionDetail.TransactionAmount
+								invoked.PostingDate				 = PrmPostingDate
+								invoked.LaborDistribution		 = 2
+								if (ProjectBurdenCodeRel.OffsetCodeBlockOption.FullStructure)
+									invoked.FinanceCodeBlock = ProjectBurdenCodeRel.OffsetCodeBlock
+								else
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+										invoked.FinanceCodeBlock.ToAccountingEntity	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.ToAccountingEntity entered)
+												invoked.FinanceCodeBlock.ToAccountingEntity	= ProjectAssignmentSplitRel.BurdenCodeBlock.ToAccountingEntity
+										else
+											if (ProjectAssignment.BurdenCodeBlock.ToAccountingEntity entered)
+												invoked.FinanceCodeBlock.ToAccountingEntity	= ProjectAssignment.BurdenCodeBlock.ToAccountingEntity
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+										invoked.FinanceCodeBlock.AccountingUnit	 		= ProjectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.AccountingUnit entered)
+												invoked.FinanceCodeBlock.AccountingUnit	= ProjectAssignmentSplitRel.BurdenCodeBlock.AccountingUnit
+										else
+											if (ProjectAssignment.BurdenCodeBlock.AccountingUnit entered)
+												invoked.FinanceCodeBlock.AccountingUnit	 	= ProjectAssignment.BurdenCodeBlock.AccountingUnit
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+										invoked.FinanceCodeBlock.GeneralLedgerChartAccount		= ProjectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.GeneralLedgerChartAccount entered)
+												invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= ProjectAssignmentSplitRel.BurdenCodeBlock.GeneralLedgerChartAccount
+										else
+											if (ProjectAssignment.BurdenCodeBlock.GeneralLedgerChartAccount entered)
+												invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= ProjectAssignment.BurdenCodeBlock.GeneralLedgerChartAccount
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+										invoked.FinanceCodeBlock.FinanceDimension1	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension1 entered)
+												invoked.FinanceCodeBlock.FinanceDimension1	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension1
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension1 entered)
+												invoked.FinanceCodeBlock.FinanceDimension1	= ProjectAssignment.BurdenCodeBlock.FinanceDimension1
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+										invoked.FinanceCodeBlock.FinanceDimension2	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension2 entered)
+												invoked.FinanceCodeBlock.FinanceDimension2	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension2
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension2 entered)
+												invoked.FinanceCodeBlock.FinanceDimension2	= ProjectAssignment.BurdenCodeBlock.FinanceDimension2
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+										invoked.FinanceCodeBlock.FinanceDimension3	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension3 entered)
+												invoked.FinanceCodeBlock.FinanceDimension3	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension3
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension3 entered)
+												invoked.FinanceCodeBlock.FinanceDimension3	= ProjectAssignment.BurdenCodeBlock.FinanceDimension3
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+										invoked.FinanceCodeBlock.FinanceDimension4	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension4 entered)
+												invoked.FinanceCodeBlock.FinanceDimension4	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension4
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension4 entered)
+												invoked.FinanceCodeBlock.FinanceDimension4	= ProjectAssignment.BurdenCodeBlock.FinanceDimension4
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+										invoked.FinanceCodeBlock.FinanceDimension5	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension5 entered)
+												invoked.FinanceCodeBlock.FinanceDimension5	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension5
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension5 entered)
+												invoked.FinanceCodeBlock.FinanceDimension5	= ProjectAssignment.BurdenCodeBlock.FinanceDimension5
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+										invoked.FinanceCodeBlock.FinanceDimension6	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension6 entered)
+												invoked.FinanceCodeBlock.FinanceDimension6	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension6
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension6 entered)
+												invoked.FinanceCodeBlock.FinanceDimension6	= ProjectAssignment.BurdenCodeBlock.FinanceDimension6
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+										invoked.FinanceCodeBlock.FinanceDimension7	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension7 entered)
+												invoked.FinanceCodeBlock.FinanceDimension7	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension7
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension7 entered)
+												invoked.FinanceCodeBlock.FinanceDimension7	= ProjectAssignment.BurdenCodeBlock.FinanceDimension7
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+										invoked.FinanceCodeBlock.FinanceDimension8	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension8 entered)
+												invoked.FinanceCodeBlock.FinanceDimension8	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension8
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension8 entered)
+												invoked.FinanceCodeBlock.FinanceDimension8	= ProjectAssignment.BurdenCodeBlock.FinanceDimension8
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+										invoked.FinanceCodeBlock.FinanceDimension9	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension9 entered)
+												invoked.FinanceCodeBlock.FinanceDimension9	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension9
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension9 entered)
+												invoked.FinanceCodeBlock.FinanceDimension9	= ProjectAssignment.BurdenCodeBlock.FinanceDimension9
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+										invoked.FinanceCodeBlock.FinanceDimension10	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension10 entered)
+												invoked.FinanceCodeBlock.FinanceDimension10	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension10
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension10 entered)
+												invoked.FinanceCodeBlock.FinanceDimension10	= ProjectAssignment.BurdenCodeBlock.FinanceDimension10
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+										invoked.FinanceCodeBlock.Project = ProjectBurdenCodeRel.OffsetPartialCodeBlock.Project
+									else
+										invoked.FinanceCodeBlock.Project = blank
+								invoked.GeneralLedgerEvent	= "PJ"
+								invoked.Billed				= 0
+								invoked.RevenueRecognized	= 0
+								invoked.Capitalize			= 0
+								invoked.IndirectBurden		= 0
+
+						ErrorFound = false
+						invoke Released.Create GLTransactionDetail
+							assign result to NewGLTransactionDetail
+							resume on error
+								ErrorFound = true
+								LocalErrorMessage = error message
+							fill in fields from GLTransactionDetail
+								except invoked.ReportCurrencyAmount
+								except invoked.OriginatingTransaction
+								except invoked.UnitsAmount
+								except invoked.AutoReverse
+							invoked.TransactionAmount	= LocalBurdenAmount
+							invoked.PostingDate			= PrmPostingDate
+							invoked.LaborDistribution	= 2
+							invoked.Billed				= 0
+							invoked.RevenueRecognized	= 0
+							invoked.Capitalize			= 0
+							invoked.IndirectBurden		= 0
+
+						if (FringeOffsetCodeBlock entered)
+							ErrorFound = false
+							invoke Released.Create GLTransactionDetail
+								resume on error
+									ErrorFound = true
+									LocalErrorMessage = error message
+								fill in fields from GLTransactionDetail
+									except invoked.ReportCurrencyAmount
+									except invoked.OriginatingTransaction
+									except invoked.UnitsAmount
+									except invoked.AutoReverse
+								invoked.TransactionAmount 		 = LocalBurdenAmount * -1
+								invoked.PostingDate				 = PrmPostingDate
+								invoked.LaborDistribution		 = 2
+								if (FringeOffsetCodeBlock.ToAccountingEntity entered)
+									invoked.FinanceCodeBlock.ToAccountingEntity	 		= FringeOffsetCodeBlock.ToAccountingEntity
+								if (FringeOffsetCodeBlock.AccountingUnit entered)
+									invoked.FinanceCodeBlock.AccountingUnit	 	 		= FringeOffsetCodeBlock.AccountingUnit
+								if (FringeOffsetCodeBlock.GeneralLedgerChartAccount entered)
+									invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= FringeOffsetCodeBlock.GeneralLedgerChartAccount
+								if (FringeOffsetCodeBlock.Project entered)
+									invoked.FinanceCodeBlock.Project			 		= FringeOffsetCodeBlock.Project
+								if (FringeOffsetCodeBlock.FinanceDimension1 entered)
+									invoked.FinanceCodeBlock.FinanceDimension1	 		= FringeOffsetCodeBlock.FinanceDimension1
+								if (FringeOffsetCodeBlock.FinanceDimension2 entered)
+									invoked.FinanceCodeBlock.FinanceDimension2	 		= FringeOffsetCodeBlock.FinanceDimension2
+								if (FringeOffsetCodeBlock.FinanceDimension3 entered)
+									invoked.FinanceCodeBlock.FinanceDimension3	 		= FringeOffsetCodeBlock.FinanceDimension3
+								if (FringeOffsetCodeBlock.FinanceDimension4 entered)
+									invoked.FinanceCodeBlock.FinanceDimension4	 		= FringeOffsetCodeBlock.FinanceDimension4
+								if (FringeOffsetCodeBlock.FinanceDimension5 entered)
+									invoked.FinanceCodeBlock.FinanceDimension5	 		= FringeOffsetCodeBlock.FinanceDimension5
+								if (FringeOffsetCodeBlock.FinanceDimension6 entered)
+									invoked.FinanceCodeBlock.FinanceDimension6	 		= FringeOffsetCodeBlock.FinanceDimension6
+								if (FringeOffsetCodeBlock.FinanceDimension7 entered)
+									invoked.FinanceCodeBlock.FinanceDimension7	 		= FringeOffsetCodeBlock.FinanceDimension7
+								if (FringeOffsetCodeBlock.FinanceDimension8 entered)
+									invoked.FinanceCodeBlock.FinanceDimension8	 		= FringeOffsetCodeBlock.FinanceDimension8
+								if (FringeOffsetCodeBlock.FinanceDimension9 entered)
+									invoked.FinanceCodeBlock.FinanceDimension9	 		= FringeOffsetCodeBlock.FinanceDimension9
+								if (FringeOffsetCodeBlock.FinanceDimension10	entered)
+									invoked.FinanceCodeBlock.FinanceDimension10 	 	= FringeOffsetCodeBlock.FinanceDimension10											
+								invoked.Billed				= 0
+								invoked.RevenueRecognized	= 0
+								invoked.Capitalize			= 0
+								invoked.IndirectBurden		= 0
+						if (FringeOffsetCodeBlock not entered
+						or  ErrorFound)
+							ErrorFound = false
+							invoke Released.Create GLTransactionDetail
+								resume on error
+									ErrorFound = true
+									LocalErrorMessage = error message
+								fill in fields from GLTransactionDetail
+									except invoked.ReportCurrencyAmount
+									except invoked.OriginatingTransaction
+									except invoked.UnitsAmount
+									except invoked.AutoReverse
+								invoked.TransactionAmount 		 = LocalBurdenAmount * -1
+								invoked.PostingDate				 = PrmPostingDate
+								invoked.LaborDistribution		 = 2
+								if (ProjectBurdenCodeRel.OffsetCodeBlockOption.FullStructure)
+									invoked.FinanceCodeBlock = ProjectBurdenCodeRel.OffsetCodeBlock
+								else
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+										invoked.FinanceCodeBlock.ToAccountingEntity	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.ToAccountingEntity entered)
+												invoked.FinanceCodeBlock.ToAccountingEntity	= ProjectAssignmentSplitRel.BurdenCodeBlock.ToAccountingEntity
+										else
+											if (ProjectAssignment.BurdenCodeBlock.ToAccountingEntity entered)
+												invoked.FinanceCodeBlock.ToAccountingEntity	= ProjectAssignment.BurdenCodeBlock.ToAccountingEntity
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+										invoked.FinanceCodeBlock.AccountingUnit	 		= ProjectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.AccountingUnit entered)
+												invoked.FinanceCodeBlock.AccountingUnit	= ProjectAssignmentSplitRel.BurdenCodeBlock.AccountingUnit
+										else
+											if (ProjectAssignment.BurdenCodeBlock.AccountingUnit entered)
+												invoked.FinanceCodeBlock.AccountingUnit	 	= ProjectAssignment.BurdenCodeBlock.AccountingUnit
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+										invoked.FinanceCodeBlock.GeneralLedgerChartAccount		= ProjectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.GeneralLedgerChartAccount entered)
+												invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= ProjectAssignmentSplitRel.BurdenCodeBlock.GeneralLedgerChartAccount
+										else
+											if (ProjectAssignment.BurdenCodeBlock.GeneralLedgerChartAccount entered)
+												invoked.FinanceCodeBlock.GeneralLedgerChartAccount	= ProjectAssignment.BurdenCodeBlock.GeneralLedgerChartAccount
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+										invoked.FinanceCodeBlock.FinanceDimension1	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension1 entered)
+												invoked.FinanceCodeBlock.FinanceDimension1	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension1
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension1 entered)
+												invoked.FinanceCodeBlock.FinanceDimension1	= ProjectAssignment.BurdenCodeBlock.FinanceDimension1
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+										invoked.FinanceCodeBlock.FinanceDimension2	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension2 entered)
+												invoked.FinanceCodeBlock.FinanceDimension2	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension2
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension2 entered)
+												invoked.FinanceCodeBlock.FinanceDimension2	= ProjectAssignment.BurdenCodeBlock.FinanceDimension2
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+										invoked.FinanceCodeBlock.FinanceDimension3	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension3 entered)
+												invoked.FinanceCodeBlock.FinanceDimension3	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension3
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension3 entered)
+												invoked.FinanceCodeBlock.FinanceDimension3	= ProjectAssignment.BurdenCodeBlock.FinanceDimension3
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+										invoked.FinanceCodeBlock.FinanceDimension4	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension4 entered)
+												invoked.FinanceCodeBlock.FinanceDimension4	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension4
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension4 entered)
+												invoked.FinanceCodeBlock.FinanceDimension4	= ProjectAssignment.BurdenCodeBlock.FinanceDimension4
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+										invoked.FinanceCodeBlock.FinanceDimension5	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension5 entered)
+												invoked.FinanceCodeBlock.FinanceDimension5	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension5
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension5 entered)
+												invoked.FinanceCodeBlock.FinanceDimension5	= ProjectAssignment.BurdenCodeBlock.FinanceDimension5
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+										invoked.FinanceCodeBlock.FinanceDimension6	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension6 entered)
+												invoked.FinanceCodeBlock.FinanceDimension6	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension6
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension6 entered)
+												invoked.FinanceCodeBlock.FinanceDimension6	= ProjectAssignment.BurdenCodeBlock.FinanceDimension6
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+										invoked.FinanceCodeBlock.FinanceDimension7	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension7 entered)
+												invoked.FinanceCodeBlock.FinanceDimension7	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension7
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension7 entered)
+												invoked.FinanceCodeBlock.FinanceDimension7	= ProjectAssignment.BurdenCodeBlock.FinanceDimension7
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+										invoked.FinanceCodeBlock.FinanceDimension8	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension8 entered)
+												invoked.FinanceCodeBlock.FinanceDimension8	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension8
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension8 entered)
+												invoked.FinanceCodeBlock.FinanceDimension8	= ProjectAssignment.BurdenCodeBlock.FinanceDimension8
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+										invoked.FinanceCodeBlock.FinanceDimension9	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension9 entered)
+												invoked.FinanceCodeBlock.FinanceDimension9	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension9
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension9 entered)
+												invoked.FinanceCodeBlock.FinanceDimension9	= ProjectAssignment.BurdenCodeBlock.FinanceDimension9
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+										invoked.FinanceCodeBlock.FinanceDimension10	 	= ProjectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+									else
+										if (ProjectAssignmentSplitRel.BurdenCodeBlock entered)
+											if (ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension10 entered)
+												invoked.FinanceCodeBlock.FinanceDimension10	= ProjectAssignmentSplitRel.BurdenCodeBlock.FinanceDimension10
+										else
+											if (ProjectAssignment.BurdenCodeBlock.FinanceDimension10 entered)
+												invoked.FinanceCodeBlock.FinanceDimension10	= ProjectAssignment.BurdenCodeBlock.FinanceDimension10
+									if (ProjectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+										invoked.FinanceCodeBlock.Project = ProjectBurdenCodeRel.OffsetPartialCodeBlock.Project
+									else
+										invoked.FinanceCodeBlock.Project = blank
+								invoked.Billed				= 0
+								invoked.RevenueRecognized	= 0
+								invoked.Capitalize			= 0
+								invoked.IndirectBurden		= 0
+						Counter = 1
+						while (Counter < 1000)
+							if (JournalizeGroupTable.JournalizeGroup[Counter] = GLTransactionDetail.JournalizeGroup)
+								end while
+							if (JournalizeGroupTable.JournalizeGroup[Counter] not entered)
+								JournalizeGroupTable.JournalizeGroup[Counter] = GLTransactionDetail.JournalizeGroup
+								end while
+							Counter += 1
+						GLTransactionDetail = NewGLTransactionDetail.GLTransactionDetail
+						if (LocalErrorMessage entered)
+							invoke SetErrorMessage ProjectAssignmentLabor
+								invoked.PrmErrorMessage	= LocalErrorMessage
+						if (LocalDifference entered)
+							invoke UpdateFringe ProjectAssignmentLabor
+								invoked.PrmDifference = LocalDifference
+
+							
+							
+							
+							
+							

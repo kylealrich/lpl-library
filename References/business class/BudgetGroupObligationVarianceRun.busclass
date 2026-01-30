@@ -1,0 +1,182 @@
+BudgetGroupObligationVarianceRun is a BusinessClass
+    owned by GeneralLedger
+    sql name is "BGOVarianceRun"
+    prefix is BGOVR
+
+    Ontology
+        symbolic key is BudgetGroupObligationVarianceRun
+
+    Persistent Fields
+        Scenario
+            delete ignored
+        BudgetTemplate
+            delete ignored
+        Status                      is Numeric 1
+            protected
+            States
+                InProgress              value is 1
+                Completed               value is 2
+                DeleteInProgress        value is 3
+        StartTime                   is TimeStamp
+        CompletionTime              is TimeStamp
+        CubeRefreshAsyncActionRequest is an AsyncActionRequest
+            delete ignored
+ 
+    Sets
+        ByDescendingVarianceRun
+            Sort Order
+                FinanceEnterpriseGroup
+                BudgetGroupObligationVarianceRun descending
+    
+        ByScenarioTemplate
+            Sort Order
+                FinanceEnterpriseGroup
+                Scenario
+                BudgetTemplate
+                BudgetGroupObligationVarianceRun
+
+    Local Fields
+        LocalAsyncId				is an AsyncActionRequest
+        LocalFinanceEnterpriseGroup is like FinanceEnterpriseGroup
+    Field Rules
+
+    Conditions
+ 		UnpostedJournals
+			when (UnpostedJournalsRel exists)
+        
+        HasVariance
+            when (BudgetGroupObligationVarianceRel exists)
+
+    Derived Fields
+        VarianceRunLabel            is a LabelField
+            "BudgetGroupObligationVarianceReport<Scenario>_-_<BudgetTemplate>"			
+     
+        DeriveTemplateEditCurrency  is a DerivedField
+            type is like UseCurrency
+            default label is "EditCurrency"
+			return BudgetTemplate.UseCurrency
+    
+        DerivedStatus is a DerivedField
+            type is Alpha 50
+			default label is "Status"
+            if (Status.InProgress)
+                if (not first AsyncActionTriggerRel.Status.Finished) 
+                    return CubeRefreshInProgressMessage
+                else 
+                    return InProgressMessage
+            else
+            if (Status.Completed)
+                return CompletedMessage
+            else
+            if (Status.DeleteInProgress) 
+                return DeleteInProgressMessage
+        
+        CubeRefreshInProgressMessage is a MessageField
+            restricted
+            "CubeRefreshInProgress"
+        
+        InProgressMessage is a MessageField
+            restricted
+            "InProgress"
+
+        CompletedMessage is a MessageField
+            restricted
+            "Completed"
+        
+        DeleteInProgressMessage  is a MessageField
+            restricted
+            "DeleteInProgress"
+    Relations
+        BudgetGroupObligationVarianceRel is a BudgetGroupObligationVariance set
+
+        AsyncActionTriggerRel
+            one-to-many relation to AsyncActionTrigger
+            Field Mapping uses AsyncActionTriggerByRequestTriggerID
+                related.AsyncActionRequest     = CubeRefreshAsyncActionRequest       
+        TotalCubeRel
+			one-to-one relation to AnalyticCube
+			Field Mapping uses AnalyticCubeSet
+				related.BusinessClass = "GeneralLedgerTotal"           
+		
+		PostInProcessRel
+			one-to-many relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= LocalFinanceEnterpriseGroup
+			Instance Selection
+				where (related.ProcessStatus.PostInProcess) 
+
+		UnpostedJournalsRel
+			one-to-many relation to GeneralLedgerJournalControl
+			Field Mapping uses ByStatus
+				related.FinanceEnterpriseGroup		= actor.context.FinanceEnterpriseGroup
+            Instance Selection
+                where (related.Status = 1   
+                or     related.Status = 2)  
+    Actions
+        Create is a Create Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+        DeleteReport is an Instance Action
+            Entrance Rules
+                confirmation required
+					"AreYouSureYouWantToPerformTheFollowingAction:_\Delete?"
+                Status = Status.DeleteInProgress
+                invoke DeleteVarianceDetail BudgetGroupObligationVariance in background
+                    invoked.PrmFinanceEnterpriseGroup           = FinanceEnterpriseGroup
+                    invoked.PrmBudgetGroupObligationVarianceRun = BudgetGroupObligationVarianceRun
+
+        UpdateStatusToCompleted is an Instance Action
+            restricted
+            default label is untranslatable 
+            Action Rules
+                Status          = Status.Completed
+                CompletionTime  = current timestamp
+
+		GenerateVariance is a Set Action
+            Parameters
+                PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+                    default label is "FinanceEnterpriseGroup"
+                PrmScenario is a Scenario
+                    default label is "BudgetScenario"
+                PrmBudgetTemplate is a BudgetTemplate
+                    default label is "BudgetTemplate"
+            Parameter Rules
+                PrmFinanceEnterpriseGroup
+                    default to actor.context.FinanceEnterpriseGroup
+
+                PrmScenario
+                    required
+                    if (not TotalCubeRel.Mode.Active)
+					    constraint (not TotalCubeRel.Mode.RefreshRunning)
+    						"CubeRefreshInProgress"
+                        constraint (not TotalCubeRel.Mode.ReloadRunning)
+                            "CubeReloadInProgress"
+                        constraint (TotalCubeRel.Mode.RefreshRunning
+                        or TotalCubeRel.Mode.ReloadRunning)
+                            "<TotalCubeRel.ModeStatusMessage>"
+
+                    LocalFinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+                    constraint (PostInProcessRel not exists)
+				        "CannotGenerateWhilePostingProcessesAreRunning"
+
+					constraint (PrmScenario.CommitmentType.Budget)
+						"Scenario<PrmScenario>IsNotABudgetScenario"
+
+					constraint (PrmScenario.Status.Ready)
+						"Scenario<PrmScenario>IsNotReady"
+
+                PrmBudgetTemplate
+                    required
+					constraint (PrmBudgetTemplate.Status.Ready)
+						"Template<PrmBudgetTemplate>IsNotReady"
+
+                    constraint (not PrmBudgetTemplate.HasRecalculate)
+                        "PendingRecalculateExistsOnTemplate."
+			Instance Selection
+				where (false)
+            Action Rules
+                Empty Set Rules
+                    invoke GenerateVariance PrmBudgetTemplate

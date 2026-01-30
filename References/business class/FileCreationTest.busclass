@@ -1,0 +1,243 @@
+FileCreationTest is a BusinessClass
+    owned by filecreation
+    prefix is FCUTR
+
+	Ontology
+		symbolic key is FileCreationTest
+
+    Patterns
+	    implements LightweightAuditing
+        disable EffectiveDated
+        disable AsOfDateProcessing
+
+    Persistent Fields
+    	SystemTimeStamp		is TimeStamp
+    	SequenceNumber		is Numeric 4
+    	Status				is Numeric 1
+    		States
+    			Passed		value is 0
+    			Failed		value is 1
+    			Error		value is 2
+    	BaselineTimeStamp   	is TimeStamp
+    	BaselineSequenceNumber	is Numeric 4
+    	Message				is Text
+    	    	   	    							
+	Transient Fields
+
+	Local Fields
+		BaselineOutput		is Text
+    	TestOutput			is Text
+    	I1					is Numeric 9
+    	I2					is Numeric 9
+    	LocalEmployee		is an Employee
+    	LocalEmail			is Text
+    	LocalTestingEmailTo is Text 
+    	LocalSplit			is Alpha 250
+    	LocalCommitCounter	is Numeric 3
+					
+	Rule Blocks
+						
+	Derived Fields      	
+	
+		EmailSubject is a MessageField
+			"AutomatedTestFailedForSetup:<FileCreationSetup.Description>"	
+			
+		BaselineFileOutput is a DerivedField
+			type is Text
+			
+			if (DisplayBaselineTestFileRel exists)
+				return DisplayBaselineTestFileRel.FileOutput
+			else
+				return FileDoesNotExistMessage
+			
+		TestFileRelOutput is a DerivedField
+			type is Text
+			
+			if (TestFileRel exists)
+				return TestFileRel.FileOutput
+			
+			else
+				return FileDoesNotExistMessage
+			
+		EmailMessage is a MessageField
+			"PleaseReviewDifferencesForSetup:<FileCreationSetup.Description>"
+			
+		FileDoesNotExistMessage is a MessageField
+			"FileNoLongerExists"
+        					
+	Conditions
+
+	Relations
+	
+		TestFileRel
+			one-to-one relation to FileCreationFile
+			Field Mapping uses ByTimeStamp
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.FileCreationSetup		= FileCreationSetup
+				related.SystemTimeStamp			= SystemTimeStamp
+				related.SequenceNumber			= SequenceNumber
+	
+		BaselineFileRel 
+			one-to-many relation to FileCreationFile
+			Field Mapping uses ByBaselineTest
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.FileCreationSetup	= FileCreationSetup
+				related.BaselineTest        = true
+				
+		DisplayBaselineTestFileRel
+			one-to-one relation to FileCreationFile
+			Field Mapping uses ByTimeStamp
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.FileCreationSetup		= FileCreationSetup
+				related.SystemTimeStamp			= BaselineTimeStamp
+				related.SequenceNumber			= BaselineSequenceNumber
+				
+		PurgeBaselineTestFileRel
+			one-to-one relation to FileCreationFile
+			Field Mapping uses ByTimeStamp
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.FileCreationSetup		= FileCreationSetup
+				related.SystemTimeStamp			= BaselineTimeStamp
+				related.SequenceNumber			= BaselineSequenceNumber
+				
+		FileCreationTestLineRel
+			one-to-many relation to FileCreationTestLine
+			Field Mapping uses ByLineNumber
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.FileCreationSetup	= FileCreationSetup
+				related.FileCreationTest	= FileCreationTest
+				
+		FileCreationTestLineByLineRel
+			one-to-many relation to FileCreationTestLine
+			Field Mapping uses ByLineNumber
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.FileCreationSetup	= FileCreationSetup
+				related.FileCreationTest	= FileCreationTest
+				related.LineNumber			= I2
+				
+		TestUsingSameBaselineRel
+			one-to-many relation to FileCreationTest
+			Field Mapping uses ByBaselineSystemTimeStamp
+				related.BaselineTimeStamp 		= BaselineTimeStamp
+				related.BaselineSequenceNumber  =  BaselineSequenceNumber
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup	
+				related.FileCreationSetup		= FileCreationSetup
+			Instance Selection
+				where (related.FileCreationTest		!= FileCreationTest
+				and    related.Status				 = Status.Failed)
+				
+		LaterFileCreationTestRel
+			one-to-many relation to FileCreationTest
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup     = FinanceEnterpriseGroup
+				related.FileCreationSetup  = FileCreationSetup
+			Instance Selection
+				where (related.FileCreationTest     != FileCreationTest
+				and    related.SystemTimeStamp      >  SystemTimeStamp)	
+				
+	Field Rules
+
+	Sets
+	
+		BySystemTimeStamp
+			indexed
+			Sort Order
+				SystemTimeStamp
+				SequenceNumber
+				FinanceEnterpriseGroup
+				FileCreationSetup
+				FileCreationTest
+				
+		ByBaselineSystemTimeStamp
+			indexed
+			Sort Order
+				BaselineTimeStamp
+				BaselineSequenceNumber
+				FinanceEnterpriseGroup
+				FileCreationSetup
+				FileCreationTest
+
+	Actions
+	
+		Create is a Create Action
+			
+			Action Rules
+			
+			Exit Rules
+				if (not Status.Error)
+					BaselineOutput 			= first BaselineFileRel.FileOutput
+					BaselineTimeStamp  		= first BaselineFileRel.SystemTimeStamp
+	    			BaselineSequenceNumber	= first BaselineFileRel.SequenceNumber
+					if (BaselineOutput = TestOutput)
+						Status = Status.Passed
+						invoke Update FileCreationSetup
+							invoked.LastTestFailed = false
+					else
+						Status = Status.Failed
+						invoke Update FileCreationSetup
+							invoked.LastTestFailed = true
+						I1 = 1
+						for each TestOutput split on "<FileCreationSetup.NewLine2>"
+							invoke Create FileCreationTestLine
+								invoked.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+								invoked.FileCreationSetup    = FileCreationSetup
+								invoked.FileCreationTest	 = FileCreationTest
+								invoked.LineNumber			 = I1
+								invoked.TestLineText		 = each
+							I1 += 1
+							include FileGeneration.CommitCounter50
+						I2 = 1
+						for each BaselineOutput split on "<FileCreationSetup.NewLine2>"
+							if (FileCreationTestLineByLineRel exists)
+								invoke Update FileCreationTestLineByLineRel
+									invoked.BaselineLineText	= each
+							else
+								invoke Create FileCreationTestLine
+									invoked.FinanceEnterpriseGroup		 = FinanceEnterpriseGroup
+									invoked.FileCreationSetup    = FileCreationSetup
+									invoked.FileCreationTest	 = FileCreationTest
+									invoked.LineNumber			 = I2
+									invoked.BaselineLineText	 = each
+							I2 += 1
+							include FileGeneration.CommitCounter50
+	
+						for each FileCreationTestLineRel
+							if (each.BaselineLineText = each.TestLineText)
+								invoke Purge each
+						if (FileCreationSetup.TestingEmailTo != "")
+							for each FileCreationSetup.TestingEmailTo split on ","
+								LocalSplit = each
+								if (LocalSplit contains "@")
+									LocalEmail = LocalSplit
+								else
+									LocalEmployee = LocalSplit
+									LocalEmail    = LocalEmployee.UseForWorkEmail.ContactDetail.EmailAddress
+								send email
+									to		LocalEmail
+									from	FileCreationSetup.TestingEmailFrom
+									cc		""
+									bcc		""
+									subject "<EmailSubject>" 
+									Contents
+										"<EmailMessage>"
+								
+		Update is an Update Action
+		
+		Delete is a Delete Action
+		
+		Purge is a Purge Action
+			restricted
+			
+		PurgeTest is an Instance Action
+			
+			Action Rules
+				constraint (LaterFileCreationTestRel exists)
+					"CannotPurgeLatestResult"
+				if (TestUsingSameBaselineRel not exists
+				and PurgeBaselineTestFileRel.BaselineTest   = false)
+					invoke Purge PurgeBaselineTestFileRel
+				invoke Purge TestFileRel 
+				invoke Purge FileCreationTest
+				
+				
+

@@ -1,0 +1,482 @@
+SupplierPerformanceEvaluation is a BusinessClass
+    owned by procurement
+    prefix is SUPEV
+
+    Ontology
+		symbolic key is SupplierPerformanceEvaluation
+
+	Patterns
+
+    Persistent Fields
+    	Description					is Alpha size 100
+    	EvaluationCompletionDate	is TimeStamp
+    	IsEvaluationComplete		is Boolean
+    	HasBeenCompleted			is Boolean
+
+	Transient Fields
+
+	Local Fields
+		LocalEvaluationContactEmailAddressList		is Alpha 1000
+		LocalEvaluationContactEmailAddressFound		is Boolean
+		LocalPerformanceEvaluatorName				is Alpha 1000
+		LocalPerformanceEvaluator					is Boolean
+
+	Rule Blocks
+		PEDerivedName
+			LocalPerformanceEvaluator = false
+			LocalPerformanceEvaluatorName = ""
+			for each Contract.PerformanceEvaluationContactRel
+				if (LocalPerformanceEvaluator)
+					LocalPerformanceEvaluatorName = LocalPerformanceEvaluatorName + "," + each.ContractAttachedContact.DerivedName
+				else
+					LocalPerformanceEvaluatorName = each.ContractAttachedContact.DerivedName
+					LocalPerformanceEvaluator = true
+
+		PEContactEmailAddress
+			LocalEvaluationContactEmailAddressFound = false
+			LocalEvaluationContactEmailAddressList = ""
+			for each Contract.PerformanceEvaluationContactRel
+				if (LocalEvaluationContactEmailAddressFound)
+					LocalEvaluationContactEmailAddressList = LocalEvaluationContactEmailAddressList + "," + each.ContractAttachedContact.DerivedEmail
+				else
+					LocalEvaluationContactEmailAddressList = each.ContractAttachedContact.DerivedEmail
+					LocalEvaluationContactEmailAddressFound = true
+	Derived Fields
+		DerivedPerformanceEvaluationDerivedName is a DerivedField
+			type is RichText
+			holds pii
+			restricted
+			include PEDerivedName
+			return LocalPerformanceEvaluatorName
+
+		EmailMessageContent is a StringField
+			type is RichText
+			"You Are Being Requested To Perform A Contract Evaluation." "</br>"
+			"Performance Evaluation Is Ready To Be Scored." "</br>"
+
+		DerivedPerformanceEvaluationContactEmailAddressList is a DerivedField
+			type is EmailAddressField with multiple addresses
+			holds pii 
+			restricted
+			include PEContactEmailAddress
+			return LocalEvaluationContactEmailAddressList
+
+		PerformanceEvaluationLinkback is a MessageField
+			restricted
+			"<linkback(webapp is ContractManager navigation is ContractEvaluationNav text is \"here\" )>"
+
+		TotalPerformanceScore is a DerivedField
+			type is Decimal size 3.2
+			return (sum SupplierPerformanceCriteriaGroupRel.WeightedCategoryScore)
+
+		NumberOfPerformanceCategories is a ComputeField
+			type is Numeric 6
+			restricted
+			(instance count of SupplierPerformanceCriteriaGroupApplicableRel)
+
+		RatingScale is a MessageField
+			restricted
+			"5=ExceedsExpectations,4=AboveExpectations,3=MeetsExpectations,2=BelowExpectations,1=DoesNotMeetExpectations"
+
+		EvaluationLinkback is a MessageField
+			restricted
+			"<linkback(webapp is SupplyManagementSupplier navigation is SummaryNav text is \"here\")>"
+
+		UpdatedMessage is a MessageField
+			restricted
+			"Updated"
+			
+		NewMessage is a MessageField
+			restricted
+			"New"
+		
+		DerivedCompletionState is a ConditionalField
+			type is Text
+			restricted
+			if (HasBeenCompleted)
+				UpdatedMessage
+			else
+				NewMessage
+
+		DerivedCurrentPerformanceEvaluationTemplate is a DerivedField
+			type is Numeric size 8
+			restricted
+			return first CurrentPerformanceEvaluationTemplateRel.PerformanceEvaluationTemplate
+
+		DerivedCurrentPerformanceEvaluationTemplateName is a DerivedField
+			type is like Description
+			restricted
+			return first CurrentPerformanceEvaluationTemplateRel.PerformanceEvaluationTemplate.Name
+
+		DerivedCurrentPerformanceEvaluationTemplateTotalCategoryWeighting is a DerivedField
+			type is Percent size 6.3
+			restricted
+			return first CurrentPerformanceEvaluationTemplateRel.PerformanceEvaluationTemplate.TotalCategoryWeighting
+
+		DerivedIncompleteSupplierPerformanceCriteriaGroup is a DerivedField
+			type is like Description
+			restricted
+			return first IncompleteSupplierPerformanceCriteriaGroupRel.Category
+
+	Conditions
+		PerformanceCriteriaGroupsExist
+			restricted
+			when (SupplierPerformanceCriteriaGroupRel exists)
+		
+		CompletionButtonValid
+			restricted
+			when (TotalPerformanceScore > 0
+			and	  !IsEvaluationComplete)
+
+		MissingResponses
+			restricted
+			when (IncompleteSupplierPerformanceCriteriaGroupRel exists)
+
+		CurrentTemplateExists	
+			restricted
+			when (CurrentPerformanceEvaluationTemplateRel exists)
+
+		EvaluationUsingCurrentTemplateExists
+			restricted
+			when (AnySupplierPerformanceEvaluationRel exists)
+			
+		AllowCreation
+			restricted
+			when (!EvaluationUsingCurrentTemplateExists)
+
+		SupplierEnablePerformanceScorecard
+			restricted
+			when (SOMAllAccessRoleSTRel exists
+			or    SOMPerformanceRoleSTRel exists
+			or    SupplierGroup.SupplierPrimaryPerformanceAccess)
+			
+        DisplayChart
+        	restricted
+            when (Supplier.PerformanceCount >  1)
+
+		ContractEvaluation
+			when (Contract entered)
+	Relations
+		SupplierPerformanceCriteriaGroupRel is a SupplierPerformanceCriteriaGroup set
+
+		SupplierPerformanceCriteriaGroupApplicableRel is a SupplierPerformanceCriteriaGroup set	
+			Instance Selection 
+				where (related.NumberOfPerformanceCriteriaResponses > 0)
+		ContractPerformanceCriteriaGroupRel                                                                                                                                 
+            one-to-many relation to SupplierPerformanceCriteriaGroup
+            Field Mapping uses symbolic key
+                related.SupplierGroup                   = SupplierGroup
+                related.Supplier                        = Supplier
+				related.Contract						= Contract
+                related.PerformanceEvaluationTemplate   = PerformanceEvaluationTemplate                                                                                               
+		ContractPerformanceEvaluationRel
+  			one-to-many relation to SupplierPerformanceEvaluation
+            Field Mapping uses symbolic key
+            	related.SupplierGroup					= SupplierGroup
+            	related.Supplier						= Supplier
+				related.Contract						= Contract
+            Instance Selection
+				where(related.IsEvaluationComplete = false)
+		
+		AnySupplierPerformanceEvaluationRel
+  			one-to-many relation to SupplierPerformanceEvaluation
+            Field Mapping uses symbolic key
+            	related.SupplierGroup					= SupplierGroup
+            	related.Supplier						= Supplier
+				related.Contract						= blank
+            	related.PerformanceEvaluationTemplate	= DerivedCurrentPerformanceEvaluationTemplate
+
+		SupplierPerformanceEvaluationRel
+  			one-to-many relation to SupplierPerformanceEvaluation
+            Field Mapping uses symbolic key
+            	related.SupplierGroup					= SupplierGroup
+            	related.Supplier						= Supplier
+				related.Contract						= blank
+            	related.PerformanceEvaluationTemplate	= PerformanceEvaluationTemplate
+            Instance Selection
+            	where (related.SupplierPerformanceEvaluation != SupplierPerformanceEvaluation)
+
+		CurrentPerformanceEvaluationTemplateRel
+  			one-to-many relation to PerformanceEvaluationTemplate
+            Field Mapping uses symbolic key
+            	related.SupplierGroup					= SupplierGroup
+            Instance Selection
+            	where (related.CurrentTemplateForEvaluations = true)
+
+		IncompleteSupplierPerformanceCriteriaGroupRel is a SupplierPerformanceCriteriaGroup set
+			Instance Selection
+				where (related.HasMissingResponses)
+
+		PerformanceCriteriaResponseRel   
+			one-to-many relation to SupplierPerformanceCriteriaResponse 
+			Field Mapping uses part of key 
+				related.SupplierGroup                    = SupplierGroup 
+			Instance Selection 
+				where (related.Contract entered
+				and    related.Contract                         = Contract 
+				and    related.SupplierPerformanceEvaluation    = SupplierPerformanceEvaluation) 	
+
+		SOMAllAccessRoleSTRel
+			one-to-one relation to ActorRole
+			Field Mapping uses symbolic key
+				related.Actor				= Supplier.PrimaryContact.LoginName
+				related.ActorRole.Role		= "SupplierOrderMgmtAllAccess_ST"
+
+        SOMPerformanceRoleSTRel
+            one-to-one relation to ActorRole
+            Field Mapping uses symbolic key
+                related.Actor           	= Supplier.PrimaryContact.LoginName
+                related.ActorRole.Role  	= "SupplierOrderMgmtPerformance_ST"
+
+		SupplierGroupExtensionRel
+			one-to-one relation to SupplierGroupExtension
+			Field Mapping uses symbolic key
+				related.SupplierGroup   = SupplierGroup
+		
+		EvaluationContactRel
+			one-to-many relation to ContractAttachedContact
+			Field Mapping uses symbolic key
+				related.ContractGroup 						= SupplierGroup
+				related.Contract 							= Contract
+			Instance Selection
+				where (related.PerformanceEvaluator)
+
+	Sets
+		ByTemplate
+			Sort Order
+            	SupplierGroup
+            	Supplier
+            	PerformanceEvaluationTemplate
+				Contract
+				SupplierPerformanceEvaluation
+
+		ByCompletionDate
+			indexed
+			Sort Order
+            	SupplierGroup
+            	Supplier
+            	EvaluationCompletionDate
+            	PerformanceEvaluationTemplate
+				Contract
+				SupplierPerformanceEvaluation
+		
+		BySupplierAndContract
+			Sort Order
+				SupplierGroup
+				Supplier
+				Contract
+				PerformanceEvaluationTemplate
+				SupplierPerformanceEvaluation
+
+	Field Rules
+		Description
+			required
+		
+		PerformanceEvaluationTemplate
+			initial value is DerivedCurrentPerformanceEvaluationTemplate
+	Actions
+		ViewContract is an Instance Action
+			default label is "ViewContract"
+
+		ContractCreate is a Create Action
+			Exit Rules
+				for each PerformanceEvaluationTemplate.ActivePerformanceCriteriaGroupRel
+					invoke Create SupplierPerformanceCriteriaGroup
+						invoked.SupplierGroup 					= this instance.SupplierGroup
+						invoked.Supplier 						= this instance.Supplier
+						invoked.SupplierPerformanceEvaluation 	= this instance.SupplierPerformanceEvaluation
+						invoked.PerformanceCriteriaGroup 		= each.PerformanceCriteriaGroup
+						invoked.Contract 						= Contract
+						fill in fields from each
+
+		Create is an Action
+			valid when (AllowCreation)
+			
+			Action Rules
+				constraint (CurrentTemplateExists)
+					"CannotCreateSupplierEvaluation;YouMustHaveADesignatedTemplateSelectedAsTheCurrentEvaluation"
+
+				constraint (!SupplierPerformanceEvaluationRel exists)
+					"CannotCreate;PerformanceEvaluationExistsForThisPerformanceEvaluationTemplate."
+
+				constraint (DerivedCurrentPerformanceEvaluationTemplateTotalCategoryWeighting = 100%)
+					"TotalCategoryWeightingForPerformanceEvaluationTemplate<DerivedCurrentPerformanceEvaluationTemplateName>IsNot100%"
+			
+			Exit Rules
+				for each PerformanceEvaluationTemplate.ActivePerformanceCriteriaGroupRel
+					invoke Create SupplierPerformanceCriteriaGroup
+						invoked.SupplierGroup 					= this instance.SupplierGroup
+						invoked.Supplier 						= this instance.Supplier
+						invoked.SupplierPerformanceEvaluation 	= this instance.SupplierPerformanceEvaluation
+						invoked.PerformanceCriteriaGroup 		= each.PerformanceCriteriaGroup
+						fill in fields from each
+						
+		Update is an Action
+			valid when (!IsEvaluationComplete)
+
+		Delete is an Action
+		
+		SendEvaluationReminderEmail is a Set Action
+			default label is "SendRemindersToPerformEvaluationForContract"
+			completion message is "EvaluationReminderEmailsSentForToday"
+			Parameters
+				PrmToEmail				is an EmailAddressMulti
+					holds pii
+					default label is "To"
+				PrmContractGroup		is a ContractGroup
+					default label is "ContractGroup"
+				PrmSubject				is Text
+					default label is "Subject"
+				PrmEmailContents		is Text
+					default label is "AdditionalEmailContents"
+				PrmContents				is Text
+					default label is "EmailContents"
+			Parameter Rules
+				PrmToEmail
+					initial value is DerivedPerformanceEvaluationContactEmailAddressList
+				PrmSubject
+					required
+					initial value is "Contract Evaluation Requested"
+				PrmEmailContents
+				PrmContents
+					initial value is EmailMessageContent
+			Instance Selection
+				where	(PrmContractGroup = Contract.ContractGroup
+				and		!IsEvaluationComplete
+				and 	Contract.DaysToEvaluate > 0
+				and		!Contract.ContractStatus.Closed
+				and		(current date - create date > Contract.DaysToEvaluate)
+				and		ContractEvaluation
+				and 	EvaluationContactRel exists)
+			Action Rules
+				Instance Rules
+					invoke Create ContractNotificationEmail
+						invoked.ContractGroup					= SupplierGroup
+						invoked.Contract						= Contract
+						initialize invoked.ContractDeliverable
+						initialize invoked.ContractMilestone
+						initialize invoked.SentToMilestoneContact
+						initialize invoked.SentToDeliverableContact
+						invoked.SentToEmailAddress				= DerivedPerformanceEvaluationContactEmailAddressList
+						invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+						invoked.SentFromEmailAddress			= SupplierGroup.AdminEmailAddress
+						invoked.EmailSubjectLine				= PrmSubject
+						invoked.EmailContent					= PrmEmailContents
+						invoked.NotificationType				= 11
+
+					send email
+						to DerivedPerformanceEvaluationContactEmailAddressList
+						from SupplierGroup.AdminEmailAddress
+						subject "<PrmSubject>"
+						Contents
+							"YouAreBeingRemindedToPerformAContractEvaluation."
+							"PerformanceEvaluationIsReadyToBeScoredFor<Contract.RepresentativeText>."
+							"ContractNameIs<Contract.RepresentativeText>"
+							"<PrmEmailContents>"
+							"Click<PerformanceEvaluationLinkback>ToScoreTheEvaluation."
+
+		SendEvaluationEmail is an Instance Action
+			valid when (!IsEvaluationComplete)
+
+			Parameters
+				PrmToEmail				is an EmailAddressMulti
+					holds pii
+					default label is "To"
+				PrmSubject				is Text
+					default label is "Subject"
+				PrmEmailContents		is Text
+					default label is "AdditionalEmailContents"
+				PrmName					is Text
+					holds pii
+					default label is "ContactNames"
+				PrmContents				is Text
+					default label is "EmailContents"
+
+			Parameter Rules
+				PrmToEmail
+					required
+						"Contacts_Must_Be_Set_As_Performance_Evaluators_To_Populate_The_To_Email_Address"
+					initial value is DerivedPerformanceEvaluationContactEmailAddressList
+				PrmSubject
+					required
+					initial value is "Contract Evaluation Requested"
+				PrmEmailContents
+				PrmName
+					required
+					initial value is DerivedPerformanceEvaluationDerivedName
+				PrmContents
+					initial value is EmailMessageContent
+
+
+			Action Rules
+				invoke Create ContractNotificationEmail
+					invoked.ContractGroup					= SupplierGroup
+					invoked.Contract						= Contract
+					initialize invoked.ContractDeliverable
+					initialize invoked.ContractMilestone
+					initialize invoked.SentToMilestoneContact
+					initialize invoked.SentToDeliverableContact
+					invoked.SentToEmailAddress				= PrmToEmail
+					invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+					invoked.SentFromEmailAddress			= SupplierGroup.AdminEmailAddress
+					invoked.EmailSubjectLine				= PrmSubject
+					invoked.EmailContent					= PrmEmailContents
+					invoked.NotificationType				= 10
+
+				send email
+					to PrmToEmail
+					from SupplierGroup.AdminEmailAddress
+					subject "<PrmSubject>"
+					Contents
+						"YouAreBeingRequestedToPerformAContractEvaluation."
+						"PerformanceEvaluationReadyToBeScoredForContract<Contract.RepresentativeText>."
+						"ContractNameIs<Contract.Name>"
+						"<PrmEmailContents>"
+						"Click<SupplierPerformanceEvaluation.PerformanceEvaluationLinkback>ToScoreTheEvaluation."
+		CompleteEvaluation is an Instance Action
+			valid when (!IsEvaluationComplete)
+
+			Action Rules
+				constraint (!MissingResponses)
+					"CannotCompleteEvaluation;AllPerformanceCriteriaMustHaveAScoreEnteredBeforeEvaluationCanBeCompleted;AScoreForOneOfThePerformanceCriteriaInThe<DerivedIncompleteSupplierPerformanceCriteriaGroup>CategoryHasNotBeenEntered"
+
+				IsEvaluationComplete 		= true
+				EvaluationCompletionDate 	= current timestamp
+
+				if (SupplierEnablePerformanceScorecard)
+					if (SupplierGroup.SendSupplierPerformanceEmail)
+						if (Supplier.PrimaryContact.ReceiveEmailNotification)
+							send email
+								to Supplier.PrimaryContact.EmailAddress
+								from SupplierGroup.AdminEmailAddress
+								subject "<SupplierGroupExtensionRel.FinalSupplierPerformanceEmailSubject>"
+								Contents
+									"<SupplierGroupExtensionRel.FinalSupplierPerformanceEmailContent>"
+									"<Description>"
+									if (Contract.SupplierCanViewEvaluation = true)
+										"Click<EvaluationLinkback>ToViewTheEvaluationOnSupplierPortal."
+									
+	
+					if (SupplierGroup.CreateSupplierPerformanceMessage)
+						invoke Create SupplierContactMessage
+							invoked.SupplierGroup 					= SupplierGroup
+							invoked.Supplier 						= Supplier
+							invoked.SupplierSourceId				= Supplier.PrimaryContact.SupplierSourceId
+							invoked.CreationDateTime				= current timestamp
+							invoked.MessageTitle					= SupplierGroupExtensionRel.FinalSupplierPerformanceEmailSubject   
+							invoked.MessageText						= SupplierGroupExtensionRel.FinalSupplierPerformanceEmailContent + Description
+							invoked.Status							= 1
+							invoked.Priority						= 2
+							invoked.SystemGenerated					= true
+							invoked.ReleaseStatus					= 2
+							invoked.MessageOwner                    = actor.agent(Employee).Employee
+							
+				HasBeenCompleted			= true
+				
+		AmendEvaluation is an Instance Action
+			valid when (IsEvaluationComplete)
+			action comment required
+			
+			Action Rules
+				IsEvaluationComplete 		= false
+				EvaluationCompletionDate 	= blank

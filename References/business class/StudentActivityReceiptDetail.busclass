@@ -1,0 +1,744 @@
+StudentActivityReceiptDetail is a BusinessClass
+    owned by studentactivities
+    prefix is SARD
+
+    Ontology
+    	symbolic key is StudentActivityReceiptDetail
+
+ 	Patterns
+		implements ContextualParent
+
+    Persistent Fields
+		StudentRecord
+		SchoolActivityAccount
+		StudentAssignedActivity
+		Description						is Alpha 500
+		DetailAmount					is an InternationalAmount
+		SignedDetailAmount				is an InternationalAmount
+		GLAccount						is a FinanceCodeBlockFull
+		ReceiptDate						is Date
+		DepositDate						is Date
+		ClosedPeriod					is a StudentActivityClosedPeriod
+			delete ignored
+		Status							is Numeric 2
+			States
+				Entered		value is 0
+				Released	value is 1
+				Deposited	value is 2		
+				Closed		value is 3		
+		Returned						is Boolean
+		BankAccountOffset				is Boolean
+		CorrectedPosting				is Boolean
+		StudentPaidReceipts
+
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+		
+	Local Fields
+		LocalStudentRecord			is Numeric 10
+		LocalSchoolActivityAccount	is an OriginatingStudentActivity
+
+	Derived Fields
+		JournalDescription is a MessageField
+			"<StudentActivitySchool>_<SchoolActivityAccount>"			
+
+		AssignedActivityDescription	is a MessageField
+			"CreatedByReceiptNumber<StudentActivityReceipt>"			
+
+		DerivedName is a MessageField
+			"<StudentRecord.StudentFirstName>_<StudentRecord.StudentLastName>"
+
+	Context Fields
+		DateRangeFilter			is a DateRange
+		BankOffsetDetailFilter
+
+	Sets
+		ByStudentActivityAccount
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				SchoolActivityAccount
+				Status
+				StudentRecord
+				StudentActivityReceiptDetail
+				StudentActivityReceipt
+
+		ByDistrictActivityAccount
+			Sort Order
+				StudentActivityDistrict
+				SchoolActivityAccount.StudentActivityAccount
+				Status
+				StudentActivitySchool
+				StudentRecord
+				StudentActivityReceiptDetail
+				StudentActivityReceipt
+
+		ByStudentRecord
+			Sort Order
+				StudentActivityDistrict
+				StudentRecord
+				StudentActivitySchool
+				SchoolActivityAccount
+				StudentActivityReceiptDetail
+				StudentActivityReceipt
+
+		ByClosedPeriod
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+				StudentActivitySchool
+				StudentActivityReceiptDetail
+				StudentActivityReceipt
+
+		ByClosedPeriodBySchool
+			Sort Order
+				StudentActivityDistrict
+				ClosedPeriod
+				StudentActivitySchool
+				SchoolActivityAccount.StudentActivityAccount
+				SchoolActivityAccount.SubActivity
+				StudentActivityReceiptDetail
+				StudentActivityReceipt
+
+
+	Relations
+		SubActivityRel is a SchoolActivityAccount set
+			Instance Selection
+				where (SchoolActivityAccount.SubActivity entered)
+
+		StudentPaidReceiptsRel
+			one-to-one relation to StudentPaidReceipts
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= LocalStudentRecord
+				related.StudentActivitySchool	= StudentActivitySchool
+				related.StudentActivityReceipt	= StudentActivityReceipt
+	
+		StudentAssignedActivityRel
+			one-to-one relation to StudentAssignedActivity
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= LocalStudentRecord
+				related.StudentActivitySchool	= StudentActivitySchool
+				related.SchoolActivityAccount	= LocalSchoolActivityAccount.SchoolActivityAccount
+
+		StudentAssignedActivityDetailRel
+			one-to-many relation to StudentAssignedActivityDetail
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= StudentRecord
+				related.StudentActivitySchool	= StudentActivitySchool
+				related.SchoolActivityAccount	= SchoolActivityAccount
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Conditions
+		DetailsCanBeEntered
+			when (StudentActivityReceipt.Status.Entered
+			and   !StudentActivityReceipt.NSFRepayment)
+
+		ActivityOverPaid
+			when (SchoolActivityAccount.FeeAmount	entered
+			and   SchoolActivityAccount.FeeAmount	< DetailAmount)
+
+		CreatedFromStudentRecord
+			when (StudentActivityReceipt.AddedFromStudentRecord)
+		
+		PostingCanBeCorrected
+			when (!Status.Entered
+			and   !CorrectedPosting
+			and   !Returned)
+
+
+
+
+	Field Rules
+ 		SchoolActivityAccount
+ 			required
+			constraint (SchoolActivityAccount.StudentActivityAccount.ActivityLevel.Detail)
+				"ActivityMustBeDetailType"
+			if (!BankAccountOffset
+			and !StudentActivityReceipt.NSFRepayment)
+				constraint (!SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+					"CannotEnterAssetTypeActivities"
+			if (CreatedFromStudentRecord)
+				if (StudentActivityReceipt.StudentActivityReceiptBatch entered)
+					cannot be changed
+						"CannotChangeActivityReceiptAddedFromBatch<StudentActivityReceipt.StudentActivityReceiptBatch>"
+				else
+					cannot be changed
+						"CannotChangeActivityWhenReceiptAddedFromStudentRecord"
+			if (StudentActivityReceipt.StudentActivityBankAccount entered
+			and StudentActivityReceipt.StudentActivityBankAccount.BankAccountActivity.GLAccount !entered)
+				constraint (SchoolActivityAccount.StudentActivityAccount.GLAccount !entered and StudentActivityReceipt.SchoolAccountCode !entered)
+					"CannotAssignReceiptsWithPostingActivityToNonPostingBankDepositActivity<StudentActivityReceipt.StudentActivityBankAccount.BankAccountActivity>"				
+    	
+    	ReceiptDate
+			force default to StudentActivityReceipt.ReceiptDate
+			
+		StudentRecord
+			initial value is StudentActivityReceipt.StudentRecord
+			default to StudentActivityReceipt.StudentRecord
+			
+			if (CreatedFromStudentRecord)
+				if (StudentActivityReceipt.StudentActivityReceiptBatch entered)
+					cannot be changed
+						"CannotChangeStudentIDAddedFromBatch<StudentActivityReceipt.StudentActivityReceiptBatch>"
+				else
+					cannot be changed
+						"CannotChangeStudentIDWhenReceiptAddedFromStudentRecord"
+			if (!BankAccountOffset
+			and StudentActivityReceipt.Status.Entered)
+				invoke Update StudentPaidReceipts
+				invoke Update StudentAssignedActivity
+		
+		DetailAmount
+			initial value is SchoolActivityAccount.FeeAmount
+			default to SchoolActivityAccount.FeeAmount
+			if (BankAccountOffset
+			or  StudentActivityReceipt.NSFRepayment)
+				SignedDetailAmount	= DetailAmount
+			else
+				SignedDetailAmount	= (DetailAmount * -1)
+			
+		GLAccount
+			if (!BankAccountOffset)
+				default to SchoolActivityAccount.GLAccount
+				default to StudentActivityReceipt.SchoolAccountCode.GLAccount
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Actions
+		UpdateDepositDate is a Set Action 
+			restricted
+			completion message is "UpdateDepositDateComplete"
+			Parameters
+				PrmStudentActivityDistrict	is a StudentActivityDistrict
+			
+			Instance Selection
+				where (StudentActivityReceiptDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+				and   (Status.Deposited
+				or     Status.Closed))
+			
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				Status
+			
+			Action Rules
+				Instance Rules
+					DepositDate	= StudentActivityReceipt.StudentActivityBankTransaction.TransactionDate
+
+
+		ReturnedPayment is an Instance Action
+			restricted
+			Action Rules
+				if (Returned)
+					Returned	= false
+				else
+					Returned	= true
+
+		CorrectPosting is an Instance Action
+			valid when (PostingCanBeCorrected)
+			
+			Parameters
+				PrmActivity1	is a SchoolActivityAccount
+				PrmActivity2	is a SchoolActivityAccount
+				PrmActivity3	is a SchoolActivityAccount
+				PrmActivity4	is a SchoolActivityAccount
+				PrmAmount1		is an InternationalAmount
+				PrmAmount2		is an InternationalAmount
+				PrmAmount3		is an InternationalAmount
+				PrmAmount4		is an InternationalAmount
+				
+			Parameter Rules
+				PrmActivity1
+					required
+				PrmActivity2
+					constraint (PrmAmount2 entered)
+						"Line2RequiresAmount"
+				PrmActivity3
+					constraint (PrmAmount3 entered)
+						"Line3RequiresAmount"
+				PrmActivity4
+					constraint (PrmAmount4 entered)
+						"Line4RequiresAmount"
+				PrmAmount1
+					required
+				PrmAmount2
+					constraint (PrmActivity2 entered)
+						"Line2ActivityRequiredWithAmount"
+				PrmAmount3
+					constraint (PrmActivity3 entered)
+						"Line3ActivityRequiredWithAmount"
+				PrmAmount4
+					constraint (PrmActivity4 entered)
+						"Line4ActivityRequiredWithAmount"
+			
+			Action Rules
+				constraint (PrmAmount1 + PrmAmount2 + PrmAmount3 + PrmAmount4 = DetailAmount)
+					"TotalDetailAmountsMustEqual<DetailAmount>"
+			
+				invoke Create StudentActivityReceiptDetail
+					invoked.StudentActivityDistrict			= StudentActivityDistrict
+					invoked.StudentActivitySchool			= StudentActivitySchool
+					invoked.StudentActivityReceipt			= StudentActivityReceipt
+					invoked.StudentRecord					= StudentRecord
+					invoked.SchoolActivityAccount			= SchoolActivityAccount
+					invoked.Description						= Description
+					invoked.DetailAmount					= (DetailAmount * -1)
+					invoked.GLAccount						= GLAccount
+					invoked.CorrectedPosting				= true
+
+				invoke Create StudentActivityReceiptDetail
+					invoked.StudentActivityDistrict			= StudentActivityDistrict
+					invoked.StudentActivitySchool			= StudentActivitySchool
+					invoked.StudentActivityReceipt			= StudentActivityReceipt
+					invoked.StudentRecord					= StudentRecord
+					invoked.SchoolActivityAccount			= PrmActivity1
+					invoked.Description						= Description
+					invoked.DetailAmount					= PrmAmount1
+
+				if (PrmActivity2 entered)
+					invoke Create StudentActivityReceiptDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityReceipt			= StudentActivityReceipt
+						invoked.StudentRecord					= StudentRecord
+						invoked.SchoolActivityAccount			= PrmActivity2
+						invoked.Description						= Description
+						invoked.DetailAmount					= PrmAmount2
+
+				if (PrmActivity3 entered)
+					invoke Create StudentActivityReceiptDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityReceipt			= StudentActivityReceipt
+						invoked.StudentRecord					= StudentRecord
+						invoked.SchoolActivityAccount			= PrmActivity3
+						invoked.Description						= Description
+						invoked.DetailAmount					= PrmAmount3
+
+				if (PrmActivity4 entered)
+					invoke Create StudentActivityReceiptDetail
+						invoked.StudentActivityDistrict			= StudentActivityDistrict
+						invoked.StudentActivitySchool			= StudentActivitySchool
+						invoked.StudentActivityReceipt			= StudentActivityReceipt
+						invoked.StudentRecord					= StudentRecord
+						invoked.SchoolActivityAccount			= PrmActivity4
+						invoked.Description						= Description
+						invoked.DetailAmount					= PrmAmount4
+
+				CorrectedPosting	= true
+				invoke ReleaseUnreleasedDetails StudentActivityReceipt
+				if (StudentActivitySchool.ReceiptDocumentTemplate entered)
+					invoke UpdateFormattedReceipt StudentActivityReceipt
+
+
+	StateCycles
+		ActivityReceiptDetailLifeCycle is a StateCycle
+			state field is Status
+			
+			Entered is a State
+				Create is a Create Action
+					valid when (DetailsCanBeEntered)
+
+					Action Rules
+						constraint (!StudentActivityReceipt.NSFRepayment)
+							"DetailsNotAllowedForNSFRepayments"
+							
+					Exit Rules
+						if (StudentRecord entered)
+							invoke Update StudentAssignedActivity
+								if  (StudentActivityReceipt.Status.Entered
+								and  CreatedFromStudentRecord)
+									invoked.StudentActivityReceipt			= StudentActivityReceipt
+									invoked.StudentActivityReceiptDetail	= StudentActivityReceiptDetail
+									invoked.CurrentReceiptAmount			= DetailAmount
+
+						if  (StudentActivityReceipt.Status.Entered
+						and  StudentActivityReceipt.AddedFromStudentRecord)
+							invoke UpdateReceiptAmount Entered StudentActivityReceipt
+						
+				CreateNSFDetail is a Create Action
+					restricted
+					Exit Rules
+						if (StudentRecord entered)
+							invoke Update StudentAssignedActivity
+						
+
+				DeleteReceiptDetail is an Instance Action
+					Action Rules
+						if (CreatedFromStudentRecord)
+							invoke Update StudentAssignedActivity
+								initialize invoked.CurrentReceiptAmount
+								initialize invoked.StudentActivityReceipt
+								initialize invoked.StudentActivityReceiptDetail
+
+						invoke Delete Entered this instance
+
+					Exit Rules
+						if (StudentActivityReceipt.AddedFromStudentRecord)
+							invoke UpdateReceiptAmount Entered StudentActivityReceipt 
+						
+				
+				UpdateDetailAmount is an Instance Action
+					restricted
+					Parameters
+						PrmCurrentReceiptAmount	is an InternationalAmount
+						
+					Action Rules
+						DetailAmount	= PrmCurrentReceiptAmount
+
+					Exit Rules
+						if (StudentActivityReceipt.AddedFromStudentRecord)
+							invoke UpdateReceiptAmount Entered StudentActivityReceipt 
+
+
+
+				Update is an Update Action
+					Entrance Rules
+							
+					Exit Rules
+						if  (DetailAmount	changed
+						and  CreatedFromStudentRecord)
+							invoke Update StudentAssignedActivity
+								invoked.CurrentReceiptAmount	= DetailAmount
+								
+							if (StudentActivityReceipt.AddedFromStudentRecord)
+								invoke UpdateReceiptAmount Entered StudentActivityReceipt 
+
+						if (StudentRecord 			changed
+						and !SchoolActivityAccount	changed)
+							LocalStudentRecord	= old StudentRecord
+							LocalSchoolActivityAccount.SchoolActivityAccount	= SchoolActivityAccount
+							invoke DeleteIfNoDetailsExist StudentPaidReceiptsRel
+							invoke DeleteIfNoDetailsExist StudentAssignedActivityRel
+
+						if (StudentRecord 			changed
+						and SchoolActivityAccount	changed)
+							LocalStudentRecord	= old StudentRecord
+							LocalSchoolActivityAccount.SchoolActivityAccount	= old SchoolActivityAccount
+							invoke DeleteIfNoDetailsExist StudentPaidReceiptsRel
+							invoke DeleteIfNoDetailsExist StudentAssignedActivityRel
+
+						if (SchoolActivityAccount	changed
+						and !StudentRecord 			changed)
+							LocalStudentRecord	= StudentRecord
+							LocalSchoolActivityAccount.SchoolActivityAccount	= old SchoolActivityAccount
+							invoke DeleteIfNoDetailsExist StudentAssignedActivityRel
+
+						if (SchoolActivityAccount changed)
+ 							initialize GLAccount
+						
+				
+				Delete is a Delete Action
+					restricted
+					Exit Rules
+						if (StudentRecord	entered)
+							invoke DeleteIfNoDetailsExist StudentPaidReceipts
+							invoke DeleteIfNoDetailsExist StudentAssignedActivity
+				
+				Release is an Instance Action
+					restricted
+					Action Rules					
+						constraint (DetailAmount	entered)
+							"DetailAmountRequired"
+						if  (StudentActivityReceipt.Status.Entered
+						and  CreatedFromStudentRecord)
+							invoke Update StudentAssignedActivity
+								initialize invoked.CurrentReceiptAmount
+								initialize invoked.StudentActivityReceipt
+								initialize invoked.StudentActivityReceiptDetail
+								
+						if  (StudentRecord entered
+						and (!StudentAssignedActivityDetailRel exists
+						or   CorrectedPosting))
+							invoke Create StudentAssignedActivityDetail
+								invoked.StudentActivityDistrict	= StudentActivityDistrict
+								invoked.StudentRecord			= StudentRecord
+								invoked.StudentActivitySchool	= StudentActivitySchool
+								invoked.SchoolActivityAccount	= SchoolActivityAccount
+								invoked.Description				= AssignedActivityDescription
+								invoked.FeeAmount				= DetailAmount
+								
+					Exit Rules
+						invoke UpdateCurrentBalances SchoolActivityAccount
+							invoked.PrmCurrentReceipts	+= DetailAmount
+							
+						invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+							invoked.PrmCurrentReceipts	+= DetailAmount
+						
+						if (StudentActivityReceipt.Status.Deposited)
+							make transition to Deposited
+						else
+							make transition to Released
+
+			Released is a State
+				DepositRecord is an Instance Action
+					restricted
+					Parameters
+						PrmDepositDate	is Date
+						
+					Parameter Rules
+						PrmDepositDate
+							required
+						
+					Action Rules
+						DepositDate					= PrmDepositDate
+
+						
+						invoke CreateDepositedRecord Deposited StudentActivityReceiptDetail
+							fill in fields from this instance
+							invoked.StudentActivityDistrict								= StudentActivityDistrict
+							invoked.StudentActivitySchool								= StudentActivitySchool
+							invoked.StudentActivityReceipt								= StudentActivityReceipt
+							invoked.SchoolActivityAccount								= StudentActivityReceipt.StudentActivityBankAccount.BankAccountActivity	
+							if (SchoolActivityAccount.StudentActivityAccount.StudentActivityType.Asset)
+								invoked.DetailAmount									= (DetailAmount *-1)
+							else
+								invoked.DetailAmount									= DetailAmount
+							invoked.BankAccountOffset									= true
+							if (GLAccount entered)
+								invoked.GLAccount										= StudentActivityReceipt.StudentActivityBankAccount.BankAccountActivity.GLAccount
+							invoked.DepositDate											= PrmDepositDate
+							
+						make transition to Deposited
+
+				Delete is a Delete Action
+					restricted
+					Entrance Rules
+						invoke UpdateCurrentBalances SchoolActivityAccount
+							invoked.PrmCurrentReceipts	-= DetailAmount
+							
+						invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+							invoked.PrmCurrentReceipts	-= DetailAmount
+					Exit Rules
+						if (StudentRecord	entered)
+							invoke DeleteIfNoDetailsExist StudentPaidReceipts
+							invoke DeleteIfNoDetailsExist StudentAssignedActivity
+
+			
+			Deposited is a State
+				CreateDepositedRecord is a Create Action
+					restricted
+					Exit Rules
+						invoke UpdateCurrentBalances SchoolActivityAccount
+							invoked.PrmCurrentReceipts	+= DetailAmount
+							
+						invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+							invoked.PrmCurrentReceipts	+= DetailAmount
+						
+				Delete is a Delete Action
+					restricted
+					Entrance Rules
+						invoke UpdateCurrentBalances SchoolActivityAccount
+							invoked.PrmCurrentReceipts	-= DetailAmount
+							
+						invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+							invoked.PrmCurrentReceipts	-= DetailAmount
+
+			
+				ReinstateDetailLine is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+
+				CloseReceiptDetails is a Set Action
+					restricted
+					completion message is "ReceiptCloseComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmCloseDate				is Date
+					
+					Local Fields
+						StudentActivityCloseFields
+						CreateJournal						is Boolean
+		
+					Instance Selection
+						where (StudentActivityReceiptDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityReceiptDetail.StudentActivitySchool	= PrmStudentActivitySchool
+						and    StudentActivityReceiptDetail.DepositDate				<= PrmCloseDate
+						and    StudentActivityReceiptDetail.Status.Deposited)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+					
+					Accumulators
+						TotalReceiptAmount
+						ReceiptPostingAmount
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendar				= StudentActivityDistrict.SchoolCalendar
+								StudentActivityCloseFields.SchoolCalendarGroup			= StudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.SchoolClosedPeriod			= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivityJournal		= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod
+								StudentActivityCloseFields.StudentActivitySchool		= StudentActivitySchool
+
+																
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								CreateJournal	= false
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodReceipts		+= TotalReceiptAmount
+									invoked.PostedReceipts		+= ReceiptPostingAmount
+			
+								invoke Update StudentActivityCloseFields.StudentActivityBalanceDetail 
+									invoked.PeriodReceipts		= TotalReceiptAmount
+									invoked.PostedReceipts		= ReceiptPostingAmount
+						
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentReceipts	-= TotalReceiptAmount
+							
+								if (CreateJournal
+								and ReceiptPostingAmount entered)
+									invoke Create Unreleased StudentActivityJournalDetail
+										invoked.StudentActivityDistrict		= StudentActivityDistrict
+										invoked.StudentActivitySchool		= StudentActivityCloseFields.StudentActivitySchool
+										invoked.StudentActivityClosedPeriod	= StudentActivityCloseFields.StudentActivityClosedPeriod
+										invoked.StudentActivityJournal		= StudentActivityCloseFields.StudentActivityJournal
+										invoked.StudentActivityAccount		= StudentActivityCloseFields.StudentActivityAccount
+										invoked.OriginatingTransaction		= reference to this instance
+										invoked.GLAccount					= GLAccount
+										invoked.PostingAmount				+= ReceiptPostingAmount
+										invoked.Description					= JournalDescription
+										invoked.System						= TransactionSystemCode.StudentActivity
+										invoked.CurrencyCode				= StudentActivityDistrict.AccountingEntity.FunctionalCurrency	
+										invoked.GLAccountingEntity			= StudentActivityDistrict.AccountingEntity
+										invoked.TransactionDate				= StudentActivityCloseFields.StudentActivityClosedPeriod.Date
+		
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+		
+							Exit Rules
+								invoke Update StudentActivityCloseFields.SchoolActivityAccountBalance 
+									invoked.PeriodReceipts		= TotalReceiptAmount
+									invoked.PostedReceipts		= ReceiptPostingAmount
+									
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentReceipts	-= TotalReceiptAmount
+							
+						Instance Rules
+							TotalReceiptAmount	+= DetailAmount
+							ClosedPeriod		= StudentActivityCloseFields.StudentActivityClosedPeriod
+							
+							if (GLAccount entered)
+								CreateJournal							= true
+								StudentActivityCloseFields.GLAccount	= GLAccount
+								ReceiptPostingAmount					+= SignedDetailAmount
+						
+							invoke CloseRecord StudentActivityReceipt.StudentActivityBankTransaction
+		
+							make transition to Closed
+
+			Closed is a State
+
+				OpenReceiptDetails is a Set Action
+					restricted
+					completion message is "OpenReceiptDetailsComplete"
+					run in foreground
+					Parameters
+						PrmStudentActivityDistrict	is a StudentActivityDistrict
+						PrmStudentActivitySchool	is a StudentActivitySchool
+						PrmClosedPeriod				is a StudentActivityClosedPeriod
+					
+					Local Fields
+						StudentActivityCloseFields
+		
+					Instance Selection
+						where (StudentActivityReceiptDetail.StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivityReceiptDetail.StudentActivitySchool	= PrmStudentActivitySchool
+						and    StudentActivityReceiptDetail.ClosedPeriod			= PrmClosedPeriod)
+					
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+						SchoolActivityAccount.StudentActivityAccount
+						SchoolActivityAccount.SubActivity
+					
+					Accumulators
+						TotalReceiptAmount
+						ReceiptPostingAmount
+						
+					Action Rules
+						Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolCalendarGroup			= PrmStudentActivityDistrict.SchoolCalendarPeriodGroup
+								StudentActivityCloseFields.StudentActivityClosedPeriod	= PrmClosedPeriod
+							
+						SchoolActivityAccount.StudentActivityAccount Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount
+								
+							Exit Rules
+								invoke Update StudentActivityCloseFields.StudentActivityBalance
+									invoked.PeriodReceipts		-= TotalReceiptAmount
+									invoked.PostedReceipts		-= ReceiptPostingAmount
+			
+								invoke UpdateCurrentBalances SchoolActivityAccount.StudentActivityAccount
+									invoked.PrmCurrentReceipts	+= TotalReceiptAmount
+							
+						SchoolActivityAccount.SubActivity Set Rules
+							Entrance Rules
+								StudentActivityCloseFields.SchoolActivityAccount	= SchoolActivityAccount
+		
+							Exit Rules
+								invoke UpdateCurrentBalances SchoolActivityAccount
+									invoked.PrmCurrentReceipts	+= TotalReceiptAmount
+							
+						Instance Rules
+							TotalReceiptAmount	+= DetailAmount
+							initialize ClosedPeriod
+							
+							if (GLAccount entered)
+								ReceiptPostingAmount	+= SignedDetailAmount
+						
+							invoke OpenRecord StudentActivityReceipt.StudentActivityBankTransaction
+		
+							make transition to Deposited
+			

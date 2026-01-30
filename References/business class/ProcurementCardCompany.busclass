@@ -1,0 +1,170 @@
+ProcurementCardCompany is a BusinessClass
+    owned by po
+    prefix is PCA
+    classic name is PDCARDCOMP
+
+    Ontology
+        symbolic key is ProcurementCardCompany
+            classic set name is PCASET1
+            classic name for ProcurementCardProgram is PCARD-PROGRAM
+            classic name for ProcurementCardRequest is REQUEST-NBR
+
+    Patterns
+    	implements ContextualParent
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        ProcurementCardNumber
+            classic name is PCARD-NBR
+        DistributionCode      is a PayablesDistributionCode
+            classic name is DIST-CODE
+        DefaultCompany        is Boolean
+            classic name is DEFAULT
+        DistributionAccount   is a FinanceCodeBlockFull
+            classic name for DistributionAccount.ToAccountingEntity is DIST-COMPANY
+            classic name for DistributionAccount.AccountingUnit is ACCT-UNIT
+            classic name for DistributionAccount.GeneralLedgerChartAccount is ACCOUNT
+            classic name for DistributionAccount.Project is ACTIVITY
+
+    Transient Fields
+
+        TransientAccountingEntity    is an AccountingEntity
+            derive value from Company.AccountingEntity 
+    	
+    
+    Conditions
+        IsDefault
+        	restricted
+            when (DefaultCompany)         
+
+    Sets
+        Set2
+            indexed
+            Sort Order
+            	ProcurementGroup
+                ProcurementCardProgram
+                Company
+                ProcurementCardRequest
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                ProcurementCardProgram
+                ProcurementCardRequest
+                ProcurementCardNumber
+                
+	Relations
+		ProcurementCardStatementTransactionsRel
+			one-to-many relation to ProcurementCardStatementTransaction
+			Field Mapping uses symbolic key
+				related.ProcurementGroup									= ProcurementGroup
+				related.ProcurementCardProgram								= ProcurementCardProgram
+			Instance Selection
+				where (related.ProcurementCardStatementTransaction.Company	= Company
+				and    related.ProcurementCardStatementTransaction.Status  != 9
+				and	   related.ProcurementCardNumber						= ProcurementCardNumber)
+				
+		AnotherProcurementCardCompanySelfRel		
+			one-to-many relation to ProcurementCardCompany
+			Field Mapping uses symbolic key
+				related.ProcurementGroup									= ProcurementGroup
+				related.ProcurementCardProgram								= ProcurementCardProgram
+				related.ProcurementCardRequest 								= ProcurementCardRequest
+			Instance Selection
+				where (related.Company	!= Company)
+				
+		AnotherDefaultProcurementCardCompaniesRel
+			one-to-many relation to ProcurementCardCompany
+			Field Mapping uses symbolic key
+				related.ProcurementGroup									= ProcurementGroup
+				related.ProcurementCardProgram								= ProcurementCardProgram
+				related.ProcurementCardRequest 								= ProcurementCardRequest
+			Instance Selection
+				where (related.DefaultCompany 	= true
+				and    related.Company			!= Company)	 
+
+		ProcurementCardProgramCompanyRel is a ProcurementCardProgramCompany set
+				
+	Field Rules
+		DefaultCompany
+			if (AnotherProcurementCardCompanySelfRel not exists)
+				default to true
+				
+		ProcurementCardNumber
+			default to 	ProcurementCardRequest.ProcurementCardNumber
+			
+		DistributionAccount
+			if (DistributionCode not entered)
+				required
+					"EitherADistributonAccountOrDistributionCodeMustBeEntered"
+			
+		DistributionCode
+			if (DistributionAccount.GeneralLedgerChartAccount not entered)
+				initialize DistributionAccount.Ledger
+
+			constraint(DistributionAccount not entered)
+				"CannotEnterDistributionCodeWhenDistributionAccountIsEntered"
+			
+	Rule Blocks
+		CreateUpdateRules
+			constraint (ProcurementCardProgramCompanyRel exists)
+				"CompanyNotAssignedToThisProgram"
+				
+			if  (DefaultCompany
+  	 		and  AnotherDefaultProcurementCardCompaniesRel exists)
+  	 			confirmation required
+  	 				"Warning:DefaultCompanyWillBeChangedFrom<first AnotherDefaultProcurementCardCompaniesRel.Company>To<Company>.Proceed?"
+  	 			invoke ResetDefaultCardCompany AnotherDefaultProcurementCardCompaniesRel
+					
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint(!ProcurementCardRequest.Status.Cancelled)
+					"CannotAddACompanyToACancelledRequest"
+					
+				include CreateUpdateRules
+		
+		Update is an Update Action	
+			Action Rules
+				include CreateUpdateRules
+				
+				if (DefaultCompany changed)
+					constraint (!old DefaultCompany)
+						"CannotChange,ADefaultCompanyMustExist"
+						
+		UpdateCardNumber is a Set Action
+  	 		restricted
+
+			Parameters
+				PrmProcurementGroup			is a ProcurementGroup
+				PrmProcurementCardProgram	is a ProcurementCardProgram
+				PrmProcurementCardRequest	is a ProcurementCardRequest
+		        PrmProcurementCardNumber	is a ProcurementCardNumber
+
+			Instance Selection
+				where (ProcurementGroup 		= PrmProcurementGroup
+				and    ProcurementCardProgram 	= PrmProcurementCardProgram
+				and    ProcurementCardRequest 	= PrmProcurementCardRequest)
+
+  	 		Action Rules
+				Instance Rules
+					ProcurementCardNumber = PrmProcurementCardNumber 				
+						
+		ResetDefaultCardCompany is an Update Action
+  	 		restricted
+  	 		bypass field rules
+  	 		
+  	 		Action Rules
+				DefaultCompany = false				
+						
+		Delete is a Delete Action	
+			Entrance Rules
+				constraint (ProcurementCardStatementTransactionsRel not exists)
+					"CannotDelete,OpenChargesExistForCompany"
+							
+				if (ProcurementCardRequest.Status.Approved
+				or  ProcurementCardRequest.Status.Activated)
+  	 				constraint (!DefaultCompany)
+	  	 				"CannotDeleteDefaultCompany"

@@ -1,0 +1,109 @@
+UnitPrice is a Field
+
+    Representation
+        type is Decimal size 21.8		
+    
+    Context Fields
+    	Item
+    	SourcingCompany
+		SourcingEventLine
+		ContractGroup
+		BillingCompany
+		BillingInvoiceLine
+		CustomerOrderLine
+	
+	Local Fields
+		RoundedValue
+	
+	Conditions
+		IsLineWithRounding
+			when (BillingInvoiceLine.Rounding)
+	
+	Derived Fields
+		DerivedNumberOfDecimalsCost is a DerivedField
+			type is Numeric size 1
+			if (Item exists)
+				return Item.NumberOfDecimalsPrice
+			else
+			if (BillingInvoiceLine entered
+			and BillingInvoiceLine.IsLineType) 
+				return BillingInvoiceLine.Item.NumberOfDecimalsPrice
+			else
+			if (CustomerOrderLine entered
+			and CustomerOrderLine.IsInventoriedOrNonStock)
+				return CustomerOrderLine.Item.NumberOfDecimalsPrice
+			else
+			if (BillingCompany entered)
+				return BillingCompany.InventoryCompanyRel.ItemGroup.DefaultNumberOfDecimalsPrice
+			else 
+			if (SourcingCompany entered)
+				return SourcingCompany.InventoryCompanyRel.NumberOfDecimalsCost
+			else
+				return 8
+				
+		DerivedRoundTo			is a DerivedField
+			type is Unsigned Decimal 21.8
+			if (DerivedNumberOfDecimalsCost = 8)
+				return .00000001
+			else
+			if (DerivedNumberOfDecimalsCost = 7)
+				return .0000001
+			else
+			if (DerivedNumberOfDecimalsCost = 6)
+				return .000001
+			else
+			if (DerivedNumberOfDecimalsCost = 5)
+				return .00001
+			else
+			if (DerivedNumberOfDecimalsCost = 4)
+				return .0001
+			else
+			if (DerivedNumberOfDecimalsCost = 3)
+				return .001
+			else
+			if (DerivedNumberOfDecimalsCost = 2)
+				return .01
+			else
+			if (DerivedNumberOfDecimalsCost = 1)
+				return .1
+			else
+			if (DerivedNumberOfDecimalsCost = 0)
+				return 1
+			else
+				return 0
+	
+    Field Rules
+    	UnitPrice
+     		if (SourcingEventLine in context)
+     			if (Item exists)
+	    			constraint (UnitPrice decimals <= Item.NumberOfDecimalsCost)
+	     				"TooManyDecimalDigitsEnteredForUnitPrice:MaxIs<Item.NumberOfDecimalsCost>"
+     			else
+     			if (SourcingEventLine.ContractOutput)
+					constraint (UnitPrice decimals <= SourcingCompany.SourcingGroup.ItemGroupRel.DefaultNumberOfDecimalsCost)
+     					"TooManyDecimalDigitsEnteredForUnitPrice:MaxIs<SourcingCompany.SourcingGroup.ItemGroupRel.DefaultNumberOfDecimalsCost>"
+     			else
+     			if (SourcingEventLine.OutputType.PO)	
+     				constraint (UnitPrice decimals <= SourcingCompany.InventoryCompanyRel.NumberOfDecimalsCost)
+     					"TooManyDecimalDigitsEnteredForUnitPrice:MaxIs<SourcingCompany.InventoryCompanyRel.NumberOfDecimalsCost>"
+     		else
+     		if (ContractGroup in context)
+     			if (Item in context
+    			and Item exists)
+	    			constraint (UnitPrice decimals <= Item.NumberOfDecimalsCost)
+	     				"TooManyDecimalDigitsEnteredForUnitPrice:MaxIs<Item.NumberOfDecimalsCost>"
+     			else	
+	     			constraint (UnitPrice decimals <= ContractGroup.ItemGroupRel.DefaultNumberOfDecimalsCost)
+	     				"TooManyDecimalDigitsEnteredForUnitPrice:MaxIs<ContractGroup.ItemGroupRel.DefaultNumberOfDecimalsCost>"
+			else
+			if (BillingCompany entered
+			and not IsLineWithRounding)
+				initialize RoundedValue
+				RoundedValue.RoundInput			= UnitPrice
+				RoundedValue.RoundingType		= RoundedValue.RoundingType.Normal
+				RoundedValue.RoundTo			= DerivedRoundTo
+				RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+				UnitPrice 						= RoundedValue.RoundResult
+			
+     		constraint (UnitPrice > 0 or IsLineWithRounding)
+     			"UnitPriceMustBeGreaterThanZero"

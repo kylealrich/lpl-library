@@ -1,0 +1,161 @@
+BankAccountBalance is a BusinessClass
+    owned by cb
+    prefix is CBB
+    classic name is CBBALANCE
+
+    Ontology
+        symbolic key is BankAccountBalance
+            classic set name is CBBSET1
+            classic name is PER-END-DATE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        BeginningBalance                 is an InternationalAmount
+            classic name is BEG-BALANCE
+        TransactionBalance               is an InternationalAmount
+            classic name is TRANS-BALANCE
+        DebitBalance                     is an InternationalAmount
+        CreditBalance                    is an InternationalAmount
+        BankPeriodDebitTransactionCount  is a CreditRecCnt
+            sql name is BPeriodDebitTransactionCount
+            classic name is DEBIT-REC-CNT
+        BankPeriodCreditTransactionCount is a CreditRecCnt
+            sql name is BPeriodCreditTransactionCount
+            classic name is CREDIT-REC-CNT
+        EndingBalance                    is an InternationalAmount
+        BankPeriodBeginningDate          is Date
+            classic name is PER-BEG-DATE
+            
+	Derived Fields
+		ContextMessageEntityType 	is a StringField
+			type is Alpha 30
+			restricted
+			"InforERPEnterpriseCommonBankAccountsByPaytoBusinessPartner"
+
+		ContextMessageText 			is a MessageField
+			restricted
+			"BankAccountBalance<BankAccountBalance>"
+
+		ReopenCompleteMessage		is a MessageField
+			restricted
+			"BankAccountPeriodReopenComplete"
+			
+	Transient Fields
+		TransientFromCurrency			is a FromCurrency
+			derive value from CashCode.Currency
+		CompletionMessage				is Alpha size 150	
+		
+	Local Fields
+		LocalCashCodeGroup					is like CashCodeGroup
+
+	Conditions
+		CanReopenBankPeriod
+			restricted
+			when (BankAccountBalancesRel exists
+			and   first BankAccountBalancesRel.BankAccountBalance <= BankAccountBalance)
+			
+		HasRelatedCashCodeCashPosition
+			restricted
+			when (CashCodeCashPositionRel exists)
+
+    Relations
+        CashLedgerTransactionsRel
+            classic name is CBTRANS
+            one-to-many relation to CashLedgerTransaction
+            Field Mapping uses Set2
+            	related.CashManagementGroup		= CashManagementGroup
+                related.CashCode				= CashCode
+                related.PeriodDate 				= BankAccountBalance
+              
+		BankAccountBalancesRel
+			one-to-many relation to BankAccountBalance
+			Field Mapping uses Set2
+				related.CashManagementGroup	= CashManagementGroup
+				related.CashCode			= CashCode
+
+		CashCodeCashPositionRel
+			one-to-many relation to CashCodeCashPosition
+			Field Mapping uses ByCashCodeDescendingDate
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashCode				= CashCode
+				related.CashCodeCashPosition	= BankAccountBalance
+				
+		CashCodeGroupDetailRel
+			one-to-one relation to CashCodeGroupDetail
+			Field Mapping uses symbolic key
+				related.CashManagementGroup			= CashManagementGroup
+				related.CashCodeGroup				= LocalCashCodeGroup
+				related.CashCode					= CashCode
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+            	CashManagementGroup
+                CashCode
+                BankAccountBalance descending
+
+		ByBankAccountBalance
+			Sort Order
+				CashManagementGroup
+				BankAccountBalance descending
+				CashCode
+
+	Actions
+		Create is an Action
+		
+		Update is an Action
+		
+		Delete is an Action
+		
+		Purge is a Purge Action
+			restricted
+		
+		BankPeriodReopen is an Instance Action
+			completion message is "<CompletionMessage>" 	
+			valid when (CanReopenBankPeriod)
+			Action Rules
+				confirmation required
+					"YouAreAboutToReopenBankAccountPeriod<BankAccountBalance>,AreYouSure?"
+				if (CashLedgerTransactionsRel exists)
+					invoke BankPeriodReopen CashLedgerTransaction in background	
+						invoked.PrmCashManagementGroup		= CashManagementGroup
+						invoked.PrmCashCode					= CashCode
+						invoked.PrmPeriodDate				= BankAccountBalance
+				invoke Delete
+			Exit Rules
+				CompletionMessage = ReopenCompleteMessage
+				
+		BankAccountBalancePurge is a Set Action
+			restricted
+			Parameters
+				PrmCashManagementGroup           is a CashManagementGroup
+				PrmCashCode                      is a CashCode
+				PrmCashCodeGroup                 is a CashCodeGroup
+				PrmBankAccountBalanceCutOffDate  is Date
+				
+			Parameter Rules
+				PrmCashCodeGroup
+					if (PrmCashCodeGroup entered)
+						constraint (PrmCashCode not entered)
+							"CannotEnterBothCashCodeAndCashCodeGroup"		
+					LocalCashCodeGroup	= PrmCashCodeGroup
+			Instance Selection
+				where (CashManagementGroup	  = PrmCashManagementGroup
+				and  ((PrmCashCode				entered	
+				and    CashCode				  = PrmCashCode)
+				or     PrmCashCode				not entered)
+				and  ((PrmCashCodeGroup			entered	
+				and    CashCodeGroupDetailRel   exists)
+				or     PrmCashCodeGroup			not entered)
+				and    BankAccountBalance    <= PrmBankAccountBalanceCutOffDate)
+			
+			Action Rules
+				Instance Rules
+					invoke Purge
+																	

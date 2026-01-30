@@ -1,0 +1,675 @@
+POReceiptLineTemplate is a BusinessClass
+	owned by po
+	default label is "PurchaseOrderReceiptLine"
+	
+	prefix is PORLT
+	
+	Ontology
+		part of PurchaseOrderReceipt
+			delete cascades
+			relative key is PurchaseOrderLine
+			
+    Patterns
+    	implements ContextualParent
+		implements TemplateDriven by PurchaseOrderLine
+			create instance
+				when ((!ItemType.Service and ReceivedQuantity entered)
+				or (Substitute or CancelRemaining or CancelBackorder))
+		implements Archivable
+	
+	Persistent Fields
+		Item
+		ItemType						
+		ReceivedQuantity 					is a Quantity
+            precision is DerivedNumberOfDecimalsQuantity
+		SubstituteQuantity					is a Quantity
+            precision is DerivedNumberOfDecimalsQuantity
+		ReceivedUOM							is a UnitOfMeasure
+		CatchWeightQuantity					is a Quantity	
+			precision is DerivedNumberOfDecimalsQuantity
+			default label is "StockQuantity"
+		ShipToLocation						is an InventoryLocation
+		PurchaseOrderReceiptLine
+		Bin
+		Substitute							is Boolean
+		CancelBackorder						is Boolean
+		CancelRemaining						is Boolean
+
+
+		InspectionRequired					is Boolean
+			protected
+			restricted
+		
+
+		PurchaseOrder						is like PurchaseOrder
+		HSNSACCode
+		
+	Transient Fields
+		TransientInspectionRequired			is Boolean
+			default label is "InspectionRequired"
+			derive value from DerivedInspectionRequired
+		UpdateSubstituteQuantity    		is Boolean
+		TransientCancelRemaining			is Boolean
+			derive value from DerivedCancelRemaining
+		TransientCancelBackOrder			is Numeric size 1
+        	States
+        		DefaultToNextLevel			value is 0
+        		Yes							value is 1
+        		No							value is 2
+        	derive value from DerivedPurchaseOrderLineCancelBackorder
+		UnreleasedPurchaseOrderReceipt		is like PurchaseOrderReceipt
+			derive value from first ContextPurchaseOrder.UnreleasedPurchaseOrderReceiptsRel.PurchaseOrderReceipt
+
+	Context Fields
+		ContextPurchaseOrder				is a PurchaseOrder
+	
+	Local Fields
+		LocalPOReceiptLine					is a PurchaseOrderReceiptLine view
+
+		UOMCalculation
+		LocalDeleteFromReceiptLine			is Boolean
+		BypassCreateTransactionDetail		is Boolean
+		LocalMSDSVersion					is a MSDSVersion
+		LocalMSDSDocument				    is a MSDSDocument	
+	Derived Fields
+		DerivedCancelRemaining is a DerivedField
+			type is Boolean
+			if (PurchaseOrderReceiptLine entered)
+				return PurchaseOrderReceiptLine.IsCancelRemaining
+			else
+				return CancelRemaining
+				
+		DerivedInspectionRequired is a DerivedField
+			type is Boolean
+			if (action type.Create or action type.Update)
+				return TransientInspectionRequired
+			else
+			if (this instance exists)
+				return InspectionRequired
+			else
+				return PurchaseOrderLine.InspectionRequired
+		
+		DerivedPurchaseOrderLineCancelBackorder is a DerivedField
+			type is Numeric size 1
+			if (HasPurchaseOrderReceiptLine)
+				if (not CancelBackorder)
+					return TransientCancelBackOrder.No
+			else
+				if (action type.Update)
+					return TransientCancelBackOrder.DefaultToNextLevel
+				if (CancelBackorder)
+					return TransientCancelBackOrder.Yes
+				if (not PurchaseOrderLine.UndershipmentToleranceOption.CancelAllBackorders
+				or  PurchaseOrderRel.VendorReturn entered)
+					return TransientCancelBackOrder.DefaultToNextLevel
+			return TransientCancelBackOrder.Yes
+
+
+		
+        DerivedNumberOfDecimalsQuantity is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (Item exists)
+				Item.NumberOfDecimalsQuantity
+			else
+				InventoryCompanyRel.NumberOfDecimalsQuantity
+
+		DerivedPurchaseOrderReceipt is a DerivedField
+			type is like PurchaseOrderReceipt
+			if (PurchaseOrderReceipt entered)
+				return PurchaseOrderReceipt
+			else
+				return UnreleasedPurchaseOrderReceipt
+
+		DerivedReceivedQuantityInStock is a DerivedField
+    		type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			if (ReceivedUOM not = Item.StockUOM)
+				UOMCalculation.InputUOM			= ReceivedUOM
+				UOMCalculation.InputQuantity	= ReceivedQuantity
+				UOMCalculation.Method			= UOMCalculation.Method.ConvertToStock
+				UOMCalculation.DoRounding		= true
+				return UOMCalculation.OutputQuantity
+			else
+				return ReceivedQuantity
+
+		DerivedReceivedQuantityInPOUOM is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			if (ReceivedUOM = PurchaseOrderLine.EnteredBuyUOM)
+				return ReceivedQuantity
+			else
+				if (PurchaseOrderLine.EnteredBuyUOM = Item.StockUOM)
+					return DerivedReceivedQuantityInStock
+				else	
+					UOMCalculation.InputUOM			= Item.StockUOM
+					UOMCalculation.InputToUOM		= PurchaseOrderLine.EnteredBuyUOM
+					UOMCalculation.InputQuantity	= DerivedReceivedQuantityInStock
+					UOMCalculation.Method			= UOMCalculation.Method.ConvertToAlternate
+					return UOMCalculation.OutputQuantity
+
+		DerivedPurchaseOrderReceiptLine is a DerivedField
+			type is like PurchaseOrderReceiptLine
+			if (PurchaseOrderReceiptLine entered)
+				return PurchaseOrderReceiptLine
+			else
+				return PurchaseOrderLine.LineNumber
+
+		DerivedCatchWeightStockUOM			is a DerivedField
+			type is like UnitOfMeasure
+			restricted
+			if (PurchaseOrderLine.IsCatchWeightItem)
+				return PurchaseOrderLine.Item.StockUOM
+
+		CatchWeightUOM 						is a DerivedField
+			type is like UnitOfMeasure
+			if (PurchaseOrderLine.IsCatchWeightItem)
+				return PurchaseOrderLine.Item.StockUOM
+			else
+				return blank
+
+     	ReceiptDisplay						is a LabelField
+    		"Receipt:<PurchaseOrderReceipt>"
+    	LineDisplay							is a LabelField
+    		"Line:<PurchaseOrderReceiptLine>"
+    	ItemDisplay							is a LabelField
+    		"Item:<Item>,Description:<PurchaseOrderLine.Description>"
+		RemainingQuantityDisplay			is a LabelField
+			"RemainingQuantity:<PurchaseOrderLine.RemainingQuantity>,<PurchaseOrderLine.EnteredBuyUOM>"
+		ReceivedQuantityDisplay				is a LabelField
+			"ReceivedQuantity:<ReceivedQuantity>,<ReceivedUOM>"
+    	StatusDisplay						is a LabelField
+    		"Status:<PurchaseOrderReceiptLine.Status>"
+
+	Field Rules
+		Item
+			initial value is PurchaseOrderLine.Item
+			default to PurchaseOrderLine.Item
+
+		ItemType
+			initial value is PurchaseOrderLine.ItemType
+			default to PurchaseOrderLine.ItemType
+		
+		InspectionRequired
+			InspectionRequired = TransientInspectionRequired
+		
+		CancelBackorder
+			if (TransientCancelBackOrder.Yes)
+				CancelBackorder = true
+			else
+				initialize CancelBackorder
+		
+		CancelRemaining
+			if (old CancelRemaining)
+				cannot be changed
+			
+			CancelRemaining = TransientCancelRemaining
+			
+		ReceivedUOM
+			if (Item exists
+			and !ItemType.Special)
+				constraint (not ItemUOMBuyRel.ValidForBuying.Inactive)    
+					"<ReceivedUOM>IsNotValidForThisItem<Item>"
+					
+			initial value is  PurchaseOrderLine.EnteredBuyUOM
+			default to PurchaseOrderLine.EnteredBuyUOM
+	
+		ShipToLocation
+			initial value is PurchaseOrderLine.ShipToLocation
+			default to PurchaseOrderLine.ShipToLocation
+			
+		ReceivedQuantity
+			if (CatchWeightQuantity entered)
+				required
+		
+		CatchWeightQuantity
+			if (Item.IsCatchWeightItem)
+				if (ReceivedQuantity entered)
+                	required
+			else
+				cannot be entered
+					"CannotEnterCatchWeightQuantity;Item<Item>NotSetUpForCatchWeight"
+		
+		Substitute
+			if (Substitute changed
+			and SubstituteLineExists)
+				constraint (Substitute = true)
+					"CannotSetHasSubstituteToNo;SubstituteLineExists"
+			
+		HSNSACCode
+			if (IsHSNSACCodeEnabled)
+				default to PurchaseOrderLine.HSNSACCode
+				required
+	    			"HSN_/SACCodeIsRequired"
+			else
+    			cannot be entered	
+    				"CannotEnter,HSN_/SACCodeFlagIsNotSetAtGlobalLedgerCompany"
+
+	Sets
+		ByPurchaseOrderLine
+			Sort Order
+		 		Company
+		 		PurchaseOrderReceipt
+		 		PurchaseOrderLine
+
+		ByReceiptLine
+			Sort Order
+		 		Company
+		 		PurchaseOrderReceipt
+		 		PurchaseOrderReceiptLine
+		 	Instance Selection
+		 		where (HasPurchaseOrderReceiptLine)
+
+		ByPurchaseOrder
+			Sort Order
+		 		Company
+		 		PurchaseOrder
+		 		PurchaseOrderLine
+		 		PurchaseOrderReceipt
+	
+	Conditions
+		HasPurchaseOrderReceiptLine
+			restricted
+			when (PurchaseOrderReceiptLine	entered)
+		
+		ShowSubstitute
+			restricted
+			when (POReceiptLineTemplateRel exists
+			and   PurchaseOrderReceipt.Status.Unreleased)
+		
+
+
+
+			
+		InventoryItem
+			restricted
+			when (PurchaseOrderLine.ItemType.Inventoried)
+			
+		NonInventoryItem
+			restricted
+			when (!PurchaseOrderLine.ItemType.Inventoried)
+			
+		SubstituteLineExists
+			restricted
+			when (PurchaseOrderReceiptLineSubstituteRel exists)
+		
+		CanUpdateReceiptLine
+			restricted
+			when (PurchaseOrderReceipt.Status.Unreleased)
+		
+		HasLineSourceForThisRequester
+			restricted
+			when (PurchaseOrderReceipt.PurchaseOrderLineSourceForRequesterRel exists)
+
+		CanCancelRemaining
+			restricted
+			when (POReceiptLineTemplateRel exists
+			and   PurchaseOrderLine.RemainingQuantity > DerivedReceivedQuantityInPOUOM)
+		
+		IsHSNSACCodeEnabled
+			restricted
+			when (Company.GeneralLedgerCompany.RequireHSNSACCode)
+			
+		MustEnterCatchWeightQuantity
+			restricted
+			when (PurchaseOrderLine.IsCatchWeightItem
+			and   CatchWeightQuantity not entered)
+
+        HasItemMasterAndReceiptLine
+        	restricted
+            when ((ItemType.Inventoried
+            or 	   ItemType.NonStock)
+			and	   ShowSubstitute)
+
+		
+	Relations
+		PurchaseOrderReceiptLineRel 
+			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses Set6
+				related.Company					= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+				related.PurchaseOrderLine		= PurchaseOrderLine
+		
+ 		PurchaseOrderReceiptLineOnlySubstituteRel 
+			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses Set6
+				related.Company					= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+				related.PurchaseOrderLine		= PurchaseOrderLine
+			Instance Selection
+				where (related.SubstituteReceiving) 
+ 
+ 		PurchaseOrderReceiptLineSubstituteRel
+ 			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses ByPurchaseOrderLine
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrderReceipt.PurchaseOrder
+				related.PurchaseOrderLine		 	= PurchaseOrderLine
+			Instance Selection
+				where (related.SubstituteReceiving)
+ 		
+ 		PurchaseOrderLineSourcesRel
+ 			one-to-many relation to PurchaseOrderLineSource
+ 			Field Mapping uses Set1
+ 				related.Company				= Company
+				related.PurchaseOrder		= PurchaseOrderReceipt.PurchaseOrder	
+ 				related.PurchaseOrderLine	= PurchaseOrderLine
+  		
+ 		PurchaseOrderLineSourceForRequesterRel
+ 			one-to-many relation to PurchaseOrderLineSource
+ 			Field Mapping uses Set9
+ 				related.Company				= Company
+                related.PurchaseOrder		= PurchaseOrderReceipt.PurchaseOrder
+ 				related.PurchaseOrderLine	= PurchaseOrderLine
+ 				related.PurchaseOrderLineSource.SourceDocumentOrigin	= SourceDocumentOrigin.Requisitions
+            Instance Selection
+                where (related.Requester = actor.agent(Employee).Employee)
+ 				
+ 		POReceiptLineTemplateRel
+			one-to-one relation to POReceiptLineTemplate
+			Field Mapping uses ByPurchaseOrderLine
+				related.Company					= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+				related.PurchaseOrderLine		= PurchaseOrderLine
+				
+		ItemUOMBuyRel
+        	one-to-one relation to ItemUOM
+        	Field Mapping uses symbolic key
+        		related.ItemGroup         = Company.ProcurementGroup
+        		related.Item              = Item
+        		related.UnitOfMeasure     = ReceivedUOM
+			
+		PurchaseOrderRel
+			one-to-one relation to PurchaseOrder
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+
+
+
+
+
+
+
+
+        InventoryCompanyRel
+            one-to-one relation to InventoryCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+                
+		PurchaseOrderLineRel
+			one-to-one relation to PurchaseOrderLine
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrderReceipt.PurchaseOrder
+				related.PurchaseOrderLine		= PurchaseOrderLine
+
+ 	Rule Blocks
+ 		CreateReceiptLine
+			invoke Create PurchaseOrderReceiptLine
+				assign result to LocalPOReceiptLine
+				invoked.Company						= Company
+				invoked.PurchaseOrder				= PurchaseOrderReceipt.PurchaseOrder
+				invoked.PurchaseOrderReceipt		= PurchaseOrderReceipt
+				invoked.PurchaseOrderReceiptLine	= PurchaseOrderLine
+				invoked.PurchaseOrderLine 			= PurchaseOrderLine
+
+				invoked.Item						= Item
+				invoked.ItemType					= ItemType
+				invoked.EnteredReceivedQuantity     = ReceivedQuantity
+				
+				invoked.CatchWeightQuantity			= CatchWeightQuantity
+				
+				invoked.ReceivedUOM					= ReceivedUOM
+				invoked.ShipToLocation		   		= ShipToLocation
+				invoked.Bin							= Bin
+				invoked.InspectionRequired			= InspectionRequired
+				if (not TransientCancelBackOrder.DefaultToNextLevel)
+					invoked.LocalCancelFromTemplate	= TransientCancelBackOrder
+					invoked.CancelBackorder			= CancelBackorder
+				invoked.IsCancelRemaining			= TransientCancelRemaining
+				invoked.BypassCreateTransactionDetail	= BypassCreateTransactionDetail
+				invoked.MSDSVersion						= LocalMSDSVersion
+				invoked.MSDSDocument					= LocalMSDSDocument
+
+			PurchaseOrderReceiptLine				= LocalPOReceiptLine.PurchaseOrderReceiptLine
+
+ 		UpdateExitRules
+			if (!ItemType.Service and ReceivedQuantity entered)
+				if (PurchaseOrderReceiptLine exists)
+					invoke Update PurchaseOrderReceiptLine
+						if (not SubstituteLineExists) 
+							invoked.EnteredReceivedQuantity     = ReceivedQuantity
+						invoked.ReceivedUOM					= ReceivedUOM
+						invoked.ShipToLocation		   		= ShipToLocation
+						invoked.Bin							= Bin		
+						invoked.CatchWeightQuantity			= CatchWeightQuantity
+						invoked.InspectionRequired			= InspectionRequired
+						if (not TransientCancelBackOrder.DefaultToNextLevel)
+							invoked.LocalCancelFromTemplate	= TransientCancelBackOrder
+							invoked.CancelBackorder			= CancelBackorder
+						invoked.IsCancelRemaining			= CancelRemaining
+				else
+					include CreateReceiptLine
+			else
+				if (CancelRemaining changed 
+				and CancelRemaining 
+				and CanCancelRemaining)
+					invoke CancelRemaining
+						
+			if ((!ReceivedQuantity entered)
+			and (!Substitute and !CancelRemaining)
+			and (PurchaseOrderReceiptLine exists))
+				invoke Delete
+
+ 		CreateEntranceRules
+     		if (PurchaseOrderReceipt not entered)
+     			if (UnreleasedPurchaseOrderReceipt = 0)
+     				invoke Create PurchaseOrderReceipt
+						invoked.Company			= Company
+						invoked.PurchaseOrder	= ContextPurchaseOrder.PurchaseOrder
+     			PurchaseOrderReceipt = UnreleasedPurchaseOrderReceipt
+     		
+     		PurchaseOrder = PurchaseOrderReceipt.PurchaseOrder
+
+	Actions
+		Create is an Action
+			valid when (CanUpdateReceiptLine)
+			Entrance Rules
+				include CreateEntranceRules
+			Action Rules
+			Exit Rules
+				if (ReceivedQuantity entered)
+					include CreateReceiptLine
+				
+				if (CancelRemaining and CanCancelRemaining)
+					invoke CancelRemaining
+						
+		QuickCreate is a Create Action
+			valid when (CanUpdateReceiptLine)
+			Action Rules
+				include CreateEntranceRules
+			Exit Rules
+				if (ReceivedQuantity entered)
+					include CreateReceiptLine
+
+		RestrictedCreate is a Create Action
+			restricted
+			Action Rules
+     			PurchaseOrder = PurchaseOrderReceipt.PurchaseOrder
+			
+		Update is an Action
+			valid when (CanUpdateReceiptLine)
+			
+			Action Rules
+				if (SubstituteLineExists)
+					constraint (ReceivedQuantity !changed)
+						"CannotChangeReceivedQuantityHereWhenSubstituteLineExists;ChangeOnReceiptLines"
+			
+			Exit Rules
+				include UpdateExitRules
+
+		QuickUpdate is an Update Action
+			valid when (CanUpdateReceiptLine)
+			
+			Action Rules
+				if (SubstituteLineExists)
+					constraint (ReceivedQuantity !changed)
+						"CannotChangeReceivedQuantityHereWhenSubstituteLineExists;ChangeOnReceiptLines"
+			
+			Exit Rules
+				include UpdateExitRules
+							
+		UpdateFromReceiptLine is an Instance Action
+			restricted
+			Parameters
+				PrmReceivedUOM					is a UnitOfMeasure
+				PrmShipToLocation				is an InventoryLocation
+				PrmBin							is a Bin		
+				PrmInspectionRequired			is Boolean
+				PrmCancelBackorder				is Boolean
+				PrmCancelRemaining				is Boolean
+				PrmDeleteReceiptLine			is Boolean
+			
+			Action Rules
+				if (PrmReceivedUOM entered)
+					ReceivedUOM             = PrmReceivedUOM
+				if (PrmShipToLocation entered)
+					ShipToLocation          = PrmShipToLocation
+				if (PrmBin entered)
+					Bin                     = PrmBin
+				
+				if (PurchaseOrderReceiptLine.MultipleBins)
+					initialize Bin
+
+				InspectionRequired      = PrmInspectionRequired
+				CancelBackorder         = PrmCancelBackorder
+				CancelRemaining			= PrmCancelRemaining    
+				
+				SubstituteQuantity 		= sum PurchaseOrderReceiptLineOnlySubstituteRel.EnteredReceivedQuantity  
+				ReceivedQuantity 		= sum PurchaseOrderReceiptLineRel.EnteredReceivedQuantity
+				CatchWeightQuantity     = sum PurchaseOrderReceiptLineRel.CatchWeightQuantity
+				if (SubstituteQuantity = 0)
+					Substitute = false
+				else
+					if (PrmDeleteReceiptLine)
+						initialize PurchaseOrderReceiptLine
+			
+			Exit Rules	
+				if (ReceivedQuantity = 0	
+				and not Substitute			
+				and not CancelRemaining)
+					invoke Delete
+			
+		Delete is an Action
+			valid when (CanUpdateReceiptLine)
+			
+			Exit Rules
+				invoke DeleteForZeroQuantity PurchaseOrderReceiptLineRel
+
+		DeleteFromHeader is a Delete Action
+			restricted
+			
+			Exit Rules
+				invoke DeleteFromHeader PurchaseOrderReceiptLineRel
+				
+		AddSubstitute is an Instance Action
+			valid when (ShowSubstitute)
+			completion message is "SubstituteItemAdded"
+			Parameters
+				PrmItem						is an Item
+					default label is "SubstituteItem"
+				PrmItemType					is AlphaUpper size 1
+					default label is "Type"
+	        		States
+    	        		Inventoried 		value is "I"
+        	    		NonStock    		value is "N"
+            			Special     		value is "X"
+				PrmEnteredReceivedQuantity	is a Quantity
+					default label is "Received"
+				PrmReceivedUOM				is a UnitOfMeasure
+					default label is "UOM"
+				Vendor
+				PrmVendorItem				is a VendorItem
+					default label is "VendorItem"
+				PrmItemGTIN					is an ItemGTIN
+					default label is "GTIN"
+				PrmItemDescription          is a Description
+					default label is "Description"
+				PrmPackageTrackingNumber    is AlphaUpper size 40
+					default label is "TrackingNumber"
+				PrmNumberOfLabels           is Numeric size 4
+					default label is "Labels"
+			Parameter Rules
+				PrmEnteredReceivedQuantity
+					required
+						"ReceivedQuantityIsRequired"
+					constraint (PrmEnteredReceivedQuantity > 0)
+						"QuantityMustBeGreaterThanZero"
+						
+				PrmItem
+					required
+						"MustEnterAnItemIfSubstitutingForAnInventoryItem"
+							
+				PrmItemType
+					initial value is ItemType					
+					
+				PrmItemDescription
+					default to PrmItem.Description
+					if (PrmItemType.Special)
+						required
+			Action Rules
+				constraint (PrmEnteredReceivedQuantity > 0)
+					"QuantityMustBeGreaterThanZero"
+
+				if (PurchaseOrderLine.ItemType.Inventoried)
+					constraint (PurchaseOrderLineSourcesRel.PurchaseOrderLineSource.SourceDocumentOrigin != "RQ")
+						"SubstituteItemNotAllowed,RequisitionPO"			
+					constraint (PurchaseOrderLineSourcesRel.PurchaseOrderLineSource.SourceDocumentOrigin != "OE")
+						"SubstituteItemNotAllowed,OrderEntryPO"	
+
+	 			increment PurchaseOrderReceipt.PurchaseOrder.LastPurchaseOrderLine by 1
+				
+				SubstituteQuantity 		+= PrmEnteredReceivedQuantity
+				ReceivedQuantity 		+= PrmEnteredReceivedQuantity
+				
+				invoke Create PurchaseOrderReceiptLine
+					assign result to LocalPOReceiptLine
+					invoked.Company						= Company
+					invoked.PurchaseOrder				= PurchaseOrderReceipt.PurchaseOrder
+					invoked.PurchaseOrderReceipt		= PurchaseOrderReceipt
+					invoked.PurchaseOrderReceiptLine	= PurchaseOrderReceipt.PurchaseOrder.LastPurchaseOrderLine
+					invoked.PurchaseOrderLine 			= PurchaseOrderLine
+					
+					invoked.OriginalReceivedQuantity 	= PrmEnteredReceivedQuantity
+					invoked.EnteredReceivedQuantity		= PrmEnteredReceivedQuantity
+					invoked.ReceivedUOM					= PrmReceivedUOM
+					invoked.Item						= PrmItem
+					invoked.ItemType					= PrmItemType			                   
+					invoked.VendorItem					= PrmVendorItem
+					invoked.ItemGTIN					= PrmItemGTIN
+					invoked.Description					= PrmItemDescription
+					invoked.ShipToLocation				= ShipToLocation
+				
+				Substitute = true
+		
+		CancelRemaining is an Instance Action
+			valid when (CanCancelRemaining)
+			Action Rules
+				CancelRemaining = true
+				if (PurchaseOrderReceiptLine entered)
+					invoke CancelRemaining PurchaseOrderReceiptLine
+				else
+					confirmation required
+						"ThisWillCancelTheRemainingItems"
+					invoke UpdateFromReceiptLine PurchaseOrderLine
+						invoked.PrmPurchaseOrderReceipt 	= PurchaseOrderReceipt
+						invoked.PrmPurchaseOrderReceiptLine = PurchaseOrderLine
+						invoked.PrmIsCancelRemaining		= CancelRemaining
+						invoked.PrmCurrentReceiptQuantity	= DerivedReceivedQuantityInPOUOM
+				
+		Purge is a Purge Action
+			restricted
+
+					

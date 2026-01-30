@@ -1,0 +1,696 @@
+DebtInstrumentIdentifierAmortizationSchedule is a BusinessClass
+    owned by treasury
+    prefix is DMIAS
+	sql name is AmortizationSchedule
+	
+    Ontology
+    	symbolic key is DebtInstrumentIdentifierAmortizationSchedule
+
+	Patterns
+		implements AnalyticCube
+ 			disable continuous update
+ 			dynamically calculate totals
+ 			
+    Persistent Fields
+		GeneralLedgerCompany
+			default label is "GlobalLedgerCompany"
+		AmortizationType			is Numeric 2
+			States
+				InterestAccrual			value is 1	
+				InterestPayment			value is 2
+				Principal				value is 3
+				ManualPrincipal			value is 4
+		AmortizationPeriod	  	 	is Numeric size 3
+			default label is "Period"
+		PaymentDate			  	 	is an ExchangeDate
+			default label is "Date"
+		UnadjustedPaymentDate		is Date
+			default label is "Date"
+		BeginningBalance	  	 	is an InternationalCost
+			precision is 2
+		PrincipalAmount		  	 	is an InternationalCost
+			default label is "Principal"
+			precision is 2
+		AdditionalPrincipalAmount	is an InternationalCost
+			default label is "AdditionalPrincipal"
+			precision is 2
+		EndingBalance		  	 	is an InternationalCost
+			precision is 2
+		InterestAdjustment	  	 	is an InternationalCost
+			precision is 2
+		CashForecastAccount		 	is a snapshot of DebtInstrument.CashForecastAccount
+		CashTransactionCategory  	is a snapshot of DebtInstrument.CashTransactionCategory
+		
+	Local Fields
+		LocalCashForecast 		 	is a CashForecast
+		LocalCashForecastAccount 	is a CashForecastAccount
+		LocalPaymentDate		 	is Date
+		LocalPaymentAmount		 	is an InternationalCost
+		LocalDebtRateTable		 	is a DebtRateTable
+		LocalDebtRateTableDetail 	is a DebtRateTableDetail
+			version is PaymentDate
+		LocalInterestPaymentDate	is Date
+
+
+
+			
+	Derived Fields
+		PaymentDatePeriod is a DerivedField
+			type is Numeric size 2
+			restricted
+			return PaymentDate month
+			
+		PaymentDateYear	is a DerivedField
+			type is Numeric size 4
+			restricted
+			return PaymentDate year
+		
+		CurrentDate is a DerivedField
+			type is Date
+			restricted
+			return current corporate date
+			
+		CurrentPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			return CurrentDate month
+		
+		CurrentYear is a DerivedField
+			type is Numeric 4
+			restricted
+			return CurrentDate year
+		
+		PreviousInterestCalculationDate is a DerivedField
+			type is Date
+			restricted
+			if (AmortizationType.InterestAccrual
+			or  AmortizationType.ManualPrincipal)
+				if (PreviousInterestAccrualDateRel exists)
+					if (DebtInstrumentIdentifier.DayCountConvention.30360)
+						return last PreviousInterestAccrualDateRel.UnadjustedPaymentDate
+					else
+						return last PreviousInterestAccrualDateRel.PaymentDate
+				else
+					return DebtInstrument.IssueDate
+		
+		PreviousInterestPaymentDate is a DerivedField
+			type is Date
+			restricted
+			if (AmortizationType.InterestPayment)
+				if (PreviousInterestPaymentDateRel exists)
+					LocalInterestPaymentDate = last PreviousInterestPaymentDateRel.PaymentDate
+					if (InterestAccrualForLastPaymentDateRel exists)
+						return LocalInterestPaymentDate + 1 
+					else
+						return LocalInterestPaymentDate
+				else
+					return DebtInstrument.IssueDate
+					
+		AlphaPreviousInterestCalculationDateYear is a DerivedField
+			type is Alpha 4
+			restricted
+			return (PreviousInterestCalculationDate year)
+			
+		AlphaPaymentDateYear is a DerivedField
+			type is Alpha 4
+			restricted
+			return (PaymentDate year)
+				
+		LastDayOfYearForPreviousInterestCalculationDate is a DerivedField
+			type is Date
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.ActualActual)
+				return (AlphaPreviousInterestCalculationDateYear + "1231")
+						
+		FirstDayOfYearForPaymentDate is a DerivedField
+			type is Date
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.ActualActual)
+				return (AlphaPaymentDateYear + "0101")
+			
+		DebtPaymentMessage is a MessageField
+			restricted
+			"Debt"
+		
+		CorporateBasePaymentAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Payment"
+			if (DebtInstrument.DebtCurrencyEqualsCorporateBaseCurrency)
+				return PaymentAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (PaymentAmount * DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (PaymentAmount / DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+				
+		CorporateBaseInterestAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Interest"
+			if (DebtInstrument.DebtCurrencyEqualsCorporateBaseCurrency)
+				return InterestAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (InterestAmount * DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (InterestAmount / DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			
+		CorporateBasePrincipalAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Principal"
+			if (DebtInstrument.DebtCurrencyEqualsCorporateBaseCurrency)
+				return (PrincipalAmount + AdditionalPrincipalAmount)
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return ((PrincipalAmount + AdditionalPrincipalAmount) * DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			else
+				return ((PrincipalAmount + AdditionalPrincipalAmount) / DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			
+		CorporateBaseBalanceAmount is a DerivedField 
+			type is like InternationalCost
+				precision is 2
+			default label is "Balance"
+			if (DebtInstrument.DebtCurrencyEqualsCorporateBaseCurrency)
+				return EndingBalance
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (EndingBalance * DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (EndingBalance / DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			
+		LocationCurrencyPaymentAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Payment"
+			restricted
+			if (DebtInstrument.DebtCurrencyEqualsLocationCurrency)
+				return PaymentAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (PaymentAmount * DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (PaymentAmount / DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			
+		LocationCurrencyInterestAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Interest"
+			restricted
+			if (DebtInstrument.DebtCurrencyEqualsLocationCurrency)
+				return InterestAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (InterestAmount * DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (InterestAmount / DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			
+		LocationCurrencyPrincipalAmount	is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Principal"
+			restricted
+			if (DebtInstrument.DebtCurrencyEqualsLocationCurrency)
+				return (PrincipalAmount + AdditionalPrincipalAmount)
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return ((PrincipalAmount + AdditionalPrincipalAmount) * DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			else
+				return ((PrincipalAmount + AdditionalPrincipalAmount) / DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			
+		LocationCurrencyBalanceAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Balance"
+			restricted
+			if (DebtInstrument.DebtCurrencyEqualsLocationCurrency)
+				return EndingBalance
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (EndingBalance * DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (EndingBalance / DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+		
+		SumOfInterestPayments is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			restricted
+			if (AmortizationType.InterestPayment)
+				return (sum InterestAccrualRel.RoundedInterestAmount)    
+				
+		PaymentAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Payment"
+			if (DebtInstrumentIdentifier.InterestFrequency != DebtInstrumentIdentifier.InterestPayment)
+				if (AmortizationType.InterestPayment)
+					return (PrincipalAmount + AdditionalPrincipalAmount + SumOfInterestPayments)
+				else
+				if (AmortizationType.ManualPrincipal)
+					return (PrincipalAmount + AdditionalPrincipalAmount + InterestAmount)
+				else
+					return (PrincipalAmount + AdditionalPrincipalAmount)
+			else
+				return (PrincipalAmount + AdditionalPrincipalAmount + InterestAmount)
+		
+		DayCountDaysInPaymentPeriod is a DerivedField 
+			type is Numeric 3
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.30360)
+				return ((UnadjustedPaymentDate year - PreviousInterestCalculationDate year) * 360 + (UnadjustedPaymentDate month - PreviousInterestCalculationDate month) * 30 + (UnadjustedPaymentDate day - PreviousInterestCalculationDate day))
+			else
+			if (DebtInstrumentIdentifier.DayCountConvention.Actual360
+			or  DebtInstrumentIdentifier.DayCountConvention.Actual365)
+				if (PaymentDate = DebtInstrument.IssueDate)
+					return 1
+				else
+					return (PaymentDate - PreviousInterestCalculationDate)
+		
+		DayCountTotalDaysInYear is a DerivedField 
+			type is Numeric 3
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.30360
+			or  DebtInstrumentIdentifier.DayCountConvention.Actual360)
+				return 360
+			else
+			if (DebtInstrumentIdentifier.DayCountConvention.Actual365)
+				return 365
+		
+		DayCountActualActual is a DerivedField 
+			type is Decimal 31.15
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.ActualActual)
+				if (PaymentDate is leap year
+				and PreviousInterestCalculationDate is leap year)
+					return ((PaymentDate - PreviousInterestCalculationDate) / 366)
+				else
+				if (PaymentDate is leap year) 
+					return (((LastDayOfYearForPreviousInterestCalculationDate + 1 - PreviousInterestCalculationDate) / 365) + ((PaymentDate - FirstDayOfYearForPaymentDate) / 366))
+				else
+				if (PreviousInterestCalculationDate is leap year) 
+					return (((LastDayOfYearForPreviousInterestCalculationDate + 1 - PreviousInterestCalculationDate) / 366) + ((PaymentDate - FirstDayOfYearForPaymentDate) / 365))
+				else
+				if (PaymentDate = DebtInstrument.IssueDate)
+					return (1 / 365)
+				else
+					return ((PaymentDate - PreviousInterestCalculationDate) / 365)
+		
+		DayCountFactor is a DerivedField
+			type is Decimal 31.15
+			restricted
+			if (DebtInstrumentIdentifier.DayCountConvention.ActualActual)
+				return DayCountActualActual
+			else
+				return (DayCountDaysInPaymentPeriod / DayCountTotalDaysInYear)
+		
+		AdjustedVariableRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			if (DebtInstrumentIdentifier.DebtRateTable entered)
+				LocalDebtRateTable = DebtInstrumentIdentifier.DebtRateTable
+				return ((LocalDebtRateTableDetail.MarketRate + DebtInstrumentIdentifier.SpreadRate) * DebtInstrumentIdentifier.RateFactor)
+					
+		VariableInterestRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			if (DebtInstrumentIdentifier.DebtRateTable entered)
+				if (DebtInstrumentIdentifier.RateFloor entered
+				and DebtInstrumentIdentifier.RateCap entered)
+					if (AdjustedVariableRate < DebtInstrumentIdentifier.RateFloor)
+						return DebtInstrumentIdentifier.RateFloor
+					else
+					if (AdjustedVariableRate > DebtInstrumentIdentifier.RateCap)
+						return DebtInstrumentIdentifier.RateCap
+					else	
+						return AdjustedVariableRate
+				else
+				if (DebtInstrumentIdentifier.RateFloor entered)
+					if (AdjustedVariableRate < DebtInstrumentIdentifier.RateFloor)
+						return DebtInstrumentIdentifier.RateFloor
+					else	
+						return AdjustedVariableRate
+				else
+				if (DebtInstrumentIdentifier.RateCap entered)
+					if (AdjustedVariableRate > DebtInstrumentIdentifier.RateCap)
+						return DebtInstrumentIdentifier.RateCap
+					else	
+						return AdjustedVariableRate
+				else
+					return AdjustedVariableRate
+					
+		DerivedInterestRate is a DerivedField
+			type is Percent 10.8
+			default label is "InterestRate"
+			if (AmortizationType.InterestAccrual
+			or	AmortizationType.ManualPrincipal)
+				return (DebtInstrumentIdentifier.FixedInterestRate + VariableInterestRate)
+		
+		InterestAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			default label is "Interest"
+			if (DebtInstrumentIdentifier.PrincipalCalculation.StraightLine)
+				return ((BeginningBalance * DerivedInterestRate / DebtInstrumentIdentifier.CompoundType) + InterestAdjustment)
+			else
+			if (AmortizationType.ManualPrincipal)
+				return ((PrincipalAmount * DerivedInterestRate * DayCountFactor) + InterestAdjustment) 
+			else
+				return ((BeginningBalance * DerivedInterestRate * DayCountFactor) + InterestAdjustment)
+		
+		RoundedInterestAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return InterestAmount
+		
+
+
+
+
+
+					
+	Field Rules
+		UnadjustedPaymentDate
+			default to PaymentDate
+			
+		BeginningBalance
+			LocalPaymentDate = PaymentDate
+			
+			if (!LocalPreviousAmortizationPaymentDateRel exists) 									
+				if (!LocalPreviousAmortizationTypeRel exists) 										
+					force default to DebtInstrumentIdentifier.OriginalPrincipalAmount 				
+				else
+					force default to last LocalPreviousAmortizationTypeRel.EndingBalance 			
+			else
+				if (!LocalPreviousAmortizationTypeRel exists) 										
+					force default to last LocalPreviousAmortizationPaymentDateRel.EndingBalance 	
+				else
+					force default to last LocalPreviousAmortizationTypeRel.EndingBalance 			
+				
+		PrincipalAmount
+			if (LocalPaymentAmount entered)
+				force default to (LocalPaymentAmount - InterestAmount)
+				
+		EndingBalance
+			force default to (BeginningBalance - PrincipalAmount - AdditionalPrincipalAmount)
+							
+	Dimensions
+		PaymentDatePeriod 
+	    	is a monthly period dimension with year of PaymentDateYear
+	    		current year is CurrentYear
+	    		current period is CurrentPeriod
+	    DebtInstrument
+
+
+	    DebtInstrument.DebtGroup
+			dimension name is DebtGroup
+		DebtInstrument.DebtType
+			dimension name is DebtType
+		DebtInstrument.CashManagementLocation
+			dimension name is CashManagementLocation
+		DebtInstrument.DebtReportGroup
+			dimension name is ReportGroup
+		DebtInstrument.LegalEntityGroup.LegalEntity
+			dimension name is LegalEntity
+		DebtInstrumentIdentifier
+		
+	Measures
+		PaymentAmount
+		InterestAmount
+		PrincipalAmount
+		EndingBalance
+		CorporateBasePaymentAmount
+		CorporateBaseInterestAmount
+		CorporateBasePrincipalAmount
+		CorporateBaseBalanceAmount
+		LocationCurrencyPaymentAmount
+		LocationCurrencyInterestAmount
+		LocationCurrencyPrincipalAmount
+		LocationCurrencyBalanceAmount
+		DerivedInterestRate
+
+	
+	Sets
+		ByPaymentDate
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				DebtInstrumentIdentifier
+				PaymentDate
+				AmortizationType
+				DebtInstrumentIdentifierAmortizationSchedule
+		
+		ByDebtInstrumentPaymentDate 
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				PaymentDate
+				DebtInstrumentIdentifier
+				DebtInstrumentIdentifierAmortizationSchedule
+				
+		ByAmortizationPeriod
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				DebtInstrumentIdentifier
+				AmortizationPeriod
+				DebtInstrumentIdentifierAmortizationSchedule
+	
+	Conditions
+		HasInterestAdjustment
+			restricted
+			when (InterestAdjustment entered)
+						
+	Relations
+		CashForecastPeriodRel
+			one-to-one relation to CashForecastPeriod
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		  				  = CashManagementGroup
+				related.CashForecast		  					  = LocalCashForecast
+				related.CashForecastAccount.CashManagementAccount = LocalCashForecastAccount
+				related.CashForecastPeriod		  				  = PaymentDate
+		
+		LocalPreviousAmortizationPaymentDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup	  	 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate < LocalPaymentDate)
+		
+		LocalPreviousAmortizationTypeRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup		 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate = LocalPaymentDate
+				and    related.AmortizationType < AmortizationType)
+				
+		PreviousInterestAccrualDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup		 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate < PaymentDate
+				and    related.AmortizationType.InterestAccrual)
+		
+		PreviousInterestPaymentDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup	  	 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate < PaymentDate
+				and    related.AmortizationType.InterestPayment)
+				
+		SubsequentAmortizationPaymentDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup		 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate >= PaymentDate
+				and    related.UniqueID    != UniqueID)
+		
+		AmortizationByPaymentDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup		 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+		
+		InterestAccrualRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup		 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+			Instance Selection
+				where (related.PaymentDate <= PaymentDate
+				and	   related.PaymentDate >= PreviousInterestPaymentDate
+				and    related.AmortizationType.InterestAccrual)
+		
+		InterestAccrualForLastPaymentDateRel
+			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+			Field Mapping uses ByPaymentDate
+				related.CashManagementGroup	  	 = CashManagementGroup
+				related.DebtInstrument 			 = DebtInstrument
+				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+				related.PaymentDate 			 = LocalInterestPaymentDate
+				related.AmortizationType		 = 1 
+					 		
+	Actions
+		Create is a Create Action
+			restricted
+				
+		ManualPrincipalPayment is an Instance Action
+			valid when (DebtInstrumentIdentifier.PrincipalCalculation.Manual)
+			Parameters
+				PrmPaymentDate		is Date
+				PrmPrincipalAmount	is like InternationalCost
+					precision is 2
+			
+			Parameter Rules
+				PrmPaymentDate
+					constraint (PrmPaymentDate >= DebtInstrument.IssueDate
+					and			PrmPaymentDate <= DebtInstrumentIdentifier.MaturityDate)
+						"PaymentDateMustBeBetween<DebtInstrument.IssueDate>And<DebtInstrumentIdentifier.MaturityDate>"
+					
+					required
+						"PaymentDateIsRequired"
+					
+				PrmPrincipalAmount
+					LocalPaymentDate = PrmPaymentDate
+					
+					constraint (PrmPrincipalAmount <= last LocalPreviousAmortizationPaymentDateRel.EndingBalance)
+						"PrincipalAmountMustBeLessThanTheRemainingBalanceOf<last LocalPreviousAmortizationPaymentDateRel.EndingBalance>"
+					
+					constraint (PrmPrincipalAmount >= 0)
+						"PrincipalAmountMustBeGreaterThanZero"
+						
+					required
+						"PrincipalAmountIsRequired"
+			
+			Local Fields
+				NewPrincipalPayment	is a DebtInstrumentIdentifierAmortizationSchedule view
+					
+			Action Rules
+				invoke Create
+					assign result to NewPrincipalPayment
+					invoked.CashManagementGroup			= CashManagementGroup
+					invoked.DebtInstrument				= DebtInstrument
+					invoked.DebtInstrumentIdentifier	= DebtInstrumentIdentifier
+					invoked.PaymentDate					= PrmPaymentDate
+					invoked.PrincipalAmount				= PrmPrincipalAmount
+					invoked.AmortizationType 			= 4 
+			
+			Exit Rules
+				for each NewPrincipalPayment.DebtInstrumentIdentifierAmortizationSchedule.SubsequentAmortizationPaymentDateRel
+					invoke Update each
+		
+		InterestAdjustment is an Instance Action
+			Parameters
+				InterestAdjustmentAmount	is like InternationalCost
+					precision is 2
+			
+			Parameter Rules
+				InterestAdjustmentAmount
+					required
+						"InterestAdjustmentAmountIsRequired"
+			
+			Action Rules
+				InterestAdjustment = InterestAdjustmentAmount
+		
+		RemoveInterestAdjustment is an Instance Action
+			valid when (HasInterestAdjustment)
+			confirmation required
+				"TheInterestAdjustmentWillBeRemoved;WouldYouLikeToContinue?"
+
+			Action Rules
+				initialize InterestAdjustment
+				
+		Update is an Update Action
+			Exit Rules
+				if (AdditionalPrincipalAmount changed)
+					for each SubsequentAmortizationPaymentDateRel
+						invoke Update each
+		
+		UpdateSubsequent is an Update Action
+			restricted
+			Exit Rules
+				for each AmortizationByPaymentDateRel
+					invoke Update each
+											
+		GetDebtTransactions is a Set Action
+  			restricted
+			Parameters
+				PrmCashManagementGroup		 is a CashManagementGroup
+				PrmDebtInstrument			 is a DebtInstrument
+				PrmCashForecast				 is a CashForecast
+				PrmCashAccount				 is a CashForecastAccount
+				PrmCategory					 is a CashTransactionCategory
+				PrmForecastDateRange		 is a DateRange
+				PrmForecastDebtComponent	 is a ForecastDebtComponent
+				
+			Sort Order 
+				CashManagementGroup
+				DebtInstrument
+				PaymentDate
+				DebtInstrumentIdentifier
+				DebtInstrumentIdentifierAmortizationSchedule
+
+			Instance Selection
+				where (CashManagementGroup = PrmCashManagementGroup
+				and	   DebtInstrument = PrmDebtInstrument
+				and    PrmForecastDebtComponent = PrmForecastDebtComponent 
+				and	   PaymentDate entered
+				and	   PaymentDate within PrmForecastDateRange)
+			
+			Accumulators
+				TotalPaymentAmount
+				TotalPrincipalAmount
+				TotalInterestAmount
+					
+			Action Rules
+				PaymentDate Set Rules
+					Exit Rules
+						LocalCashForecast = PrmCashForecast
+						LocalCashForecastAccount = PrmCashAccount
+						
+						if (CashForecastPeriodRel exists)
+							invoke Create CashForecastDetail
+								invoked.CashManagementGroup							 = PrmCashManagementGroup
+								invoked.CashForecast								 = PrmCashForecast
+								invoked.CashForecastAccount.CashManagementAccount	 = PrmCashAccount
+								invoked.CashForecastPeriod							 = PaymentDate
+								invoked.CashForecastCategory.CashTransactionCategory = PrmCategory
+								invoked.Description									 = DebtPaymentMessage + " " + PrmForecastDebtComponent + ":" + PrmDebtInstrument
+								if (PrmForecastDebtComponent.Payment)
+									invoked.ForecastAmount							 = (TotalPaymentAmount * -1)
+								else
+								if (PrmForecastDebtComponent.Principal)
+									invoked.ForecastAmount							 = (TotalPrincipalAmount * -1)
+								else
+									invoked.ForecastAmount							 = (TotalInterestAmount * -1)
+								invoked.IsSystemCalculated						  	 = true
+									
+				Instance Rules
+					TotalPaymentAmount += PaymentAmount
+					TotalPrincipalAmount += (PrincipalAmount + AdditionalPrincipalAmount)
+					TotalInterestAmount += InterestAmount
+						
+		Delete is a Delete Action
+			valid when (AmortizationType.ManualPrincipal)
+			Action Rules
+				for each SubsequentAmortizationPaymentDateRel
+					invoke Update each
+	
+		Purge is a Purge Action
+			restricted

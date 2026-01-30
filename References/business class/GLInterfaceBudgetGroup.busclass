@@ -1,0 +1,195 @@
+GLInterfaceBudgetGroup is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLIBG
+	default label is "GlobalLedgerInterfaceBudgetGroup"
+
+	Ontology
+		symbolic key is GLInterfaceBudgetGroup
+
+	Patterns
+		disable Auditing
+		disable EffectiveDated
+		disable AsOfDateProcessing
+
+				
+	Persistent Fields
+		BypassStructureRelationEdit				is Boolean
+		OriginatingInterfaceRun					is a GLTransactionInterfaceResult
+		InterfaceInDetail						is Boolean
+		JournalizeByEntity						is Boolean
+		ErrorRunGroup							is AlphaUpper 30
+		ErrorRunGroupPrefix						is AlphaUpper 15
+		MoveErrorsToNewRunGroup					is Boolean
+		PrimaryLedger							is a Ledger
+	
+	Local Fields
+		LocalErrorRunGroup						is AlphaUpper 30
+	
+	Transient Fields
+		TransAutoReverseDate		is Date
+				
+	Derived Fields
+		DerivedErrorMessage is a MessageField
+			"BudgetError"
+		DerivedErrorsExist is a DerivedField
+			type is Boolean
+			if (BudgetErrorsExist)
+				return true
+			else
+				return false
+	
+	Conditions
+		BudgetErrorsExist
+			when (BudgetEditErrorRel exists)
+	
+	Sets
+		ByInterfaceUniqueID
+    		Sort Order
+    			UniqueID
+    	ByOriginatingInterfaceRun
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			OriginatingInterfaceRun
+    			GLInterfaceBudgetGroup.RunGroup
+    			GLInterfaceBudgetGroup.Entity		   	
+    			
+    Relations
+    	GLTransactionInterfaceRunGroupRel
+    		one-to-many relation to GLTransactionInterface
+    		Field Mapping uses ByRunGroupEntity
+    			related.FinanceEnterpriseGroup					= FinanceEnterpriseGroup
+    			related.GLTransactionInterface.RunGroup			= GLInterfaceBudgetGroup.RunGroup
+    			
+    	GLTransactionInterfaceEntityRel
+    		one-to-many relation to GLTransactionInterface
+    		Field Mapping uses ByRunGroupEntity
+    			related.FinanceEnterpriseGroup					= FinanceEnterpriseGroup
+    			related.GLTransactionInterface.RunGroup			= GLInterfaceBudgetGroup.RunGroup
+    			related.AccountingEntity						= GLInterfaceBudgetGroup.Entity	
+    			
+    	BudgetEditErrorRel
+    		one-to-many relation to BudgetEditError
+    		Field Mapping uses ByBudgetGroup
+    			related.FinanceEnterpriseGroup					= FinanceEnterpriseGroup
+    			related.BudgetEditError.BudgetEditGroup			= GLInterfaceBudgetGroup.UniqueID
+    			
+
+
+
+
+
+    			
+    Actions
+    	Create is a Create Action
+    		restricted
+    	
+    	Update is an Update Action
+    		restricted
+    	
+    	Delete is a Delete Action
+			restricted
+			
+			Exit Rules
+				invoke Purge BudgetEditErrorRel
+				
+				invoke PurgeGroupTotalsForEditGroup BudgetTemplateGroupTotal
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup				= GLInterfaceBudgetGroup.UniqueID
+    	
+    	Purge is a Purge Action
+    		restricted
+    		
+    		Exit Rules
+    			invoke Purge BudgetEditErrorRel
+    		
+				invoke PurgeGroupTotalsForEditGroup BudgetTemplateGroupTotal
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmBudgetEditGroup				= GLInterfaceBudgetGroup.UniqueID
+    	
+    	CompleteInterface is an Instance Action
+    		restricted
+    		run in foreground
+    		completion message is "InterfaceComplete"
+    		
+			Parameters
+				PrmAutoReverseDate			is Date
+				PrmCurrencyTable			is a CurrencyTable
+					default label is "CurrencyTable"				
+
+    		Local Fields
+    			LocalAccountingEntity		is an AccountingEntity
+    			
+    		Entrance Rules
+    			LocalAccountingEntity 		= GLInterfaceBudgetGroup.Entity
+				if (PrmAutoReverseDate entered)															
+					TransAutoReverseDate    = PrmAutoReverseDate
+    			
+    		Action Rules
+				invoke DeleteBudgetEditRecords GLTransactionInterface in background
+					invoked.PrmEnterpriseGroup				= FinanceEnterpriseGroup
+					invoked.PrmAccountingEntity				= GLInterfaceBudgetGroup.Entity
+					invoked.PrmRunGroup						= GLInterfaceBudgetGroup.RunGroup
+    			
+    			if (!GLInterfaceBudgetGroup.Entity entered
+				and !JournalizeByEntity)
+    				invoke JournalizeTransactions GLTransactionDetail in background
+						invoked.PrmEnterpriseGroup			   = FinanceEnterpriseGroup
+						invoked.PrmJournalizeGroup			   = GLInterfaceBudgetGroup.RunGroup
+						invoked.PrmBypassStructureRelationEdit = BypassStructureRelationEdit
+						invoked.PrmOriginatingInterfaceRun	   = OriginatingInterfaceRun
+						invoked.PrmInterfaceInDetail		   = InterfaceInDetail
+			            invoked.PrmAutoReverseDate             = TransAutoReverseDate						
+						invoked.PrmPrimaryLedger			   = PrimaryLedger
+				else
+					invoke InitiateJournalize LocalAccountingEntity
+						invoked.PrmJournalizeGroup			   = GLInterfaceBudgetGroup.RunGroup
+						invoked.PrmOriginatingInterfaceRun	   = OriginatingInterfaceRun
+						invoked.PrmInterfaceInDetail		   = InterfaceInDetail
+			            invoked.PrmAutoReverseDate             = TransAutoReverseDate	
+			            invoked.PrmCurrencyTable			  = PrmCurrencyTable					
+    					invoked.PrmPrimaryLedger			   = PrimaryLedger
+
+    		Exit Rules
+				invoke Purge
+    			
+    	BudgetError is an Instance Action
+    		restricted
+    		run in foreground
+    		completion message is "BudgetEditErrors"
+    		
+    		Entrance Rules
+    		
+    		Action Rules
+    			invoke MoveToErrorForBudgetEdit GLTransactionInterface in background
+    				invoked.PrmEnterpriseGroup				= FinanceEnterpriseGroup
+					invoked.PrmAccountingEntity				= GLInterfaceBudgetGroup.Entity
+					invoked.PrmRunGroup						= GLInterfaceBudgetGroup.RunGroup
+					invoked.PrmOrigInterfaceRun				= OriginatingInterfaceRun
+					if (ErrorRunGroup not entered
+					and MoveErrorsToNewRunGroup)
+						increment FinanceEnterpriseGroup.LastErrorRunGroupNumber
+						LocalErrorRunGroup = ErrorRunGroupPrefix + "ERRORS_" + FinanceEnterpriseGroup.LastErrorRunGroupNumber
+						invoked.PrmErrorRunGroup			= LocalErrorRunGroup					
+					else
+						invoked.PrmErrorRunGroup			= ErrorRunGroup
+    						
+    		Exit Rules
+	
+    		
+    	InterfaceTransactions is an Instance Action
+			completion message is "RunGroupQueuedForBudgetEdit"
+			valid when (BudgetErrorsExist)
+					
+			Local Fields
+
+			Action Rules
+				if (GLInterfaceBudgetGroup.Entity entered)	
+					invoke EditTotalsRoute BudgetTemplateGroupTotal
+						invoked.PrmFinanceEnterpriseGroup							= FinanceEnterpriseGroup
+						invoked.PrmBudgetEditGroup									= GLInterfaceBudgetGroup.UniqueID
+						invoked.PrmMode												= BudgetEditMode.Hard
+						invoked.PrmBudgetEditCallBack.BudgetEditCallBackReference	= reference to this instance
+						invoked.PrmBusinessClassName				= "GLInterfaceBudgetGroup"
+						invoked.PrmEditContext						= "BudgetError"
+			
+    			

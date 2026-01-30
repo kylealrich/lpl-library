@@ -1,0 +1,186 @@
+ContractAttachment is a BusinessClass
+	owned by po
+	prefix is Contb
+
+	Ontology
+		part of Contract
+			relative key is Sequence
+
+	Persistent Fields
+		Attachment		is an AlternateAttachment
+		Name
+		Description		is a Description3
+		SSAttachment	is Boolean
+		SupplierCanView
+		EmailAttachment	is Boolean
+		Source			is Numeric size 2
+			States
+				Manual					value is 1
+				Event					value is 2
+				EventResponse			value is 3
+				EventQuestionResponse	value is 4
+				SupplierProposal		value is 5
+				RequesterProposal		value is 6
+
+	Local Fields
+		LocalAttributeCtr   is Numeric 2
+
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 35
+			restricted
+			"InforContractAttachment"
+
+		ContextMessageText is a MessageField
+			restricted
+			"ContractAttachment<Sequence>OfContract<Contract>"		
+
+	Conditions
+		RequesterCanCreateUpdateDelete
+			restricted
+			when (Contract.ProposedContract.ProposedNotSubmitted
+			or    Contract.ProposedContract.ProposedSubmitted)
+
+		RequesterCanCreateNoItemAttachment
+			restricted
+			when (RequesterCanCreateUpdateDelete
+			and  !Contract.HasItemProposalAttachment)
+
+		EligibleForSourcing
+			restricted
+			when (Contract.SourcingEligible)
+
+		CanCreateUpdateDelete
+			restricted
+			when (!Contract.ContractStatus.Closed
+			and   !Source = 5)
+		AttachmentExists
+			restricted
+			when (Sequence > 0)
+
+	Sets
+		BySequence
+			Sort Order
+  				ContractGroup
+  				Contract
+				Sequence
+
+	Field Rules
+
+		Name
+			default to Attachment.Title
+
+		Source
+			default to Source.Manual
+
+		Sequence
+			autosequence
+		Attachment
+			required
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+	Actions
+		Create is a Create Action
+			valid when (CanCreateUpdateDelete)
+			Field Rules
+				SSAttachment
+					if (!Contract.CreateByCopy)
+						default to true
+				EmailAttachment
+					default to true
+				SupplierCanView
+					if (Contract.ContractSubclassification entered)
+						default to Contract.ContractSubclassification.SupplierCanView
+					else
+						default to Contract.ContractClassification.SupplierCanView
+
+		RequesterCreate is a Create Action
+			valid when (RequesterCanCreateUpdateDelete)
+			default label is "Create"
+			Field Rules
+				SSAttachment
+					default to true
+				EmailAttachment
+					default to true
+				SupplierCanView
+					if (Contract.ContractSubclassification entered)
+						default to Contract.ContractSubclassification.SupplierCanView
+					else
+						default to Contract.ContractClassification.SupplierCanView
+				Source
+					Source = Source.RequesterProposal
+
+		RequesterCreateItemAttachment is a Create Action
+			valid when (RequesterCanCreateNoItemAttachment)
+			default label is "CreateForLineItems"
+			Field Rules
+				SSAttachment
+					default to true
+				EmailAttachment
+					default to true
+				SupplierCanView
+					if (Contract.ContractSubclassification entered)
+						default to Contract.ContractSubclassification.SupplierCanView
+					else
+						default to Contract.ContractClassification.SupplierCanView
+				Source
+					Source = Source.RequesterProposal
+			
+			Action Rules 
+				Attachment.Title = "Line Item Details"
+				Name             = "Line Item Details"
+
+		Update is an Update Action
+			valid when (CanCreateUpdateDelete)
+
+		RequesterUpdate is an Update Action
+			default label is "Update"
+			valid when (RequesterCanCreateUpdateDelete)
+
+		Delete is a Delete Action
+			valid when (CanCreateUpdateDelete)
+
+		RequesterDelete is a Delete Action
+			default label is "Delete"
+			valid when (RequesterCanCreateUpdateDelete)
+
+		Purge is a Purge Action
+			restricted
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

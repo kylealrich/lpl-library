@@ -1,0 +1,313 @@
+StudentAssignedActivity is a BusinessClass
+    owned by studentactivities
+    prefix is SAAA
+
+    Ontology
+    	symbolic key is StudentAssignedActivity
+
+ 	Patterns
+ 		implements DynamicCreation
+
+    Persistent Fields
+		StudentFirstName				is Alpha 20
+		StudentLastName					is Alpha 30
+		CurrentReceiptAmount			is an InternationalAmount
+		LastDetailSequenceNumber		is Numeric 4
+		StudentActivityReceipt
+		StudentActivityReceiptDetail
+
+	Local Fields
+		LocalReceiptBatch	is Numeric 10
+
+	Derived Fields
+		TotalFeeAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentAssignedActivityDetail set.FeeAmount)
+
+		TotalReceipts is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentActivityReceiptDetailRel.DetailAmount)
+
+		UnpaidBalance is a DerivedField
+			type is like InternationalAmount
+			return (TotalFeeAmount - TotalReceipts)
+
+		PayButtonMessage is a ConditionalField
+			type is Alpha 7
+			if (PaymentInProcess)
+				"Update"
+			else	
+				"Pay"
+
+		DefaultReceiptAmount is a DerivedField
+ 			type is like InternationalAmount
+			if (CurrentReceiptAmount entered)
+				return CurrentReceiptAmount
+			else	
+			if (UnpaidBalance > 0)
+				return UnpaidBalance
+			else
+				return 0
+
+		EnrolledInClass is a DerivedField
+			type is Boolean
+			if (StudentEnrollmentRel		exists)
+				return true
+			else
+				return false
+				
+
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+
+
+	Context Fields
+		StudentActivityReceiptBatch
+
+	Sets
+		ByStudentActivityAccount
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				SchoolActivityAccount
+				StudentLastName
+				StudentFirstName
+
+		ByStudentName
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				StudentLastName
+				StudentFirstName
+				SchoolActivityAccount
+
+		ByActivityReceiptDetail
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				StudentActivityReceipt
+				StudentActivityReceiptDetail
+		
+	Relations
+		ActivityReceiptByBatchRel
+			one-to-many relation to StudentActivityReceipt
+			Field Mapping uses ByBatchNumber
+				related.StudentActivityDistrict			= StudentActivityDistrict
+				related.StudentActivityReceiptBatch		= LocalReceiptBatch 
+				related.StudentRecord					= StudentRecord
+
+		StudentActivityReceiptDetailRel
+			one-to-many relation to StudentActivityReceiptDetail
+			Field Mapping uses ByStudentRecord
+				related.StudentActivityDistrict			= StudentActivityDistrict
+				related.StudentRecord					= StudentRecord
+				related.StudentActivitySchool			= StudentActivitySchool
+				related.SchoolActivityAccount			= SchoolActivityAccount
+			Instance Selection
+				where (!related.Returned)
+
+		ReturnedActivityReceiptDetailRel
+			one-to-many relation to StudentActivityReceiptDetail
+			Field Mapping uses ByStudentRecord
+				related.StudentActivityDistrict			= StudentActivityDistrict
+				related.StudentRecord					= StudentRecord
+				related.StudentActivitySchool			= StudentActivitySchool
+				related.SchoolActivityAccount			= SchoolActivityAccount
+			Instance Selection
+				where (related.Returned)
+
+		SubActivityRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses symbolic key 
+				related.StudentActivityDistrict			= StudentActivityDistrict
+				related.StudentRecord					= StudentRecord
+				related.StudentActivitySchool			= StudentActivitySchool
+			Instance Selection
+				where (related.SchoolActivityAccount.StudentActivityAccount	= SchoolActivityAccount.StudentActivityAccount)
+
+		HasGroupedSubActivitiesRel is a SchoolActivityAccount set
+
+		StudentEnrollmentRel
+			one-to-one relation to StudentEnrollment
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict		= StudentActivityDistrict
+				related.StudentActivitySchool		= StudentActivitySchool
+				related.StudentActivitySchoolClass	= StudentActivityReceiptBatch.StudentActivitySchoolClass
+				related.StudentRecord				= StudentRecord
+
+			
+	Conditions
+		ActivityUnpaid
+			when (UnpaidBalance	> 0)
+
+		CanBePaid
+			when (!StudentActivityReceiptDetail set exists)
+
+		PaidActivity
+			when (StudentActivityReceiptDetail set exists)
+
+		PaymentReturned
+			when (ReturnedActivityReceiptDetailRel exists)
+
+		PaymentInProcess
+			when (CurrentReceiptAmount entered)
+
+		NoReceiptApplied
+			when (!StudentRecord.CurrentReceiptRecord entered
+			and   !HasHasExistingBatchReceipts)
+
+		HasHasExistingBatchReceipts
+			when (StudentActivityReceiptBatch	entered
+			and   any StudentRecord.StudentPaidReceiptsRel.StudentActivityReceiptBatch	= StudentActivityReceiptBatch)
+
+		ActivityOverPaid
+			when (UnpaidBalance	< 0)
+			
+		ActivityHasBalance
+			when (ActivityUnpaid or CurrentReceiptAmount entered)
+
+
+	Field Rules
+		StudentActivitySchool
+			initial value is StudentRecord.StudentActivitySchool
+			default to StudentRecord.StudentActivitySchool
+
+		StudentFirstName
+			initial value is StudentRecord.StudentFirstName
+			default to StudentRecord.StudentFirstName
+
+		StudentLastName
+			initial value is StudentRecord.StudentLastName
+			default to StudentRecord.StudentLastName
+
+
+	Actions
+		ManagePayment is an Instance Action
+			valid when (ActivityHasBalance)
+			Parameters
+				PrmReceiptAmount	is an InternationalAmount
+				PrmReceiptDate		is Date
+				PrmReferenceNumber	is Alpha 10
+				ClearCurrentReceipt	is Boolean
+				PrmReceiptBatch		is Numeric 10
+
+			Parameter Rules
+				PrmReceiptAmount
+					initial value is DefaultReceiptAmount
+					default to DefaultReceiptAmount
+					if (!ClearCurrentReceipt)
+						required
+							"PaymentAmountRequired"
+				PrmReceiptDate
+					initial value is StudentActivityReceiptBatch.BatchDate
+					default to StudentActivityReceiptBatch.BatchDate
+					initial value is current corporate date
+					default to current corporate date
+				PrmReceiptBatch
+					initial value is StudentActivityReceiptBatch
+					default to StudentActivityReceiptBatch
+
+			Action Rules
+				LocalReceiptBatch	= PrmReceiptBatch
+				if (ClearCurrentReceipt)
+					invoke ClearCurrentReceipt
+				else	
+					if (CurrentReceiptAmount entered)
+						invoke Update
+							invoked.CurrentReceiptAmount		= PrmReceiptAmount
+					else
+						invoke PayActivity
+							invoked.PrmReceiptAmount	= PrmReceiptAmount		
+							invoked.PrmReceiptDate		= PrmReceiptDate
+							invoked.PrmReferenceNumber	= PrmReferenceNumber
+				
+
+		PayActivity is an Instance Action
+			restricted
+			Parameters
+				PrmReceiptAmount	is an InternationalAmount
+				PrmReceiptDate		is Date
+				PrmReferenceNumber	is Alpha 10
+				
+			Action Rules
+				constraint (!CurrentReceiptAmount entered)
+					"CurrentReceiptAlreadyAppliedToActivity<SchoolActivityAccount>"
+				
+				if (!LocalReceiptBatch	entered)
+					if (!StudentRecord.CurrentReceiptRecord entered)
+						invoke CreateReceiptRecord StudentRecord
+							invoked.PrmReceiptDate				= PrmReceiptDate
+							invoked.PrmReferenceNumber			= PrmReferenceNumber
+							invoked.PrmStudentActivitySchool	= StudentActivitySchool
+	
+					constraint (StudentRecord.CurrentReceiptRecord.StudentActivitySchool	= StudentActivitySchool)
+						"CannotApplyPaymentForSchool<StudentRecord.CurrentReceiptRecord.StudentActivitySchool>ToReceiptForSchool<StudentActivitySchool>"
+					
+					invoke Create Entered StudentActivityReceiptDetail
+						invoked.StudentActivityDistrict								= StudentActivityDistrict
+						invoked.StudentActivitySchool								= StudentActivitySchool
+						invoked.StudentActivityReceipt								= StudentRecord.CurrentReceiptRecord.StudentActivityReceipt
+						invoked.SchoolActivityAccount								= SchoolActivityAccount
+						invoked.DetailAmount										= PrmReceiptAmount
+				else
+					if (ActivityReceiptByBatchRel exists)
+						invoke Create Entered StudentActivityReceiptDetail
+							invoked.StudentActivityDistrict			= StudentActivityDistrict
+							invoked.StudentActivitySchool			= StudentActivitySchool
+							invoked.StudentActivityReceipt			= ActivityReceiptByBatchRel.StudentActivityReceipt
+							invoked.SchoolActivityAccount			= SchoolActivityAccount
+							invoked.DetailAmount					= PrmReceiptAmount
+					else
+						invoke Create StudentActivityReceipt
+							invoked.StudentActivityDistrict		= StudentActivityDistrict
+							invoked.StudentActivitySchool		= StudentActivitySchool
+							invoked.ReferenceNumber				= PrmReferenceNumber
+							invoked.StudentRecord				= StudentRecord
+							invoked.ReceiptDate					= PrmReceiptDate
+							invoked.StudentActivityReceiptBatch	= LocalReceiptBatch 
+							invoked.SchoolActivityAccount		= SchoolActivityAccount
+							invoked.Amount						= PrmReceiptAmount
+							invoked.AddedFromStudentRecord		= true
+
+
+		ClearCurrentReceipt is an Instance Action
+			valid when (!CanBePaid)
+			Action Rules
+				invoke Update
+					initialize invoked.CurrentReceiptAmount
+		
+
+
+
+		DeleteIfNoDetailsExist is an Instance Action
+			restricted
+			Action Rules
+				if (!StudentAssignedActivityDetail set exists)
+					invoke DeleteActivity 
+
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+			Exit Rules
+				if (CurrentReceiptAmount changed)
+					if (!CurrentReceiptAmount entered)
+						invoke DeleteReceiptDetail Entered StudentActivityReceiptDetail
+						
+					else	
+						invoke UpdateDetailAmount Entered StudentActivityReceiptDetail
+							invoked.PrmCurrentReceiptAmount	= CurrentReceiptAmount
+					
+					
+		Delete is a Delete Action
+			Exit Rules
+				if (SchoolActivityAccount.GroupAllSubActivities)
+					invoke DeleteActivity SubActivityRel
+			
+		DeleteActivity is a Delete Action
+			restricted
+			

@@ -1,0 +1,211 @@
+TransferPricingEntity is a BusinessClass
+	owned by transpricing
+	
+	prefix is TRPRE
+	
+	Ontology
+		symbolic key is TransferPricingEntity
+		
+	Patterns
+		implements TemplateDriven by TransferPricingGlobalEntity
+			create instance
+				when (ReceivablesRevenueAccountOverride entered
+				or    PayablesExpenseAccountOverride entered)
+	
+	Persistent Fields
+		Company 								is a PayablesCompany
+		ReceivablesRevenueAccountOverride		is a TransferPricingCodeBlock
+		PayablesExpenseAccountOverride			is a TransferPricingCodeBlock
+		TransferPricingGlobalEntity
+		
+	Local Fields
+		LocalSkipCreateAdditionalEntity			is Boolean
+	
+	Transient Fields
+		CurrentPeriod							is a GeneralLedgerCalendarPeriod
+		
+	Derived Fields
+		DerivedOverrideFlag is a DerivedField
+			type is Boolean
+			return OverrideExists
+		
+		DerivedAdditionalEntityFlag is a DerivedField
+			type is Boolean
+			default label is "CombinedEntities"
+			return AdditionalEntityExist
+		
+		PayablesCompanyDescription is a MessageField
+			"<TransferPricingGlobalEntity.Company>_-_<TransferPricingGlobalEntity.Company.Name>"
+
+		TransferPricingDescription is a MessageField
+			"<TransferPricing>_-_<TransferPricing.Description>"
+		
+		TransferPricingEntityText		is a MessageField
+			restricted
+			"Bill_To_Entity"
+
+		TransferPricingEntityDescriptionTitle is a MessageField
+			restricted
+			"Bill_To_Entity<PayablesCompanyDescription>"
+	
+		TransferPricingEntityTitle		is a DerivedField
+			type is MessageField
+			if (TransferPricingGlobalEntity exists)
+				return TransferPricingEntityDescriptionTitle
+			else
+				return TransferPricingEntityText
+		
+	Field Rules
+		Company
+			if (not TransferPricing.AllEntities)
+				cannot be changed
+				constraint (Company.IsAValidIntercompanyBillingCompany)
+					"PayablesCompanyIsNotSetupForIntercompanyBilling"
+			
+		AccountingEntity
+			default to Company.AccountingEntity
+			required
+				"FieldPayablesCompanyIsRequired."
+			constraint (not TransferPricingDuplicateOfAdditionalEntityRel exists)
+				"<AccountingEntity>ExistsInBillToEntity<first TransferPricingDuplicateOfAdditionalEntityRel.AccountingEntity>"
+				
+		ReceivablesRevenueAccountOverride
+			default ReceivablesRevenueAccountOverride.ToAccountingEntity to TransferPricing.Company.AccountingEntity
+				
+		PayablesExpenseAccountOverride
+			if (TransferPricing.AllEntities)
+				default PayablesExpenseAccountOverride.ToAccountingEntity to TransferPricingGlobalEntity.Company.AccountingEntity
+			else
+				default PayablesExpenseAccountOverride.ToAccountingEntity to Company.AccountingEntity
+				
+	Conditions
+		CompanyExists
+			restricted
+			when (Company exists) 
+			
+		OverrideExists
+			restricted
+			when (TransferPricing.AllEntities
+			and this instance exists)
+			
+		AdditionalEntityExist
+			restricted
+			when (TransferPricingAdditionalEntitiesRel exists)
+		
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+			
+	Relations
+		TransferPricingSourceWithBillFromEntityAndRetainRel
+			one-to-many relation to TransferPricingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+			Instance Selection
+				where (related.SourceEntityBillFromEntityAndCalculationOptionRetainExists)
+				
+		TransferPricingEntityRel
+			one-to-many relation to TransferPricingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+				
+		TransferPricingEntityDuplicateRel
+			one-to-one relation to TransferPricingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+				related.AccountingEntity					= Company.GeneralLedgerCompany.AccountingEntity
+				
+		TransferPricingEntityWeightRel
+			one-to-many relation to TransferPricingEntityWeight
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+			Instance Selection
+				where (related.AccountingEntity = Company.AccountingEntity)
+		
+		TransferPricingAdditionalEntitiesRel
+			one-to-many relation to TransferPricingAdditionalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+				related.AccountingEntity					= AccountingEntity
+				
+		TransferPricingDuplicateOfAdditionalEntityRel
+			one-to-many relation to TransferPricingAdditionalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.TransferPricing						= TransferPricing
+			Instance Selection
+				where (related.AdditionalEntity				= AccountingEntity)
+		
+		TransferPricingGlobalEntityRel
+			one-to-one relation to TransferPricingGlobalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.AccountingEntity					= AccountingEntity
+				
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntityGroup	= actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity		= AccountingEntity
+							
+	Action Exit Rules
+		invoke UpdateChanged TransferPricing		
+		
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint (TransferPricingEntityDuplicateRel not exists)
+					"BillToEntityAlreadyExists"
+				if (TransferPricingSourceWithBillFromEntityAndRetainRel exists)
+					constraint (TransferPricingEntityRel not exists)
+						"CannotAddMultipleBillToEntitiesIfSourceEntityIsBillFromEntityAndCalculationOptionIsRetain."
+				if (TransferPricing.AllEntities)
+					LocalSkipCreateAdditionalEntity = true
+			Exit Rules
+				if (TransferPricingGlobalEntityRel.HasAdditionalEntities
+				and not LocalSkipCreateAdditionalEntity)
+					for each TransferPricingGlobalEntityRel.TransferPricingGlobalAdditionalEntity set
+						invoke Create TransferPricingAdditionalEntity
+							invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+							invoked.TransferPricing			= TransferPricing
+							invoked.AccountingEntity		= AccountingEntity 
+							invoked.AdditionalEntity 		= each.AdditionalEntity
+						
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			valid when (not TransferPricing.AllEntities)
+			Action Rules
+				for each TransferPricingEntityWeightRel
+					invoke Delete each
+					
+		DeleteOverride is an Instance Action
+			valid when (OverrideExists)
+			Action Rules
+				invoke Delete
+				
+		CombineEntity is an Instance Action
+			Parameters
+				PrmParentEntity 	is an AccountingEntity
+			Local Fields
+				LocalChildEntity	is an AccountingEntity
+			Action Rules
+				LocalChildEntity 	= AccountingEntity
+				
+				constraint (not PrmParentEntity = LocalChildEntity)
+					"ParentEntityMustBeDifferentFromThisEntity"
+				
+				invoke Delete
+			Exit Rules	
+				invoke Create TransferPricingAdditionalEntity
+					invoked.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+					invoked.TransferPricing			= TransferPricing
+					invoked.AccountingEntity		= PrmParentEntity
+					invoked.AdditionalEntity		= LocalChildEntity		
+				

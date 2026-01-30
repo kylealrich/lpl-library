@@ -1,0 +1,456 @@
+IntegrationConfiguration is a BusinessClass
+    owned by filecreation
+    prefix is icfgn
+	disable data area copy
+		preserve target data
+
+    Ontology
+        symbolic key is IntegrationConfiguration
+
+ 	Patterns
+		disable EffectiveDated
+	 	disable AsOfDateProcessing
+	 	
+    Persistent Fields
+		Integration is Numeric 3
+			States
+				LakehouseOperationalDataStore		value is 30
+
+		Active					 				is Boolean
+		IntegrationImage         				is an ImageAttachment 
+		DoNotPinToDashboard						is Boolean
+		ConfigureSummary						is Text
+			default label is "Summary"
+
+		MainFTPLastConnectionTest 				is TimeStamp
+		MainFTPLastConnectionResult 			is Text
+		ExternalFTPLastConnectionTest 			is TimeStamp
+		ExternalFTPLastConnectionResult 		is Text
+		EmailNotification						is Boolean
+		EmailReceiver 							is Text
+		EmailSubject							is Text
+		EmailBody								is Text
+		AdditionalBusinessClasses				is Text		
+
+	Transient Fields
+		TransientImageFile						is BinaryDocument
+			document template for IntegrationConfiguration
+
+	Local Fields
+
+		LocalExportFormat						is Alpha 1
+		LocalIncludeTime						is Boolean
+		LocalReplicateClassName					is Alpha size 127
+		LocalBusinessClass						is Alpha 200
+		LocalDescription						is like Description
+		LocalRelatedValue       				is Alpha size 300
+		LocalReplicationSet						is a ReplicationSet
+		LocalReplicationSchemaDestination		is a ReplicationSchemaDestination
+		LocalReplicationDataDestination			is a ReplicationDataDestination
+		LocalDataCreationResultView				is a DataCreationResult view
+		LocalError								is Boolean
+		LocalAsyncAction						is like BusinessAction
+		LocalImageTitle							is Alpha 50
+		LocalFinanceEnterpriseGroup				is like FinanceEnterpriseGroup
+
+	Field Rules
+		Active
+			initial value is true
+
+	Rule Blocks
+		TestConnectionRuleBlock
+			if ({ConnectionRelation} exist)
+				LocalErrorMessage = "Test connection successful"
+				invoke TestConnection {ConnectionRelation}
+					resume on error
+						LocalErrorMessage = error message
+				{LastTest}	 = current timestamp
+				{LastResult} = "SFTP: " + LocalErrorMessage
+			else
+				{LastTest}	 = current timestamp
+				{LastResult} = "SFTP: File Channel Not Available"
+
+		TestConnectionStatusCheck
+			TestConnectionError = true
+			if ({FullTestConnectionStatus} = "SFTP: Test connection successful")
+				TestConnectionError = false
+				return SuccessfulTestConnectionMessage
+			else
+				if ({FullTestConnectionStatus} like "*Login error java.net.UnknownHostException*") 
+					return UnknownHostErrorMF
+				else
+					if ({FullTestConnectionStatus} like "*Login error Auth fail*"
+					or {FullTestConnectionStatus} like "*Login error invalid privatekey*")
+						return AuthenticationErrorMF
+				return GenericConnectionErrorMF
+
+		SendEmail
+			send email
+				to LocalEmailReceiver
+				from EmailFrom
+				subject "<EmailSubject>"
+				Contents
+					"<EmailBody>"
+
+	Derived Fields
+		ImageFile is a DerivedField
+			type is BinaryDocument
+			if (Integration.LakehouseOperationalDataStore)
+				LocalImageTitle = "rightArrowEmerald.png"
+				return image.rightArrowEmerald 	
+			
+			LocalImageTitle = "interfaceAmethystOutline.png"
+			return image.interfaceAmethystOutline
+
+		ODSSchedulingAsyncErrorsExist is a DerivedField
+			type is Boolean
+			if (ODSSchedulingAsyncRel exists)
+				return true
+			return false
+
+		ODSAsyncErrorsExist is a DerivedField
+			type is Boolean
+			if (ODSRepSetAsyncRel exists)
+				return true
+			return false
+
+		ODSRepSetCount is a DerivedField
+			type is Numeric 2
+			default label is "ODSReplicationScheduleCount"
+			if (Integration.LakehouseOperationalDataStore)
+				return instance count of ODSReplicationScheduleRel
+
+		NoODSReplicationScheduled is a DerivedField
+			type is Boolean
+			if (Integration.LakehouseOperationalDataStore)
+				if (ODSRepSetCount = "0")
+					return true
+
+		ODSRepSetLastRun is a DerivedField
+			type is TimeStamp
+			default label is "ODSReplicationLastRun"
+			if (Integration.LakehouseOperationalDataStore)
+				if (ODSReplicationScheduleRel exists)
+					return first ODSReplicationScheduleRel.LastTimeToExec
+
+		ODSRepSetLastRunEntered is a DerivedField
+			type is Boolean
+			restricted
+			default label is untranslatable
+			if (Integration.LakehouseOperationalDataStore)
+				if (ODSRepSetLastRun entered)
+					return true
+
+		ODSRepSetNextRun is a DerivedField
+			type is TimeStamp
+			default label is "ODSReplicationNextRun"
+			if (Integration.LakehouseOperationalDataStore)
+				if (ODSReplicationScheduleRel exists)
+					return first ODSReplicationScheduleRel.TimeToExec
+
+		ODSRepSetScheduleFrequency is a DerivedField
+			type is Numeric 9
+			default label is "ODSReplicationScheduleFrequency"
+			if (Integration.LakehouseOperationalDataStore)
+				return first ODSReplicationScheduleRel.DerivedFrequency
+
+		ODSRepSetScheduleFrequencyType is a DerivedField
+			type is Text
+			default label is "ODSReplicationScheduleFrequencyType"
+			if (Integration.LakehouseOperationalDataStore)
+				if	(first ODSReplicationScheduleRel.DerivedFrequencyType = 3)
+					return HoursMF
+				if	(first ODSReplicationScheduleRel.DerivedFrequencyType = 2)
+					return MinutesMF
+				return SecondsMF
+
+		ODSRepSetSchedFrequencyAndType is a DerivedField
+			type is Text
+			default label is "ODSReplicationScheduleFrequencyAndType"
+			if (Integration.LakehouseOperationalDataStore)
+				return ODSRepSetScheduleFrequency + " " + ODSRepSetScheduleFrequencyType
+
+		ActiveDerivedMessage is a DerivedField
+			type is Alpha 30
+			if (Active)
+				return ActiveMessage
+			else
+				return InactiveMessage
+
+		ActiveMessage is a MessageField
+			"Active"
+			
+		InactiveMessage is a MessageField
+			"NotActive"
+
+		HoursMF is a MessageField
+			"Hours"
+
+		MinutesMF is a MessageField
+			"Minutes"
+
+		SecondsMF is a MessageField
+			"Seconds"
+
+		IntegrationName is a MessageField
+			"<Integration>"
+
+	Conditions
+		ConfigureLakehouseOperationalDataStoreActive
+			restricted
+			when (Integration.LakehouseOperationalDataStore)
+
+	Relations
+
+		ODSRepSetAsyncRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+                related.ImplementingClass		= "RepSetBC"
+				related.AsyncAction				= "Replicate"
+			Instance Selection
+				where (related.MappingField1 = "ODS_FSM_ST"
+				and	   related.FailedTriggersExist)
+
+		ODSSchedulingAsyncRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+                related.ImplementingClass		= "IntegrationConfiguration"
+				related.AsyncAction				= "ReplicateODSData"
+			Instance Selection
+				where (related.FailedTriggersExist)
+
+		ODSRel
+			one-to-many relation to IntegrationConfiguration
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= actor.context.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Integration.LakehouseOperationalDataStore)
+
+		ODSReplicationSetRel
+			one-to-one relation to ReplicationSet
+			Field Mapping uses symbolic key
+				related.ReplicationSet			= "ODS_FSM_ST"
+
+		ODSReplicationSetHistoryRel
+			one-to-many relation to ReplicationSetHistory
+			Field Mapping uses symbolic key
+				related.ReplicationSet			= "ODS_FSM_ST"
+
+		LocalRepSetBCForRepSetRel  
+			one-to-many relation to RepSetBC
+			Field Mapping uses symbolic key
+				related.ReplicationSet			= LocalReplicationSet
+
+		LocalRepSetBCRel  
+			one-to-many relation to RepSetBC
+			Field Mapping uses ByBusinessClass
+				related.ReplicationSet			= LocalReplicationSet
+				related.BusinessClass			= LocalBusinessClass
+
+		LocalBusinessClassRel  
+			one-to-many relation to RepSetBC
+			Field Mapping uses ByBusinessClassAllSet
+				related.BusinessClass			= LocalBusinessClass
+
+		LocalRepSetBCReplicateRel  
+			one-to-many relation to RepSetBC
+			Field Mapping uses ByReplicateClassName
+				related.ReplicationSet			= LocalReplicationSet
+				related.ReplicateClassName		= LocalReplicateClassName
+
+		RepSetBCFieldRel  
+			one-to-one relation to RepSetBCField
+			Field Mapping uses ByRelatedValue
+				related.ReplicationSet			= LocalReplicationSet
+				related.RepSetBC				= first LocalRepSetBCReplicateRel.RepSetBC
+				related.RelatedValue			= LocalRelatedValue
+
+		ODSDataCreationResultRel
+			one-to-many relation to DataCreationResult
+			Field Mapping uses ByRunTime
+			Instance Selection
+				where (related.Type = 1) 
+
+		ODSAsyncRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea 				= parentcontext.dataarea
+				related.ImplementingClass 		= "ReplicationSet"
+				related.AsyncAction 			= LocalAsyncAction 
+			Instance Selection
+				where (related.MappingField1 = "ODS_FSM_ST"
+				and    related.SystemRequest.AutoDisable)
+
+		ODSReplicationScheduleRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+				related.ImplementingClass		= "IntegrationConfiguration"
+				related.AsyncAction				= "ReplicateODSData"
+			Instance Selection
+				where	(related.IsScheduled = true)
+
+		ODSReplicationScheduleNavRel
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByClass
+				related.ImplementingClass		= "IntegrationConfiguration"
+				related.AsyncAction				= "ReplicateODSData"
+
+		MimeTypeRel
+			one-to-one relation to MimeType
+			Field Mapping uses symbolic key
+				related.MimeType = "image/png"
+
+	Sets
+		ByIntegration
+			Sort Order
+				FinanceEnterpriseGroup
+				Integration
+				IntegrationConfiguration
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				if (ImageFile entered
+				and MimeTypeRel.Status.Active)
+					TransientImageFile 			= ImageFile
+					IntegrationImage.File 		= TransientImageFile document
+					IntegrationImage.Title		= LocalImageTitle
+					IntegrationImage.MimeType 	= "image/png"
+			
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			valid when (Integration not entered)
+
+		DeactivateIntegration is an Instance Action
+			valid when (Active)
+			default label is "Deactivate"
+			
+			Action Rules				
+				Active = false
+				EmailNotification = false
+						
+		ActivateIntegration is an Instance Action
+			valid when (!Active)
+			default label is "Activate"
+			
+			Action Rules
+				Active = true
+
+		UploadImage is an Instance Action
+			Parameters
+				NewImage		is an ImageAttachment
+				
+			Action Rules
+				IntegrationImage = NewImage	
+				
+		UpdateMissingImage is an Instance Action
+			restricted
+			Action Rules
+				if (IntegrationImage not entered
+				and ImageFile entered)
+					TransientImageFile 			= ImageFile
+					IntegrationImage.File 		= TransientImageFile document
+					IntegrationImage.Title		= LocalImageTitle
+					IntegrationImage.MimeType 	= "image/png"
+
+		UpdateEmail is an Instance Action
+			restricted
+			Parameters
+				PrmEmailNotification 	is Boolean
+					default label is "EmailNotification"
+				PrmEmailReceiver		is Alpha size 200
+					default label is "Receiver"
+				PrmEmailSubject			is Alpha size 200
+					default label is "Subject"
+				PrmEmailBody			is Text
+					default label is "Body"
+				
+			Parameter Rules
+				PrmEmailNotification
+					initial value is EmailNotification
+					
+				PrmEmailReceiver
+					initial value is EmailReceiver
+					
+				PrmEmailSubject
+					initial value is EmailSubject
+					
+				PrmEmailBody
+					initial value is EmailBody
+				
+			Action Rules
+				if (PrmEmailNotification != EmailNotification
+				or PrmEmailReceiver != EmailReceiver
+				or PrmEmailSubject != EmailSubject
+				or PrmEmailBody != EmailBody)
+					EmailNotification 	= PrmEmailNotification
+					EmailReceiver		= PrmEmailReceiver
+					EmailSubject		= PrmEmailSubject
+					EmailBody			= PrmEmailBody				
+
+		ConfigureLakehouseOperationalDataStore is an Instance Action
+			default label is "Configure"
+			valid when (ConfigureLakehouseOperationalDataStoreActive)
+			confirmation required
+				"ThisActionWillCreateTheODSReplicationSet;Continue?"
+			Action Rules
+				invoke CreateODSReplicationSet DataCreation in background
+
+		ReplicateODSData is a Set Action
+			restricted
+			Instance Selection
+				where (false)
+			Local Fields
+				LocalRequest 		is an AsyncActionRequest
+				RepSet 				is a ReplicationSet
+				UpdateRequest 		is Boolean
+
+			Action Rules	
+				Empty Set Rules
+					LocalAsyncAction = ""
+					LocalAsyncAction = "Replicate"
+					LocalFinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+
+					if (ODSAsyncRel not exists) 
+		
+
+						LocalAsyncAction = ""
+						LocalAsyncAction = "Replicate"
+    
+						if (ODSAsyncRel not exists) 
+							RepSet = "ODS_FSM_ST"
+							invoke Replicate RepSet in background 
+								assign async action request id to LocalRequest
+								run outside of action background group
+							invoke Update LocalRequest
+								invoked.SystemRequest = 1 
+								invoked.ScheduleFrequencyType = 1 
+								invoked.ScheduleFrequencySeconds = 10
+								invoked.ScheduleConcurrency = 1
+								invoked.MisfireStrategy = 1
+						else
+							UpdateRequest = true
+					else
+						UpdateRequest = true
+    
+					if (UpdateRequest)
+
+						invoke SetPendingScheduling first ODSAsyncRel 
+							invoked.ParamPendingScheduling = true 
+
+		CancelODSJobs is an Instance Action
+			default label is "CancelAllScheduledSweeps"
+			restricted
+			confirmation required
+				"ScheduledActionsWillBeCancelled;Continue?"
+			Action Rules
+				for each ODSReplicationScheduleRel
+					invoke Update each
+						invoked.PendingScheduling = false
+						invoked.IsScheduled	= false	
+
+				for each ODSAsyncRel
+					invoke Update each
+						invoked.PendingScheduling = false
+						invoked.IsScheduled	= false

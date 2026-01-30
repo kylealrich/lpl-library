@@ -1,0 +1,241 @@
+SubleaseTransaction is a BusinessClass
+    owned by lm
+    prefix is LMST
+
+    Ontology
+        symbolic key is SubleaseTransaction
+
+    Patterns
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+        CompanyAndCustomer
+        Description
+        TransactionAccount				is a FinanceCodeBlock
+        TransactionAmount				is a CurrencyExchangeGroup
+        TransactionDate					is a ExchangeDate
+        PostingDate
+        Status							is Numeric size 1
+            States
+                Unposted	value is 0
+                Posted		value is 9
+        SubleaseTransactionType
+        SubleaseTransactionProcess
+        Reference
+        LeaseAllocationCode
+        Reverse							is Boolean
+        CreationDate					is TimeStamp
+        CreatedBy						is an Operator
+		OriginatingTransaction			is BusinessObjectReference
+	
+	Transient Fields
+		GLFromEntity			 		is an AccountingEntity
+    		derive value from Company.AccountingEntity
+		GLFinanceCodeBlock		 		is a TransactionCodeBlock				 		
+			derive value from GLTransactionDetailRel.FinanceCodeBlock
+			default label is "DistributionAccount"
+		GLCurrencyCode					is a FromCurrency
+			default label is "Currency"
+			derive value from Sublease.Currency
+		GLTransactionAmount		 		is a CurrencyAmount			
+			derive value from GLTransactionDetailRel.TransactionAmount	
+			default label is "DistributionAmount"
+        GLFinanceCurrencyAmount			is a FinanceCurrencyAmount
+        	derive value from GLTransactionDetailRel.ReportCurrencyAmount
+		GLJournalizeGroup 				is like JournalizeGroup
+			derive value from GLTransactionDetailRel.JournalizeGroup
+		BaseCurrency					is a ToCurrency
+			derive value from Sublease.BaseCurrency
+					
+	Local Fields
+       	NewGLTransactionDetail			is a GLTransactionDetail view
+		LocalCurrencyExchange			is a CurrencyExchange
+		BypassNegativeRateEdit
+		BypassUnitAndAmountEdit
+	
+	Derived Fields
+		SubleaseTransactionPostingMessage is a MessageField 
+			restricted
+			"SubleaseTransactionPosting"
+				
+	Field Rules
+		CreationDate
+			default to current timestamp
+		
+		CreatedBy
+			default to actor
+
+	Relations
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction	= reference to this instance
+	
+	Sets
+		ByTransactionDate
+			Sort Order
+				Company
+				Lease
+				Sublease
+				TransactionDate
+				SubleaseTransaction
+						
+	Rule Blocks
+		CreateGLTransactionDetail
+			if (Status.Unposted)
+				invoke Create GLTransactionDetail		 
+					assign result to NewGLTransactionDetail
+					fill in fields from this instance
+					invoked.OriginatingTransaction 				= reference to this instance
+					invoked.FinanceEnterpriseGroup				= Company.FinanceEnterpriseGroup  
+					invoked.System								= "LM"
+					invoked.Reference							= "Sublease_" + Sublease
+					invoked.TransactionAmount					= GLTransactionAmount
+					invoked.CurrencyCode						= Sublease.Currency
+					invoked.ReportCurrencyAmount 				= GLFinanceCurrencyAmount
+					invoked.FinanceCodeBlock					= GLFinanceCodeBlock
+					invoked.Description			  				= Description		
+	            	invoked.GeneralLedgerEvent 	    			= "LI"
+					invoked.AccountingEntity					= Company.AccountingEntity
+					invoked.TransactionDate						= TransactionDate
+					invoked.PostingDate							= PostingDate
+					invoked.ControlDocumentNumber 				= Sublease
+					invoked.DocumentNumber		  				= Sublease
+					invoked.AutoReverse 						= false
+					invoked.ReportCurrencyAmount.KeepRateOnly 	= true
+					invoked.JournalizeGroup						= GLJournalizeGroup
+				
+				invoke Unreleased.Release NewGLTransactionDetail.GLTransactionDetail
+		
+		UpdateGLTransactionDetail
+			if (Status.Unposted)
+				invoke Update GLTransactionDetailRel
+					invoked.TransactionAmount					= GLTransactionAmount
+					invoked.FinanceCodeBlock					= GLFinanceCodeBlock
+					invoked.ReportCurrencyAmount 				= GLFinanceCurrencyAmount
+					invoked.Description			  				= Description
+					invoked.TransactionDate						= TransactionDate
+					invoked.PostingDate							= PostingDate
+					invoked.ReportCurrencyAmount.KeepRateOnly	= true
+				
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				include CreateGLTransactionDetail
+				
+		Update is an Update Action
+			restricted
+			Action Rules
+				include UpdateGLTransactionDetail
+				
+		Delete is a Delete Action
+			restricted
+			Entrance Rules
+				if (GLTransactionDetailRel exist) 
+					invoke Delete GLTransactionDetailRel
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				if (GLTransactionDetailRel exist) 
+					invoke PurgeValidSubLedgerTrx GLTransactionDetailRel
+					
+		UpdateStatus is an Instance Action
+			restricted
+			Parameters
+				PrmStatus is Numeric size 1
+            		States
+                		Unposted value is 0
+                		Posted   value is 9
+		
+			Action Rules
+				Status = PrmStatus				
+
+		Journalize is an Instance Action
+			Parameters
+				PrmPostThruDate		is Date
+					default label is "PostThruDate"
+				PrmDescription		is a Description
+					default label is "Description"			
+
+			Parameter Rules
+				PrmPostThruDate		 
+					required
+				PrmDescription
+					initial value is SubleaseTransactionPostingMessage
+					default to SubleaseTransactionPostingMessage
+					
+			Action Rules
+				invoke JournalizeSet
+					invoked.PrmCompany		= Company
+					invoked.PrmLease		= Lease
+					invoked.PrmSublease		= Sublease
+					invoked.PrmPostThruDate	= PrmPostThruDate
+					invoked.PrmDescription	= PrmDescription
+						
+		JournalizeSet is a Set Action		
+			restricted
+			completion message is "<CompletionMessage>"
+			Parameters
+				PrmCompany					is a PayablesCompany		
+					default label is "Company"
+				PrmLease					is a Lease
+				PrmSublease					is a Sublease
+				PrmPostThruDate				is Date
+					default label is "PostThruDate"
+				PrmDescription				is a Description
+					default label is "Description"			
+
+			Parameter Rules
+				PrmCompany
+					required
+				PrmPostThruDate		 
+					required
+				PrmDescription
+					initial value is SubleaseTransactionPostingMessage
+					default to SubleaseTransactionPostingMessage
+					
+			Local Fields
+				CompletionMessage			is Alpha 150
+				LocalJournalizeGroup		is a JournalizeGroup
+				LocalSystemCode            	is a GeneralLedgerSystemCode
+				LocalCashManagementGroup	is like CashManagementGroup
+				
+			Instance Selection
+				where (Company = PrmCompany
+				and   (!Sublease entered
+				or	  (Lease = PrmLease
+				and	   Sublease = PrmSublease))
+				and	   Status.Unposted
+				and    PostingDate <= PrmPostThruDate)
+				
+			Sort Order  
+				Company
+				Status
+				PostingDate
+
+			Action Rules								
+				Empty Set Rules
+					CompletionMessage = "SubleaseTransactionPostingCompleteForJournalizeGroup...:NoRecordsFoundToJournalize<LocalJournalizeGroup>"
+
+				Set Rules
+					Entrance Rules
+						LocalSystemCode = "LM" 
+    					increment LocalSystemCode.LastJournalizeGroup
+            			LocalJournalizeGroup = LocalSystemCode.DerivedJournalizeGroup
+						CompletionMessage = "SubleaseTransactionPostingCompleteForJournalizeGroup...:<LocalJournalizeGroup>"
+						
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmCompany.FinanceEnterpriseGroup in background
+							invoked.PrmJournalizeGroup				= LocalJournalizeGroup
+							invoked.PrmJournalizeGroupDescription	= PrmDescription
+						
+				Instance Rules
+					if (GLTransactionDetailRel exist)
+						invoke UpdateJournalizeGroup GLTransactionDetailRel	 
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							  
+  						Status = Status.Posted

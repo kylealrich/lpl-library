@@ -1,0 +1,256 @@
+AgingCode is a BusinessClass
+	owned by ar
+	prefix is AGE
+	classic name is AGINGCODE
+
+	Ontology
+		symbolic key is AgingCode
+			classic set name is AGESET1
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		Description
+			classic name is DESC
+		AgeCreditsRule			is AlphaUpper size 1
+			classic name is AGE-CREDITS
+			States
+				AgedToLastDebitColumn			value is "L"
+				AgedInCurrentColumn				value is "N"
+				AgedRespectiveToDate			value is "R"
+		AgePaymentsRule			is AlphaUpper size 1
+			classic name is AGE-PYMNT
+			States
+				AgedToLastDebitColumn			value is "L"
+				AgedInCurrentColumn				value is "N"
+				AgedRespectiveToDate			value is "R"
+		AgeDisputesRule			is AlphaUpper size 1
+			classic name is AGE-DISPUTES
+			States
+				AgedInCurrentColumn				value is "N"
+				AgeByTransactionDate			value is "Y"
+		AgingMethod				is AlphaUpper size 1
+			classic name is AGE-TYPE
+			States
+				AgeByDueDate					value is "D"
+				AgeByTransactionDate			value is "T"
+		CurrentAgingPeriod		is an AgePeriods
+			classic name is AGE-CURRENT
+		AgingPeriods			is an AgePeriodsX4InAgingcode
+			classic name is AGE-PERIODS
+		Active					is Boolean
+			classic name is ACTIVE-STATUS
+		InUse					is Boolean
+			classic name is USED-FL
+		ExpandedAgingPeriods	is Boolean
+		AgeFuture				is an AgePeriods
+
+	Local Fields
+		I1						is Numeric 3
+		I2						is Numeric 3
+		DefaultValue			is Numeric 3
+
+	Relations
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		AllAgingPeriodForAgingCodeRel
+			one-to-many relation to ReceivableAgePeriod 
+			Field Mapping uses ByCustomerGroup	
+				related.CustomerGroup				 = blank
+				related.ReceivableCompany			 = Company
+				related.AgingCode					 = AgingCode
+			Instance Selection
+
+
+
+				where	(related.SetupIndicator		 = "A")
+
+		AgingPeriodForAgingCodeRel
+			one-to-many relation to ReceivableAgePeriod 
+			Field Mapping uses ByCustomerGroup	
+				related.CustomerGroup				 = blank
+				related.ReceivableCompany			 = Company
+				related.AgingCode					 = AgingCode
+			Instance Selection
+
+
+
+				where	(related.SetupIndicator		 = "A"
+				and		related.AgePeriodSequence	 = I1)
+
+		ExpandedAgingPeriodRel
+			one-to-many relation to ReceivableAgePeriod 
+			Field Mapping uses ByCustomerGroup
+				related.CustomerGroup				 = blank
+				related.ReceivableCompany			 = Company
+				related.AgingCode					 = AgingCode
+			Instance Selection
+				where ((related.AgePeriodSequence	 = 8
+				or	  related.AgePeriodSequence		 = 9
+				or	  related.AgePeriodSequence		 = 10
+				or	  related.AgePeriodSequence		 = 11)
+				and	(related.SetupIndicator = "A"))
+	Field Rules
+		Description
+			required
+
+		Active
+			initial value is true
+
+		AgeCreditsRule
+			initial value is "L"
+			default to "L"
+
+		AgeDisputesRule
+			initial value is "Y"
+			default to "Y"
+
+		AgePaymentsRule
+			initial value is "L"
+			default to "L"
+
+		AgingMethod
+			initial value is "T"
+			default to "T"
+
+		CurrentAgingPeriod
+			constraint (CurrentAgingPeriod >= 1)
+				"NegativeValueNotAllowed"
+
+			if (ExpandedAgingPeriods)
+				required
+					"CurrentDaysMustBeEntered"
+
+		AgeFuture
+			constraint (AgeFuture>= 1)
+				"NegativeValueNotAllowed"
+
+			if (ExpandedAgingPeriods)
+				required
+					"FutureDaysMustBeEntered"
+
+		AgingPeriods
+			if (not ExpandedAgingPeriods)
+				initialize AgingPeriods.AgePeriods[5]
+				initialize AgingPeriods.AgePeriods[6]
+				initialize AgingPeriods.AgePeriods[7]
+				initialize AgeFuture
+
+	Conditions
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+	Rule Blocks
+		CheckAging
+			DefaultValue = 30
+			I1 = 1
+			while (I1 < 8)
+				if (AgingPeriods.AgePeriods[I1] not entered)
+					if (not ExpandedAgingPeriods and I1 > 4)
+						initialize AgingPeriods.AgePeriods[I1]
+					else
+						AgingPeriods.AgePeriods[I1] = DefaultValue
+				DefaultValue += 30
+				I1 += 1
+				
+			I1 = 1
+			while (I1 < 8)
+				if (not ExpandedAgingPeriods and I1 < 4
+				or  ExpandedAgingPeriods 	 and I1 < 7)
+					constraint (AgingPeriods.AgePeriods[I1] < AgingPeriods.AgePeriods[I1+1])
+						"AgingDaysMustBeInAscendingOrder"
+				I1 +=1
+
+	Attach Rules
+		constraint (Active)
+			"AgingCodeIsNotActive"
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				include CheckAging
+				
+			Exit Rules
+				if (Active)	
+					if (ExpandedAgingPeriods)
+						I2 = 1
+						while (I2 <= 11)
+							invoke Create ReceivableAgePeriod
+								initialize invoked.CustomerGroup
+								invoked.ReceivableCompany = Company
+								invoked.AgingCode = AgingCode
+								invoked.SetupIndicator = ReceivableAgePeriod.SetupIndicator.ForAgingCode
+								invoked.AgePeriodSequence = I2
+							I2 += 1
+					else
+						I2 = 1
+						while (I2 <= 7)
+							invoke Create ReceivableAgePeriod
+								initialize invoked.CustomerGroup
+								invoked.ReceivableCompany = Company
+								invoked.AgingCode = AgingCode
+								invoked.SetupIndicator = ReceivableAgePeriod.SetupIndicator.ForAgingCode
+								invoked.AgePeriodSequence = I2
+							I2 += 1
+
+		T2VCreate is a Create Action				
+			restricted 
+			default label is untranslatable 
+
+		Update is an Update Action
+			Action Rules
+				include CheckAging
+
+			Exit Rules
+				if (Active)
+					I1 = 1
+					while (I1 <= 7)
+						if (AgingPeriodForAgingCodeRel not exists)
+	
+							invoke Create ReceivableAgePeriod
+									initialize invoked.CustomerGroup
+									invoked.ReceivableCompany = Company
+									invoked.AgingCode = AgingCode
+									invoked.SetupIndicator = ReceivableAgePeriod.SetupIndicator.ForAgingCode
+								invoked.AgePeriodSequence = I1
+						I1 += 1
+	
+					if (ExpandedAgingPeriods)
+						if (ExpandedAgingPeriodRel not exists)
+							I2 = 8
+							while (I2 <= 11)
+								invoke Create ReceivableAgePeriod
+									initialize invoked.CustomerGroup
+									invoked.ReceivableCompany = Company
+									invoked.AgingCode = AgingCode
+									invoked.SetupIndicator = ReceivableAgePeriod.SetupIndicator.ForAgingCode
+									invoked.AgePeriodSequence = I2
+								I2 += 1
+					else
+						invoke Delete ExpandedAgingPeriodRel
+				else
+					for each AllAgingPeriodForAgingCodeRel
+						display "AgingSequence=<each.AgePeriodSequence>"
+					invoke Delete AllAgingPeriodForAgingCodeRel
+
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Delete AllAgingPeriodForAgingCodeRel
+
+
+
+
+		CreateReceivableAgePeriods is a Set Action		
+
+			restricted
+			Action Rules
+				Instance Rules
+					invoke Update
+

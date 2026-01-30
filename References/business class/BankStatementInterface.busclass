@@ -1,0 +1,3005 @@
+BankStatementInterface is a BusinessClass
+	owned by cashmgmt
+	prefix is BSI
+
+	Ontology
+		symbolic key is BankStatementInterface
+
+	Patterns
+		disable EffectiveDated
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp
+
+	Persistent Fields
+		CashManagementGroup
+		CashManagementAccount
+		ImportAccountNumber			is Alpha 35
+		BankStatement
+			delete ignored
+		BankStatementLine
+			delete ignored
+		BankStatementBalance
+			delete ignored
+		FinancialInstitution
+		BankServiceStatement
+			delete ignored
+		BankServiceDetail
+			delete ignored
+		Status						is Numeric 2
+			States
+				NotImported	value is 10
+				Imported	value is 20
+				Skipped		value is 30 //If add more states...review Status < "30"
+
+
+		Code						is Alpha 3			
+		DataColArray									
+		DataColArrayElements		is Numeric 3		
+		BAIData						is Alpha up to 250	
+		CSVData						is Alpha up to 500	
+		EDI822Data					is Alpha up to 250	
+		LastBankStatementBalance	is a BankStatementBalance
+		LastTransactionType 		is a BankTransactionTypeCode
+		LastFundsType				is Alpha 1
+		ElementsRemainingToProcess	is Numeric 3
+
+
+		MT940Code					is Alpha 3
+		MT940Data					is Alpha up to 500
+			default label is "Data"
+
+
+		CAMT053StmtIndex				is Numeric 4	
+		CAMT053Data						is XMLDocument	
+		CAMT053RecordType				is Numeric 2
+			default label is "Type"
+			States
+				StmtRpt		value is 10
+				Ntry		value is 20
+		LastCAMT05XBankStatement		is like BankStatement
+		LastCAMT05XBankStatementLine	is Numeric 8
+
+	Local Fields
+		LocalImportAccountNumber					is Alpha 35
+		LocalCashManagementAccount					is like CashManagementAccount
+		LocalIdentifier								is AlphaUpper 50
+		LocalStatementDate							is an ExchangeDate
+		LocalIncomingBankStatementHeadersCreated	is Boolean
+		LocalCalendarStatementDate					is Date
+		LocalDatesCreated							is Numeric 2
+		LocalNewCashManagementAccount				is like CashManagementAccount
+		LocalCreateStatementDate					is Date
+		LocalBankStatementBalance					is Numeric 6
+		LocalStatementType							is Numeric 2
+			States
+				PreviousDay		value is 0
+				Intraday		value is 1
+		LocalOppositeStatementType					is Numeric 2
+			States
+				PreviousDay		value is 0
+				Intraday		value is 1
+		LocalCounter								is Numeric size 6
+		LocalEntryDateOffset						is Numeric 2
+		LocalDebitCreditOffset						is Numeric 2
+		LocalFundsCodeOffset						is Numeric 2
+		LocalLineOffset								is Numeric 2
+		LocalTransactionType						is Alpha up to 25
+		LocalBankTransactionTypeCode 				is a BankTransactionTypeCode	
+		LocalCompany								is a Company
+		LocalRecBatchNumber							is like ReceivablePaymentHeader
+		LocalRecRemittanceCounter					is Numeric size 5
+		LocalRecRemittanceCounterMax				is Numeric size 5
+		LocalRecRemittanceRawText					is Text
+		LocalMT940Amount 							is Alpha 20
+		LocalMT940Amount2							is Alpha 20
+		LocalAmountNumeric							is like InternationalAmount
+		LocalDebitCreditIndicatorUpper				is AlphaUpper 1
+		LocalRunGroup 								is like RunGroup
+		LocalReceivableCompany						is like ReceivableCompany
+		LocalTransRemNbr							is AlphaUpper size 22
+		LocalAppldAmt								is an InternationalAmount
+
+		DateTimeToDateParam is Alpha size 29
+		LocalMonth	is Alpha size 2
+		LocalDay	is Alpha size 2
+		LocalYear	is Alpha size 4
+
+	Context Fields
+		EnterpriseGroup
+
+	Derived Fields
+		ParentBankStatementInterface is a ComputeField 
+			type is like BankStatementInterface
+			restricted
+			(last ParentBankStatementInterfaceRel.BankStatementInterface)
+
+		DerivedStatementDate is a DerivedField
+			type is Date
+			restricted
+			if (BankStatementInterfaceHeader.MT94XFormat)
+				return "20" + first MT940ClosingRel.MT940Data[7:12]
+			else
+			if (BankStatementInterfaceHeader.BAIFormat)
+				if (last GroupHeaderRel.DataColArray.ColArray[5] size = 6)
+					return "20" + last GroupHeaderRel.DataColArray.ColArray[5]
+				else
+					return last GroupHeaderRel.DataColArray.ColArray[5]
+			else
+			if (BankStatementInterfaceHeader.CSVFormat)
+				if (DataColArray.ColArray[3] size = 6)
+					return "20" + DataColArray.ColArray[3]
+				else
+					return DataColArray.ColArray[3]
+			else
+			if (BankStatementInterfaceHeader.CAMT05XFormat)
+				return CAMT05XStmtDate
+
+		FirstFourChars is a StringField 
+			type is Alpha 4
+			restricted
+			MT940Data[1:4]
+
+		FirstThreeChars is a StringField 
+			type is Alpha 3
+			restricted
+			MT940Data[1:3]
+
+		FirstTwoChars is a StringField 
+			type is Alpha 3
+			restricted
+			MT940Data[1:2]
+
+		FirstChar is a StringField
+			type is Alpha 3
+			restricted
+			MT940Data[1:1]
+
+		SecondChar is a StringField
+			type is Alpha 3
+			restricted
+			MT940Data[2:2] //MT940Data like "?<value looking for>*"
+
+		FirstThreeEDIChars is a StringField 
+			type is Alpha 3
+			EDI822Data[1:3]
+
+		DerivedTransactionType is a DerivedField
+			type is like BankTransactionTypeCode
+			restricted
+			if (BankStatementInterfaceHeader.BAIFormat
+			and	Code = "16")
+				return DataColArray.ColArray[2]
+			else
+			if (BankStatementInterfaceHeader.CSVFormat)
+				return DataColArray.ColArray[10]
+			else
+			if (BankStatementInterfaceHeader.MT94XFormat
+			and MT940Data like ":61*") // and FirstThreeChars = ":61")
+				if (MT940Data[11] is numeric)
+					LocalEntryDateOffset = 0	
+				else
+					LocalEntryDateOffset = -4	
+
+				if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "R") 
+					LocalDebitCreditOffset = 0	
+				else
+					LocalDebitCreditOffset = -1	
+
+				if (!MT940Data[17+LocalEntryDateOffset+LocalDebitCreditOffset:17+LocalEntryDateOffset+LocalDebitCreditOffset] is numeric)
+					LocalFundsCodeOffset = 0	
+				else
+					LocalFundsCodeOffset = -1	
+
+				LocalLineOffset = LocalEntryDateOffset + LocalDebitCreditOffset + LocalFundsCodeOffset
+
+				LocalTransactionType = MT940Data[18+LocalLineOffset:40+LocalLineOffset]
+				LocalCounter = 1
+				while (LocalCounter < 19)
+					if (LocalTransactionType[LocalCounter:LocalCounter] = ",")
+						if (LocalTransactionType[LocalCounter+1] is numeric 
+						and LocalTransactionType[LocalCounter+2] is numeric
+						and LocalTransactionType[LocalCounter+3] is numeric)
+							return LocalTransactionType[LocalCounter+4:LocalCounter+7]
+						else
+						if (LocalTransactionType[LocalCounter+1] is numeric 
+						and LocalTransactionType[LocalCounter+2] is numeric)
+							return LocalTransactionType[LocalCounter+3:LocalCounter+6]
+						else
+						if (LocalTransactionType[LocalCounter+1] is numeric)
+							return LocalTransactionType[LocalCounter+2:LocalCounter+5]
+						else
+							return LocalTransactionType[LocalCounter+1:LocalCounter+4]
+						LocalCounter = 20
+					else
+						LocalCounter +=1
+			else
+			if (BankStatementInterfaceHeader.CAMT05XFormat
+			and CAMT053RecordType.Ntry)
+				if (CAMT053Data select "/Ntry/BkTxCd/Prtry/Cd" != "")
+					return CAMT053Data select "/Ntry/BkTxCd/Prtry/Cd"
+
+		DerivedTransactionAmount is a DerivedField
+			type is like InternationalAmount
+			if (BankStatementInterfaceHeader.MT94XFormat)
+				if (MT940Data like ":61*") //FirstThreeChars = ":61")
+	
+					initialize LocalMT940Amount 
+					initialize LocalMT940Amount2
+	
+					if (MT940Data[11] is numeric)
+						LocalEntryDateOffset = 0	
+					else
+						LocalEntryDateOffset = -4	
+	
+					if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "R") 
+						LocalDebitCreditOffset = 0	
+					else
+						LocalDebitCreditOffset = -1	
+	
+					if (!MT940Data[17+LocalEntryDateOffset+LocalDebitCreditOffset:17+LocalEntryDateOffset+LocalDebitCreditOffset] is numeric)
+						LocalFundsCodeOffset = 0	
+					else
+						LocalFundsCodeOffset = -1	
+	
+					LocalLineOffset = LocalEntryDateOffset + LocalDebitCreditOffset + LocalFundsCodeOffset
+	
+					LocalMT940Amount = MT940Data[18+LocalLineOffset:40+LocalLineOffset]
+	
+					LocalCounter = 1
+	
+					while (LocalCounter < 19)
+						if (LocalMT940Amount[LocalCounter:LocalCounter] = ",")
+							LocalMT940Amount2 = LocalMT940Amount2 + "."
+							if (LocalMT940Amount[LocalCounter+1] is numeric 
+							and LocalMT940Amount[LocalCounter+2] is numeric
+							and LocalMT940Amount[LocalCounter+3] is numeric)
+								LocalMT940Amount2 = LocalMT940Amount2 + LocalMT940Amount[LocalCounter+1:LocalCounter+3]
+								LocalTransactionType = LocalMT940Amount[LocalCounter+4:LocalCounter+7]
+							else
+							if (LocalMT940Amount[LocalCounter+1] is numeric 
+							and LocalMT940Amount[LocalCounter+2] is numeric)
+								LocalMT940Amount2 = LocalMT940Amount2 + LocalMT940Amount[LocalCounter+1:LocalCounter+2]
+								LocalTransactionType = LocalMT940Amount[LocalCounter+3:LocalCounter+6]
+							else
+							if (LocalMT940Amount[LocalCounter+1] is numeric)
+								LocalMT940Amount2 = LocalMT940Amount2 + LocalMT940Amount[LocalCounter+1:LocalCounter+1]
+								LocalTransactionType = LocalMT940Amount[LocalCounter+2:LocalCounter+5]
+							else
+								LocalTransactionType = LocalMT940Amount[LocalCounter+1:LocalCounter+4]
+							LocalCounter = 20
+						else
+							LocalMT940Amount2 = LocalMT940Amount2 + LocalMT940Amount[LocalCounter:LocalCounter]
+	
+						LocalCounter +=1				
+					
+					LocalAmountNumeric = LocalMT940Amount2
+					
+					if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "R")
+						if (MT940Data[16+LocalEntryDateOffset:16+LocalEntryDateOffset] = "C")	
+							LocalAmountNumeric = LocalAmountNumeric * -1
+					else
+						if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "D")	
+							LocalAmountNumeric = LocalAmountNumeric * -1
+	
+					return LocalAmountNumeric
+				
+			if (BankStatementInterfaceHeader.CSVFormat)	
+				LocalAmountNumeric = DataColArray.ColArray[12]
+				LocalDebitCreditIndicatorUpper = DataColArray.ColArray[11]
+				
+				if (LocalDebitCreditIndicatorUpper entered)
+					if (LocalDebitCreditIndicatorUpper = "C")
+						if (LocalAmountNumeric < 0)
+							LocalAmountNumeric *= -1
+					else
+						if (LocalAmountNumeric >= 0)
+							LocalAmountNumeric *= -1
+				
+				return LocalAmountNumeric
+								
+		DerivedAccountNumber is a DerivedField
+			type is Alpha 35
+			return last MT940BankStatementRel.ImportAccountNumber
+
+		DerivedCSVStatementType is a DerivedField
+			type is Numeric 2
+			if (BankStatementInterfaceHeader.CSVFormat)
+				if (DataColArray.ColArray[2] = "TRUE")
+					return 1 	
+				else
+					return 0	
+		
+		DerivedBAIStatementType is a DerivedField
+			type is Numeric 2
+			if (BankStatementInterfaceHeader.BAIFormat)
+				if (Code = "02")
+					if (DataColArray.ColArray[8] entered) 
+						if (DataColArray.ColArray[8] >= 3) 
+							return 1 	
+						else
+							return 0	
+					else
+						if (last FileHeaderCreateRel.DataColArray.ColArray[4] <= DataColArray.ColArray[5])
+							return 1	
+						else
+							return 0	
+		
+
+		CAMT05XStmtOrAcctRpt is a DerivedField
+			type is Alpha 7
+			restricted
+			if (BankStatementInterfaceHeader.FileFormat.CAMT053)
+				return "Stmt"
+			else
+			if (BankStatementInterfaceHeader.FileFormat.CAMT052)
+				return "AcctRpt"
+			else
+				return ""
+
+		CAMT05XStmtOrRpt is a DerivedField
+			type is Alpha 4
+			restricted
+			if (BankStatementInterfaceHeader.FileFormat.CAMT053)
+				return "Stmt"
+			else
+			if (BankStatementInterfaceHeader.FileFormat.CAMT052)
+				return "Rpt"
+			else
+				return ""
+
+		CAMT05XStmtDate is a DerivedField 
+			type is Date
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Dt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Dt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Dt/DtTm" != "")
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Dt/DtTm"
+				return DateTimeToDate
+			else	
+				DateTimeToDateParam = CAMT053Data select "/<CAMT05XStmtOrRpt>/CreDtTm"
+				return DateTimeToDate
+
+		CAMT05XValueDate is a DerivedField
+			type is Date
+			restricted
+			if (CAMT053Data select "/Ntry/ValDt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/Ntry/ValDt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/Ntry/BookgDt/Dt" !="")
+				DateTimeToDateParam = CAMT053Data select "/Ntry/BookgDt/Dt"
+				return DateTimeToDate
+			else
+				DateTimeToDateParam = CAMT053Data select "/Ntry/BookgDt/DtTm"
+				return DateTimeToDate
+
+
+		DateTimeToDate is a DerivedField
+			type is Date
+			restricted
+			if (DateTimeToDateParam != "")
+				LocalDay	= DateTimeToDateParam[9:10]
+				LocalMonth	= DateTimeToDateParam[6:7]
+				LocalYear	= DateTimeToDateParam[1:4]
+			return (LocalYear + LocalMonth + LocalDay)
+
+		CAMT05XBalCount is a DerivedField
+			type is Numeric 6
+			restricted
+			return CAMT053Data select "count(/<CAMT05XStmtOrRpt>/Bal)"
+
+		CAMT05XAcct is a DerivedField
+			type is Alpha 35
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Id/IBAN" != "")
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Id/IBAN"
+			else 
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Id/Othr/Id" != "")
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Id/Othr/Id"
+			else
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Id/PrtryAcct/Id"
+
+		CAMT05XAcctCcy is a DerivedField
+			type is Alpha 3
+			restricted
+			return CAMT053Data select "/<CAMT05XStmtOrRpt>/Acct/Ccy"
+
+		CAMT05XOpeningBalAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Amt" != "")
+				if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/CdtDbtInd" = "DBIT")
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Amt" *-1
+				else
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPBD'][1]/Amt"
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Amt" != "")
+				if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/CdtDbtInd" = "DBIT")
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Amt" *-1
+				else
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITBD'][1]/Amt"
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Amt" != "")
+				if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/CdtDbtInd" = "DBIT")
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Amt" *-1
+				else
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='PRCD'][1]/Amt"
+			else
+			if (CAMT05XOpeningAvailBalAmt != "")
+				return CAMT05XOpeningAvailBalAmt
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/CdtDbtInd" = "DBIT")
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Amt" *-1
+			else
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='ITAV'][1]/Amt"
+
+		CAMT05XOpeningAvailBalAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Amt" != "")
+				if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/CdtDbtInd" = "DBIT")
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Amt" *-1
+				else
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='OPAV'][1]/Amt"
+			else
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/CdtDbtInd" = "DBIT")
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Amt" *-1
+			else
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='FWAV'][1]/Amt"
+
+		CAMT05XClosingBalAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Amt" != "")
+				if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/CdtDbtInd" = "DBIT")
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Amt" *-1
+				else
+					return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLBD'][1]/Amt"
+			else
+				return CAMT05XClosingAvailBalAmt
+
+		CAMT05XClosingAvailBalAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLAV'][1]/CdtDbtInd" = "DBIT")
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLAV'][1]/Amt" *-1
+			else
+				return CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[Tp/CdOrPrtry/Cd='CLAV'][1]/Amt"
+
+		NtryXPath is a StringField
+			type is Alpha 60
+			restricted
+			"/Ntry/NtryDtls"
+
+		AddtlNtryXPath is a StringField
+			type is Alpha 60
+			restricted
+			"/Ntry/AddtlNtryInf"
+		
+		CAMT05XNtryCount is a DerivedField
+			type is Numeric 6
+			restricted
+			return CAMT053Data select "count(/<CAMT05XStmtOrRpt>/Ntry)"
+
+		CAMT05XAddtlNtryCount is a DerivedField
+			type is Numeric 6
+			restricted
+			return CAMT053Data select "count(/Ntry/AddtlNtryInf)"
+
+		CAMT05XPrtryCount is a DerivedField
+			type is Numeric 6
+			restricted
+			return CAMT053Data select "count(/Ntry/BkTxCd/Prtry)"
+
+		CAMT05XDomnCount is a DerivedField
+			type is Numeric 6
+			restricted
+			return CAMT053Data select "count(/Ntry/BkTxCd/Domn)"
+
+		CAMT05XNtryAmtCcy is a DerivedField
+			type is Alpha 5
+			restricted
+			return CAMT053Data select "/Ntry/Amt/@Ccy"
+
+
+		HeaderRunGroup is a DerivedField
+			type is like RunGroup
+			return (BankStatementInterfaceHeader + "-" + ActualCashManagementAccountRel.LegalEntity)
+
+		CAMT05XReceivableProcessLevel is a DerivedField
+			type is like ReceivableProcessLevel
+			restricted
+			return ActualCashManagementAccountRel.ReceivableProcessLevel
+
+		DerivedCashMangagementAccountLegalEntity is a DerivedField
+			type is like ReceivableCompany
+			restricted
+			return ActualCashManagementAccountRel.LegalEntity
+
+		FirstCashManagementAccountCashCode is a DerivedField
+			type is like CashCode
+			restricted
+			return ActualCashManagementAccountRel.first CashCodesByBankAccountRel.CashCode
+
+		CAMT05XCompanyCustomerBankAccountCustomer is a DerivedField
+			type is like Customer
+			restricted
+			return CAMT05XCompanyCustomerBankAccountRel.Customer
+
+		CAMT05XRecValueDate is a DerivedField
+			type is Date
+			restricted
+			if (CAMT053Data select "/Ntry/ValDt/Dt" != "")
+				DateTimeToDateParam = CAMT053Data select "/Ntry/ValDt/Dt"
+				return DateTimeToDate
+			else
+			if (CAMT053Data select "/Ntry/BookgDt/Dt" !="")
+				DateTimeToDateParam = CAMT053Data select "/Ntry/BookgDt/Dt"
+				return DateTimeToDate
+			else
+				DateTimeToDateParam = CAMT053Data select "/Ntry/BookgDt/DtTm"
+				return DateTimeToDate
+
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctnCINVDerivedField is a DerivedField
+			type is AlphaUpper size 4
+			restricted
+			return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocInf/Tp/CdOrPrtry/Cd"
+
+		CAMT05XRecNtryTransNbr is a DerivedField 
+			type is AlphaUpper size 22
+			restricted
+			return CAMT053Data select "/Ntry/NtryRef"
+
+		CAMT05XRecNtryAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			return CAMT053Data select "/Ntry/Amt"
+
+		CAMT05XRecNtryAmtCcy is a DerivedField 
+			type is Alpha 5
+			restricted
+			return CAMT053Data select "/Ntry/Amt/@Ccy"
+
+		CAMT05XDbtrAcct is a DerivedField 
+			type is Alpha 35
+			restricted
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/IBAN" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/IBAN"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/Othr/Id" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/Othr/Id"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/UltmtDbtr/Nm" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/UltmtDbtr/Nm"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/Prtry/Id" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/DbtrAcct/Id/Prtry/Id"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/Dbtr/Id/OrgId/Othr/Id" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdPties/Dbtr/Id/OrgId/Othr/Id"
+
+		CAMT05XDbtrAgt is a DerivedField 
+			type is Alpha 35
+			restricted
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/Othr/Id" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/Othr/Id"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt1/FinInstnId/ClrSysMmbId/MmbId" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt1/FinInstnId/ClrSysMmbId/MmbId"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt2/FinInstnId/ClrSysMmbId/MmbId" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt2/FinInstnId/ClrSysMmbId/MmbId"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt3/FinInstnId/ClrSysMmbId/MmbId" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt3/FinInstnId/ClrSysMmbId/MmbId"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/ClrSysMmbId/MmbId" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/ClrSysMmbId/MmbId"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/Othr/Id" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/Othr/Id"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/BIC" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/BIC"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/Nm"!="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/DbtrAgt/FinInstnId/Nm"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt1/FinInstnId/Nm"!="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt1/FinInstnId/Nm"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt2/FinInstnId/Nm"!="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt2/FinInstnId/Nm"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt3/FinInstnId/Nm"!="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/IntrmyAgt3/FinInstnId/Nm"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/Nm"!="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RltdAgts/Prtry/FinInstnId/Nm"
+
+		CAMT05XRecRemittanceSequence is a DerivedField 
+			type is Numeric 6
+			restricted
+			if (CAMT053Data select "count(/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocInf[Tp/CdOrPrtry/Cd]/Nb)" !="")
+				return CAMT053Data select "count(/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocInf[Tp/CdOrPrtry/Cd]/Nb)"
+			else
+			if (CAMT053Data select "count(/Ntry/NtryDtls/TxDtls/Refs/InstrId)" !="")
+				return CAMT053Data select "count(/Ntry/NtryDtls/TxDtls/Refs/InstrId)"
+
+		CAMT05XRecTransRemNbr is a DerivedField 
+			type is AlphaUpper size 22
+			restricted
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocInf[Tp/CdOrPrtry/Cd]/Nb" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocInf[Tp/CdOrPrtry/Cd]/Nb"
+			else
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/InstrId" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/InstrId"
+
+		CAMT05XRecRemitType is a DerivedField 
+			type is AlphaUpper size 1
+			restricted
+			return CAMT05XReceivableRemitTypeRel.ReceivableInvoice.ReceivableInvoiceType
+
+		CAMT05XRecRemittanceAppldAmt is a DerivedField 
+			type is like InternationalAmount
+			restricted
+			if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocAmt/RmtdAmt" !="")
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]/RfrdDocAmt/RmtdAmt"
+			else
+				return CAMT053Data select "/Ntry/NtryDtls/TxDtls/AmtDtls/TxAmt/Amt"
+
+
+
+		DerivedCAMT05xLineCreateCommit is a DerivedField 
+			type is Numeric 4
+			if (config.DerivedCAMT05xLineCreateCommit > 0)
+				return config.DerivedCAMT05xLineCreateCommit
+			else
+				return 50
+
+	Conditions
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctn
+			restricted	
+			when (CAMT05XStmtOrAcctRpt = "Stmt"
+			and   CAMT05XStmtOrRpt = "Stmt"
+			and   CAMT053Data select "/Ntry/CdtDbtInd" = "CRDT")
+
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCDT
+			restricted	
+			when (CAMT053Data select "/Ntry/BkTxCd/Domn/Fmly/Cd" ="RCDT")
+
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCCN
+			restricted	
+			when (CAMT053Data select "/Ntry/BkTxCd/Domn/Fmly/Cd" ="RCCN")
+
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCDTOrRCCN
+			restricted	
+			when (CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCDT 
+			or    CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCCN)
+
+		CAMT05XBkToCstmrDbtCdtReceivableNtfctnCINV
+			restricted	
+			when (CAMT05XBkToCstmrDbtCdtReceivableNtfctnCINVDerivedField ="CINV" 
+			or    CAMT05XBkToCstmrDbtCdtReceivableNtfctnCINVDerivedField = blank)
+
+		IsCreateReceivablePaymentsFromCAMT053Selected
+			when (ActualCashManagementAccountRel.CreateReceivablePaymentsFromCAMT053)
+
+		IsAutomateReceivablePaymentImportFromCAMT053Selected
+			restricted	
+			when (ActualCashManagementAccountRel.AutomateReceivablePaymentImportFromCAMT053)
+
+		CAMT05XRecTransRemNbrEntered	
+			restricted	
+			when (CAMT05XRecTransRemNbr entered)	
+
+	Rule Blocks
+		CreateIncomingBankStatementHeaderRecords
+			LocalCalendarStatementDate = LocalStatementDate
+			LocalDatesCreated = 0
+			while (LocalDatesCreated < 7)
+				if (CorporateCalendarDateRel exists)
+
+
+					invoke Update IncomingBankStatementHeaderRel	
+						invoked.EnterpriseGroup				= CashManagementGroup.EnterpriseGroup
+						invoked.SystemCalendar				= CashManagementGroup.CorporateCalendar
+						invoked.IncomingBankStatementHeader	= LocalCalendarStatementDate
+						invoked.CashManagementGroup			= CashManagementGroup
+				LocalDatesCreated = LocalDatesCreated + 1
+				if (LocalCalendarStatementDate != LocalStatementDate
+				and	LocalCalendarStatementDate <= current corporate date)
+					LocalCreateStatementDate = LocalCalendarStatementDate
+					include CreateIncomingBankStatementDetails
+				LocalCalendarStatementDate = LocalCalendarStatementDate + 1 day
+			LocalCreateStatementDate = LocalStatementDate
+			LocalIncomingBankStatementHeadersCreated = true
+
+		CreateIncomingBankStatementDetails
+			if (IncomingBankStatementDetailRel exists
+			and LocalCreateStatementDate = LocalStatementDate)
+				invoke Update IncomingBankStatementDetailRel
+					invoked.Status			= 2	
+					invoked.CompletedStatus	= 1	
+					invoked.TimeImported 	= current timestamp
+			else
+				for each AllCashManagementAccountsRel
+					LocalNewCashManagementAccount = each.CashManagementAccount
+					if (NewIncomingBankStatementDetailRel not exists)
+						if (CorporateCalendarStatementDateRel.IsBankDay
+						or	NewBankStatementRel exists)
+							LocalCalendarStatementDate = LocalCreateStatementDate
+							if (!IncomingBankStatementHeaderRel exists)
+								invoke Create IncomingBankStatementHeader
+									invoked.EnterpriseGroup				= CashManagementGroup.EnterpriseGroup
+									invoked.SystemCalendar				= CashManagementGroup.CorporateCalendar
+									invoked.IncomingBankStatementHeader	= LocalCalendarStatementDate
+									invoked.CashManagementGroup			= CashManagementGroup
+							invoke Create IncomingBankStatementDetail
+								invoked.EnterpriseGroup					= CashManagementGroup.EnterpriseGroup
+								invoked.SystemCalendar					= CashManagementGroup.CorporateCalendar
+								invoked.IncomingBankStatementHeader		= LocalCreateStatementDate
+								invoked.IncomingBankStatementDetail 	= LocalNewCashManagementAccount
+								invoked.BankStatementInterfaceHeader 	= BankStatementInterfaceHeader
+								if (LocalNewCashManagementAccount = LocalCashManagementAccount
+								and LocalCreateStatementDate = LocalStatementDate)
+									invoked.Status			= 2	
+									invoked.CompletedStatus	= 1	
+									invoked.TimeImported 	= current timestamp
+								else
+								if (NewBankStatementRel exists)
+									if (NewBankStatementRel.BankStatementInterfaceHeader entered)
+										invoked.Status = 2	
+										invoked.CompletedStatus = 1	
+									else
+										invoked.Status = 2	
+										invoked.CompletedStatus = 2	
+								else
+								if (each.NoBankStatementsExpected)
+									invoked.Status			= 3	
+									invoked.ExcludedStatus 	= 2	
+								else
+									invoked.Status			= 1	
+									invoked.MissingStatus 	= 1	
+
+		CreateIncomingBankStatementDetail
+			if (IncomingBankStatementDetailRel exists)
+				invoke Update IncomingBankStatementDetailRel
+					invoked.Status			= 2	
+					invoked.CompletedStatus	= 1	
+					invoked.TimeImported 	= current timestamp
+			else
+				invoke Create IncomingBankStatementDetail
+					invoked.EnterpriseGroup					= CashManagementGroup.EnterpriseGroup
+					invoked.SystemCalendar					= CashManagementGroup.CorporateCalendar
+					invoked.IncomingBankStatementHeader		= LocalCreateStatementDate
+					invoked.IncomingBankStatementDetail 	= LocalCashManagementAccount
+					invoked.Status							= 2	
+					invoked.CompletedStatus					= 1	
+					invoked.TimeImported 					= current timestamp
+
+	Field Rules
+		Status
+			default to Status.NotImported
+
+		LocalRecBatchNumber
+			if (LocalRecBatchNumber not entered)
+				constraint (ActualCashManagementAccountRel.LegalEntity.Company.ReceivableCompany.PaymentBatchNumbering)
+					"BatchNumberRequired"
+
+			if (ActualCashManagementAccountRel.LegalEntity.Company.ReceivableCompany.PaymentBatchNumbering)
+				autosequence using first ActualCashManagementAccountRel.LegalEntity.Company.ReceivableCompany.LastPaymentAutoBatchNumber
+
+	Relations
+		IntradayStatementDateRel
+			one-to-many relation to BankStatement
+			Field Mapping uses ByStatementDate
+				related.CashManagementGroup	  = CashManagementGroup
+				related.StatementDate		  = LocalStatementDate
+				related.CashManagementAccount = LocalCashManagementAccount
+			Instance Selection
+				where (related.StatementType.Intraday
+				and	related.UniqueID != UniqueID)
+
+		NoCashPositionIntradayStatementDateRel
+			one-to-many relation using IntradayStatementDateRel
+			Instance Selection
+				where (!related.HasCashPositionWorksheet)
+
+		ActualCashManagementAccountRel
+			one-to-many relation to CashManagementAccount
+			Field Mapping uses ByImportAccountNumber
+				related.ImportAccountNumber = LocalImportAccountNumber
+				related.CashManagementGroup	= CashManagementGroup
+
+		CashManagementAccountRel
+			one-to-one relation to CashManagementAccount
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= LocalCashManagementAccount
+
+		AllCashManagementAccountsRel
+			one-to-many relation to CashManagementAccount
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= CashManagementGroup
+
+		BankTransactionTypeCodeRel	
+			one-to-one relation to BankTransactionTypeCode
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.BankTransactionTypeCode	= LocalBankTransactionTypeCode
+
+
+		CSVMixedStatementTypeRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and    related.DerivedCSVStatementType = LocalOppositeStatementType
+				and	   related.UniqueID != UniqueID)
+				
+
+		ParentBankStatementInterfaceRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode 
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.Code < "88") //!= "88")
+		
+		PreviousBankStatementInterfaceRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface)
+
+		BankStatementBalanceRel
+			one-to-one relation to BankStatementBalance
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= CashManagementAccount
+				related.BankStatement 			= BankStatement
+				related.BankStatementBalance	= LocalBankStatementBalance
+
+		BankStatementRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode 
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.Code = "03")
+
+		GroupHeaderRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode 
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.Code = "02")
+
+		FileHeaderCreateRel 
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBAICode
+				related.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+				related.Code							= "01"
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+
+		FileHeaderRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode 
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.Code = "01")
+
+		DetailTransactionRel 
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBankStatementInterfaceCode 
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.Code = "16")
+
+		BAIMixedStatementTypeRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBAICode
+				related.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+				related.Code							= "02"
+			Instance Selection
+				where (related.DerivedBAIStatementType = LocalOppositeStatementType
+				and	   related.UniqueID != UniqueID)
+				
+
+		MT940StatementRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.MT940Data like ":20*") // and	related.FirstThreeChars = ":20")
+
+		MT940OpeningRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.MT940Data like ":60*" //related.FirstThreeChars = ":60"
+				and	  (!NextMT940BankStatementRel exists
+				or	   related.BankStatementInterface < first NextMT940BankStatementRel.BankStatementInterface))
+
+		MT940ClosingRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.MT940Data like ":62*" //related.FirstThreeChars = ":62"
+				and	  (!NextMT940BankStatementRel exists
+				or	   related.BankStatementInterface < first NextMT940BankStatementRel.BankStatementInterface))
+
+		MT940ClosingAvailRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.MT940Data like ":64*" //related.FirstThreeChars = ":64"
+				and	  (!NextMT940BankStatementRel exists
+				or	   related.BankStatementInterface < first NextMT940BankStatementRel.BankStatementInterface))
+
+		MT940FloatRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.MT940Data like ":65*" //related.FirstThreeChars = ":65"
+				and	  (!NextMT940BankStatementRel exists
+				or	   related.BankStatementInterface < first NextMT940BankStatementRel.BankStatementInterface))
+
+		MT940BankStatementRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.MT940Data like ":25*") //related.FirstThreeChars = ":25")
+
+		NextMT940BankStatementRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.MT940Data like ":25*") //related.FirstThreeChars = ":25")
+
+		MT940LineDetailRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface
+				and	   related.MT940Data like ":61*") //related.FirstThreeChars = ":61")
+
+		CorporateCalendarStatementDateRel
+			one-to-one relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= CashManagementGroup.CorporateCalendar
+				related.SystemCalendarDate	= LocalCreateStatementDate
+
+		CorporateCalendarDateRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup	= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 	= CashManagementGroup.CorporateCalendar
+
+		IncomingBankStatementHeaderRel
+			one-to-one relation to IncomingBankStatementHeader
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup				= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 				= CashManagementGroup.CorporateCalendar
+				related.IncomingBankStatementHeader	= LocalCalendarStatementDate
+
+		IncomingBankStatementDetailRel
+			one-to-one relation to IncomingBankStatementDetail
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup				= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 				= CashManagementGroup.CorporateCalendar
+				related.IncomingBankStatementHeader	= LocalCreateStatementDate
+				related.IncomingBankStatementDetail	= LocalCashManagementAccount
+
+		NewIncomingBankStatementDetailRel
+			one-to-one relation to IncomingBankStatementDetail
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup				= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 				= CashManagementGroup.CorporateCalendar
+				related.IncomingBankStatementHeader	= LocalCreateStatementDate
+				related.IncomingBankStatementDetail	= LocalNewCashManagementAccount
+
+		NewBankStatementRel
+			one-to-many relation to BankStatement
+			Field Mapping uses ByAccountDate
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashManagementAccount	= LocalNewCashManagementAccount
+				related.StatementDate			= LocalCreateStatementDate
+
+		BankStatementInterfaceBankStatementRel 
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses symbolic key
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+			Instance Selection
+				where (related.BankStatement entered
+				and	   related.CashManagementAccount	= LocalNewCashManagementAccount
+				and	   related.DataColArray.ColArray[3] = LocalCreateStatementDate
+				and	   related.BankStatementInterface	< BankStatementInterface)
+
+
+		FinancialInstitutionBranchRel
+			one-to-many relation to FinancialInstitutionBranch
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+			Instance Selection
+				where (related.BranchIdentifier = LocalIdentifier)
+
+		EDI822DateTimeRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBAICode
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+				related.Code						 = "DTM"
+			Instance Selection
+				where (related.BankStatementInterface > BankStatementInterface
+				and	   related.DataColArray.ColArray[2] = "151")
+
+		EDI822GroupHeaderRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBAICode
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+				related.Code						 = "GS"
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface)
+
+		EDI822CashAccountRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByBAICode
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+				related.Code						 = "ACT"
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface)
+
+
+		CAMT05XBankStatementRel
+			one-to-many relation to BankStatementInterface
+			Field Mapping uses ByCAMT053RecordType
+				related.BankStatementInterfaceHeader = BankStatementInterfaceHeader
+				related.CAMT053RecordType 			 = "10" 
+			Instance Selection
+				where (related.BankStatementInterface < BankStatementInterface)
+
+		CAMT05XCompanyCustomerBankAccountRel
+			one-to-one relation to CompanyCustomerBankAccount
+			Field Mapping uses symbolic key
+				related.Company													= DerivedCashMangagementAccountLegalEntity
+				related.CompanyCustomerBankAccount.CustomerBankEntity			= CAMT05XDbtrAgt
+				related.CompanyCustomerBankAccount.CustomerBankAccountNumber	= CAMT05XDbtrAcct
+
+		CAMT05XReceivableRemitTypeRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses symbolic key
+				related.Company													= DerivedCashMangagementAccountLegalEntity
+			Instance Selection
+				where (related.ReceivableInvoice								= CAMT05XRecTransRemNbr)
+
+		LocalCAMT05XReceivableRemitTypeRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses symbolic key
+				related.Company													= DerivedCashMangagementAccountLegalEntity
+			Instance Selection
+				where (related.ReceivableInvoice								= LocalTransRemNbr)
+
+		IncomingReceivablePaymentImportHeaderRel
+			one-to-many relation to ReceivablePaymentImport
+			Field Mapping uses Set3
+				related.Company													= DerivedCashMangagementAccountLegalEntity
+				related.BatchNumber												= LocalRecBatchNumber
+			Instance Selection
+				where (related.RunGroup											= HeaderRunGroup)
+
+		AutomateReceivablePaymentImportRel
+			one-to-many relation to ReceivablePaymentImport
+			Field Mapping uses Set3
+				related.Company													= DerivedCashMangagementAccountLegalEntity
+			Instance Selection
+				where (related.RunGroup											= HeaderRunGroup)
+
+	Sets
+		ByBankStatementInterfaceCode
+			Sort Order
+				BankStatementInterfaceHeader
+				BankStatementInterface
+				Code
+
+		ByBAICode
+			Sort Order
+				BankStatementInterfaceHeader
+				Code
+				BankStatementInterface
+
+		ByStatus
+			Sort Order
+				BankStatementInterfaceHeader
+				Status
+				BankStatementInterface
+
+		ByImportAccountNumber
+			Sort Order
+				BankStatementInterfaceHeader
+				ImportAccountNumber
+				BankStatementInterface
+
+		ByCAMT053RecordType
+			Sort Order
+				BankStatementInterfaceHeader
+				CAMT053RecordType
+				BankStatementInterface
+
+	Actions
+		Create is a Create Action
+			restricted
+			Local Fields
+				LocalData 			is Alpha up to 80
+				LocalFieldCounter	is Numeric size 3
+				LocalCounter		is Numeric size 5
+				LocalEDI822Data		is Alpha up to 250
+
+			Action Rules
+
+				if (BAIData entered)
+					LocalData = ""
+					LocalFieldCounter = 0
+					LocalCounter = 1
+
+					while (LocalCounter < 250)
+						if (BAIData[LocalCounter:LocalCounter] = ",")
+							LocalFieldCounter +=1
+							DataColArray.ColArray[LocalFieldCounter] = LocalData
+							LocalData = ""
+						else
+							LocalData = LocalData + BAIData[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalFieldCounter +=1
+					DataColArray.ColArray[LocalFieldCounter] = LocalData
+					Code = DataColArray.ColArray[1]
+					DataColArrayElements = LocalFieldCounter
+
+					if (Code = "02")
+						if (DataColArray.ColArray[8] entered) 
+							if (DataColArray.ColArray[8] >= 3) 
+								LocalStatementType = LocalStatementType.Intraday
+							else
+								LocalStatementType = LocalStatementType.PreviousDay
+						else
+							if (last FileHeaderCreateRel.DataColArray.ColArray[4] <= DataColArray.ColArray[5])
+								LocalStatementType = LocalStatementType.Intraday
+							else
+								LocalStatementType = LocalStatementType.PreviousDay
+								
+						if (LocalStatementType.Intraday)
+							LocalOppositeStatementType = LocalOppositeStatementType.PreviousDay
+						else
+							LocalOppositeStatementType = LocalOppositeStatementType.Intraday
+						 
+						if (!BankStatementInterfaceHeader.StatementType.Mixed)			
+							if (BAIMixedStatementTypeRel exists)						
+								invoke Update BankStatementInterfaceHeader
+									invoked.StatementType = 3 
+							else			
+							if (LocalStatementType.Intraday
+							and !BankStatementInterfaceHeader.StatementType.Intraday)	
+								invoke Update BankStatementInterfaceHeader
+									invoked.StatementType = 1 
+
+					if (Code = "03")
+						ImportAccountNumber = DataColArray.ColArray[2]
+
+				if (CSVData entered)
+					LocalData = ""
+					LocalFieldCounter = 0
+					LocalCounter = 1
+
+					while (LocalCounter < 500)
+						if (CSVData[LocalCounter:LocalCounter] = ",")
+							LocalFieldCounter +=1
+							DataColArray.ColArray[LocalFieldCounter] = LocalData
+							LocalData = ""
+						else
+							LocalData = LocalData + CSVData[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalFieldCounter +=1
+					DataColArray.ColArray[LocalFieldCounter] = LocalData
+					DataColArrayElements = LocalFieldCounter
+
+					ImportAccountNumber = DataColArray.ColArray[1]
+
+					if (DataColArray.ColArray[2] = "TRUE")
+						LocalStatementType = LocalStatementType.Intraday
+					else
+						LocalStatementType = LocalStatementType.PreviousDay
+						
+					if (LocalStatementType.Intraday)
+						LocalOppositeStatementType = LocalOppositeStatementType.PreviousDay
+					else
+						LocalOppositeStatementType = LocalOppositeStatementType.Intraday
+					 
+					if (BankStatementInterfaceHeader.BankStatementInterface set exists)																
+						if (!BankStatementInterfaceHeader.StatementType.Mixed)																		
+							if (first BankStatementInterfaceHeader.BankStatementInterface set.DerivedCSVStatementType = LocalOppositeStatementType)	
+								invoke Update BankStatementInterfaceHeader
+									invoked.StatementType = 3 
+							else			
+							if (LocalStatementType.Intraday
+							and !BankStatementInterfaceHeader.StatementType.Intraday)																
+								invoke Update BankStatementInterfaceHeader
+									invoked.StatementType = 1 
+					else
+						if (LocalStatementType.Intraday)																							
+							invoke Update BankStatementInterfaceHeader
+								invoked.StatementType = 1 
+
+				if (MT940Data entered)
+					if (MT940Data like ":25*") //FirstThreeChars = ":25")
+						ImportAccountNumber	= MT940Data[5:40]
+
+
+				if (CAMT053RecordType.StmtRpt)
+					ImportAccountNumber = CAMT05XAcct
+
+				if (EDI822Data entered)
+					if (EDI822Data like "ISA*") //FirstThreeEDIChars = "ISA")
+						invoke Update BankStatementInterfaceHeader
+							invoked.EDIDelimeter 	= EDI822Data[4] 
+							invoked.StatementType	= 2 
+
+					initialize LocalData
+					LocalFieldCounter = 0		
+					LocalCounter = 1
+					LocalEDI822Data = EDI822Data
+					LocalEDI822Data -= " "
+
+					while (LocalCounter < 250)
+						if (LocalEDI822Data[LocalCounter:LocalCounter] not entered)
+							end while
+
+						if (LocalEDI822Data[LocalCounter:LocalCounter] = BankStatementInterfaceHeader.EDIDelimeter)
+							LocalFieldCounter +=1
+							DataColArray.ColArray[LocalFieldCounter] = LocalData
+							initialize LocalData
+						else
+							LocalData = LocalData + LocalEDI822Data[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalFieldCounter +=1
+					DataColArray.ColArray[LocalFieldCounter] = LocalData
+					Code = DataColArray.ColArray[1]
+					DataColArrayElements = LocalFieldCounter
+
+					if (Code = "ACT")
+						ImportAccountNumber = DataColArray.ColArray[2]
+
+		Update is an Update Action
+			restricted
+
+		MarkAsSkipped is an Instance Action
+			default label is untranslatable
+			restricted
+			Action Rules
+				Status = Status.Skipped
+
+		RemoveSkipped is an Instance Action
+			default label is untranslatable
+			restricted
+			Action Rules
+				Status = Status.NotImported
+
+		Delete is a Delete Action
+			restricted
+
+		ImportBatch is a Set Action
+			default label is untranslatable
+			restricted
+			run in background
+			Parameters
+				PrmCashManagementGroup			  		is a CashManagementGroup
+				PrmBankStatementInterfaceHeader	  		is a BankStatementInterfaceHeader
+
+			Local Fields
+				LocalCategorizationGroup 		  		is a CategorizationGroup
+				LocalNumberOfCategorizationGroups 		is a CategorizationGroup
+				LineCreationBackgroundGroupAsyncId		is an AsyncActionRequest
+				ProcessingRuleBackgroundGroupAsyncId	is an AsyncActionRequest
+
+			Instance Selection 
+				where (BankStatementInterfaceHeader = PrmBankStatementInterfaceHeader
+				and	   Status.NotImported)
+
+			Sort Order
+				BankStatementInterfaceHeader
+				Status
+				BankStatementInterface
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						if (!PrmBankStatementInterfaceHeader.EDI822Format)
+							LocalCategorizationGroup = 1
+							LocalNumberOfCategorizationGroups = PrmCashManagementGroup.NumberOfCategorizationGroups
+
+					Exit Rules
+						if (!PrmBankStatementInterfaceHeader.EDI822Format)
+							invoke ExecuteProcessingRules PrmBankStatementInterfaceHeader
+						invoke TransitionToImported PrmBankStatementInterfaceHeader	
+
+				Instance Rules
+					if (BankStatementInterfaceHeader.BAIFormat)
+						invoke ImportBAI2
+							invoked.PrmCashManagementGroup	 			= PrmCashManagementGroup
+							invoked.PrmBankStatementInterfaceHeader	 	= PrmBankStatementInterfaceHeader
+							invoked.PrmCategorizationGroup				= LocalCategorizationGroup
+
+						if (Code = "16")	
+							if (LocalCategorizationGroup < LocalNumberOfCategorizationGroups)
+								LocalCategorizationGroup += 1
+							else
+								LocalCategorizationGroup = 1
+
+						if (Code = "49")
+							LocalCategorizationGroup = 1
+					else
+					if (BankStatementInterfaceHeader.MT94XFormat)
+						invoke ImportMT940
+							invoked.PrmCashManagementGroup	 			= PrmCashManagementGroup
+							invoked.PrmBankStatementInterfaceHeader	 	= PrmBankStatementInterfaceHeader
+							invoked.PrmCategorizationGroup				= LocalCategorizationGroup
+
+						if (MT940Data like ":61*") //FirstThreeChars = ":61")	
+							if (LocalCategorizationGroup < LocalNumberOfCategorizationGroups)
+								LocalCategorizationGroup += 1
+							else
+								LocalCategorizationGroup = 1
+
+						if (MT940Data like ":20*") //FirstThreeChars = ":20")
+							LocalCategorizationGroup = 1
+					else
+					if (BankStatementInterfaceHeader.CSVFormat)
+
+						CashManagementGroup 		  = PrmCashManagementGroup
+						LocalImportAccountNumber 	  = DataColArray.ColArray[1]
+						LocalCashManagementAccount 	  = first ActualCashManagementAccountRel.CashManagementAccount
+						LocalNewCashManagementAccount = LocalCashManagementAccount
+						LocalStatementDate		 	  = DataColArray.ColArray[3]
+						LocalCreateStatementDate 	  = LocalStatementDate
+						
+						if  (CashManagementAccountRel exists
+						and	(!NewBankStatementRel exists
+						or  (NewBankStatementRel exists 															
+						and  BankStatementInterfaceBankStatementRel not exists
+						and  BankStatementInterfaceHeader not = NewBankStatementRel.BankStatementInterfaceHeader)))
+							LocalCategorizationGroup = 1
+							
+						invoke ImportCSV
+							invoked.PrmCashManagementGroup	 			= PrmCashManagementGroup
+							invoked.PrmBankStatementInterfaceHeader	 	= PrmBankStatementInterfaceHeader
+							invoked.PrmCategorizationGroup				= LocalCategorizationGroup
+
+						if (LocalCategorizationGroup < LocalNumberOfCategorizationGroups)
+							LocalCategorizationGroup += 1
+						else
+							LocalCategorizationGroup = 1
+					else
+					if (BankStatementInterfaceHeader.EDI822Format)
+						invoke ImportEDI822
+							invoked.PrmCashManagementGroup	 			= PrmCashManagementGroup
+							invoked.PrmBankStatementInterfaceHeader	 	= PrmBankStatementInterfaceHeader
+					else
+					if (BankStatementInterfaceHeader.CAMT05XFormat)
+						if (CAMT053RecordType.StmtRpt)
+							initialize LocalCategorizationGroup
+						invoke ImportCAMT05X
+							invoked.PrmCashManagementGroup	 			= PrmCashManagementGroup
+							invoked.PrmBankStatementInterfaceHeader	 	= PrmBankStatementInterfaceHeader
+							invoked.PrmCategorizationGroup				= LocalCategorizationGroup
+
+						if (LocalCategorizationGroup < LocalNumberOfCategorizationGroups)
+							LocalCategorizationGroup += 1
+						else
+							LocalCategorizationGroup = 1
+
+		ImportMT940 is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup 			is a CashManagementGroup
+				PrmBankStatementInterfaceHeader is a BankStatementInterfaceHeader
+				PrmCategorizationGroup			is a CategorizationGroup
+
+			Local Fields
+				NewBankStatement 				is a BankStatement view
+				NewBankStatementLine			is a BankStatementLine view
+				NewBankStatementBalance 		is a BankStatementBalance view
+				ParentCode						is Alpha size 2
+				LocalCurrency					is AlphaUpper size 5
+				LocalCounter					is Numeric size 5
+				LocalCounter2					is Numeric size 5
+				LocalDescription				is Alpha up to 1000
+				LocalLongDescription			is Text
+				LocalLineAmount					is an InternationalAmount
+				LocalBalance					is an InternationalAmount
+				LocalBalance2					is an InternationalAmount
+				LocalBalance3					is an InternationalAmount
+				LocalBalance4					is an InternationalAmount
+				LocalDebitCreditIndicator 		is a DebitCreditIndicator
+				LocalTransactionType			is Alpha size 4
+				LocalMT940OpenAmount			is Alpha size 20
+				LocalMT940OpenAmount2			is Alpha size 20
+				LocalMT940CloseAmount			is Alpha size 20
+				LocalMT940CloseAmount2			is Alpha size 20
+				LocalMT940CloseAvailAmount		is Alpha size 20
+				LocalMT940CloseAvailAmount2		is Alpha size 20
+				LocalMT940FloatAmount			is Alpha size 20
+				LocalMT940FloatAmount2			is Alpha size 20
+				LocalMT940LineAmount			is Alpha size 20
+				LocalMT940LineAmount2			is Alpha size 20
+				LocalMT940Data					is Alpha size 100
+				LocalBankReference 				is like BankStatementLineReference
+				LocalCustReference 				is like BankStatementLineReference
+				LocalTextReference 				is like BankStatementLineReference	
+				LocalEntryDateOffset			is Numeric 2
+				LocalDebitCreditOffset			is Numeric 2
+				LocalFundsCodeOffset			is Numeric 2
+				LocalLineOffset					is Numeric 2
+				LocalFieldBeingProcessed		is Numeric 2
+				LocalMT940BankStatementBSI		is a BankStatementInterface
+				LocalMT940OpeningBSI			is a BankStatementInterface
+				LocalMT940ClosingBSI			is a BankStatementInterface
+				LocalMT940FloatBSI				is a BankStatementInterface
+				LocalMT940ClosingAvailBSI		is a BankStatementInterface
+
+			Action Rules
+				CashManagementGroup = PrmCashManagementGroup
+
+				if (FirstChar != ":")
+ 					Status = Status.Imported
+
+				if (MT940Data like ":20*") //FirstThreeChars = ":20")
+					MT940Code = MT940Data[2:3]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":21*") //FirstThreeChars = ":21")
+					MT940Code = MT940Data[2:3]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":25*") //FirstThreeChars = ":25")
+					MT940Code = MT940Data[2:3]
+
+
+					initialize LocalMT940OpeningBSI
+					LocalMT940OpeningBSI = first MT940OpeningRel.BankStatementInterface
+					LocalMT940OpenAmount = LocalMT940OpeningBSI.MT940Data[16:31]
+					LocalMT940OpenAmount2 = ""
+					LocalCounter = 1
+
+					while (LocalCounter < 15)
+						if (LocalMT940OpenAmount[LocalCounter:LocalCounter] = ",")
+							LocalMT940OpenAmount2 = LocalMT940OpenAmount2 + "."
+						else
+							LocalMT940OpenAmount2 = LocalMT940OpenAmount2 + LocalMT940OpenAmount[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalBalance = LocalMT940OpenAmount2
+
+					if (LocalMT940OpeningBSI.MT940Data[6:6] = "D")
+						LocalBalance = LocalBalance * -1
+
+
+					initialize LocalMT940ClosingBSI
+					LocalMT940ClosingBSI = first MT940ClosingRel.BankStatementInterface
+					LocalMT940CloseAmount = LocalMT940ClosingBSI.MT940Data[16:31]
+					LocalMT940CloseAmount2 = ""
+					LocalCounter = 1
+
+					while (LocalCounter < 15)
+						if (LocalMT940CloseAmount[LocalCounter:LocalCounter] = ",")
+							LocalMT940CloseAmount2 = LocalMT940CloseAmount2 + "."
+						else
+							LocalMT940CloseAmount2 = LocalMT940CloseAmount2 + LocalMT940CloseAmount[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalBalance2 = LocalMT940CloseAmount2
+
+					if (LocalMT940ClosingBSI.MT940Data[6:6] = "D")
+						LocalBalance2 = LocalBalance2 * -1
+
+
+					initialize LocalMT940ClosingAvailBSI
+					LocalMT940ClosingAvailBSI = first MT940ClosingAvailRel.BankStatementInterface
+					LocalMT940CloseAvailAmount = LocalMT940ClosingAvailBSI.MT940Data[15:30]
+					LocalMT940CloseAvailAmount2 = ""
+					LocalCounter = 1
+
+					while (LocalCounter < 15)
+						if (LocalMT940CloseAvailAmount[LocalCounter:LocalCounter] = ",")
+							LocalMT940CloseAvailAmount2 = LocalMT940CloseAvailAmount2 + "."
+						else
+							LocalMT940CloseAvailAmount2 = LocalMT940CloseAvailAmount2 + LocalMT940CloseAvailAmount[LocalCounter:LocalCounter]
+						LocalCounter +=1
+
+					LocalBalance3 = LocalMT940CloseAvailAmount2
+
+					if (LocalMT940ClosingAvailBSI.MT940Data[5:5] = "D")
+						LocalBalance3 = LocalBalance3 * -1
+
+
+					initialize LocalMT940FloatBSI
+					LocalMT940FloatBSI = first MT940FloatRel.BankStatementInterface
+					LocalMT940FloatAmount = LocalMT940FloatBSI.MT940Data[15:30]
+					LocalMT940FloatAmount2 = ""
+					LocalCounter = 1
+
+					while (LocalCounter < 15)
+						if (LocalMT940FloatAmount[LocalCounter:LocalCounter] = ",")
+							LocalMT940FloatAmount2 = LocalMT940FloatAmount2 + "."
+						else
+							LocalMT940FloatAmount2 = LocalMT940FloatAmount2 + LocalMT940FloatAmount[LocalCounter:LocalCounter]
+						LocalCounter +=1
+					LocalBalance4 = LocalMT940FloatAmount2
+
+					if (LocalMT940FloatBSI.MT940Data[5:5] = "D")
+						LocalBalance4 = LocalBalance4 * -1
+
+
+					CashManagementGroup			= PrmCashManagementGroup
+					LocalImportAccountNumber	= MT940Data[5:40]
+					LocalCashManagementAccount	= first ActualCashManagementAccountRel.CashManagementAccount
+
+					LocalStatementDate = "20" + LocalMT940ClosingBSI.MT940Data[7:12] 
+
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepLatestStatementAndAnyWithCashPosition
+					and NoCashPositionIntradayStatementDateRel exists)
+						invoke Purge NoCashPositionIntradayStatementDateRel
+
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepOnlyLatestStatement
+					and IntradayStatementDateRel exists)
+						invoke Purge IntradayStatementDateRel
+
+					if (CashManagementAccountRel exists)
+						invoke Create Unreconciled BankStatement
+							assign result to NewBankStatement
+	 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+							invoked.CashManagementAccount			= LocalCashManagementAccount
+							invoked.StatementCurrency				= LocalMT940OpeningBSI.MT940Data[13:15]
+							invoked.StatementDate					= LocalStatementDate
+							invoked.StatementType					= BankStatementInterfaceHeader.StatementType 
+							invoked.OpeningLedger					= LocalBalance  
+							invoked.EndingBalance					= LocalBalance2 
+							invoked.ClosingLedger					= LocalBalance2 
+							invoked.ClosingAvailable				= LocalBalance3 
+
+
+							invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+
+						LocalCreateStatementDate = LocalStatementDate
+						if (!LocalIncomingBankStatementHeadersCreated)
+							include CreateIncomingBankStatementHeaderRecords
+						if (CorporateCalendarStatementDateRel.IsBankDay)
+							include CreateIncomingBankStatementDetails
+						else
+							include CreateIncomingBankStatementDetail
+						CashManagementGroup		= NewBankStatement.CashManagementGroup
+						CashManagementAccount	= NewBankStatement.CashManagementAccount
+						BankStatement			= NewBankStatement.BankStatement
+		 				Status = Status.Imported
+
+				if (MT940Data like ":28*") //FirstThreeChars = ":28")
+	 				if (MT940Data[4] = ":")
+	 					MT940Code = MT940Data[2:3]
+	 				else
+	 					MT940Code = MT940Data[2:4]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":60*") //FirstThreeChars = ":60")
+	 				if (MT940Data[4] = ":")
+	 					MT940Code = MT940Data[2:3]
+	 				else
+	 					MT940Code = MT940Data[2:4]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":61*") //FirstThreeChars = ":61")
+					MT940Code = MT940Data[2:3]
+
+
+					initialize LocalMT940LineAmount
+					initialize LocalMT940LineAmount2
+
+					if (MT940Data[11] is numeric)
+						LocalEntryDateOffset = 0	
+					else
+						LocalEntryDateOffset = -4	
+
+					if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "R") 
+						LocalDebitCreditOffset = 0	
+					else
+						LocalDebitCreditOffset = -1	
+
+					if (!MT940Data[17+LocalEntryDateOffset+LocalDebitCreditOffset:17+LocalEntryDateOffset+LocalDebitCreditOffset] is numeric)
+						LocalFundsCodeOffset = 0	
+					else
+						LocalFundsCodeOffset = -1	
+
+					LocalLineOffset = LocalEntryDateOffset + LocalDebitCreditOffset + LocalFundsCodeOffset
+
+					LocalMT940LineAmount = MT940Data[18+LocalLineOffset:40+LocalLineOffset]
+
+					LocalCounter = 1
+
+					while (LocalCounter < 19)
+						if (LocalMT940LineAmount[LocalCounter:LocalCounter] = ",")
+							LocalMT940LineAmount2 = LocalMT940LineAmount2 + "."
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric 
+							and LocalMT940LineAmount[LocalCounter+2] is numeric
+							and LocalMT940LineAmount[LocalCounter+3] is numeric)
+								LocalMT940LineAmount2 = LocalMT940LineAmount2 + LocalMT940LineAmount[LocalCounter+1:LocalCounter+3]
+								LocalTransactionType = LocalMT940LineAmount[LocalCounter+4:LocalCounter+7]
+							else
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric 
+							and LocalMT940LineAmount[LocalCounter+2] is numeric)
+								LocalMT940LineAmount2 = LocalMT940LineAmount2 + LocalMT940LineAmount[LocalCounter+1:LocalCounter+2]
+								LocalTransactionType = LocalMT940LineAmount[LocalCounter+3:LocalCounter+6]
+							else
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric)
+								LocalMT940LineAmount2 = LocalMT940LineAmount2 + LocalMT940LineAmount[LocalCounter+1:LocalCounter+1]
+								LocalTransactionType = LocalMT940LineAmount[LocalCounter+2:LocalCounter+5]
+							else
+								LocalTransactionType = LocalMT940LineAmount[LocalCounter+1:LocalCounter+4]
+							LocalCounter = 20
+						else
+							LocalMT940LineAmount2 = LocalMT940LineAmount2 + LocalMT940LineAmount[LocalCounter:LocalCounter]
+
+						LocalCounter +=1
+
+					LocalBalance2 = LocalMT940LineAmount2
+
+					if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "R")
+						if (MT940Data[16+LocalEntryDateOffset:16+LocalEntryDateOffset] = "C")	
+							LocalBalance2 = LocalBalance2 * -1
+							LocalDebitCreditIndicator = LocalDebitCreditIndicator.Debit
+						else 																	
+							LocalDebitCreditIndicator = LocalDebitCreditIndicator.Credit
+					else
+						if (MT940Data[15+LocalEntryDateOffset:15+LocalEntryDateOffset] = "D")	
+							LocalBalance2 = LocalBalance2 * -1
+							LocalDebitCreditIndicator = LocalDebitCreditIndicator.Debit
+						else																	
+							LocalDebitCreditIndicator = LocalDebitCreditIndicator.Credit
+
+
+					LocalMT940Data = MT940Data[18+LocalLineOffset:100]
+					LocalCounter = 1
+					LocalFieldBeingProcessed = 0 
+					while (LocalCounter < 82)
+						if (LocalMT940Data[LocalCounter:LocalCounter] = ",")
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric
+							and LocalMT940LineAmount[LocalCounter+2] is numeric
+							and LocalMT940LineAmount[LocalCounter+3] is numeric)
+								LocalCounter += 8
+							else
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric
+							and LocalMT940LineAmount[LocalCounter+2] is numeric)
+								LocalCounter += 7
+							else
+							if (LocalMT940LineAmount[LocalCounter+1] is numeric)
+								LocalCounter += 6
+							else
+								LocalCounter += 5
+							LocalFieldBeingProcessed += 1
+
+						if (LocalMT940Data[LocalCounter:LocalCounter] = "/" and LocalMT940Data[LocalCounter+1:LocalCounter+1] = "/")
+							LocalCounter += 2
+							LocalFieldBeingProcessed += 1
+
+						if (LocalFieldBeingProcessed = 1) 
+							LocalCustReference += LocalMT940Data[LocalCounter:LocalCounter]
+							LocalCustReference -= " " 
+						else
+						if (LocalFieldBeingProcessed = 2) 
+							LocalBankReference += LocalMT940Data[LocalCounter:LocalCounter]
+							LocalBankReference -= " "
+						else
+						if (LocalFieldBeingProcessed = 3) 
+							LocalTextReference += LocalMT940Data[LocalCounter:LocalCounter]
+							LocalTextReference -= " "
+
+						if (LocalFieldBeingProcessed >= 1)
+							LocalDescription      += LocalMT940Data[LocalCounter:LocalCounter]
+							LocalLongDescription  += LocalMT940Data[LocalCounter:LocalCounter]
+							LocalDescription      -= " "
+							LocalLongDescription  -= " "
+
+						LocalCounter += 1
+
+					initialize LocalMT940BankStatementBSI
+					LocalMT940BankStatementBSI = last MT940BankStatementRel.BankStatementInterface
+					if (LocalMT940BankStatementBSI.BankStatement entered)
+						invoke Create BankStatementLine
+							assign result to NewBankStatementLine
+	 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+							invoked.CashManagementAccount			= LocalMT940BankStatementBSI.CashManagementAccount
+							invoked.BankStatement					= LocalMT940BankStatementBSI.BankStatement
+							invoked.LineCurrency					= LocalMT940BankStatementBSI.BankStatement.StatementCurrency
+							invoked.ValueDate						= "20" + MT940Data[5:10]
+							invoked.TransactionType					= LocalTransactionType
+							invoked.DebitCreditIndicator			= LocalDebitCreditIndicator
+							invoked.LineAmount						= LocalBalance2
+							invoked.BankReference					= LocalBankReference
+							invoked.RelatedReference				= LocalCustReference
+							invoked.TextReference					= LocalTextReference
+							invoked.Description						= LocalDescription
+							invoked.TransientLongDescription		= LocalLongDescription
+							invoked.CategorizationGroup				= PrmCategorizationGroup
+							invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+							invoked.BankStatementInterface			= BankStatementInterface
+							
+						CashManagementGroup		= NewBankStatementLine.CashManagementGroup
+						CashManagementAccount	= NewBankStatementLine.CashManagementAccount
+						BankStatement			= NewBankStatementLine.BankStatement
+						BankStatementLine		= NewBankStatementLine.BankStatementLine
+		 				Status = Status.Imported
+
+				if (FirstChar != ":"
+				and FirstChar != "{"
+				and SecondChar != "}")
+					LocalTextReference = MT940Data[1:35] 
+					LocalTextReference -= " "
+							
+					LocalDescription = MT940Data
+					LocalDescription -= " "
+					LocalLongDescription = MT940Data
+					LocalLongDescription -= " "
+					
+					invoke UpdateDescription last MT940LineDetailRel.BankStatementLine
+						invoked.PrmTextReference = LocalTextReference
+						invoked.PrmDescription 	 = LocalDescription
+						invoked.PrmLongDescription 	 = LocalLongDescription
+						
+					Status = Status.Imported
+					
+				if (MT940Data like ":86*") //FirstThreeChars = ":86")
+					MT940Code = MT940Data[2:3]
+	 				
+	 				LocalDescription = MT940Data[5:500]
+					LocalDescription -= " "
+					LocalLongDescription = MT940Data[5:500]
+					LocalLongDescription -= " "
+					
+					invoke UpdateDescription last MT940LineDetailRel.BankStatementLine
+						invoked.PrmDescription = LocalDescription
+						invoked.PrmLongDescription = LocalLongDescription
+						
+					Status = Status.Imported
+
+				if (MT940Data like ":62*") //FirstThreeChars = ":62")
+					if (MT940Data[4] = ":")
+	 					MT940Code = MT940Data[2:3]
+	 				else
+	 					MT940Code = MT940Data[2:4]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":64*") //FirstThreeChars = ":64")
+					MT940Code = MT940Data[2:3]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":65*") //FirstThreeChars = ":65")
+					MT940Code = MT940Data[2:3]
+	 				Status = Status.Imported
+
+				if (MT940Data like ":79*") //FirstThreeChars = ":79")
+					MT940Code = MT940Data[2:3]
+	 				Status = Status.Imported
+	 			
+	 			if (MT940Data like ":90*") //FirstThreeChars = ":90")
+	 				if (MT940Data[4] = ":")
+	 					MT940Code = MT940Data[2:3]
+	 				else
+	 					MT940Code = MT940Data[2:4]
+	 				Status = Status.Imported
+	 					
+		ImportBAI2 is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup 			is a CashManagementGroup
+				PrmBankStatementInterfaceHeader is a BankStatementInterfaceHeader
+				PrmCategorizationGroup			is a CategorizationGroup
+				
+			Local Fields
+				NewBankStatement 				is a BankStatement view
+				NewBankStatementLine			is a BankStatementLine view
+				NewBankStatementBalance 		is a BankStatementBalance view
+				ParentCode						is Alpha size 2
+				LocalCurrency		   			is AlphaUpper size 5
+				LocalCounter					is Numeric size 5
+				LocalDescription				is Alpha up to 1000
+				LocalLongDescription			is Text
+				LocalArrayCounter				is Numeric 2
+				LastEnteredArrayField			is Numeric 2
+				LocalLineAmount					is an InternationalAmount
+				LocalZeroDayFloat				is an InternationalAmount
+				LocalOneDayFloat				is an InternationalAmount
+				LocalTwoOrMoreDaysFloat			is an InternationalAmount
+				LocalBalance					is an InternationalAmount
+				LocalAlphaItemCount				is Alpha up to 80
+				LocalItemCount					is Numeric 5
+				LocalDebitCreditIndicator 		is a DebitCreditIndicator
+				LocalTransactionType			is a BankTransactionTypeCode				
+				LocalFundsType					is Alpha 1
+				LocalColArrayMembersRemaining	is Numeric size 3
+				LocalElementsRemainingToProcess	is Numeric size 3
+				LocalBAI2ParentBSI				is a BankStatementInterface
+				LocalBAI2BankStatementBSI		is a BankStatementInterface
+				LocalBAI2GroupHeaderBSI			is a BankStatementInterface
+				LocalBAI2PreviousBSI			is a BankStatementInterface
+					
+			Action Rules
+				if (Code = "88")
+					initialize LocalBAI2ParentBSI
+					LocalBAI2ParentBSI = last ParentBankStatementInterfaceRel.BankStatementInterface
+					CashManagementGroup		= LocalBAI2ParentBSI.CashManagementGroup
+					CashManagementAccount	= LocalBAI2ParentBSI.CashManagementAccount
+					BankStatement			= LocalBAI2ParentBSI.BankStatement
+					BankStatementBalance	= LocalBAI2ParentBSI.BankStatementBalance
+					BankStatementLine		= LocalBAI2ParentBSI.BankStatementLine
+					ParentCode				= LocalBAI2ParentBSI.Code
+					LocalCurrency 			= LocalBAI2ParentBSI.DataColArray.ColArray[3]
+					
+					if (BankStatement entered)
+						if (ParentCode = "03")
+							LocalCounter = 2
+
+							initialize LocalBAI2PreviousBSI
+							LocalBAI2PreviousBSI = last PreviousBankStatementInterfaceRel.BankStatementInterface
+							LocalElementsRemainingToProcess = LocalBAI2PreviousBSI.ElementsRemainingToProcess
+							if (LocalBAI2PreviousBSI.LastBankStatementBalance entered)
+								LocalTransactionType = LocalBAI2PreviousBSI.LastTransactionType
+								LocalFundsType = LocalBAI2PreviousBSI.LastFundsType
+								if (LocalFundsType = "V")
+									if (LocalElementsRemainingToProcess = 3)
+										LocalFundsType = DataColArray.ColArray[LocalCounter]
+									else
+									if (LocalElementsRemainingToProcess = 4) 
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 1]
+									else
+									if (LocalElementsRemainingToProcess = 5)
+										LocalBalance = DataColArray.ColArray[LocalCounter]
+										LocalBalance = LocalBalance / 100
+							
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter + 1]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 2]
+									
+									if (LocalElementsRemainingToProcess >= 3)
+										LocalBankStatementBalance = LocalBAI2PreviousBSI.LastBankStatementBalance
+										invoke Update BankStatementBalanceRel
+											if (LocalBalance != 0)
+												invoked.Balance	  = LocalBalance
+											if (LocalItemCount > 0)
+												invoked.ItemCount = LocalItemCount
+											if (LocalFundsType entered)
+												invoked.FundsType = LocalFundsType
+								else
+								if (LocalFundsType = "S")
+									if (LocalElementsRemainingToProcess = 4)
+										LocalFundsType = DataColArray.ColArray[LocalCounter]
+									else
+									if (LocalElementsRemainingToProcess = 5) 
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 1]
+									else
+									if (LocalElementsRemainingToProcess = 6)
+										LocalBalance = DataColArray.ColArray[LocalCounter]
+										LocalBalance = LocalBalance / 100
+							
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter + 1]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 2]
+									
+									if (LocalElementsRemainingToProcess >= 4)
+										LocalBankStatementBalance = LocalBAI2PreviousBSI.LastBankStatementBalance
+										invoke Update BankStatementBalanceRel
+											if (LocalBalance != 0)
+												invoked.Balance	  = LocalBalance
+											if (LocalItemCount > 0)
+												invoked.ItemCount = LocalItemCount
+											if (LocalFundsType entered)
+												invoked.FundsType = LocalFundsType
+								else
+									if (LocalElementsRemainingToProcess = 1)
+										LocalFundsType = DataColArray.ColArray[LocalCounter]
+									else
+									if (LocalElementsRemainingToProcess = 2) 
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 1]
+									else
+									if (LocalElementsRemainingToProcess = 3)
+										LocalBalance = DataColArray.ColArray[LocalCounter]
+										LocalBalance = LocalBalance / 100
+							
+										LocalAlphaItemCount = DataColArray.ColArray[LocalCounter + 1]
+										LocalAlphaItemCount -= "\\+"
+										LocalItemCount = LocalAlphaItemCount
+									
+										LocalFundsType = DataColArray.ColArray[LocalCounter + 2]
+									
+									if (LocalElementsRemainingToProcess >= 1)
+										LocalBankStatementBalance = LocalBAI2PreviousBSI.LastBankStatementBalance
+										invoke Update BankStatementBalanceRel
+											if (LocalBalance != 0)
+												invoked.Balance	  = LocalBalance
+											if (LocalItemCount > 0)
+												invoked.ItemCount = LocalItemCount
+											if (LocalFundsType entered)
+												invoked.FundsType = LocalFundsType
+								
+								if (LocalBalance != 0)
+									if (LocalTransactionType = "010") 
+										invoke Update Unreconciled BankStatement
+											invoked.OpeningLedger = LocalBalance
+								
+									if (LocalTransactionType = "015") 
+										invoke Update Unreconciled BankStatement
+											invoked.ClosingLedger = LocalBalance
+											invoked.EndingBalance = LocalBalance
+									
+									if (BankStatement.StatementType.Intraday)
+										if (DataColArray.ColArray[LocalCounter] = "030") 
+											invoke Update Unreconciled BankStatement
+												invoked.EndingBalance = LocalBalance
+															
+									if (LocalTransactionType = "040") 
+										invoke Update Unreconciled BankStatement
+											invoked.OpeningAvailable = LocalBalance
+											
+									if (LocalTransactionType = "045") 
+										invoke Update Unreconciled BankStatement
+											invoked.ClosingAvailable = LocalBalance
+									
+									if (LocalTransactionType = "072")
+										invoke Update Unreconciled BankStatement
+											invoked.OneDayFloat = LocalBalance
+											
+									if (LocalTransactionType = "074")
+										invoke Update Unreconciled BankStatement
+											invoked.TwoOrMoreDaysFloat = LocalBalance
+											
+									if (LocalTransactionType = "075")
+										invoke Update Unreconciled BankStatement
+											invoked.ThreeOrMoreDaysFloat = LocalBalance
+															
+								LocalCounter += LocalElementsRemainingToProcess
+							
+							while (LocalCounter <= DataColArrayElements
+							and	   DataColArray.ColArray[LocalCounter] entered)
+								LocalBalance = DataColArray.ColArray[LocalCounter + 1]
+								LocalBalance = LocalBalance / 100
+								
+								LocalAlphaItemCount = DataColArray.ColArray[LocalCounter + 2]
+								LocalAlphaItemCount -= "\\+"
+								LocalItemCount = LocalAlphaItemCount
+							
+								LocalFundsType = DataColArray.ColArray[LocalCounter + 3]
+								
+								LocalBankTransactionTypeCode = DataColArray.ColArray[LocalCounter]	
+								if (BankTransactionTypeCodeRel not exists)	
+									invoke Create BankTransactionTypeCode
+										invoked.CashManagementGroup			= CashManagementGroup
+										invoked.BankTransactionTypeCode		= LocalBankTransactionTypeCode
+										invoked.Active						= true
+										
+								invoke Create BankStatementBalance
+									assign result to NewBankStatementBalance
+			 						invoked.CashManagementGroup	 			= CashManagementGroup
+									invoked.CashManagementAccount			= CashManagementAccount
+									invoked.BankStatement					= BankStatement
+									invoked.TransactionType					= DataColArray.ColArray[LocalCounter]
+									invoked.Balance							= LocalBalance
+									invoked.ItemCount						= LocalItemCount
+									invoked.FundsType						= LocalFundsType
+									invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+									invoked.BankStatementInterface			= BankStatementInterface
+								
+								if (LocalBalance != 0)	
+									if (DataColArray.ColArray[LocalCounter] = "010") 
+										invoke Update Unreconciled BankStatement
+											invoked.OpeningLedger = LocalBalance
+									
+									if (DataColArray.ColArray[LocalCounter] = "015") 
+										invoke Update Unreconciled BankStatement
+											invoked.ClosingLedger = LocalBalance
+											invoked.EndingBalance = LocalBalance
+									
+									if (BankStatement.StatementType.Intraday)
+										if (DataColArray.ColArray[LocalCounter] = "030") 
+											invoke Update Unreconciled BankStatement
+												invoked.EndingBalance = LocalBalance
+															
+									if (DataColArray.ColArray[LocalCounter] = "040") 
+										invoke Update Unreconciled BankStatement
+											invoked.OpeningAvailable = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "045") 
+										invoke Update Unreconciled BankStatement
+											invoked.ClosingAvailable = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "072")
+										invoke Update Unreconciled BankStatement
+											invoked.OneDayFloat = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "074")
+										invoke Update Unreconciled BankStatement
+											invoked.TwoOrMoreDaysFloat = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "075")
+										invoke Update Unreconciled BankStatement
+											invoked.ThreeOrMoreDaysFloat = LocalBalance
+								
+								LocalColArrayMembersRemaining = (DataColArrayElements - LocalCounter) 
+								if (LocalColArrayMembersRemaining >= 3)
+									if (DataColArray.ColArray[LocalCounter + 3] = "V")
+										if (LocalColArrayMembersRemaining >= 6)
+											LocalCounter += 6
+										else
+											if ((5 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												LastFundsType = "V"
+												ElementsRemainingToProcess = (5 - LocalColArrayMembersRemaining)
+											LocalCounter += 7
+									else
+									if (DataColArray.ColArray[LocalCounter + 3] = "S")
+										if (LocalColArrayMembersRemaining >= 7)
+											LocalCounter += 7
+										else
+											if ((6 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												LastFundsType = "S"
+												ElementsRemainingToProcess = (6 - LocalColArrayMembersRemaining)
+											LocalCounter += 8
+									else
+										if (LocalColArrayMembersRemaining >= 4)
+											LocalCounter += 4
+										else
+											if ((3 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												ElementsRemainingToProcess = (3 - LocalColArrayMembersRemaining)
+											LocalCounter += 5
+								else
+									if ((3 - LocalColArrayMembersRemaining) > 0)
+										LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+										LastTransactionType = DataColArray.ColArray[LocalCounter]
+										ElementsRemainingToProcess = (3 - LocalColArrayMembersRemaining)
+									LocalCounter += 5
+
+			 				Status = Status.Imported
+			 				
+						if (ParentCode = "16")
+							LocalArrayCounter = 2
+							LastEnteredArrayField = DataColArray levels
+							while (LocalArrayCounter <= LastEnteredArrayField)
+								LocalDescription += DataColArray.ColArray[LocalArrayCounter]
+								LocalLongDescription += DataColArray.ColArray[LocalArrayCounter]
+								LocalArrayCounter += 1
+							
+							LocalDescription -= "\\\\"
+							LocalLongDescription -= "\\\\"
+							
+							invoke UpdateDescription BankStatementLine
+								invoked.PrmDescription = LocalDescription
+								invoked.PrmLongDescription = LocalLongDescription
+								
+			 				Status = Status.Imported
+ 				else
+					if (Code = "01"
+					or  Code = "02"
+					or  Code = "49"
+					or  Code = "98"
+					or  Code = "99"
+					or  Code not entered)
+		 				Status = Status.Imported
+		 				
+					if (Code = "03")
+						CashManagementGroup		   = PrmCashManagementGroup
+						LocalImportAccountNumber   = DataColArray.ColArray[2]
+						LocalCashManagementAccount = first ActualCashManagementAccountRel.CashManagementAccount
+						
+						if (CashManagementAccountRel exists)
+							initialize LocalBAI2GroupHeaderBSI
+							LocalBAI2GroupHeaderBSI = last GroupHeaderRel.BankStatementInterface
+							if (LocalBAI2GroupHeaderBSI.DataColArray.ColArray[5] size = 6)
+								LocalStatementDate = "20" + LocalBAI2GroupHeaderBSI.DataColArray.ColArray[5]
+							else
+								LocalStatementDate = LocalBAI2GroupHeaderBSI.DataColArray.ColArray[5]
+							
+							if (PrmCashManagementGroup.IntradayStatementProcessing.KeepLatestStatementAndAnyWithCashPosition
+							and NoCashPositionIntradayStatementDateRel exists)
+								invoke Purge NoCashPositionIntradayStatementDateRel
+							
+							if (PrmCashManagementGroup.IntradayStatementProcessing.KeepOnlyLatestStatement
+							and IntradayStatementDateRel exists)
+								invoke Purge IntradayStatementDateRel
+
+							if (LocalBAI2GroupHeaderBSI.DataColArray.ColArray[8] entered) 
+								if (LocalBAI2GroupHeaderBSI.DataColArray.ColArray[8] >= 3) 
+									LocalStatementType = LocalStatementType.Intraday
+								else
+									LocalStatementType = LocalStatementType.PreviousDay
+							else
+								if (last FileHeaderRel.DataColArray.ColArray[4] <= LocalBAI2GroupHeaderBSI.DataColArray.ColArray[5])
+									LocalStatementType = LocalStatementType.Intraday
+								else
+									LocalStatementType = LocalStatementType.PreviousDay
+							
+							invoke Create Unreconciled BankStatement
+								assign result to NewBankStatement
+		 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+								invoked.CashManagementAccount			= LocalCashManagementAccount
+								invoked.ReferenceNumber					= DataColArray.ColArray[2]
+								invoked.StatementCurrency				= DataColArray.ColArray[3]
+								invoked.StatementDate					= LocalStatementDate
+								invoked.StatementType					= LocalStatementType
+								invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+
+							LocalCreateStatementDate = LocalStatementDate
+							if (!LocalIncomingBankStatementHeadersCreated)
+								include CreateIncomingBankStatementHeaderRecords
+							if (CorporateCalendarStatementDateRel.IsBankDay)
+								include CreateIncomingBankStatementDetails
+							else
+								include CreateIncomingBankStatementDetail
+
+							LocalCounter = 4
+							
+							while (LocalCounter <= DataColArrayElements
+							and	   DataColArray.ColArray[LocalCounter] entered)
+								LocalBalance = DataColArray.ColArray[LocalCounter + 1]
+								LocalBalance = LocalBalance / 100
+								
+								LocalAlphaItemCount = DataColArray.ColArray[LocalCounter + 2]
+								LocalAlphaItemCount -= "\\+"
+								LocalItemCount = LocalAlphaItemCount
+								
+								LocalFundsType = DataColArray.ColArray[LocalCounter + 3]
+
+								LocalBankTransactionTypeCode = DataColArray.ColArray[LocalCounter]	
+								
+								if (BankTransactionTypeCodeRel not exists)	
+									invoke Create BankTransactionTypeCode
+										invoked.CashManagementGroup			= CashManagementGroup
+										invoked.BankTransactionTypeCode		= LocalBankTransactionTypeCode
+										invoked.Active						= true
+										
+								invoke Create BankStatementBalance
+									assign result to NewBankStatementBalance
+			 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+									invoked.CashManagementAccount			= LocalCashManagementAccount
+									invoked.BankStatement					= NewBankStatement.BankStatement
+									invoked.TransactionType					= DataColArray.ColArray[LocalCounter]
+									invoked.Balance							= LocalBalance
+									invoked.ItemCount						= LocalItemCount
+									invoked.FundsType						= LocalFundsType
+									invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+									invoked.BankStatementInterface			= BankStatementInterface
+								
+								if (LocalBalance != 0)	
+									if (DataColArray.ColArray[LocalCounter] = "010") 
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.OpeningLedger = LocalBalance
+									
+									if (DataColArray.ColArray[LocalCounter] = "015") 
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.ClosingLedger = LocalBalance
+											invoked.EndingBalance = LocalBalance
+									
+									if (NewBankStatement.BankStatement.StatementType.Intraday)
+										if (DataColArray.ColArray[LocalCounter] = "030") 
+											invoke Update Unreconciled NewBankStatement.BankStatement
+												invoked.EndingBalance = LocalBalance
+															
+									if (DataColArray.ColArray[LocalCounter] = "040") 
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.OpeningAvailable = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "045") 
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.ClosingAvailable = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "072")
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.OneDayFloat = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "074")
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.TwoOrMoreDaysFloat = LocalBalance
+											
+									if (DataColArray.ColArray[LocalCounter] = "075")
+										invoke Update Unreconciled NewBankStatement.BankStatement
+											invoked.ThreeOrMoreDaysFloat = LocalBalance
+								
+							 	LocalColArrayMembersRemaining = (DataColArrayElements - LocalCounter) 
+								if (LocalColArrayMembersRemaining >= 3)
+									if (DataColArray.ColArray[LocalCounter + 3] = "V")
+										if (LocalColArrayMembersRemaining >= 6)
+											LocalCounter += 6
+										else
+											if ((5 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												LastFundsType = "V"
+												ElementsRemainingToProcess = (5 - LocalColArrayMembersRemaining)
+											LocalCounter += 7
+									else
+									if (DataColArray.ColArray[LocalCounter + 3] = "S")
+										if (LocalColArrayMembersRemaining >= 7)
+											LocalCounter += 7
+										else
+											if ((6 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												LastFundsType = "S"
+												ElementsRemainingToProcess = (6 - LocalColArrayMembersRemaining)
+											LocalCounter += 8
+									else
+										if (LocalColArrayMembersRemaining >= 4)
+											LocalCounter += 4
+										else
+											if ((3 - LocalColArrayMembersRemaining) > 0)
+												LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+												LastTransactionType = DataColArray.ColArray[LocalCounter]
+												ElementsRemainingToProcess = (3 - LocalColArrayMembersRemaining)
+											LocalCounter += 5
+								else
+									if ((3 - LocalColArrayMembersRemaining) > 0)
+										LastBankStatementBalance = NewBankStatementBalance.BankStatementBalance
+										LastTransactionType = DataColArray.ColArray[LocalCounter]
+										ElementsRemainingToProcess = (3 - LocalColArrayMembersRemaining)
+									LocalCounter += 5
+
+							CashManagementGroup		= NewBankStatement.CashManagementGroup
+							CashManagementAccount	= NewBankStatement.CashManagementAccount
+							BankStatement			= NewBankStatement.BankStatement
+							BankStatementBalance	= NewBankStatementBalance.BankStatementBalance
+			 				Status = Status.Imported
+			 				
+					if (Code = "16")
+						initialize LocalBAI2BankStatementBSI
+						LocalBAI2BankStatementBSI = last BankStatementRel.BankStatementInterface
+						if (LocalBAI2BankStatementBSI.CashManagementAccount entered)
+							LocalDescription = blank
+							LocalLongDescription = blank
+							LocalLineAmount = DataColArray.ColArray[3]
+							LocalLineAmount = LocalLineAmount / 100
+							LocalTransactionType = DataColArray.ColArray[2]
+							
+							if (DataColArray.ColArray[4] = "S")
+								LocalZeroDayFloat = DataColArray.ColArray[5]
+								LocalZeroDayFloat = LocalZeroDayFloat / 100
+								LocalOneDayFloat = DataColArray.ColArray[6]
+								LocalOneDayFloat = LocalOneDayFloat / 100
+								LocalTwoOrMoreDaysFloat = DataColArray.ColArray[7]
+								LocalTwoOrMoreDaysFloat = LocalTwoOrMoreDaysFloat / 100
+							
+							if (LocalTransactionType.DebitCreditIndicator entered)
+								if (LocalTransactionType.DebitCreditIndicator.Credit)
+									LocalDebitCreditIndicator = LocalDebitCreditIndicator.Credit
+								else
+									LocalDebitCreditIndicator = LocalDebitCreditIndicator.Debit
+									LocalLineAmount = LocalLineAmount * -1
+							else	
+							if (LocalTransactionType < 400)
+								LocalDebitCreditIndicator = LocalDebitCreditIndicator.Credit
+							else
+							if (LocalTransactionType < 700)
+								LocalDebitCreditIndicator = LocalDebitCreditIndicator.Debit
+								LocalLineAmount = LocalLineAmount * -1
+							else
+							if (LocalTransactionType >= 920
+							and LocalTransactionType <= 959)
+								LocalDebitCreditIndicator = LocalDebitCreditIndicator.Credit
+							else
+							if (LocalTransactionType >= 960
+							and LocalTransactionType <= 999)
+								LocalDebitCreditIndicator = LocalDebitCreditIndicator.Debit
+								LocalLineAmount = LocalLineAmount * -1
+									
+							invoke Create BankStatementLine
+								assign result to NewBankStatementLine
+		 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+								invoked.CashManagementAccount			= LocalBAI2BankStatementBSI.CashManagementAccount
+								invoked.BankStatement					= LocalBAI2BankStatementBSI.BankStatement
+								invoked.LineCurrency					= LocalBAI2BankStatementBSI.BankStatement.StatementCurrency
+								invoked.TransactionType					= DataColArray.ColArray[2]
+								invoked.DebitCreditIndicator			= LocalDebitCreditIndicator
+								invoked.LineAmount						= LocalLineAmount
+								invoked.FundsCode						= DataColArray.ColArray[4]
+								if (DataColArray.ColArray[4] = blank
+								or  DataColArray.ColArray[4] = "0")
+									invoked.ZeroDayFloat				= LocalLineAmount
+									invoked.BankReference				= DataColArray.ColArray[5]
+									invoked.RelatedReference			= DataColArray.ColArray[6]
+									invoked.TextReference				= DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.Description				   += DataColArray.ColArray[5] 
+									invoked.Description				   += DataColArray.ColArray[6]
+									invoked.Description				   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.TransientLongDescription   += DataColArray.ColArray[5] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[6]
+									invoked.TransientLongDescription   += DataColArray.ColArray[7] + DataColArray.ColArray[8] 
+								else
+								if (DataColArray.ColArray[4] = "1")
+									invoked.OneDayFloat					= LocalLineAmount
+									invoked.BankReference				= DataColArray.ColArray[5]
+									invoked.RelatedReference			= DataColArray.ColArray[6]
+									invoked.TextReference				= DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.Description				   += DataColArray.ColArray[5] 
+									invoked.Description				   += DataColArray.ColArray[6]
+									invoked.Description				   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.TransientLongDescription   += DataColArray.ColArray[5] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[6]
+									invoked.TransientLongDescription   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+								else
+								if (DataColArray.ColArray[4] = "2")
+									invoked.TwoOrMoreDaysFloat			= LocalLineAmount
+									invoked.BankReference				= DataColArray.ColArray[5]
+									invoked.RelatedReference			= DataColArray.ColArray[6]
+									invoked.TextReference				= DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.Description				   += DataColArray.ColArray[5] 
+									invoked.Description				   += DataColArray.ColArray[6]
+									invoked.Description				   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.TransientLongDescription   += DataColArray.ColArray[5] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[6]
+									invoked.TransientLongDescription   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+								else
+								if (DataColArray.ColArray[4] = "Z")
+									invoked.BankReference				= DataColArray.ColArray[5]
+									invoked.RelatedReference			= DataColArray.ColArray[6]
+									invoked.TextReference				= DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.Description				   += DataColArray.ColArray[5] 
+									invoked.Description				   += DataColArray.ColArray[6]
+									invoked.Description				   += DataColArray.ColArray[7] + DataColArray.ColArray[8]
+									invoked.TransientLongDescription   += DataColArray.ColArray[5] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[6]
+									invoked.TransientLongDescription   += DataColArray.ColArray[7] + DataColArray.ColArray[8]	
+								else
+								if (DataColArray.ColArray[4] = "S")
+									invoked.ZeroDayFloat				= LocalZeroDayFloat
+									invoked.OneDayFloat					= LocalOneDayFloat
+									invoked.TwoOrMoreDaysFloat			= LocalTwoOrMoreDaysFloat
+									invoked.BankReference				= DataColArray.ColArray[8]
+									invoked.RelatedReference			= DataColArray.ColArray[9]
+									invoked.TextReference				= DataColArray.ColArray[10] + DataColArray.ColArray[11]
+									invoked.Description				   += DataColArray.ColArray[8] 
+									invoked.Description				   += DataColArray.ColArray[9]
+									invoked.Description				   += DataColArray.ColArray[10] + DataColArray.ColArray[11]
+									invoked.TransientLongDescription   += DataColArray.ColArray[8] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[9]
+									invoked.TransientLongDescription   += DataColArray.ColArray[10] + DataColArray.ColArray[11]
+								else
+								if (DataColArray.ColArray[4] = "V")
+									if (DataColArray.ColArray[5] size = 6)
+										invoked.ValueDate				= "20" + DataColArray.ColArray[5]
+									else
+										invoked.ValueDate				= DataColArray.ColArray[5]	
+									invoked.BankReference				= DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset]
+									invoked.RelatedReference			= DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 1]
+									invoked.TextReference				= DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 2] + DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 3]
+									invoked.Description				   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset] 
+									invoked.Description				   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 1]
+									invoked.Description				   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 2] + DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 3] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset] 
+									invoked.TransientLongDescription   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 1]
+									invoked.TransientLongDescription   += DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 2] + DataColArray.ColArray[5 + LocalBAI2BankStatementBSI.CashManagementAccount.BAIFundsTypeVOffset + 3]
+								invoked.CategorizationGroup				= PrmCategorizationGroup
+								invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+								invoked.BankStatementInterface			= BankStatementInterface
+								
+							CashManagementGroup		= NewBankStatementLine.CashManagementGroup
+							CashManagementAccount	= NewBankStatementLine.CashManagementAccount
+							BankStatement			= NewBankStatementLine.BankStatement
+							BankStatementLine		= NewBankStatementLine.BankStatementLine
+			 				Status = Status.Imported
+		
+		ImportCSV is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup 			is a CashManagementGroup
+				PrmBankStatementInterfaceHeader is a BankStatementInterfaceHeader
+				PrmCategorizationGroup			is a CategorizationGroup
+				
+			Local Fields
+				NewBankStatement 				is a BankStatement view
+				NewBankStatementLine			is a BankStatementLine view
+				NewBankStatementBalance 		is a BankStatementBalance view
+				LocalDebitCreditIndicatorUpper	is AlphaUpper 1
+				LocalCounter					is Numeric 5
+				LocalLineAmount					is an InternationalAmount	
+				
+			Action Rules
+				CashManagementGroup 		  = PrmCashManagementGroup
+				LocalImportAccountNumber 	  = DataColArray.ColArray[1]
+				LocalCashManagementAccount 	  = first ActualCashManagementAccountRel.CashManagementAccount
+				LocalNewCashManagementAccount = LocalCashManagementAccount
+				LocalStatementDate		 	  = DataColArray.ColArray[3]
+				LocalCreateStatementDate 	  = LocalStatementDate
+				
+				if  (CashManagementAccountRel exists
+				and	(!NewBankStatementRel exists
+				or  (NewBankStatementRel exists 																
+				and  BankStatementInterfaceBankStatementRel not exists											
+				and  BankStatementInterfaceHeader not = NewBankStatementRel.BankStatementInterfaceHeader)))		
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepLatestStatementAndAnyWithCashPosition
+					and NoCashPositionIntradayStatementDateRel exists)
+						invoke Purge NoCashPositionIntradayStatementDateRel
+					
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepOnlyLatestStatement
+					and IntradayStatementDateRel exists)
+						invoke Purge IntradayStatementDateRel
+
+					if (DataColArray.ColArray[2] = "TRUE")
+						LocalStatementType = LocalStatementType.Intraday
+					else
+						LocalStatementType = LocalStatementType.PreviousDay 
+					
+					invoke Create Unreconciled BankStatement
+						assign result to NewBankStatement
+ 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+						invoked.CashManagementAccount			= LocalCashManagementAccount
+						invoked.StatementCurrency				= DataColArray.ColArray[4] 
+						invoked.StatementType					= LocalStatementType
+						invoked.StatementDate					= DataColArray.ColArray[3]
+						if (DataColArray.ColArray[5] entered)
+							invoked.OpeningLedger				= DataColArray.ColArray[5]
+						if (DataColArray.ColArray[6] entered)
+							invoked.ClosingLedger				= DataColArray.ColArray[6]
+							invoked.EndingBalance				= DataColArray.ColArray[6]
+						if (DataColArray.ColArray[7] entered)
+							invoked.OpeningAvailable			= DataColArray.ColArray[7]
+						if (DataColArray.ColArray[8] entered)
+							invoked.ClosingAvailable			= DataColArray.ColArray[8]
+						invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+
+					if (!LocalIncomingBankStatementHeadersCreated)
+						include CreateIncomingBankStatementHeaderRecords
+					if (CorporateCalendarStatementDateRel.IsBankDay)
+						include CreateIncomingBankStatementDetails
+					else
+						include CreateIncomingBankStatementDetail
+
+					if (DataColArray.ColArray[5] entered
+					or  DataColArray.ColArray[6] entered
+					or  DataColArray.ColArray[7] entered
+					or  DataColArray.ColArray[8] entered)
+						LocalCounter = 5
+						while (LocalCounter <= 8)	
+							if (DataColArray.ColArray[LocalCounter] entered)
+								if (LocalCounter = 5)
+									LocalBankTransactionTypeCode = "010"	
+								if (LocalCounter = 6)
+									LocalBankTransactionTypeCode = "015"	
+								if (LocalCounter = 7)
+									LocalBankTransactionTypeCode = "040"	
+								if (LocalCounter = 8)
+									LocalBankTransactionTypeCode = "045"	
+								if (BankTransactionTypeCodeRel not exists)	
+									invoke Create BankTransactionTypeCode
+										invoked.CashManagementGroup			= CashManagementGroup
+										invoked.BankTransactionTypeCode		= LocalBankTransactionTypeCode
+										invoked.Active						= true
+								invoke Create BankStatementBalance
+									assign result to NewBankStatementBalance
+			 						invoked.CashManagementGroup	 			= PrmCashManagementGroup
+									invoked.CashManagementAccount			= LocalCashManagementAccount
+									invoked.BankStatement					= NewBankStatement.BankStatement
+									if (LocalCounter = 5)
+										invoked.TransactionType				= "010" 
+										invoked.Balance						= DataColArray.ColArray[5]
+									if (LocalCounter = 6)
+										invoked.TransactionType				= "015" 
+										invoked.Balance						= DataColArray.ColArray[6]
+									if (LocalCounter = 7)
+										invoked.TransactionType				= "040" 
+										invoked.Balance						= DataColArray.ColArray[7]
+									if (LocalCounter = 8)
+										invoked.TransactionType				= "045" 
+										invoked.Balance						= DataColArray.ColArray[8]
+									invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+									invoked.BankStatementInterface			= BankStatementInterface
+							
+							LocalCounter += 1		
+						
+					CashManagementGroup		= NewBankStatement.CashManagementGroup
+					CashManagementAccount	= NewBankStatement.CashManagementAccount
+					BankStatement			= NewBankStatement.BankStatement
+					BankStatementBalance	= NewBankStatementBalance.BankStatementBalance
+
+
+				LocalDebitCreditIndicatorUpper = DataColArray.ColArray[11]
+				LocalLineAmount				   = DataColArray.ColArray[12]	
+				
+				if (LocalDebitCreditIndicatorUpper entered)	
+					if (LocalDebitCreditIndicatorUpper = "C")
+						if (LocalLineAmount < 0)
+							LocalLineAmount *= -1
+					else
+						if (LocalLineAmount >= 0)
+							LocalLineAmount *= -1
+											 				
+				invoke Create BankStatementLine
+					assign result to NewBankStatementLine
+					invoked.CashManagementGroup	 			= PrmCashManagementGroup
+					invoked.CashManagementAccount			= LocalCashManagementAccount
+					if (NewBankStatement entered)
+						invoked.BankStatement				= NewBankStatement.BankStatement
+						invoked.LineCurrency				= NewBankStatement.BankStatement.StatementCurrency
+					else
+						invoked.BankStatement				= last BankStatementInterfaceBankStatementRel.BankStatement
+						invoked.LineCurrency				= last BankStatementInterfaceBankStatementRel.BankStatement.StatementCurrency
+					if (DataColArray.ColArray[3] size = 6)
+						invoked.StatementDate				= "20" + DataColArray.ColArray[3]
+					else
+						invoked.StatementDate				= DataColArray.ColArray[3]
+					if (DataColArray.ColArray[9] size = 6)
+						invoked.ValueDate					= "20" + DataColArray.ColArray[9]
+					else
+						invoked.ValueDate					= DataColArray.ColArray[9]
+					invoked.TransactionType					= DataColArray.ColArray[10]
+					invoked.DebitCreditIndicator			= LocalDebitCreditIndicatorUpper
+					invoked.LineAmount						= LocalLineAmount	
+					invoked.BankReference					= DataColArray.ColArray[13]
+					invoked.Description				   	   += DataColArray.ColArray[13] 
+					invoked.TransientLongDescription	   += DataColArray.ColArray[13] 
+					invoked.RelatedReference				= DataColArray.ColArray[14]
+					invoked.Description				   	   += DataColArray.ColArray[14] 
+					invoked.TransientLongDescription	   += DataColArray.ColArray[14] 
+					invoked.TextReference					= DataColArray.ColArray[15]
+					invoked.Description				   	   += DataColArray.ColArray[15] 
+					invoked.Description				   	   += DataColArray.ColArray[16]
+					invoked.TransientLongDescription	   += DataColArray.ColArray[15] 
+					invoked.TransientLongDescription	   += DataColArray.ColArray[16]  
+					if (DataColArray.ColArray[17] size = 6)	
+						invoked.TransactionDate				= "20" + DataColArray.ColArray[17]
+					else
+						invoked.TransactionDate				= DataColArray.ColArray[17]	
+					invoked.CategorizationGroup				= PrmCategorizationGroup
+					invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+					invoked.BankStatementInterface			= BankStatementInterface
+					
+				if (!NewBankStatement entered)
+					CashManagementGroup		= NewBankStatementLine.CashManagementGroup
+					CashManagementAccount	= NewBankStatementLine.CashManagementAccount
+					BankStatement			= NewBankStatementLine.BankStatement
+				
+				BankStatementLine = NewBankStatementLine.BankStatementLine
+ 				Status = Status.Imported
+		
+		ImportEDI822 is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup			is a CashManagementGroup
+				PrmBankStatementInterfaceHeader	is a BankStatementInterfaceHeader
+				
+			Local Fields
+				NewBankServiceStatement 		is a BankServiceStatement view
+				NewBankServiceDetail			is a BankServiceDetail view
+				LocalStatementDate				is Date
+				LocalBankServiceCode			is Alpha 50
+				LocalEDI822GroupHeaderBSI		is a BankStatementInterface
+				LocalEDI822DateTimeBSI			is a BankStatementInterface
+
+			Action Rules
+				CashManagementGroup = PrmCashManagementGroup
+				
+				if (Code = "ISA"
+				or  Code = "ST"
+				or  Code = "BGN"
+				or  Code = "DTM"
+				or  Code = "CUR"
+				or	Code = "N1"
+				or	Code = "N2"
+				or  Code = "N3"
+				or  Code = "N4"
+				or  Code = "PER"
+				or  Code = "RTE"
+				or 	Code = "ENT"
+				or	Code = "ADJ"
+				or	Code = "LX"
+				or	Code = "BLN"
+				or	Code = "CTP"
+				or	Code = "SE"
+				or	Code = "GE"
+				or	Code = "IEA"
+				or  Code not entered)
+	 				Status = Status.Imported
+	 			
+
+	 			if (Code = "BAL"
+				or	Code = "AMT"
+				or	Code = "REF"
+				or	Code = "PID"
+				or	Code = "CTT")
+	 				Status = Status.Imported
+	 				
+	 			if (Code = "GS")
+					LocalIdentifier = DataColArray.ColArray[3]
+	 				FinancialInstitution = first FinancialInstitutionBranchRel.FinancialInstitution
+					
+					initialize LocalEDI822DateTimeBSI
+					LocalEDI822DateTimeBSI = first EDI822DateTimeRel.BankStatementInterface
+					if (LocalEDI822DateTimeBSI.DataColArray.ColArray[3] size = 6)
+						LocalStatementDate = "20" + LocalEDI822DateTimeBSI.DataColArray.ColArray[3]
+					else
+						LocalStatementDate = LocalEDI822DateTimeBSI.DataColArray.ColArray[3]
+					
+					invoke Create BankServiceStatement
+						assign result to NewBankServiceStatement
+						invoked.CashManagementGroup				= PrmCashManagementGroup
+						invoked.FinancialInstitution			= FinancialInstitution
+						invoked.StatementDate					= LocalStatementDate
+						invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+
+					BankServiceStatement = NewBankServiceStatement.BankServiceStatement
+
+					Status = Status.Imported
+
+				if (Code = "ACT")
+					LocalImportAccountNumber = DataColArray.ColArray[2]
+					CashManagementAccount = first ActualCashManagementAccountRel.CashManagementAccount	
+
+					Status = Status.Imported
+
+				if (Code = "SER")
+					LocalBankServiceCode = DataColArray.ColArray[3]
+					initialize LocalEDI822GroupHeaderBSI
+					LocalEDI822GroupHeaderBSI = last EDI822GroupHeaderRel.BankStatementInterface
+
+					invoke Create BankServiceDetail
+						assign result to NewBankServiceDetail
+						invoked.CashManagementGroup				= PrmCashManagementGroup
+						invoked.FinancialInstitution			= LocalEDI822GroupHeaderBSI.FinancialInstitution
+						invoked.BankServiceStatement			= LocalEDI822GroupHeaderBSI.BankServiceStatement
+						invoked.CashManagementAccount			= last EDI822CashAccountRel.CashManagementAccount
+						invoked.BankServiceCode					= LocalBankServiceCode[1:6]
+						invoked.BankChargedAmount				= DataColArray.ColArray[5]
+						invoked.PricePerUnit					= DataColArray.ColArray[6]
+						invoked.Quantity						= DataColArray.ColArray[7]
+						invoked.ImportDescription				= DataColArray.ColArray[8]
+						invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+						invoked.BankStatementInterface			= BankStatementInterface
+
+					BankServiceStatement = LocalEDI822GroupHeaderBSI.BankServiceStatement
+					BankServiceDetail = NewBankServiceDetail.BankServiceDetail
+
+					Status = Status.Imported
+
+		ImportCAMT05X is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup				is a CashManagementGroup
+				PrmBankStatementInterfaceHeader 	is a BankStatementInterfaceHeader
+				PrmCategorizationGroup				is a CategorizationGroup
+
+			Local Fields
+				NewBankStatement 					is a BankStatement view
+				NewBankStatementLine				is a BankStatementLine view
+				NewBankStatementBalance 			is a BankStatementBalance view
+				NewReceivablePaymentHeaderImport	is a ReceivablePaymentImport view
+				NewReceivablePaymentImport			is a ReceivablePaymentImport view
+				LocalCAMT05XBankStatementBSI		is a BankStatementInterface
+				LocalStrdXML						is XMLDocument
+
+			Action Rules
+
+				if (CAMT053RecordType.StmtRpt)
+					CashManagementGroup			= PrmCashManagementGroup
+					LocalImportAccountNumber	= CAMT05XAcct
+					LocalCashManagementAccount	= first ActualCashManagementAccountRel.CashManagementAccount
+
+					LocalStatementDate = CAMT05XStmtDate
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepLatestStatementAndAnyWithCashPosition
+					and NoCashPositionIntradayStatementDateRel exists)
+						invoke Purge NoCashPositionIntradayStatementDateRel
+
+					if (PrmCashManagementGroup.IntradayStatementProcessing.KeepOnlyLatestStatement
+					and IntradayStatementDateRel exists)
+						invoke Purge IntradayStatementDateRel
+
+					if (CashManagementAccountRel exists)
+						invoke Create Unreconciled BankStatement
+							assign result to NewBankStatement
+							invoked.CashManagementGroup				= PrmCashManagementGroup
+							invoked.CashManagementAccount			= LocalCashManagementAccount
+							invoked.StatementCurrency				= CAMT05XAcctCcy
+							invoked.StatementDate					= LocalStatementDate
+							invoked.StatementType					= BankStatementInterfaceHeader.StatementType 
+							invoked.OpeningLedger					= CAMT05XOpeningBalAmt		
+							invoked.OpeningAvailable				= CAMT05XOpeningAvailBalAmt	
+							invoked.EndingBalance					= CAMT05XClosingBalAmt		
+							invoked.ClosingLedger					= CAMT05XClosingBalAmt		
+							invoked.ClosingAvailable				= CAMT05XClosingAvailBalAmt	
+							invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+
+						LocalCreateStatementDate = LocalStatementDate
+						if (!LocalIncomingBankStatementHeadersCreated)
+							include CreateIncomingBankStatementHeaderRecords
+						if (CorporateCalendarStatementDateRel.IsBankDay)
+							include CreateIncomingBankStatementDetails
+						else
+							include CreateIncomingBankStatementDetail
+						CashManagementGroup							= NewBankStatement.CashManagementGroup
+						CashManagementAccount						= NewBankStatement.CashManagementAccount
+						BankStatement								= NewBankStatement.BankStatement
+
+
+						LocalCounter = CAMT05XBalCount
+						while (LocalCounter > 0)
+							
+							if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Cd" != "")	
+								LocalBankTransactionTypeCode			= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Cd"
+							else
+								LocalBankTransactionTypeCode			= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Prtry"	
+
+							if (BankTransactionTypeCodeRel not exists)	
+								invoke Create BankTransactionTypeCode
+									invoked.CashManagementGroup			= CashManagementGroup
+									invoked.BankTransactionTypeCode		= LocalBankTransactionTypeCode
+									invoked.Active						= true
+
+							invoke Create BankStatementBalance
+								assign result to NewBankStatementBalance
+								invoked.CashManagementGroup				= PrmCashManagementGroup
+								invoked.CashManagementAccount			= LocalCashManagementAccount
+								invoked.BankStatement					= NewBankStatement.BankStatement
+								if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Cd" != "")
+									invoked.TransactionType				= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Cd"
+								else
+									invoked.TransactionType				= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Tp/CdOrPrtry/Prtry"
+								if (CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/CdtDbtInd" = "DBIT")
+									invoked.Balance						= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Amt" * -1
+								else
+									invoked.Balance						= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Amt"
+								invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+								invoked.BankStatementInterface			= BankStatementInterface
+								invoked.TransientFromCurrency			= CAMT053Data select "/<CAMT05XStmtOrRpt>/Bal[<LocalCounter>]/Amt/@Ccy"
+							decrement LocalCounter
+
+
+				if (CAMT053RecordType.Ntry)
+					initialize LocalCAMT05XBankStatementBSI
+					LocalCAMT05XBankStatementBSI = last CAMT05XBankStatementRel.BankStatementInterface
+					invoke Create BankStatementLine
+						assign result to NewBankStatementLine
+						invoked.CashManagementGroup				= PrmCashManagementGroup
+						invoked.CashManagementAccount			= LocalCAMT05XBankStatementBSI.CashManagementAccount
+						invoked.BankStatement					= LocalCAMT05XBankStatementBSI.BankStatement
+						invoked.LineCurrency					= LocalCAMT05XBankStatementBSI.BankStatement.StatementCurrency
+						invoked.ValueDate						= CAMT05XValueDate
+						if (CAMT053Data select "/Ntry/BkTxCd/Domn/Cd" != "")
+							invoked.ISO20022DomainCode			= CAMT053Data select "/Ntry/BkTxCd/Domn/Cd"
+							invoked.ISO20022FamilyCode			= CAMT053Data select "/Ntry/BkTxCd/Domn/Fmly/Cd"
+							invoked.ISO20022SubFamilyCode		= CAMT053Data select "/Ntry/BkTxCd/Domn/Fmly/SubFmlyCd"
+						invoked.TransactionType					= CAMT053Data select "/Ntry/BkTxCd/Prtry/Cd"
+						if (CAMT053Data select "/Ntry/CdtDbtInd" = "DBIT")
+							invoked.DebitCreditIndicator		= "D"
+							invoked.LineAmount					= CAMT053Data select "/Ntry/Amt" * -1
+						else
+							invoked.DebitCreditIndicator		= "C"
+							invoked.LineAmount					= CAMT053Data select "/Ntry/Amt"
+						invoked.BankReference					= CAMT053Data select "/Ntry/AcctSvcrRef"
+						invoked.RelatedReference				= CAMT053Data select "/Ntry/NtryRef"
+						if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/EndToEndId" !="")
+							invoked.TextReference				= CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/EndToEndId"
+						else
+						if (CAMT053Data select "/Ntry/NtryDtls/Btch/PmtInfId" !="")
+							invoked.TextReference				= CAMT053Data select "/Ntry/NtryDtls/Btch/PmtInfId"
+						else
+						if (CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/AcctSvcrRef" !="")
+							invoked.TextReference				= CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/AcctSvcrRef"
+						else
+							invoked.TextReference				= CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/PmtInfId"
+						invoked.Description						= com.lawson.apps.cashmgmt.NativeBankStatementInterface.concatXMLText(NtryXPath, CAMT053Data as String)
+						invoked.TransientLongDescription		= com.lawson.apps.cashmgmt.NativeBankStatementInterface.concatXMLText(NtryXPath, CAMT053Data as String)
+						if (CAMT05XAddtlNtryCount > 0)
+							invoked.Description				   += com.lawson.apps.cashmgmt.NativeBankStatementInterface.concatXMLText(AddtlNtryXPath, CAMT053Data as String)
+							invoked.TransientLongDescription   += com.lawson.apps.cashmgmt.NativeBankStatementInterface.concatXMLText(AddtlNtryXPath, CAMT053Data as String)
+						invoked.CategorizationGroup				= PrmCategorizationGroup
+						invoked.BankStatementInterfaceHeader	= BankStatementInterfaceHeader
+						invoked.BankStatementInterface			= BankStatementInterface
+
+					CashManagementGroup		= NewBankStatementLine.CashManagementGroup
+					CashManagementAccount	= NewBankStatementLine.CashManagementAccount
+					BankStatement			= NewBankStatementLine.BankStatement
+					BankStatementLine		= NewBankStatementLine.BankStatementLine
+
+
+					LocalImportAccountNumber = LocalCAMT05XBankStatementBSI.CAMT05XAcct
+					LocalCashManagementAccount	= first ActualCashManagementAccountRel.CashManagementAccount
+					if (IsCreateReceivablePaymentsFromCAMT053Selected)
+						if (CAMT05XBkToCstmrDbtCdtReceivableNtfctn)
+							if (CAMT05XBkToCstmrDbtCdtReceivableNtfctnRCDTOrRCCN)
+								if (CAMT05XBkToCstmrDbtCdtReceivableNtfctnCINV)
+									if (!IncomingReceivablePaymentImportHeaderRel exists)
+										invoke Create ReceivablePaymentImport
+											assign result to NewReceivablePaymentHeaderImport
+											invoked.RunGroup						= HeaderRunGroup
+											invoked.Company							= DerivedCashMangagementAccountLegalEntity
+											invoked.BatchNumber						= LocalRecBatchNumber
+											invoked.ReceivableProcessLevel			= CAMT05XReceivableProcessLevel
+											invoked.DepositDate						= CAMT05XRecValueDate
+											invoked.CashCode						= FirstCashManagementAccountCashCode
+											invoked.Currency						= CAMT05XRecNtryAmtCcy
+
+										LocalRunGroup = NewReceivablePaymentHeaderImport.RunGroup
+										LocalReceivableCompany = NewReceivablePaymentHeaderImport.Company
+									else
+										LocalRunGroup = IncomingReceivablePaymentImportHeaderRel.RunGroup
+										LocalReceivableCompany = IncomingReceivablePaymentImportHeaderRel.Company
+									
+									invoke Create ReceivablePaymentImport
+										assign result to NewReceivablePaymentImport
+										invoked.RunGroup							= LocalRunGroup 
+										invoked.Company								= LocalReceivableCompany
+										invoked.PaymentSeq							= NewBankStatementLine.BankStatementLine 		
+										invoked.BankEntity							= CAMT05XDbtrAgt
+										invoked.BankAccountNumber					= CAMT05XDbtrAcct
+										invoked.Customer							= CAMT05XCompanyCustomerBankAccountCustomer
+										invoked.TransNbr							= CAMT05XRecNtryTransNbr
+										invoked.TranAmt								= CAMT05XRecNtryAmt
+										invoked.CashManagementAccount				= NewBankStatementLine.CashManagementAccount	
+										invoked.BankStatement						= NewBankStatementLine.BankStatement			
+										invoked.BankStatementLine					= NewBankStatementLine.BankStatementLine		
+
+									initialize LocalRecRemittanceCounter
+									LocalRecRemittanceCounterMax = CAMT053Data select "count(/Ntry/NtryDtls/TxDtls/RmtInf/Strd/RfrdDocInf[Tp/CdOrPrtry/Cd='CINV']/Nb)"
+									if (LocalRecRemittanceCounterMax > 0)
+										LocalRecRemittanceCounter = 1
+										while (LocalRecRemittanceCounter <= LocalRecRemittanceCounterMax)
+											initialize LocalStrdXML
+											LocalStrdXML = CAMT053Data select "/Ntry/NtryDtls/TxDtls/RmtInf/Strd[<LocalRecRemittanceCounter>]"
+											if (LocalStrdXML select "/Strd/RfrdDocInf[Tp/CdOrPrtry/Cd='CINV']/Nb" !="")	
+												invoke Create ReceivablePaymentImport
+													invoked.RunGroup							= LocalRunGroup
+													invoked.Company								= LocalReceivableCompany
+													invoked.PaymentSeq							= NewReceivablePaymentImport.PaymentSeq
+													invoked.RemittanceSequence					= LocalRecRemittanceCounter
+													LocalTransRemNbr = LocalStrdXML select "/Strd/RfrdDocInf[Tp/CdOrPrtry/Cd]/Nb"
+													if (LocalTransRemNbr entered)
+														invoked.TransRemNbr						= LocalTransRemNbr 
+													else
+														LocalTransRemNbr = CAMT053Data select "/Ntry/NtryDtls/TxDtls/Refs/InstrId"
+														invoked.TransRemNbr						= LocalTransRemNbr
+													invoked.RemitType							= LocalCAMT05XReceivableRemitTypeRel.ReceivableInvoice.ReceivableInvoiceType
+													LocalAppldAmt = LocalStrdXML select "/Strd/RfrdDocAmt/RmtdAmt"
+													if (LocalAppldAmt entered)
+														invoked.AppldAmt						= LocalAppldAmt 
+													else
+														LocalAppldAmt = CAMT053Data select "/Ntry/NtryDtls/TxDtls/AmtDtls/TxAmt/Amt"
+														invoked.AppldAmt						= LocalAppldAmt
+												initialize LocalTransRemNbr
+												initialize LocalAppldAmt
+
+											increment LocalRecRemittanceCounter
+
+
+
+
+
+
+
+
+				Status = Status.Imported
+
+		PurgeBankStatementInterfaceSetAction is a Set Action	
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmBankStatementInterfaceHeader		is a BankStatementInterfaceHeader
+
+			Instance Selection
+				where (BankStatementInterfaceHeader = PrmBankStatementInterfaceHeader)	
+
+			Action Rules
+				Set Rules
+					Exit Rules
+						invoke Purge PrmBankStatementInterfaceHeader
+				Instance Rules
+					invoke Purge
+						
+		Purge is a Purge Action
+			restricted
+

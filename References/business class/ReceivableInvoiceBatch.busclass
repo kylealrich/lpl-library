@@ -1,0 +1,1029 @@
+ReceivableInvoiceBatch is a BusinessClass
+	owned by ar
+	prefix is BLH
+	classic name is BLINVHDR
+
+	Ontology
+		symbolic key is ReceivableInvoiceBatch
+			classic set name is BLHSET1
+			classic name is BATCH-NBR
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		implements Archivable
+
+	Persistent Fields
+		ReceivableProcessLevel
+			classic name is PROCESS-LEVEL
+		Status							is Numeric size 1
+			States
+				Unreleased	value is 0
+				Released	value is 1
+		ReceivableOperator
+			classic name is OPR-CODE
+		CurrencyTable						
+		BatchDate						is an ExchangeDate
+		GeneralLedgerDate				is Date
+			classic name is GL-DATE
+			default label is "GlobalLedgerDate"
+		ReceivableGeneralLedgerCode
+			classic name is AR-CODE
+			default label is "ReceivableGlobalLedgerCode"
+		OriginalCurrency				is a FromCurrency
+			classic name is ORIG-CURRENCY
+			default label is "TransactionCurrency"	
+		CurrencyMultiplicationOrDivision
+			sql name is CMultiplicationOrDivision
+			classic name is CURR-MUDV
+		CurrencyDecimalsNumber			is an OrigNd
+			classic name is ORIG-ND
+		BatchCurrencyRate				is a FinanceCurrencyAmount
+			default label is "CurrencyRate"
+		CurrencyRate					is an OrigRate				
+			classic name is ORIG-RATE
+			restricted												
+		InvoiceEntry					is an InternationalAmount
+			classic name is INV-ENTRY
+		InvoiceTotal					is like InternationalAmount
+			classic name is INV-TOTAL
+			precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+		CreditEntry						is an InternationalAmount
+		CreditTotal						is like InternationalAmount
+			precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+		DebitEntry						is an InternationalAmount
+		DebitTotal						is like InternationalAmount
+			precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+		CountEntry
+		CountTotal						is a CountEntry
+		BackgroundProcessing			is Numeric size 1
+			States
+				Release				value is 0
+				ReleaseFailure		value is 1
+				ReleaseInProcess	value is 2
+
+
+	Local Fields
+		LocalProgramSequence												is like ProgramSequence
+
+
+
+		LocalCounter														is Numeric size 6
+		LocalCompletionMessage												is Alpha 100
+		SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmountDone	is Boolean	
+		SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmountDone	is Boolean	
+		SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmountDone	is Boolean	
+
+		SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount		is like InternationalAmount	
+		SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount		is like InternationalAmount	
+		SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount		is like InternationalAmount	
+		LocalGeneralLedgerCompanyGroup				is a GeneralLedgerCompanyGroup
+		LocalActor									is Actor
+
+	Transient Fields
+		TransientReceivableOperator			is like ReceivableOperator
+			derive value from ReceivableOperator
+		TransientManagedContextCurrency		is a ManagedContextCurrency
+		TransientFromEntity					is an AccountingEntity	
+			derive value from Company.AccountingEntity
+		TransientBatchEntryDifference		is an InternationalAmount	
+			derive value from BatchEntryDifference
+
+
+	Field Rules
+		ReceivableProcessLevel
+			if (ReceivableInvoiceRel exists)
+				constraint (ReceivableProcessLevel not changed)
+					"CannotChangeProcessLevel"								
+			required
+			default to Company.DefaultReceivableProcessLevel
+
+		CurrencyTable
+
+
+			default to CompanySystemClosingControlRel.CurrencyTable
+			default to Company.FinanceEnterpriseGroup.CurrencyTable
+
+			if (CurrencyTable changed)
+				constraint (!ReceivableInvoiceRel exists)
+					"CannotChange;TransactionsExist"
+
+		OriginalCurrency
+			if (ReceivableInvoiceRel exists)
+				constraint (OriginalCurrency not changed)
+					"CannotChangeTheCurrencyCodeOrRate_-InvoicesExist"				
+			if (!Company.MultiCurrencyProcessing)
+				if (OriginalCurrency entered)
+					constraint (OriginalCurrency = Company.Currency)
+						"CannotChangeCurrency;CompanyNotMultiCurrency"			  
+			if (BatchCurrencyRate entered)
+				constraint (OriginalCurrency entered)
+					"CurrencyIsRequired;RateIsEntered"
+
+		BatchCurrencyRate
+			if (OriginalCurrency != Company.Currency
+			and OriginalCurrency changed
+			and BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate not changed)
+				confirmation required
+					"CurrencyHasChangedButNotRate.Continue?"
+
+			if (OriginalCurrency entered)
+				BatchCurrencyRate.FunctionalAmount.ToCurrency = Company.Currency
+				default to BatchCurrencyRate.FunctionalAmount.OutputCurrencyRate
+
+
+			if (OriginalCurrency = Company.Currency)
+				constraint (BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate = 1)
+					"CurrencyExchangeRateMustBe1IfSameAsCompanyCurrency"
+
+
+
+
+
+
+			if (OriginalCurrency not entered)
+				constraint (BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate not entered)
+					"CurrencyIsRequired;RateIsEntered"
+
+		ReceivableGeneralLedgerCode
+			default to ReceivableProcessLevel.ReceivableGeneralLedgerCode
+
+			if (ReceivableInvoiceRel exists)
+				constraint (ReceivableGeneralLedgerCode not changed)
+					"CannotChangeReceivableCode;InvoiceExists"			
+
+		BatchDate
+			default to current corporate date
+
+		GeneralLedgerDate
+			default to BatchDate
+			if (CompanySystemClosingControlRel.Control and Company.VerifyGLDateWithinGLDateRange)
+				constraint (GeneralLedgerDate within CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDate<GeneralLedgerDate>IsNotWithinValidEntryDatesForCompany<Company>;ValidDateRangeIs<CompanySystemClosingControlRel.ValidEntryDate.Begin>-<CompanySystemClosingControlRel.ValidEntryDate.End>"	
+
+
+		ReceivableOperator
+			if (Company.TransactionOperatorRequired)
+				constraint (ReceivableOperatorRel exists)
+					"OperatorDoesNotExist"
+
+		TransientReceivableOperator
+			ReceivableOperator = TransientReceivableOperator
+			if (Company.TransactionOperatorRequired)
+				constraint (TransientReceivableOperator entered)
+					"OperatorRequired"
+				constraint (ReceivableOperatorRel exists)
+					"OperatorDoesNotExist"
+				constraint (ReceivableOperatorRel.ActiveStatus.Active)
+					"OperatorIsNotActive"
+			if (TransientReceivableOperator not entered
+			and ReceivableOperator not entered)			
+				default to actor
+				ReceivableOperator = TransientReceivableOperator
+
+
+	Rule Blocks
+		ReleaseEdits
+			constraint (ReceivableInvoiceRel exists)
+				"NoTransactionsInThisBatch;CannotRelease"
+
+			if (CompanySystemClosingControlRel.Control and Company.VerifyGLDateWithinGLDateRange)
+				constraint (GeneralLedgerDate within CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDate<GeneralLedgerDate>IsNotWithinValidEntryDatesForCompany<Company>;ValidDateRangeIs<CompanySystemClosingControlRel.ValidEntryDate.Begin>-<CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+		MultiCurrencyProcessingEdit
+			if (!Company.MultiCurrencyProcessing)
+				constraint (BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.AlternateAmount.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.AlternateAmount2.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.AlternateAmount3.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.ReportAmount1.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.ReportAmount2.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.ReportAmount3.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.ReportAmount4.EnteredCurrencyRate not entered
+				and			BatchCurrencyRate.ReportAmount5.EnteredCurrencyRate not entered)
+					"Company<Company>DoesNotAllowCurrencyRateOverride"
+
+		CurrencyRateOverrideEdit
+			if (Company.CurrencyRateOverride.No)
+				constraint (BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.AlternateAmount.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.AlternateAmount2.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.AlternateAmount3.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.ReportAmount1.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.ReportAmount2.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.ReportAmount3.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.ReportAmount4.EnteredCurrencyRate not changed
+				and			BatchCurrencyRate.ReportAmount5.EnteredCurrencyRate not changed)
+					"Company<Company>DoesNotAllowCurrencyRateOverride"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		SumReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount	
+			if (!SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmountDone)
+				initialize SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount
+					for each ReceivableInvoiceTransactionRel
+						SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount += each.InvoiceAmount.CurrencyAmount
+				SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmountDone = true
+
+		SumReceivableCreditTransactionRelInvoiceAmountCurrencyAmount	
+			if (!SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmountDone)
+				initialize SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount
+					for each ReceivableCreditTransactionRel
+						SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount += each.InvoiceAmount.CurrencyAmount
+				SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmountDone = true
+
+		SumReceivableDebitTransactionRelInvoiceAmountCurrencyAmount	
+			if (!SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmountDone)
+				initialize SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount
+					for each ReceivableDebitTransactionRel
+						SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount += each.InvoiceAmount.CurrencyAmount
+				SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmountDone = true
+
+
+	Derived Fields
+
+		CountDifference is a ComputeField
+			type is Decimal 5			
+			(CountTotal - (instance count of ReceivableInvoiceRel))
+
+		DerivedCountEntry is a ComputeField
+			type is Decimal 5			
+			(instance count of ReceivableInvoiceRel)
+
+		DerivedInvoiceEntry is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount)	
+
+		DerivedCreditEntry is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableCreditTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount)	
+
+		DerivedDebitEntry is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableDebitTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount)	
+
+		InvoiceDifference is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (InvoiceTotal - (SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount))	
+
+		DebitDifference is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableDebitTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (DebitTotal - (SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount))	
+
+		CreditDifference is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableCreditTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (CreditTotal - (SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount))	
+
+		BatchControlDifference is a DerivedField
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			return (InvoiceTotal + DebitTotal - CreditTotal)
+
+		BatchEntryDifference is a DerivedField	
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			include SumReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount	
+			include SumReceivableDebitTransactionRelInvoiceAmountCurrencyAmount	
+			include SumReceivableCreditTransactionRelInvoiceAmountCurrencyAmount	
+
+			return (SumOfReceivableInvoiceTransactionRelInvoiceAmountCurrencyAmount + SumOfReceivableDebitTransactionRelInvoiceAmountCurrencyAmount - SumOfReceivableCreditTransactionRelInvoiceAmountCurrencyAmount)	
+
+		BatchDifference is a DerivedField
+			type is like InternationalAmount
+				precision is TransientManagedContextCurrency.AccumulatorNumberOfDecimals
+			return (InvoiceDifference + DebitDifference - CreditDifference)
+
+		CountMsg is a MessageField
+			"Control"
+
+		EntryMsg is a MessageField
+			"Entry"
+
+		DifferenceMsg is a MessageField
+			"Difference"
+
+		BatchReleaseMsg is a MessageField
+			restricted
+			"BatchReleased"
+
+		BatchReleaseSetActionMsg is a MessageField
+			restricted
+			"BatchReleaseStarted.Check'MyActions'ForCompletion"
+
+		CountMessage is a MessageField
+			"Count"
+		InvoiceMsg 	is a MessageField
+			"Invoice"
+		DebitMemoMsg 	is a MessageField
+			"DebitMemo"
+		CreditMemoMsg 	is a MessageField
+			"CreditMemo"
+		BatchTotals is a MessageField
+			"BatchTotals"
+
+
+		BatchPrinterMsg is a MessageField
+			"TheTransactionPrinterWillBeUsedIfBatchPrinterIsNotEntered."
+
+
+		InvoiceBatchTitleWithRecord is a LabelField					
+			restricted
+			"<ReceivableInvoiceBatch>_forCompany_<Company.RepresentativeText>"
+
+		InvoiceBatchTitle is a DerivedField
+			type is MessageField
+			return InvoiceBatchTitleWithRecord
+
+	Delete Rules
+		constraint (!ReceivableInvoiceRel exists)
+			"CannotDelete;InvoiceExists"				
+
+	Conditions
+
+		IsUnreleased
+			restricted
+			classic name is BLHSET2
+			when (Status.Unreleased)
+
+		IsUnreleased2
+			restricted
+			classic name is BLHSET3
+			when (Status.Unreleased)
+
+		IsOperator
+			restricted
+			when (ReceivableOperator entered)
+
+		IsReleased
+			restricted
+			when (Status.Released)
+
+		DoesExist
+			restricted
+			when (ReceivableInvoiceBatch exists)
+
+		Over10Invoices
+			restricted
+			when (DerivedCountEntry > 10)
+
+		TaxEntityUsesOneSource
+			restricted
+			when (TaxEntityRel.ThirdParty.Sabrix)
+
+		TaxEntityUsesVertex
+			restricted
+			when (TaxEntityRel.ThirdParty.VertexOSeries)
+
+		CallVertexByTransaction
+			restricted
+			when (TaxEntityUsesVertex
+			and   TaxEntityRel.VertexCallMethod.ByTransaction) 
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		IsValidForActorContextCreateRulesOnly	
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+		SecurityGroupAllowsAccess
+			when (actor.context.CompanySecurityGroup = blank
+			or	  CompanySecurityGroupMemberRel exists)
+
+
+		IsReceivableInvoiceExists
+			restricted
+			when (AroihdrRel exists)
+
+		BackgroundProcessingReleaseFailureOrInProcess
+			restricted
+			when (BackgroundProcessing.ReleaseFailure
+			or	  BackgroundProcessing.ReleaseInProcess)
+
+		IsBatchCurrencyRateNotChanged
+			restricted
+			when(BatchCurrencyRate.FunctionalAmount.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.AlternateAmount.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.AlternateAmount2.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.AlternateAmount3.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.ReportAmount1.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.ReportAmount2.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.ReportAmount3.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.ReportAmount4.EnteredCurrencyRate not changed
+			and	 BatchCurrencyRate.ReportAmount5.EnteredCurrencyRate not changed)
+
+		BatchHasICBInvoices
+			restricted
+			when (ICBReceivableInvoiceRel exists)
+
+
+		IsValidForGenerate
+			restricted
+			when (GenerateARInvoiceRel exists)
+
+		IsValidForIDMPrint
+			restricted
+			when (ARInvoiceForIDMPrintRel exists)
+
+		IsValidForIDMEmail
+			restricted
+			when (ARInvoiceForIDMEmailRel exists)
+
+
+	Relations
+
+		CompanySystemClosingControlRel
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode		= "AR"
+				related.Company						= Company
+
+		ReceivableInvoiceRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.Origin = "B"
+				or	related.Origin = "M"
+				or related.Origin = "N")
+				
+		ICBReceivableInvoiceRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.Origin = "N")
+
+		UnreleasedReceivableInvoiceRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.IsUnreleased
+				and	(related.Origin = "B"
+				or	related.Origin = "M"))
+
+		UnreleasedReceivableInvoiceIncludingICBRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.IsUnreleased
+				and	(related.Origin = "B"
+				or	related.Origin = "M"
+				or related.Origin = "N"))
+
+		ReceivableInvoicesTaxableWithOneSource
+			one-to-many relation using UnreleasedReceivableInvoiceRel
+			Instance Selection
+				where (related.HasOneSourceTaxableDistributions)
+
+		ReceivableInvoicesTaxableWithVertexRel
+			one-to-many relation using UnreleasedReceivableInvoiceRel
+			Instance Selection
+				where (related.HasVertexTaxableDistributions)
+
+		ReceivableInvoiceTransactionRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	((related.Origin = "B"
+				or	related.Origin = "M"
+				or related.Origin = "N")
+				and	(related.ReceivableInvoiceType = "I"
+				or	related.AlternateReceivableInvoiceType = "I"))
+
+		ReceivableDebitTransactionRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	((related.Origin = "B"
+				or	related.Origin = "M")
+				and	(related.ReceivableInvoiceType = "D"
+				or	related.AlternateReceivableInvoiceType = "D"))
+
+		ReceivableCreditTransactionRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	((related.Origin = "B"
+				or	related.Origin = "M"
+				or related.Origin = "N")
+				and	(related.ReceivableInvoiceType = "C"
+				or	related.AlternateReceivableInvoiceType = "C"))
+
+		AroihdrRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company		= Company
+				related.BatchNumber	= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.Origin = "B")
+
+		ReceivableOperatorRel
+			one-to-one relation to ReceivableOperator
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.ReceivableOperator	= ReceivableOperator
+
+		ReceivableCompanyRel
+			one-to-one relation to ReceivableCompany
+			required
+			Field Mapping uses symbolic key
+				related.Company = Company
+
+		ReceivableInvoiceBatchRel
+			one-to-one relation to ReceivableInvoiceBatch
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.ReceivableInvoiceBatch			= LocalCounter
+
+		TaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.TaxEntity				 = GeneralLedgerCompanyRel.AccountingEntity
+
+		GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+		GeneralLedgerCompanyGroupRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= LocalGeneralLedgerCompanyGroup
+				related.Company						= Company
+
+		CompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+
+		GenerateARInvoiceRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company			= Company
+				related.BatchNumber		= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.IsValidForGenerate)
+
+		ARInvoiceForIDMPrintRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company			= Company
+				related.BatchNumber		= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.IsValidForIDMPrint)
+
+		ARInvoiceForIDMEmailRel
+			one-to-many relation to ReceivableInvoice
+			Field Mapping uses Set3
+				related.Company			= Company
+				related.BatchNumber		= ReceivableInvoiceBatch
+			Instance Selection
+				where	(related.IsValidForIDMEmail)
+
+
+
+	Sets
+		Set2
+			indexed
+			Instance Selection
+				where (IsUnreleased)
+			Sort Order
+				Company
+				ReceivableProcessLevel
+				ReceivableInvoiceBatch
+
+		Set3
+			indexed
+			Instance Selection
+				where (IsUnreleased2)
+			Sort Order
+				Company
+				ReceivableInvoiceBatch
+
+		Set4
+			indexed
+			Sort Order
+				Company
+				ReceivableInvoiceBatch descending
+
+
+	Actions
+
+		Create is a Create Action
+			Entrance Rules
+				constraint (IsValidForActorContextCreateRulesOnly)	
+
+					"CannotCreate_Receivable_Invoice_Batch.Company<Company>NotValidFor_Actor_Context.Actor<actor>DoesNotHave'Finance_Enterprise_Group'ContextFor_Finance_Enterprise_Group_<GeneralLedgerCompanyRel.FinanceEnterpriseGroup>"	
+				include MultiCurrencyProcessingEdit
+
+		Update is an Update Action
+			Entrance Rules
+				constraint (Status.Unreleased)
+					"BatchIsReleased;CannotBeChanged"
+				if (ReceivableInvoiceRel exists)
+					constraint (IsBatchCurrencyRateNotChanged)
+						"CannotChangeTheCurrencyCodeOrRate_-InvoicesExist"		   
+			Action Rules
+				include CurrencyRateOverrideEdit
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+			restricted	
+
+			Action Rules
+				constraint (ReceivableInvoiceRel not exists)
+					"CannotDelete;InvoiceExists"
+
+		ReceivableInvoiceBatchRecordsPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany 					is a ReceivableCompany
+				PrmCompanyGroup				is a GeneralLedgerCompanyGroup
+				PrmInvoiceHeader			is Boolean
+
+			Parameter Rules
+				PrmCompany
+					if (PrmCompanyGroup entered)
+						cannot be entered
+							"CannotEnterCompanyIfCompanyGroupEntered"
+
+				PrmCompanyGroup
+					if (PrmCompany entered)
+						cannot be entered
+							"CannotEnterCompanyGroupIfCompanyEntered"
+
+					if (PrmCompany not entered and PrmCompanyGroup not entered)
+						required
+							"CompanyOrCompanyGroupIsRequired"
+
+					LocalGeneralLedgerCompanyGroup = PrmCompanyGroup
+
+				PrmInvoiceHeader
+					required
+
+			Local Fields
+				RecordCount			  is Numeric 10
+				CompletionMessage	  is Alpha 150
+
+			Instance Selection (as of current corporate date)
+				include deleted records
+				where ((PrmCompany not entered or Company = PrmCompany)
+				and   (PrmCompanyGroup not entered or GeneralLedgerCompanyGroupRel exists)
+				and	   Status.Released
+				and	   PrmInvoiceHeader)
+
+
+
+
+			Action Rules
+				Empty Set Rules
+					CompletionMessage = "NoReceivableInvoiceBatchRecordsFoundToPurge"
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoReceivableInvoiceBatchRecordsFoundToPurge"
+						priority is high
+						detail is "ReceivableInvoiceBatchsPurged=<RecordCount>"
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "PurgeOfReceivableInvoiceBatchHasCompleted"
+							priority is high
+							detail is "ReceivableInvoiceBatchsPurged=<RecordCount>"
+
+				Instance Rules
+					if (ReceivableInvoiceRel not exists)
+						increment RecordCount
+						invoke Released.Purge
+						invoke Purge ReceivableInvoiceBatchAttachment set
+
+
+
+		GenerateInvoices is an Instance Action
+			valid when (IsValidForGenerate)
+
+			Parameters
+				PrmIDMPrinter	is an IDMPrinter
+					default label is "Batch Printer"
+
+			Parameter Rules
+				PrmIDMPrinter
+					initial value is Company.UserDefaultPrinterRel.IDMPrinter
+
+			Action Rules
+				invoke BatchCreateAndSendReceivableInvoiceDocToIDM ReceivableInvoice
+					invoked.PrmIDMPrinter			= PrmIDMPrinter
+					invoked.PrmCompany				= Company
+					invoked.PrmBatchNumber			= ReceivableInvoiceBatch
+
+		SendInvoicesToPrinter is an Instance Action
+			valid when (IsValidForIDMPrint)
+			default label is "Print Invoices"
+
+			Parameters
+				PrmIDMPrinter	is an IDMPrinter
+					default label is "Batch Printer"
+
+			Parameter Rules
+				PrmIDMPrinter
+					initial value is Company.UserDefaultPrinterRel.IDMPrinter
+
+			Action Rules
+				invoke BatchSendInvoiceToPrinter ReceivableInvoice
+					invoked.PrmIDMPrinter			= PrmIDMPrinter
+					invoked.PrmCompany				= Company
+					invoked.PrmBatchNumber			= ReceivableInvoiceBatch
+
+		SendInvoicesToEmail	is an Instance Action
+			valid when (IsValidForIDMEmail)
+			default label is "Email Invoices To Customer"
+
+			Action Rules
+				invoke BatchSendInvoiceToEmail ReceivableInvoice
+					invoked.PrmCompany				= Company
+					invoked.PrmBatchNumber			= ReceivableInvoiceBatch
+
+
+
+	StateCycles
+		ReceivableInvoiceBatchLifeCycle is a StateCycle
+			state field is Status
+
+			Unreleased is a State
+				Update is an Update Action
+					restricted
+					Entrance Rules
+						if (ReceivableInvoiceRel exists)
+							constraint (IsBatchCurrencyRateNotChanged)
+								"CannotChangeTheCurrencyCodeOrRate_-InvoicesExist"		   
+					Action Rules
+
+
+				Delete is a Delete Action
+
+					Action Rules	
+						constraint (ReceivableInvoiceRel not exists)	
+							"CannotDelete;InvoiceExists."	
+
+
+				Release is an Instance Action
+
+					completion message is "<LocalCompletionMessage>"
+					Action Rules
+						include ReleaseEdits
+						if (Company.FinanceEnterpriseGroup.FrontEndSplits
+						and Company.FrontEndSplitARDistributions)
+							invoke FrontEndSplitARTransactionDistributions UnreleasedReceivableInvoiceRel
+
+						if (Company.TransBatchTotalBalancing)
+							constraint (CountDifference  = 0)
+								"CountControlTotalAndCountEntryTotalMustEqual"
+							constraint (InvoiceDifference = 0)
+								"InvoiceControlTotalAndInvoiceEntryTotalMustEqual"
+							constraint (DebitDifference = 0)
+								"DebitMemoControlTotalAndDebitMemoEntryTotalMustEqual"
+							constraint (CreditDifference = 0)
+								"CreditMemoControlTotalAndCreditMemoEntryTotalMustEqual"
+
+						if (Company.TransBatchTotalBalancing = true)
+							if (!CountDifference  = 0
+							and !InvoiceDifference = 0
+							and !DebitDifference = 0)
+								constraint (CreditDifference = 0)
+									"ControlAmountsAndOrCountsOutOfBalance"
+
+						if (CallVertexByTransaction
+						and ReceivableInvoicesTaxableWithVertexRel exists)
+
+							constraint (BackgroundProcessing != 2)
+								"AtLeastOneInvoiceIsStillCurrentlyBeingReleased"
+
+							BackgroundProcessing = 2
+							LocalCompletionMessage = BatchReleaseSetActionMsg
+
+							invoke VertexCreateTaxLineItemsForTransaction ReceivableInvoice
+								invoked.PrmCompany	 		            = Company
+								invoked.PrmBatchNumber 		            = ReceivableInvoiceBatch
+								invoked.PrmReleaseBatch					= true
+						else
+						if (TaxEntityUsesOneSource
+						and ReceivableInvoicesTaxableWithOneSource exists)
+
+							constraint (BackgroundProcessing != 2)
+								"AtLeastOneInvoiceIsStillCurrentlyBeingReleased"
+
+							BackgroundProcessing = 2
+							LocalCompletionMessage = BatchReleaseSetActionMsg
+
+							invoke OneSourceManualInvoicesCreateTaxLineItems ReceivableInvoice
+								invoked.PrmCompany	 		= Company
+								invoked.PrmBatchNumber 		= ReceivableInvoiceBatch
+								invoked.PrmReleaseBatch		= true
+						else
+						if (Over10Invoices)
+							BackgroundProcessing = 2
+							LocalCompletionMessage = BatchReleaseSetActionMsg
+
+							invoke ReleaseSet ReceivableInvoice
+								invoked.PrmCompany	 = Company
+								invoked.PrmBatchNumber = ReceivableInvoiceBatch
+						else
+							LocalCompletionMessage = BatchReleaseMsg
+							invoke Release UnreleasedReceivableInvoiceIncludingICBRel
+								LocalProgramSequence +=1
+								invoked.ProgramSequence = LocalProgramSequence
+
+							BackgroundProcessing = BackgroundProcessing.Release
+							make transition to Released
+
+				MakeTransitionToRelease is an Instance Action
+					restricted
+					Action Rules
+						BackgroundProcessing = BackgroundProcessing.Release
+						make transition to Released
+
+				UpdateStatusAfterOneSourceRelease is an Instance Action
+					restricted
+					Action Rules
+
+						if (any ReceivableInvoiceRel.Status.Unreleased)
+							BackgroundProcessing = BackgroundProcessing.ReleaseFailure
+						else
+							BackgroundProcessing = BackgroundProcessing.Release
+							make transition to Released
+
+			Released is a State
+				Purge is a Purge Action
+					restricted
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

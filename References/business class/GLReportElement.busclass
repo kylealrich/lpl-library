@@ -1,0 +1,357 @@
+GLReportElement is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLREM
+
+	Ontology
+		symbolic key is GLReportElement
+
+	Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder		
+
+	Persistent Fields
+		SubReport				is a GLReport
+		SuppressColumnHeaders	is Boolean
+		DisplayOrder			is Numeric 2
+		ExtendedHeader		is Alpha 100
+		AddBlankRow				is Boolean
+    
+	Transient Fields
+		NewDisplayOrder 	is Numeric 2
+
+	Field Rules
+		DisplayOrder
+			default to GLReportElement
+		SubReport
+			required
+
+
+
+	Local Fields
+		LocalCalcRowDimTotalsDone		is Boolean
+		LocalMaxDimensionColumnSize		is Numeric 4
+		LocalLastDimensionColumnSize	is Numeric 3
+		LocalTotalDimensionColumnSize	is Numeric 4
+		LocalTotalDimensionLevels		is Numeric 4
+		LocalTotalMeasureColumnSize		is Numeric 4
+		LocalGLRowDimensionCount		is Numeric 2
+		LocalTotalReportHeight			is Numeric 6
+
+	Rule Blocks
+		UpdateExitRules
+			if (GLReport.IntegrationStatus = 1)
+				if (SubReport changed
+				or SuppressColumnHeaders changed
+				or DisplayOrder changed
+				or AddBlankRow changed
+				or ExtendedHeader changed
+				or NewDisplayOrder changed)
+					invoke UpdateGLReport GLReport
+						invoked.PrmIntegrationStatus = 2
+
+		CalculateRowDimensionTotals
+			LocalTotalDimensionColumnSize	= 0
+			LocalLastDimensionColumnSize	= 0
+			LocalGLRowDimensionCount		= 0
+			LocalTotalDimensionLevels		= 0
+			
+			for each GLRowDimensionRel
+				LocalGLRowDimensionCount		+= 1
+				LocalTotalDimensionColumnSize	+= each.ColumnSize
+				
+				if (each.Levels entered)
+					LocalTotalDimensionLevels	+= each.Levels
+				else
+					LocalTotalDimensionLevels	+= 1
+				
+				if (LocalLastDimensionColumnSize < each.ColumnSize)
+					LocalMaxDimensionColumnSize = each.ColumnSize
+				
+				LocalLastDimensionColumnSize = each.ColumnSize
+			
+			LocalCalcRowDimTotalsDone = true
+		
+		ValidatingColumnView
+			if (GLReportElementRel exists)
+				constraint (first GLReportElementRel.SubReport.ColumnView = SubReport.ColumnView)
+					"SubReportsMustHaveTheSameColumnView"
+
+
+
+	Derived Fields
+		DerivedTotalReportHeight is a DerivedField
+			type is Numeric 4
+			restricted
+			LocalCalcRowDimTotalsDone = false
+			include CalculateRowDimensionTotals
+			
+			if (LocalTotalDimensionLevels = 1)
+				LocalTotalReportHeight = 15
+			else
+				LocalTotalReportHeight = (LocalTotalDimensionLevels * 30)
+			
+			if (!SuppressColumnHeaders)
+				if (DerivedShowGroupHeaders or ExtendedHeader entered)
+					LocalTotalReportHeight += 30
+				else
+                	LocalTotalReportHeight += 15
+			else
+			if (ExtendedHeader entered)
+				LocalTotalReportHeight += 15
+
+			if (AddBlankRow)
+				LocalTotalReportHeight += 15
+
+			if (DerivedGrandTotal)
+				LocalTotalReportHeight += 15
+
+			return LocalTotalReportHeight
+	
+		DerivedRowDimensionCount is a DerivedField
+			type is Numeric 4
+			restricted
+			include CalculateRowDimensionTotals
+			return LocalGLRowDimensionCount
+			
+		DerivedTotalDimensionLevels is a DerivedField
+			type is Numeric 4
+			restricted
+			include CalculateRowDimensionTotals
+			return LocalTotalDimensionLevels
+			
+		DerivedTotalDimensionColumnSize is a DerivedField
+			type is Numeric 4
+			restricted
+			include CalculateRowDimensionTotals
+			return LocalTotalDimensionColumnSize
+	
+		DerivedMaxDimensionColumnSize is a DerivedField
+			type is Numeric 4
+			restricted
+			include CalculateRowDimensionTotals
+			return LocalMaxDimensionColumnSize
+
+		DerivedTotalMeasureColumnSize is a DerivedField
+			type is Numeric 4
+			restricted
+			LocalTotalMeasureColumnSize	= 0
+			
+			for each GLColumnRel
+				LocalTotalMeasureColumnSize += each.ColumnSize
+
+			return LocalTotalMeasureColumnSize	
+
+		DerivedShowGroupHeaders is a DerivedField
+			type is Boolean
+			restricted
+			return SubReport.DerivedShowGroupHeader
+			
+		DerivedSubReportFilterDimensionFieldCount is a DerivedField  
+			type is Numeric size 4 
+			restricted
+			return SubReport.GLReportFilterDimensionRel.FilterDimensionFieldCount
+
+		DerivedGrandTotal is a DerivedField
+			type is Boolean
+			restricted
+			return SubReportNavRel.GrandTotal
+		
+		DerivedSubReportAlertMessage is a DerivedField
+            type is Alpha 50
+            if(ScenarioFilterNotExistsForSubReport)
+                return "Column Scenario Dimension Filter Missing"
+            else
+            if (ScenarioFilterValueNotExistsForSubReport)
+                return "Column Scenario Dimension Filter Value Missing"
+            else
+            if(GLReportElementInvalidSubreport)
+                return "No Filter Value Added For The Dimension"
+
+	Sets
+		ByDisplayOrder
+			Sort Order
+				FinanceEnterpriseGroup
+				GLReport
+				DisplayOrder
+				GLReportElement
+	
+	Actions
+		Create is an Action
+			Local Fields 
+				LocalIsFiscalQuarter			is Boolean 
+				LocalIsFiscalMonth				is Boolean
+			Entrance Rules
+				if (GLReport.Lock)
+					constraint(GLReport.create stamp.actor = actor)
+						"ReportHasBeenLockedForEditing"
+				initialize LocalIsFiscalQuarter
+				initialize LocalIsFiscalMonth
+				constraint(SubReportRel not exists)
+					"SubReportAlreadyExists"
+				if (GLSubReportByDisplayOrderRel not exist and SuppressColumnHeaders)
+					confirmation required
+                        "Warning:ColumnHeadersSuppressed!SuppressingColumnHeadersMayCauseMisleadingOrIncompleteInformationIfTheFirstReportHasNoHeaders.DoYouWantToContinue?"
+
+
+				if (GLReportElementRel exists)
+					for each GLReportElementRel
+						if(each.SubReport.DerivedIsFiscalQuarter)
+							LocalIsFiscalQuarter = true
+							end for each
+						if(each.SubReport.DerivedIsFiscalMonth)
+							LocalIsFiscalMonth = true 
+							end for each
+					if (LocalIsFiscalQuarter)
+						constraint(!SubReport.DerivedIsFiscalMonth)
+							"ReportContainsSubReportWithFiscalQuarterColumns.CannotAddMonthReports" 
+					else
+					if (LocalIsFiscalMonth)
+						constraint(!SubReport.DerivedIsFiscalQuarter)
+							"ReportContainsFiscalMonthColumns.CannotAddQuarterReports" 
+			Exit Rules
+
+
+
+
+
+
+
+
+
+
+
+
+
+				if (GLReport.IntegrationStatus = 1)
+					invoke UpdateGLReport GLReport
+						invoked.PrmIntegrationStatus = 2
+
+
+		Update is an Action
+			Local Fields 
+				LocalIsFiscalQuarter			is Boolean 
+				LocalIsFiscalMonth				is Boolean
+			Entrance Rules
+				if (GLReport.Lock)
+					if (SubReport changed
+					or SuppressColumnHeaders changed
+					or DisplayOrder changed
+					or AddBlankRow changed
+					or ExtendedHeader changed
+					or NewDisplayOrder changed)
+						constraint(GLReport.create stamp.actor = actor)
+							"ReportHasBeenLockedForEditing"
+				initialize LocalIsFiscalQuarter
+				initialize LocalIsFiscalMonth
+				if (SubReport changed)
+					constraint(SubReportRel not exists)
+						"SubReportAlreadyExists"
+				if (IsFirstSubReport and SuppressColumnHeaders and SuppressColumnHeaders changed)
+					confirmation required
+                        "Warning:ColumnHeadersSuppressed!SuppressingColumnHeadersMayCauseMisleadingOrIncompleteInformationIfTheFirstReportHasNoHeaders.DoYouWantToContinue?"
+				if (NewDisplayOrder changed or DisplayOrder changed)
+                    if (NewDisplayOrder = 1 and SuppressColumnHeaders)
+						confirmation required
+                            "Warning:ColumnHeadersSuppressed!SuppressingColumnHeadersMayCauseMisleadingOrIncompleteInformationIfTheFirstReportHasNoHeaders.DoYouWantToContinue?"
+
+
+
+
+				if (GLReportElementRel exists)
+					for each GLReportElementRel
+						if(each.SubReport.DerivedIsFiscalQuarter)
+							LocalIsFiscalQuarter = true
+							end for each
+						if(each.SubReport.DerivedIsFiscalMonth)
+							LocalIsFiscalMonth = true 
+							end for each
+					if (LocalIsFiscalQuarter)
+						constraint(SubReport.DerivedIsFiscalQuarter)
+							"ReportContainsSubReportWithFiscalQuarterColumns.CannotAddMonthReports" 
+					else
+					if (LocalIsFiscalMonth)
+						constraint(!SubReport.DerivedIsFiscalQuarter)
+							"ReportContainsFiscalMonthColumns.CannotAddQuarterReports" 
+			Exit Rules
+				include UpdateExitRules
+		
+		Delete is an Action
+			Entrance Rules
+				if (GLReport.Lock)
+					constraint(GLReport.create stamp.actor = actor)
+						"ReportHasBeenLockedForEditing"
+			Exit Rules
+				if (GLReport.IntegrationStatus = 1)
+					invoke UpdateGLReport GLReport
+						invoked.PrmIntegrationStatus = 2
+
+		UpdateFromSubReport is an Instance Action
+			restricted
+			Parameters
+				PrmIntegrationStatus	is Numeric 1
+			Exit Rules
+				invoke UpdateGLReport CompositeReportRel
+					invoked.PrmIntegrationStatus = PrmIntegrationStatus
+
+	Conditions
+		GLReportElementInvalidSubreport
+			when(SubReport.ReportHasInvalidColumn)	
+
+		ScenarioFilterNotExistsForSubReport
+            when(SubReport.ColumnView.ScenarioFilterNotExists)
+
+        ScenarioFilterValueNotExistsForSubReport
+            when(SubReport.ColumnView.ScenarioFilterValueNotExists)
+
+		SubReportNotLocked
+			when(GLReport.Lock and !SubReport.Lock)
+		
+		IsFirstSubReport
+			restricted
+			when (SubReport = first GLSubReportByDisplayOrderRel.SubReport) 
+		
+	Relations
+		SubReportRel 
+			one-to-many relation to GLReportElement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLReport				= GLReport
+			Instance Selection
+				where( related.SubReport		= SubReport)
+
+		GLRowDimensionRel
+			one-to-many relation to GLRowDimension
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLRowView				= SubReport.RowView
+		
+		GLColumnRel
+			one-to-many relation to GLColumn
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= SubReport.ColumnView
+		
+		SubReportNavRel
+		    one-to-one relation to GLReport
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLReport				= SubReport
+		
+		GLReportElementRel
+			one-to-many relation to GLReportElement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLReport				= GLReport
+
+		CompositeReportRel
+		    one-to-one relation to GLReport
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLReport				= GLReport
+
+		GLSubReportByDisplayOrderRel
+			one-to-many relation to GLReportElement
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLReport				= GLReport

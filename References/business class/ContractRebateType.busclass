@@ -1,0 +1,125 @@
+ContractRebateType is a BusinessClass
+	owned by po
+	prefix is CTRT
+
+	Ontology
+		symbolic key is ContractRebateType
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+		Description							is Alpha size 500
+		Active								is Boolean
+		CalculateExpectedRebateForGrowth	is Boolean	
+		RebateType
+			default label is "RebateCategory"
+
+	Derived Fields
+		YearlyGrowthBasis is a LabelField
+			restricted
+			"GrowthBasedOnTheSameRebateDuePeriodAYearAgo,NotNecessarilyThePreviousRebateDuePeriod"
+
+		PreviousPeriodGrowthBasis is a LabelField
+			restricted
+			"GrowthBasedOnThePreviousRebateDuePeriod,NotNecessarilySameRebateDuePeriodAYearAgo"
+
+		DerivedFieldDescriptionForGrowthBasis is a ConditionalField
+			type is Alpha size up to 120
+			restricted
+			if (CalculateExpectedRebateForGrowth)
+				YearlyGrowthBasis
+			else
+				PreviousPeriodGrowthBasis
+
+	Context Fields
+		Contract
+
+	Conditions
+		ContractRebateTypeNotInUse
+			restricted
+			when (!AttachedRebateTypesRel exists)
+		MultipleThresholdRebateOrSupplementalRebate
+			when (RebateType.MultipleThresholdRebate
+			or    RebateType.SupplementalRebate)
+		ContractRebateTypeExistsForThisContextContract
+			when (AttachedRebateTypesToContractRel exist
+			and  (RebateType.MultipleThresholdRebate
+			or    RebateType.StandardRebate))
+
+	Relations
+		RebateQuestionRel
+			one-to-many relation to Question
+			Field Mapping uses symbolic key
+				related.ProcurementGroup = ContractGroup
+			Instance Selection
+				where (related.ResponseType.Rebate)
+
+		RebateQuestionAnswerRel
+			one-to-many relation to QuestionAnswer
+			delete cascades
+			Field Mapping uses ByAnswerSet
+				related.ProcurementGroup 										 = ContractGroup
+				related.QuestionAnswer.QuestionAnswerGroup.QuestionListValue	 = blank
+				related.QuestionAnswer.QuestionAnswerGroup.TextAnswer 			 = blank
+				related.QuestionAnswer.QuestionAnswerGroup.NumericAnswer 		 = 0
+				related.QuestionAnswer.QuestionAnswerGroup.DateAnswer 			 = 0
+				related.QuestionAnswer.QuestionAnswerGroup.YesNoAnswer 			 = 0
+				related.QuestionAnswer.QuestionAnswerGroup.YesNoText.YesNo       = 0
+				related.QuestionAnswer.QuestionAnswerGroup.YesNoText.Text	     = blank
+				related.QuestionAnswer.QuestionAnswerGroup.ContractRebateType 	 = ContractRebateType
+
+		AttachedRebateTypesRel
+			one-to-many relation to ContractRebate
+			Field Mapping uses ByRebateType
+				related.ContractGroup 		= ContractGroup
+				related.ContractRebateType	= ContractRebateType
+
+		AttachedRebateTypesToContractRel
+			one-to-many relation to ContractRebate
+			Field Mapping uses symbolic key
+				related.ContractGroup 		= ContractGroup
+				related.Contract			= Contract
+				related.ContractRebateType	= ContractRebateType
+
+	Field Rules
+		Description
+			required
+
+		Active
+			default to true
+
+		CalculateExpectedRebateForGrowth
+			default to false
+			if (!RebateType.GrowthRebate)
+				force default to false
+			if (CalculateExpectedRebateForGrowth)
+				constraint (RebateType.GrowthRebate)
+					"'CalculateGrowthInSpendFromLastYearToThisYearOnly'CanOnlyBeValuedForGrowthRebates"
+
+		RebateType
+			if (RebateType changed)
+				constraint (ContractRebateTypeNotInUse)
+					"CannotChangeRebate,RebateTypeIsAssociatedWithAContract"
+
+	Attach Rules
+		constraint (Active)
+			"RebateTypeIsNotActive"
+
+	Actions
+		Create is a Create Action
+			Action Rules
+			Exit Rules
+				for each RebateQuestionRel
+					invoke InternalCreate QuestionAnswer
+						invoked.ProcurementGroup									  = ContractGroup
+						invoked.Question											  = each.Question
+						invoked.QuestionAnswer.QuestionAnswerGroup.ContractRebateType = ContractRebateType
+
+		Update is an Update Action
+			Action Rules
+
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Delete RebateQuestionAnswerRel

@@ -1,0 +1,443 @@
+VendorReturnLineDetail is a BusinessClass
+    owned by po
+    prefix is VRPOT
+
+    Ontology
+        symbolic key is VendorReturnLineDetail
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        DocumentType is AlphaUpper size 2
+	        States
+	            VendorReturn                 value is "VR"
+	            VendorReturnCancel			 value is "VI"
+		InventoryLocation
+        Item
+		UnitOfMeasure
+        Lot					 is an ItemLot
+        Sublot
+        Serial               is an ItemSerialNumber
+        	delete ignored
+        Bin
+		Quantity
+			precision is VendorReturnLine.DerivedNumberOfDecimalsQuantity
+        SecondaryQuantity    is a Quantity
+        	default label is "ReturnQuantity"	
+        	precision is VendorReturnLine.DerivedNumberOfDecimalsQuantity
+        LotOnHold            is Boolean
+        LotExpirationDate    is Date
+
+	Local Fields
+		ItemLocation 
+		LocalUOM				is like UnitOfMeasure
+		LocalInputQuantity		is like Quantity
+		LocalOutputQuantity		is like Quantity
+		LocalConvertedQuantity	is like Quantity
+		UOMCalculation
+		UnitOfMeasureEdit
+		LocalSystemCreate		is Boolean
+		LocalInspectionReject	is Boolean
+		LocalUpdateFromPOUDIDtl	is Boolean
+		LocalBypassBinValidation is Boolean
+		
+    Conditions
+        IsVendorReturn
+        	restricted
+            when (DocumentType.VendorReturn)
+
+        IsLotRequiredAtReceipt
+        	restricted  
+			when (ItemLocation.LotTracked.LotRequiredAtReceipt) 
+			
+		IsSerialRequiredAtReceipt
+			restricted
+			when (ItemLocation.SerialTracked.SerialRequiredAtReceipt)
+
+		IsCatchWeightSerialRequiredAtReceipt
+			restricted
+			when (ItemLocation.SerialTracked.SerialRequiredAtReceipt)
+
+		IsBinTracked 
+			restricted	
+			when (ItemLocation.BinTracked)
+		
+    	VendorReturnAddedOrAuthorized
+    		restricted
+    		when (VendorReturnLine.VendorReturn.Status.Added
+    		or    VendorReturnLine.VendorReturn.Status.AuthorizedByVendor)
+
+		IsTrackedInAndAlternateStockUOM
+			restricted
+			when (UnitOfMeasureEdit.TrackedIn
+			and   UnitOfMeasureEdit.UnitOfMeasure != Item.StockUOM)             
+
+		IsLotExpired
+			restricted
+			when (Lot entered
+			and   Lot.ExpiredItems)
+			
+		HasItemLocationStockUOM
+			when (ItemLocation.HasItemLocationStockUOM)
+
+	Rule Blocks
+		CalculateStockOnHandDetailQuantity
+			if ((IsSerialRequiredAtReceipt
+			and  IsBinTracked)
+			or   Item.IsCatchWeightItem)
+				LocalUOM 				= Item.StockUOM
+				LocalOutputQuantity 	= Quantity
+			else
+				if ((IsTrackedInAndAlternateStockUOM
+				or  UnitOfMeasure 		= Item.StockUOM)
+				and not HasItemLocationStockUOM)
+					LocalUOM 			= UnitOfMeasure
+					LocalOutputQuantity = Quantity
+				else
+					LocalUOM 			= Item.StockUOM
+					LocalInputQuantity 	= Quantity
+					include ConversionOfQuantityToStock
+					LocalOutputQuantity = LocalConvertedQuantity
+
+		ConversionOfQuantityToStock
+ 			initialize UOMCalculation
+			UOMCalculation.InputQuantity					= LocalInputQuantity
+			UOMCalculation.InputUOM                         = UnitOfMeasure
+			UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+			LocalConvertedQuantity						    = UOMCalculation.OutputQuantity
+
+		UpdatePurchaseOrderUDIDetailReturn
+			invoke Update PurchaseOrderUDIDetailReturnRel
+				invoked.Lot								= VendorReturnLineDetail.Lot
+				invoked.Quantity						= VendorReturnLineDetail.Quantity
+				invoked.ExpirationDate					= VendorReturnLineDetail.LotExpirationDate
+				invoked.LocalUpdateFromVendReturnLine	= true
+									
+		UpdatePurchaseOrderUDIDetailCancel
+			invoke Update PurchaseOrderUDIDetailCancelRel
+				invoked.Lot								= VendorReturnLineDetail.Lot
+				invoked.Quantity						= VendorReturnLineDetail.Quantity
+				invoked.ExpirationDate					= VendorReturnLineDetail.LotExpirationDate
+				invoked.LocalUpdateFromVendReturnLine	= true
+    
+    Relations
+		StockOnHandDetailRel
+            one-to-one relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.Item                            = Item
+                related.StockOnHandDetail.UnitOfMeasure = LocalUOM 
+                related.StockOnHandDetail.Lot           = Lot
+                related.StockOnHandDetail.Sublot        = Sublot
+                related.StockOnHandDetail.Bin           = Bin
+
+		BinsForItemLocationRel		
+			one-to-many relation to Bin
+			Field Mapping uses Set4
+				related.Company				= VendorReturnLine.Company
+				related.InventoryLocation	= VendorReturn.ReturnFromLocation
+
+		BinsWithStockOnHandRel
+			one-to-many relation to Bin
+			Field Mapping uses symbolic key
+				related.Company				= VendorReturnLine.Company
+				related.InventoryLocation	= InventoryLocation
+			Instance Selection
+				where (related.HasStockOnHand)
+		
+		PurchaseOrderTransactionDetailRel
+			one-to-many relation to PurchaseOrderTransactionDetail
+			Field Mapping uses BySerialAndItem
+				related.Item			= Item
+				related.Serial			= Serial
+				related.Company 		= Company
+			Instance Selection
+				where ((related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.Receiving
+				or	    related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.ReceivingAdjustment)
+				and     related.PurchaseOrderReceipt.PurchaseOrder					= VendorReturnLine.OriginalPurchaseOrder
+				and		related.PurchaseOrderTransactionDetail.LineNumber			= VendorReturnLine.OriginalPurchaseOrderLine)
+
+		InspectionRejectionPurchaseOrderTransactionDetailRel
+			one-to-many relation to PurchaseOrderTransactionDetail
+	        Field Mapping uses symbolic key
+	        	related.Company																	= Company
+      		Instance Selection
+      			where (related.PurchaseOrderReceipt												= VendorReturnLine.PurchaseOrderReceipt
+      			and    related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType	= PurchaseTransactionDocumentType.ReceivingInspectionRejection
+      			and    related.PurchaseOrderTransactionDetail.LineNumber						= VendorReturnLine.OriginalPurchaseOrderLine
+      			and	   related.Lot																= Lot
+      			and	   related.Sublot 															= Sublot
+      			and	   related.Serial															= Serial
+      			and	   related.Bin																= Bin)
+
+	    PurchaseOrderUDIDetailReturnRel  
+            one-to-many relation to PurchaseOrderUDIDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType	= "VR"
+                and   related.PurchaseOrderUDIDetail.DocumentNumberNumeric				= VendorReturn
+                and   related.PurchaseOrderUDIDetail.LineNumber							= VendorReturnLine
+                and	  related.Lot														= Lot
+                and	  related.SerialNumber												= Serial)
+
+	    PurchaseOrderUDIDetailCancelRel  
+            one-to-many relation to PurchaseOrderUDIDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType	= "VI"
+                and   related.PurchaseOrderUDIDetail.DocumentNumberNumeric				= VendorReturn
+                and   related.PurchaseOrderUDIDetail.LineNumber							= VendorReturnLine
+                and	  related.Lot														= Lot
+                and	  related.SerialNumber												= Serial)
+
+	Sets
+
+      	ByLine
+      		indexed
+      		Sort Order
+      			Company
+      			VendorReturnLineDetail.VendorReturn
+      			VendorReturnLineDetail.VendorReturnLine
+      			VendorReturnLineDetail.VendorReturnLineDetail
+
+	Derived Fields
+		
+		RequireQuantityMessage 			is a MessageField
+			restricted
+			"QuantityIsRequired"
+		
+		RequireCatchWeightMessage 		is a MessageField
+			restricted
+			"CatchWeightStockQuantityIsRequired"	
+			
+		DerivedQuantityRequiredMessage 	is a DerivedField
+        	type is MessageField
+        	if (Item.IsCatchWeightItem)
+        		return RequireCatchWeightMessage
+        	else
+        		return RequireQuantityMessage
+
+		DerivedRejectQuantity is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			return first InspectionRejectionPurchaseOrderTransactionDetailRel.DerivedQuantity
+
+		DerivedSecondaryRejectQuantity is a DerivedField
+			type is like Quantity
+				precision is Item.NumberOfDecimalsQuantity
+			restricted
+			return first InspectionRejectionPurchaseOrderTransactionDetailRel.SecondaryQuantity
+		
+	Field Rules
+		InventoryLocation
+			initial value is VendorReturn.ReturnFromLocation
+			force default to VendorReturn.ReturnFromLocation
+
+		Item
+			initial value is VendorReturnLine.Item
+			force default to VendorReturnLine.Item
+
+		UnitOfMeasure
+			default to VendorReturnLine.EnteredUOM
+			
+			constraint (UnitOfMeasure = VendorReturnLine.EnteredUOM)
+				"UnitOfMeasureMustBeEqualToVendorReturnLineUnitOfMeasure"
+				
+        Quantity  
+			if (IsSerialRequiredAtReceipt)
+				default to 1
+
+      		required
+      			"<DerivedQuantityRequiredMessage>"
+
+			if ((IsLotRequiredAtReceipt
+			or  (IsSerialRequiredAtReceipt
+			and  IsBinTracked)
+			or   IsBinTracked))
+				
+				initialize UnitOfMeasureEdit
+				LocalInputQuantity = Quantity
+				UnitOfMeasureEdit.UnitOfMeasure = UnitOfMeasure
+
+				include CalculateStockOnHandDetailQuantity
+				
+				if (DocumentType.VendorReturn
+				and not LocalSystemCreate
+				and not LocalBypassBinValidation)
+					constraint (LocalOutputQuantity <= StockOnHandDetailRel.StockOnHandQuantity)
+						"InsufficientQuantityInStockOnHandForUnitOfMeasure<LocalUOM>"										
+			
+		Lot
+			if (IsLotRequiredAtReceipt)
+				required
+					"LotIsRequiredForLotTrackedItem"
+
+				constraint (Lot exists)
+					"Lot<Lot>DoesNotExists"
+			else
+				cannot be entered
+					"Item<Item>IsNotLotTrackedAtReceipt"
+
+		Sublot
+			if (!IsLotRequiredAtReceipt)
+				cannot be entered
+					"Item<Item>IsNotLotTrackedAtReceipt"
+						
+		Serial 
+			if (IsSerialRequiredAtReceipt)
+				required
+					"SerialIsRequiredForSerialTrackedItem"
+
+				if (DocumentType.VendorReturn)
+					constraint (Serial exists)
+						"Serial<Serial>DoesNotExists"
+					
+					if (not LocalInspectionReject)
+						constraint (Serial.Status.OnHand)
+							"SerialNotOnHand;CannotAdd"
+					else 
+						constraint (Serial.Status.Hold)
+							"SerialNotOnHold;CannotAdd"
+				
+				if (VendorReturnLine.OriginalPurchaseOrder entered
+				and VendorReturnLine.OriginalPurchaseOrderLine entered)
+					constraint (PurchaseOrderTransactionDetailRel exists)
+						"Serial<Serial>IsNotReferencedOnOriginalReceipt"
+			else			
+				cannot be entered
+					"Item<Item>IsNotSerialTrackedAtReceipt"		
+		Bin 
+			initial value is Serial.Bin
+			default to Serial.Bin
+			if (IsBinTracked)						    
+				if (IsSerialRequiredAtReceipt)
+					if (DocumentType.VendorReturn)
+						constraint (Bin = Serial.Bin)
+							"SerialItemDoesNotExistsInBin<Bin>" 					 											
+				else
+					if (not LocalBypassBinValidation)
+						required 
+							"BinIsRequiredForBinTrackedItem"
+			else
+				cannot be entered
+					"Item<Item>IsNotBinTrackedAtReceipt"
+								
+		LotExpirationDate
+			if (!IsLotRequiredAtReceipt)
+				cannot be entered
+					"Item<Item>IsNotLotTrackedAtReceipt"
+			else
+			if (StockOnHandDetailRel.StockOnHandQuantity entered)
+				if (Lot.LotExpirationDate entered)
+					default to Lot.LotExpirationDate
+					constraint (Lot.LotExpirationDate = LotExpirationDate)	
+						"Lot<Lot>ExpiresOn<Lot.LotExpirationDate>;CannotChangeExpirationDate"
+
+		SecondaryQuantity 
+			if (Item.IsCatchWeightItem)
+				required
+					"QuantityIsRequired"
+
+				if (DocumentType.VendorReturn
+				and not LocalSystemCreate)
+					constraint (SecondaryQuantity <= StockOnHandDetailRel.SecondaryQuantity)
+						"InsufficientSecondaryQuantityInStockOnHandForUnitOfMeasure<UnitOfMeasure>"
+			else
+				cannot be entered
+					"CannotEnterQuantity;ItemNotSetUpForCatchWeight"
+			
+	Actions
+		Create is a Create Action
+			valid when (VendorReturnAddedOrAuthorized)
+			Field Rules
+				DocumentType
+					force default to DocumentType.VendorReturn 
+										
+			Action Rules
+				constraint (VendorReturnAddedOrAuthorized)																	
+					"CannotCreateDetailRecordIn<VendorReturn.Status>Status"
+					
+			Exit Rules
+				invoke Update VendorReturnLine
+				
+		CreateForCancel is a Create Action
+			valid when (!VendorReturnAddedOrAuthorized)
+			Field Rules
+				DocumentType
+					force default to DocumentType.VendorReturnCancel 
+										
+			Action Rules
+				constraint (VendorReturnLine.ReturnStockToInventoryOnVendorReturnCancel)
+					"CannotCreate;ReturnStockToInventoryOnVendorReturnCancelIsNotChecked"
+				
+				constraint (!VendorReturnAddedOrAuthorized)
+					"CannotCreateDetailRecordForCancelUntilShipToVendor"
+
+		Update is an Update Action
+			valid when (!VendorReturn.ShippedStatus)
+					
+			Action Rules
+				constraint (!VendorReturn.ShippedStatus)
+					"DetailCannotBeUpdatedAfterShippedToVendor"																
+					
+			Exit Rules
+				invoke Update VendorReturnLine
+
+				if ((IsLotRequiredAtReceipt
+				or   IsSerialRequiredAtReceipt)
+				and !LocalUpdateFromPOUDIDtl)
+					if  (VendorReturnLineDetail.DocumentType = "VR"
+					and  PurchaseOrderUDIDetailReturnRel exists)
+						include UpdatePurchaseOrderUDIDetailReturn
+						
+					if  (VendorReturnLineDetail.DocumentType = "VI"
+					and  PurchaseOrderUDIDetailCancelRel exists)
+						include UpdatePurchaseOrderUDIDetailCancel							
+
+		Delete is a Delete Action
+			valid when (!VendorReturn.ShippedStatus)
+					
+			Action Rules
+				constraint (!VendorReturn.ShippedStatus)
+					"DetailCannotBeDeletedAfterShippedToVendor"																
+			
+			Exit Rules
+				invoke Update VendorReturnLine
+		
+		ShipFromVendorReturn is an Instance Action		
+			restricted 
+			Parameters
+				PrmInventoryLocation		is an InventoryLocation
+				PrmInventoryTransaction     is an InventoryTransaction
+				PrmTransactionSystemCode	is a  TransactionSystemCode
+				PrmInventoryTransactionLine is an InventoryTransactionLine
+				
+			Action Rules
+				invoke Unreleased.QuickCreate InventoryTransactionLineDetail
+					fill in fields from this instance
+					invoked.InventoryLocation	 	 = PrmInventoryLocation
+					invoked.TransactionSystemCode	 = PrmTransactionSystemCode 
+					invoked.InventoryTransaction	 = PrmInventoryTransaction
+					invoked.InventoryTransactionLine = PrmInventoryTransactionLine
+		
+		UpdateStockOnHandDetail is an Instance Action
+			restricted
+			Parameters
+				PrmInspectionHoldQuantity is a Quantity
+			Action Rules
+				invoke UpdateFromVendorReturn StockOnHandDetailRel
+					invoked.PrmInspectionHoldQuantity 			-= Quantity
+					invoked.PrmInspectionHoldSecondaryQuantity 	-= SecondaryQuantity
+
+		Purge is a Purge Action
+			restricted
+

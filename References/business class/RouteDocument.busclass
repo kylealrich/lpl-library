@@ -1,0 +1,174 @@
+RouteDocument is a BusinessClass
+    owned by wh
+    prefix is RDC
+    classic name is ROUTEDOC
+
+    Ontology
+        symbolic key is RouteDocument
+            classic set name is RDCSET1
+            name is DocumentNumber
+            classic name is DOC-NBR
+            classic name for InventoryLocation is LOCATION
+            classic name for RouteStop is STOP
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        DocumentSystemCode is a DemandSystemCode 
+
+
+
+
+        StockVolume
+            classic name is CUBIC-FEET
+        StockWeight
+            classic name is WEIGHT
+        NumberOfPieces
+            classic name is PIECES
+
+	
+	Conditions
+	
+		IsUnreleased
+			restricted
+			when (RouteHeader.RouteStatus.Unreleased)
+			
+		IsInventoried
+			restricted
+			when (WarehouseDemandLineRel.LineType.Inventoried)
+		
+		IsCustomerOrder
+			restricted
+			when (WarehouseDemandRel.WarehouseDemand.DemandSystemCode.CustomerOrder)
+			
+		IsFillOrKill
+			restricted
+			when (WarehouseDemandLineRel.FillOrKill entered)	
+			
+	Transient Fields
+	
+		TransferStop			is Boolean
+
+    Relations
+
+		CustomerOrderRel
+			one-to-many relation to CustomerOrder
+			Field Mapping uses symbolic key
+				related.Company 		= Company
+				related.CustomerOrder 	= DocumentNumber 
+			
+		CustomerOrderLinesRel
+			one-to-many relation to CustomerOrderLine
+			Field Mapping uses symbolic key								
+				related.Company       = Company
+				related.CustomerOrder = DocumentNumber
+	
+
+			
+		WarehouseDemandRel
+            one-to-many relation to WarehouseDemand
+            Field Mapping uses symbolic key
+                related.Company                          = Company
+                related.WarehouseDemand.DemandSystemCode = DocumentSystemCode
+                related.WarehouseDemand.DemandDocument   = DocumentNumber
+				related.WarehouseDemand.DemandCompany	 = Company
+		
+		WarehouseDemandLineRel
+			one-to-many relation to WarehouseDemandLine
+			Field Mapping uses Set9
+				related.Company							         = Company
+			Instance Selection
+				where (related.WarehouseDemandLine.LineNumber	 = CustomerOrderLinesRel.CustomerOrderLine
+				and    related.InventoryLocation				 = InventoryLocation)
+
+		
+		
+		
+	Actions
+	
+		Create is a Create Action
+			restricted
+			Exit Rules
+				invoke Unreleased.Update RouteHeader
+					invoked.StockVolume		  += StockVolume
+					invoked.StockWeight		  += StockWeight
+					invoked.NumberOfPieces    += NumberOfPieces
+					invoked.NumberOfDocuments += 1
+
+				increment RouteStop.NumberOfDocuments
+				
+		Delete is a Delete Action
+			valid when (IsUnreleased)
+			
+			Entrance Rules
+					
+				if (IsUnreleased)
+					decrement RouteStop.NumberOfDocuments
+					decrement RouteHeader.NumberOfDocuments
+					
+					invoke Unreleased.Update RouteHeader
+						invoked.StockVolume		  -= StockVolume
+						invoked.StockWeight		  -= StockWeight
+						invoked.NumberOfPieces    -= NumberOfPieces
+					
+					invoke Update RouteStop
+						invoked.StockVolume 	  -= StockVolume
+						invoked.StockWeight		  -= StockWeight
+						invoked.NumberOfPieces    -= NumberOfPieces
+					for each CustomerOrderLinesRel
+						if (each.RouteHeader = RouteHeader
+						and each.RouteStop   = RouteStop
+						and each.RouteCreate)
+							invoke Update each
+								invoked.RouteCreate = false
+							if (WarehouseDemandRel not exist)					
+								invoke Create WarehouseDemand						
+									invoked.Company								= Company
+									invoked.WarehouseDemand.DemandSystemCode	= DocumentSystemCode
+									invoked.WarehouseDemand.DemandDocument		= DocumentNumber
+							else
+								invoke Update WarehouseDemandLineRel
+									if (!IsFillOrKill)
+										invoked.FillOrKill = "F" 
+									else
+										invoked.FillOrKill = "K"
+								
+									if (!IsInventoried)
+										invoked.DetailRequired = false				
+
+								
+		TransferDocument is an Instance Action
+			valid when (IsUnreleased) 
+			Parameters 
+				ToRoute 	is a RouteHeader
+				ToStop 		is a RouteStop
+				ToDocument	is a DocumentNumber
+			
+			Parameter Rules
+				ToRoute
+					required
+				
+				ToStop
+					required
+					constraint (ToStop != RouteStop)
+						"DocumentIsCurrenttlyOnThe<ToStop>Stop"
+						
+					constraint (RouteStop.Customer = ToStop.Customer)
+						"StopAlreadyAssignedToAnotherCusotmer"
+					
+					constraint (RouteStop.CustomerShipTo = ToStop.CustomerShipTo)
+						"StopAlreadyAssignedToAnotherShipTo"	
+					
+			Action Rules
+
+				if (IsUnreleased)				
+					invoke Create RouteDocument
+						fill in fields from this instance
+						invoked.RouteHeader				= ToRoute
+						invoked.RouteStop				= ToStop
+					
+					invoke Delete 
+					

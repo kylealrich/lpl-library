@@ -1,0 +1,269 @@
+StudentRecord is a BusinessClass
+    owned by studentactivities
+    prefix is SASR
+
+    Ontology
+    	symbolic key is StudentRecord
+
+    Persistent Fields
+		StudentFirstName		is Alpha 20
+		StudentLastName			is Alpha 30
+		StudentActivitySchool
+			default label is "School"
+		CurrentReceiptRecord
+		ReferenceNumber			is Alpha 10
+		ReceiptDate				is Date
+		DisplayHistory			is Boolean
+		Active
+		
+	Transient Fields
+		TransactionCurrencyCode			is a Currency
+			derive value from DerivedCurrency
+
+	Local Fields
+		LocalStudentActivityReceipt is a StudentActivityReceipt view
+		
+	Derived Fields
+		DerivedCurrency is a DerivedField
+			type is like Currency
+			return StudentActivityDistrict.AccountingEntity.FunctionalCurrency
+
+		TotalFeeAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentAssignedActivityRel.TotalFeeAmount)
+
+		TotalReceipts is a DerivedField
+			type is like InternationalAmount
+			return (sum StudentAssignedActivityRel.TotalReceipts)
+
+		BalanceDue is a DerivedField
+			type is like InternationalAmount
+			return (TotalFeeAmount - TotalReceipts)
+
+		TotalReceiptAmount is a DerivedField
+			type is like InternationalAmount
+			return (sum CurrentReceiptAmountRel.CurrentReceiptAmount)
+
+		ActivitiesAssignedFromDifferentSchool is a DerivedField
+			type is Boolean
+			if  (any ActivitiesAssignedFromDifferentSchoolRel.UnpaidBalance entered
+			or   DisplayHistory)
+				return true
+			else
+				return false
+
+	Context Fields
+		ContextActivitySchool	is a StudentActivitySchool
+
+	Sets
+		ByStudentActivityReceipt
+			duplicates
+			Sort Order
+				StudentActivityDistrict
+				CurrentReceiptRecord
+
+		ByStudentActivitySchool
+			Sort Order
+				StudentActivityDistrict
+				StudentActivitySchool
+				StudentRecord
+
+	Relations
+		SchoolActivityAccountRel
+			one-to-many relation to SchoolActivityAccount
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= StudentActivitySchool
+				
+		CurrentReceiptAmountRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= StudentRecord
+				related.StudentActivitySchool	= CurrentReceiptRecord.StudentActivitySchool
+			Instance Selection
+				where (related.StudentActivityReceipt	= CurrentReceiptRecord.StudentActivityReceipt)
+
+		StudentAssignedActivityRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= StudentRecord
+			Instance Selection
+				where (related.StudentActivitySchool	= StudentActivitySchool
+				or     related.UnpaidBalance			entered
+				or     related.CurrentReceiptAmount		entered
+				or     DisplayHistory)
+ 
+		StudentUnpaidActivityRel
+			one-to-many relation to StudentAssignedActivity
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= StudentRecord
+			Instance Selection
+				where (related.UnpaidBalance	entered)
+
+ 		StudentAssignedActivityDetailRel
+			one-to-many relation to StudentAssignedActivityDetail
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentRecord			= StudentRecord
+				related.StudentActivitySchool	= StudentAssignedActivityRel.StudentActivitySchool
+				related.SchoolActivityAccount	= StudentAssignedActivityRel.SchoolActivityAccount
+ 
+ 		StudentPaidReceiptsRel
+ 			one-to-many relation to StudentActivityReceipt
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= StudentPaidReceipts set.StudentActivitySchool
+				related.StudentActivityReceipt	= StudentPaidReceipts set.StudentActivityReceipt
+ 			Instance Selection
+ 				where (!related.StudentActivityReceipt.Status.Returned
+				and   (related.StudentActivitySchool	= StudentActivitySchool
+				or     related.Status.Entered
+				or     DisplayHistory))
+ 
+ 		StudentReturnedPaymentsRel
+			one-to-many relation to StudentActivityReceipt
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= StudentPaidReceipts set.StudentActivitySchool
+				related.StudentActivityReceipt	= StudentPaidReceipts set.StudentActivityReceipt
+ 			Instance Selection
+ 				where (related.StudentActivityReceipt.Status.Returned
+ 				and   (related.StudentActivitySchool	= StudentActivitySchool
+				or     DisplayHistory))
+ 
+ 		CurrentReceiptRecordRel
+			one-to-one relation to StudentActivityReceipt
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= CurrentReceiptRecord.StudentActivitySchool
+				related.StudentActivityReceipt	= CurrentReceiptRecord.StudentActivityReceipt
+
+		StudentActivitySchoolClassRel
+			one-to-many relation to StudentActivitySchoolClass
+			Field Mapping uses symbolic key
+				related.StudentActivityDistrict	= StudentActivityDistrict
+				related.StudentActivitySchool	= StudentActivitySchool
+
+		ActivitiesAssignedFromDifferentSchoolRel is a StudentAssignedActivity set
+			Instance Selection
+				where (!related.StudentActivitySchool	= StudentActivitySchool)
+
+
+ 	Conditions
+ 		StudentRecordExists
+ 			when (StudentRecord exists)
+ 			
+ 		SchoolSelectLimit
+ 			when (ContextActivitySchool	= StudentActivitySchool)
+ 
+ 		CurrentReceiptExists
+ 			when (CurrentReceiptRecord entered)
+ 
+ 		HasReturnedPayments
+ 			when (StudentReturnedPaymentsRel exists)
+
+		HasAssignedActivities
+			when (StudentAssignedActivity set exists)
+
+		HasActivitiesWithReceipt
+			when (HasAssignedActivities
+			and   CurrentReceiptRecord entered)
+			
+		HasActivitiesWithNoReceipt
+			when (StudentUnpaidActivityRel exists)
+			
+		HasActivityFromAnotherSchool
+			when (ActivitiesAssignedFromDifferentSchoolRel exists)
+
+ 	Field Rules
+ 		StudentFirstName
+ 			required
+		StudentLastName
+			required
+		StudentActivitySchool
+			required 	
+ 
+  	Attach Rules
+		constraint (Active)
+			"StudentIsInactive"
+
+	Actions
+		CreateReceiptRecord is an Instance Action
+			restricted
+			Parameters
+				PrmReceiptDate				is Date
+				PrmReferenceNumber			is Alpha 10
+				PrmStudentActivitySchool	is a StudentActivitySchool
+					
+			Action Rules
+				invoke Create StudentActivityReceipt
+					assign result to LocalStudentActivityReceipt
+					invoked.StudentActivityDistrict		= StudentActivityDistrict
+					invoked.StudentActivitySchool		= PrmStudentActivitySchool
+					invoked.StudentRecord				= StudentRecord
+					invoked.ReceiptDate					= PrmReceiptDate
+					invoked.ReferenceNumber				= PrmReferenceNumber
+					invoked.AddedFromStudentRecord		= true
+				
+				CurrentReceiptRecord.StudentActivitySchool	= PrmStudentActivitySchool
+				CurrentReceiptRecord.StudentActivityReceipt	= LocalStudentActivityReceipt.StudentActivityReceipt			
+				ReceiptDate									= PrmReceiptDate
+				ReferenceNumber								= PrmReferenceNumber
+
+
+		PayAllActivities is an Instance Action
+			valid when (HasActivitiesWithNoReceipt)
+			Parameters
+				ReferenceNumber				is Alpha 10
+				ReceiptDate					is Date
+
+			Parameter Rules
+				ReceiptDate
+					initial value is current corporate date
+			
+			Action Rules
+				constraint (all StudentUnpaidActivityRel.StudentActivitySchool = first StudentUnpaidActivityRel.StudentActivitySchool)
+					"CannotPayActivitiesFromMultipleSchoolsOnSameReceipt"
+					
+				invoke CreateReceiptRecord
+					invoked.PrmReceiptDate				= ReceiptDate
+					invoked.PrmReferenceNumber			= ReferenceNumber
+					invoked.PrmStudentActivitySchool	= first StudentUnpaidActivityRel.StudentActivitySchool
+			
+				for each StudentUnpaidActivityRel
+					invoke Create Entered StudentActivityReceiptDetail
+						invoked.StudentActivityDistrict	= StudentActivityDistrict
+						invoked.StudentActivitySchool	= each.StudentActivitySchool
+						invoked.StudentActivityReceipt	= CurrentReceiptRecord.StudentActivityReceipt
+						invoked.SchoolActivityAccount	= each.SchoolActivityAccount
+						invoked.DetailAmount			= each.TotalFeeAmount
+
+
+		ReleaseReceipt is an Instance Action
+			valid when (HasActivitiesWithReceipt)
+			Action Rules
+				invoke Release Entered CurrentReceiptRecordRel 
+
+
+		DeleteReceipt is an Instance Action
+			valid when (HasActivitiesWithReceipt)
+			Action Rules
+				invoke DeleteReceipt Entered CurrentReceiptRecordRel 
+
+			
+  		Create is a Create Action
+ 
+  		Update is an Update Action
+  			Exit Rules
+  				if (ReferenceNumber	changed
+  				or  ReceiptDate		changed)
+  					
+  					invoke UpdateReceiptHeader CurrentReceiptRecordRel 
+  						invoked.PrmReferenceNumber	= ReferenceNumber
+						invoked.PrmReceiptDate		= ReceiptDate
+  		
+		Delete is a Delete Action			
+				

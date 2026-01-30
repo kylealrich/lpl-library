@@ -1,0 +1,344 @@
+PickForParTicketLine is a BusinessClass
+    owned by mscm
+    prefix is MSPPL
+
+    Ontology
+        symbolic key is PickForParTicketLine
+
+	Persistent Fields
+        MobileSupplyChainUpload                              is like MobileSupplyChainUpload
+        Item                                    
+        Bin                                     is like Bin
+            default label is "ShelfLocation"
+		ReplenishType							is Numeric size 1
+			States
+				PickForPar		value is 1
+				Requisition		value is 2
+		Status									is Numeric size 1
+			protected
+			States
+				PendingPick		value is 0
+				Error		    value is 6
+                Picked          value is 7
+				Cancelled		value is 8
+				Processed		value is 9
+		ParLevel								is an UnsignedQuantity
+		Count									is an UnsignedQuantity
+		RequestedQuantity						is an UnsignedQuantity
+		PickedQuantity							is an UnsignedQuantity
+		AdditionalQuantity						is an UnsignedQuantity
+        KilledQuantity                          is an UnsignedQuantity
+		TransactionUOM							is a UnitOfMeasure
+		FillOrKill
+
+    Rule Blocks
+        ConversionOfStockQuantityToTransactionUOM
+            initialize UOMCalculation
+            UOMCalculation.InputUOM    	 = Item.StockUOM
+            UOMCalculation.InputToUOM  	 = TransactionUOM
+            UOMCalculation.InputQuantity = LocalStockOnHandQuantity
+            UOMCalculation.Method      	 = UOMCalculation.Method.ConvertToAlternate
+
+    Derived Fields
+        DerivedDocumentNumber is a DerivedField
+            type is like InventoryTransaction
+            restricted
+            return PickForParTicket.InventoryTransaction
+        
+        DerivedItemDescription is a DerivedField
+            type is Text
+            restricted
+            return Item.Description
+        
+        DerivedItemManufacturerNumber is a DerivedField
+            type is Text
+            restricted
+            return Item.ManufacturerNumber
+        
+        DerivedItemUOM is a DerivedField
+            type is Text
+            restricted
+            return Item.StockUOM
+        
+        DerivedStatus is a DerivedField
+            type is MessageField
+            restricted
+            if(Status.PendingPick)
+                return "PendingPick"
+            else
+            if(Status.Error)
+                return "Error"
+            else
+            if(Status.Picked)
+                return "Picked"
+            else
+            if(Status.Cancelled)
+                return "Cancelled"
+            else
+            if(Status.Processed)
+                return "Processed"
+
+        DerivedStockOnHandTransactionQuantity is a DerivedField 
+            type is like Quantity
+            restricted
+            initialize LocalStockOnHandQuantity
+
+            if (StockOnHandDetailRel exists)
+                if(ItemStockLocationRel.BinTracked)
+                    if (TransactionUOMIsTracked)
+                        return StockOnHandByBinAndTransactionUOMRel.StockOnHandQuantity
+                    else 
+                        LocalStockOnHandQuantity = StockOnHandByBinAndStockUOMRel.StockOnHandQuantity 
+                        include ConversionOfStockQuantityToTransactionUOM
+                        return UOMCalculation.OutputQuantity
+                else
+                    if (TransactionUOMIsTracked)
+                        return StockOnHandByTransactionUOMRel.StockOnHandQuantity
+                    else
+                        LocalStockOnHandQuantity = StockOnHandByStockUOMRel.StockOnHandQuantity 
+                        include ConversionOfStockQuantityToTransactionUOM
+                        return UOMCalculation.OutputQuantity
+            else
+                if (ItemStockLocationRel.DerivedMultipleUOM = 1) 
+                    if (TransactionUOMIsTracked)
+                        return ItemStockLocationRel.StockOnHandQuantity 
+                    else
+                        LocalStockOnHandQuantity = ItemStockLocationRel.StockOnHandQuantity 
+                        include ConversionOfStockQuantityToTransactionUOM
+                        return UOMCalculation.OutputQuantity
+                else
+                    return 0
+
+        ErrorMessageDisplay is a DerivedField         
+			type is MessageField
+            if (HasInsufficientStockOnHandQuantity and Status = Status.Error)
+                if(DerivedStockOnHandTransactionQuantity = 0) 
+                    return DerivedTransactionUOMUnavailabilityErrorMessage
+                else
+                if (ItemStockLocationRel.BinTracked)
+                    return DerivedInsufficientQuantityInBinErrorMessage
+                else
+                    return DerivedInsufficientQuantityErrorMessage
+            else    
+                return blank
+
+        DerivedInsufficientQuantityInBinErrorMessage is a MessageField
+            restricted
+            "Item:<Item>HasInsufficientStockOnHandQuantityInBin<Bin>"
+
+        DerivedInsufficientQuantityErrorMessage is a MessageField
+            restricted
+            "Item:<Item>HasInsufficientStockOnHandQuantity"
+
+        DerivedTransactionUOMUnavailabilityErrorMessage is a MessageField
+            restricted
+            "Item<Item>UOM:<TransactionUOM>HasZeroAvailableQuantityOnHand"
+         
+
+    Sets
+        ByItem
+            Sort Order
+                Company
+                InventoryLocation
+                PickForParTicket
+                Item
+                Bin
+                TransactionUOM
+
+    Local Fields
+        LocalInventoryTransaction       is like InventoryTransaction
+        ErrorOccured                    is Boolean
+        ErrorMessage                    is Text
+        LocalStockOnHandQuantity        is like Quantity
+        UOMCalculation
+
+    Relations
+        InventoryTransactionRel
+            one-to-one relation to InventoryTransaction
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.InventoryTransaction    = PickForParTicket.InventoryTransaction 
+
+        AdditionalInventoryTransactionRel
+            one-to-one relation to InventoryTransaction
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.InventoryTransaction    = PickForParTicket.AdditionalInventoryTransaction 
+
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                 = PickForParTicket.RequestingCompany
+                related.InventoryLocation       = PickForParTicket.RequestingLocation
+                related.Item                    = Item
+        
+        ItemStockLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+
+        StockOnHandByBinAndTransactionUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+            Instance Selection
+                where(related.StockOnHandDetail.UnitOfMeasure    = TransactionUOM
+                and related.StockOnHandDetail.Bin                = Bin)
+
+        StockOnHandByBinAndStockUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+            Instance Selection
+                where(related.StockOnHandDetail.UnitOfMeasure       = Item.StockUOM
+                and related.StockOnHandDetail.Bin                   = Bin)
+
+        StockOnHandDetailRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+
+        StockOnHandByTransactionUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+            Instance Selection
+                where(related.StockOnHandDetail.UnitOfMeasure     = TransactionUOM)
+
+        StockOnHandByStockUOMRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.Item                    = Item
+            Instance Selection
+                where(related.StockOnHandDetail.UnitOfMeasure    = Item.StockUOM)
+
+        ItemUOMByTransactionUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup     								= Company.ItemGroup
+				related.Item          								= Item
+				related.UnitOfMeasure 								= TransactionUOM
+
+        PickForParTicketLineUnpickedRel
+            one-to-many relation to PickForParTicketLine
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = InventoryLocation
+                related.PickForParTicket        = PickForParTicket
+            Instance Selection
+                where (related.Status           = Status.PendingPick)
+
+    Conditions  
+        HasInsufficientStockOnHandQuantity
+            restricted
+            when (DerivedStockOnHandTransactionQuantity < PickedQuantity)
+
+        TransactionUOMIsTracked
+            restricted
+            when (ItemUOMByTransactionUOMRel.TrackedIn)
+                
+    Actions
+        Create is a Create Action
+            restricted
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+        PickForPar is an Instance Action
+            restricted
+            Parameters
+                PrmMobileSupplyChainUpload               is like MobileSupplyChainUpload
+                    default label is "MobileSupplyChainUpload"
+                PrmPulledQuantity           is like Quantity
+                    default label is "PulledQuantity"
+                PrmAdditionalQuantity       is like Quantity
+                    default label is "AdditionalQuantity"
+                PrmTimeStamp                is TimeStamp
+                    default label is "TimeStamp"
+
+            Action Rules
+                MobileSupplyChainUpload     = PrmMobileSupplyChainUpload
+                PickedQuantity              = PrmPulledQuantity
+                KilledQuantity              = RequestedQuantity - PrmPulledQuantity
+                AdditionalQuantity          = PrmAdditionalQuantity
+                Status                      = Status.Picked
+
+        ProcessPulledQuantities is a Set Action
+            restricted
+            Parameters
+                PrmMobileSupplyChainUpload               is like MobileSupplyChainUpload
+                    default label is "MobileSupplyChainUpload"
+
+            Instance Selection
+                where (MobileSupplyChainUpload               = PrmMobileSupplyChainUpload
+                and    Status.Picked
+                and    PickedQuantity entered)
+
+            Sort Order
+                Company
+                InventoryLocation
+                PickForParTicket
+                PickForParTicketLine
+
+            Local Fields
+                NewInventoryTransaction         is an InventoryTransaction view
+                LocalErrorOccured               is Boolean
+                LocalErrorMessage               is Text
+
+            Action Rules
+                PickForParTicket Set Rules
+                    Entrance Rules
+                        initialize LocalErrorOccured
+                        initialize LocalErrorMessage
+
+                    Exit Rules
+                        if (not LocalErrorOccured)
+                            invoke Release InventoryTransactionRel
+
+                        invoke Update PickForParTicketLineUnpickedRel 
+                            invoked.Status = Status.Cancelled
+
+                        invoke Update PickForParTicket
+                            if (LocalErrorOccured)
+                                invoked.Status        = PickForParTicket.Status.ProcessedWithErrors
+                            else
+                                invoked.Status        = PickForParTicket.Status.Processed
+                        if (not LocalErrorOccured)
+                            invoke PrintDeliveryDocument PickForParTicket
+
+                Instance Rules
+                    if (PickedQuantity > 0)
+                        if (PickForParTicket.InventoryTransaction not entered)
+                            invoke CreateIssueTransaction PickForParTicket
+
+                        LocalInventoryTransaction = PickForParTicket.InventoryTransaction
+                        invoke Unreleased.Create InventoryTransactionLine
+                            invoked.Company                 = Company
+                            invoked.InventoryLocation       = InventoryLocation
+                            invoked.InventoryTransaction    = LocalInventoryTransaction
+                            invoked.Item                    = Item
+                            invoked.TransactionSystemCode   = TransactionSystemCode.InventoryControl
+                            invoked.Quantity                = PickedQuantity
+                            invoked.TransactionUOM          = TransactionUOM
+                            invoked.Bin                     = Bin
+                    
+                        if (HasInsufficientStockOnHandQuantity)
+                            Status              = Status.Error
+                            LocalErrorOccured   = true

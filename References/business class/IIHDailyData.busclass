@@ -1,0 +1,426 @@
+IIHDailyData is a BusinessClass
+	owned by InventoryIntelligence
+	default label is "InventoryIntelligenceDailyData"
+	
+	prefix is IIDD
+	
+	Ontology
+		symbolic key is IIHDailyData
+		
+	
+	Patterns
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp
+		
+	Persistent Fields
+		CurrentCostAtEndOfDay		is Decimal size 31.10 
+		StockOnHandAtEndOfDay		is Decimal size 14.4
+		RequisitionReceiptsCount	is Numeric size 10
+		PurchaseOrderReceiptsCount	is Numeric size 10
+		IncomingTransactionsCount	is Numeric size 10
+		TransactionsCount			is Numeric size 10
+		IsStockout					is Boolean
+		GrossUnitsIn				is Decimal size 31.4
+		GrossUnitsOut				is Decimal size 31.4
+		NetUnitsOut					is Decimal size 31.4
+		NetReceivedQuantity			is Decimal size 31.4
+		NetDemand					is Decimal size 31.4
+		TotalDemand					is Numeric size 10
+		PicksCount					is Numeric size 10
+		ReceiptsCount				is Numeric size 10
+		ReplenishmentsCount			is Numeric size 10
+		NetPicks					is Decimal size 31.4
+		NetReceipts					is Decimal size 31.6
+		ReorderPoint				is like UnsignedQuantity
+	
+	Context Fields
+		ContextDateRange	is a DateRange2
+	
+	Field Rules
+	
+	Derived Fields
+		YearBackDate is a ComputeField
+			type is Date
+			(IIHItemLocationRel.DailyDataLatest - 1 year)
+	
+		MonthAndYear is a StringField
+			type is Alpha size 10
+			IIHDailyData month short name
+			","
+			IIHDailyData year
+		
+		DerivedTransactionDate is a DerivedField
+			type is Alpha size 10
+			if (FirstDay)
+				return MonthAndYear
+			else
+				return IIHDailyData day
+	
+		ReferenceReorderPoint is a DerivedField
+			type is like UnsignedQuantity
+			return IIHItemLocationRel.ReferenceReorderPoint
+			
+		ReferenceMaxOrder is a DerivedField
+			type is like UnsignedQuantity
+			return IIHItemLocationRel.ReferenceMaxOrder
+			
+		DefaultTransactionUOMDerived is a DerivedField
+			type is like UnitOfMeasure	
+			if (IIHItemLocationRel.DefaultTransactionUOM.UnitOfMeasure entered)
+				return IIHItemLocationRel.DefaultTransactionUOM.UnitOfMeasure
+			else
+				return IIHItemLocationRel.Item.StockUOM
+
+	Local Fields
+		EndDate 			 is Date
+		LocalDate            is Date
+		LocalReorderPoint	 is like UnsignedQuantity
+			
+	Conditions
+		FirstDay
+			when (IIHDailyData day = 1)
+		
+		WithinDateRange
+			when ((ContextDateRange not entered
+			and   IIHDailyData >= YearBackDate)
+			or   (ContextDateRange entered
+			and   IIHDailyData within ContextDateRange))
+			
+		WithinDailyDataAnalysisDateRange
+			when (IIHDailyData >= IIHItemLocationRel.AnalysisDate.Begin
+			and   IIHDailyData <= IIHItemLocationRel.AnalysisDate.End)
+			
+	Relations
+	
+		IIHItemLocationRel
+			one-to-one relation to IIHItemLocation
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+				
+		IIHDailyDataRel
+			one-to-one relation to IIHDailyData
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+				related.IIHDailyData = LocalDate
+
+		PreviousIIHDailyDataRel
+			one-to-many relation to IIHDailyData
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+				related.IIHDailyData = LocalDate - 1
+				
+		DailyDataWithAnalysisBeginDateRel
+			one-to-one relation to IIHDailyData
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+				related.IIHDailyData = IIHItemLocationRel.AnalysisDate.Begin
+				
+		IIHDailyDataBeforeAnalysisWindow
+			one-to-many relation to IIHDailyData
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+			Instance Selection
+				where (related.IIHDailyData < IIHItemLocationRel.AnalysisDate.Begin)
+
+		IIHItemLocationAuditRel
+			one-to-many relation to IIHItemLocationAudit
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.IIHInventoryLocation = InventoryLocation
+				related.IIHItem = Item
+			Instance Selection
+				where ((related.DerivedUpdateDate >= IIHItemLocationRel.AnalysisDate.Begin)
+				and (related.DerivedUpdateDate <= IIHItemLocationRel.AnalysisDate.End))
+
+		BeforeIIHDailyDataRecordsRel
+			one-to-many relation to IIHDailyData
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.InventoryLocation = InventoryLocation
+				related.Item = Item
+			Instance Selection
+				where (related.IIHDailyData < LocalDate)
+				
+	Actions
+		Create is an Action
+			restricted
+		Update is an Action
+			restricted
+		Delete is an Action
+			restricted
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+			
+		PurgeIIHDailyData is a Set Action
+			restricted
+			run in background
+
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+			
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		FillPerpetualDailyData is an Instance Action
+			restricted
+			Entrance Rules
+				initialize LocalReorderPoint
+			Action Rules
+										
+				if (DailyDataWithAnalysisBeginDateRel exists)
+					LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+					if (IIHItemLocationAuditRel exists)
+						if (LocalDate >= first IIHItemLocationAuditRel.DerivedUpdateDate)
+							LocalReorderPoint = first IIHItemLocationAuditRel.AfterReorderPoint
+						else
+							LocalReorderPoint = first IIHItemLocationAuditRel.BeforeReorderPoint
+					else
+						LocalReorderPoint  = ReferenceReorderPoint
+					invoke Update IIHDailyDataRel
+						invoked.ReorderPoint = LocalReorderPoint
+
+				else
+					LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+					
+					if (IIHItemLocationAuditRel exists)
+						if (LocalDate >= first IIHItemLocationAuditRel.DerivedUpdateDate)
+							LocalReorderPoint = first IIHItemLocationAuditRel.AfterReorderPoint
+						else
+							LocalReorderPoint = first IIHItemLocationAuditRel.BeforeReorderPoint
+					else
+						LocalReorderPoint  = ReferenceReorderPoint
+
+					if (IIHDailyDataBeforeAnalysisWindow exists)
+						
+						invoke Create IIHDailyData
+							fill in fields from last IIHDailyDataBeforeAnalysisWindow
+								except invoked.IIHDailyData
+								except invoked.RequisitionReceiptsCount
+								except invoked.PurchaseOrderReceiptsCount	
+								except invoked.IncomingTransactionsCount	
+								except invoked.TransactionsCount			
+								except invoked.GrossUnitsIn				
+								except invoked.GrossUnitsOut	
+								except invoked.NetUnitsOut			
+								except invoked.NetReceivedQuantity			
+								except invoked.NetDemand					
+								except invoked.TotalDemand					
+								except invoked.PicksCount					
+								except invoked.ReceiptsCount				
+								except invoked.ReplenishmentsCount			
+								except invoked.NetPicks					
+								except invoked.NetReceipts
+								except invoked.ReorderPoint
+
+							invoked.IIHDailyData =LocalDate
+							invoked.ReorderPoint = LocalReorderPoint
+
+					else
+						invoke Create IIHDailyData
+							invoked.IIHDailyData = LocalDate
+							invoked.ReorderPoint = LocalReorderPoint
+
+				if (IIHItemLocationAuditRel exists)
+					for each IIHItemLocationAuditRel
+						LocalDate = each.DerivedUpdateDate
+						if (IIHDailyDataRel exists)
+							invoke Update IIHDailyDataRel
+								invoked.ReorderPoint = each.AfterReorderPoint
+						else
+							if (BeforeIIHDailyDataRecordsRel exists)
+								invoke Create IIHDailyData
+									fill in fields from last BeforeIIHDailyDataRecordsRel
+										except invoked.IIHDailyData
+										except invoked.RequisitionReceiptsCount
+										except invoked.PurchaseOrderReceiptsCount	
+										except invoked.IncomingTransactionsCount	
+										except invoked.TransactionsCount			
+										except invoked.GrossUnitsIn				
+										except invoked.GrossUnitsOut	
+										except invoked.NetUnitsOut			
+										except invoked.NetReceivedQuantity			
+										except invoked.NetDemand					
+										except invoked.TotalDemand					
+										except invoked.PicksCount					
+										except invoked.ReceiptsCount				
+										except invoked.ReplenishmentsCount			
+										except invoked.NetPicks					
+										except invoked.NetReceipts
+										except invoked.ReorderPoint
+					
+									invoked.IIHDailyData = LocalDate
+									invoked.ReorderPoint = each.AfterReorderPoint
+
+				LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+				EndDate   = IIHItemLocationRel.AnalysisDate.End
+						
+				while (LocalDate <= EndDate)
+					if (!IIHDailyDataRel exists)
+						invoke Create IIHDailyData
+							fill in fields from last PreviousIIHDailyDataRel
+								except invoked.IIHDailyData
+								except invoked.RequisitionReceiptsCount
+								except invoked.PurchaseOrderReceiptsCount	
+								except invoked.IncomingTransactionsCount	
+								except invoked.TransactionsCount			
+								except invoked.GrossUnitsIn				
+								except invoked.GrossUnitsOut	
+								except invoked.NetUnitsOut			
+								except invoked.NetReceivedQuantity			
+								except invoked.NetDemand					
+								except invoked.TotalDemand					
+								except invoked.PicksCount					
+								except invoked.ReceiptsCount				
+								except invoked.ReplenishmentsCount			
+								except invoked.NetPicks					
+								except invoked.NetReceipts
+							
+							invoked.IIHDailyData = LocalDate
+
+					else
+						if (IIHDailyDataRel.ReorderPoint = 0)
+							LocalReorderPoint = PreviousIIHDailyDataRel.ReorderPoint
+							invoke Update IIHDailyDataRel
+								invoked.ReorderPoint = LocalReorderPoint
+					LocalDate += 1
+
+			Exit Rules
+				invoke UpdateGraphGapsFilled IIHItemLocationRel
+					invoked.GraphGapsFilled = true
+					
+		FillParDailyData is an Instance Action
+			restricted
+			Entrance Rules
+				initialize LocalReorderPoint
+			Action Rules
+				if (DailyDataWithAnalysisBeginDateRel exists)
+					LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+					if (IIHItemLocationAuditRel exists)
+						if (LocalDate >= first IIHItemLocationAuditRel.DerivedUpdateDate)
+							LocalReorderPoint = first IIHItemLocationAuditRel.AfterReorderPoint
+						else
+							LocalReorderPoint = first IIHItemLocationAuditRel.BeforeReorderPoint
+					else
+						LocalReorderPoint  = ReferenceReorderPoint
+					invoke Update IIHDailyDataRel
+						invoked.ReorderPoint = LocalReorderPoint
+				else
+					LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+					
+					if (IIHItemLocationAuditRel exists)
+						if (LocalDate >= first IIHItemLocationAuditRel.DerivedUpdateDate)
+							LocalReorderPoint = first IIHItemLocationAuditRel.AfterReorderPoint
+						else
+							LocalReorderPoint = first IIHItemLocationAuditRel.BeforeReorderPoint
+					else
+						LocalReorderPoint  = ReferenceReorderPoint
+
+					if (IIHDailyDataBeforeAnalysisWindow exists)
+						LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+						
+						invoke Create IIHDailyData
+							fill in fields from last IIHDailyDataBeforeAnalysisWindow
+								except invoked.IIHDailyData
+								except invoked.CurrentCostAtEndOfDay
+								except invoked.StockOnHandAtEndOfDay
+								except invoked.RequisitionReceiptsCount
+								except invoked.PurchaseOrderReceiptsCount	
+								except invoked.IncomingTransactionsCount	
+								except invoked.TransactionsCount		
+								except invoked.IsStockout	
+								except invoked.GrossUnitsIn				
+								except invoked.GrossUnitsOut	
+								except invoked.NetUnitsOut
+								except invoked.ReorderPoint
+							invoked.IIHDailyData =LocalDate
+							invoked.ReorderPoint = LocalReorderPoint
+
+					else
+						invoke Create IIHDailyData
+							invoked.IIHDailyData = LocalDate
+							invoked.ReorderPoint = LocalReorderPoint
+
+				if (IIHItemLocationAuditRel exists)
+					for each IIHItemLocationAuditRel
+						LocalDate = each.DerivedUpdateDate
+						if (IIHDailyDataRel exists)
+							invoke Update IIHDailyDataRel
+								invoked.ReorderPoint = each.AfterReorderPoint
+						else
+							if (BeforeIIHDailyDataRecordsRel exists)
+								invoke Create IIHDailyData
+									fill in fields from last BeforeIIHDailyDataRecordsRel
+										except invoked.IIHDailyData
+										except invoked.CurrentCostAtEndOfDay
+										except invoked.StockOnHandAtEndOfDay
+										except invoked.RequisitionReceiptsCount
+										except invoked.PurchaseOrderReceiptsCount	
+										except invoked.IncomingTransactionsCount	
+										except invoked.TransactionsCount		
+										except invoked.IsStockout	
+										except invoked.GrossUnitsIn				
+										except invoked.GrossUnitsOut	
+										except invoked.NetUnitsOut	
+					
+									invoked.IIHDailyData = LocalDate
+									invoked.ReorderPoint = each.AfterReorderPoint
+
+				LocalDate = IIHItemLocationRel.AnalysisDate.Begin
+				EndDate   = IIHItemLocationRel.AnalysisDate.End
+
+				while (LocalDate <= EndDate)
+					if (!IIHDailyDataRel exists)
+						invoke Create IIHDailyData
+							fill in fields from last PreviousIIHDailyDataRel
+								except invoked.IIHDailyData
+								except invoked.CurrentCostAtEndOfDay
+								except invoked.StockOnHandAtEndOfDay
+								except invoked.RequisitionReceiptsCount
+								except invoked.PurchaseOrderReceiptsCount	
+								except invoked.IncomingTransactionsCount	
+								except invoked.TransactionsCount		
+								except invoked.IsStockout	
+								except invoked.GrossUnitsIn				
+								except invoked.GrossUnitsOut	
+								except invoked.NetUnitsOut			
+							
+							invoked.IIHDailyData = LocalDate
+
+					else
+						if (IIHDailyDataRel.ReorderPoint = 0)
+							LocalReorderPoint = PreviousIIHDailyDataRel.ReorderPoint
+							invoke Update IIHDailyDataRel
+								invoked.ReorderPoint = LocalReorderPoint
+					LocalDate += 1
+
+			Exit Rules
+				invoke UpdateGraphGapsFilled IIHItemLocationRel
+					invoked.GraphGapsFilled = true
+		

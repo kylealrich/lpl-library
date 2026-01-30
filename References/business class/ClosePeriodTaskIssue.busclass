@@ -1,0 +1,268 @@
+ClosePeriodTaskIssue is a BusinessClass
+	owned by closemgmt
+	prefix is CPTII
+	
+	Ontology
+		symbolic key is ClosePeriodTaskIssue
+		
+	Persistent Fields
+        DateCreated				is TimeStamp
+        DateUpdated				is TimeStamp
+		DateResolved			is TimeStamp
+        CreatedBy				is a FinanceResource
+        UpdatedBy				is a FinanceResource
+		ResolvedBy				is a FinanceResource
+        Summary				    is Alpha 100
+        Description				is Text
+        Status					is Numeric 1
+			States
+				Unresolved     value is 0
+				Resolved       value is 1
+		ResolutionRequiredForTaskCompletion is Boolean
+		Resolution              is Text
+		TaskName				is Alpha 100 
+		FinanceTeam	      
+		TaskIssueOwner 			is a FinanceTeamMember
+			delete ignored
+
+	Transient Fields
+
+	Local Fields
+		LocalFinanceResource is a FinanceResource
+		LocalTeam			 is AlphaUpper 20
+		LocalGroupingForTeam is Numeric 9
+		LocalActor    		 is an Actor
+		
+	Field Rules
+
+        DateCreated
+            initial value is current timestamp
+            default to current timestamp	
+        DateUpdated
+            initial value is current timestamp
+            default to current timestamp
+		Summary
+			required	
+        Description
+            required
+		Resolution
+			if (Status.Resolved)
+				required
+				constraint (Resolution entered)
+					"ResolutionIsRequired"			
+	Derived Fields
+
+		DerivedSummaryName is a DerivedField
+			type is Alpha 40
+			restricted
+			return ClosePeriodTaskIssue.Summary
+
+	Conditions
+		IAmTheAuthor
+			restricted
+			when (CreatedBy = actor.agent(Employee).Employee)
+
+		AllowDelete
+			restricted
+			when (IAmTheAuthor)
+
+		HasPeriodTaskIssueComment
+			restricted
+			when (ClosePeriodTaskIssueCommentsRel exists)			
+					
+	Relations
+
+		SendToTeamMembersRel
+			one-to-many relation to FinanceTeamMember 
+			Field Mapping uses ByFinanceTeam
+				related.FinanceEnterpriseGroup 	= CloseManagementGroup
+				related.FinanceTeam 			= LocalTeam		
+
+		ClosePeriodTaskIssueCommentsRel is a ClosePeriodTaskIssueComments set 
+
+	Sets
+		ByDateUpdated
+			Sort Order
+				ClosePeriod
+				DateUpdated
+				ClosePeriodTaskIssue			 
+
+
+
+
+
+						
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+			Action Rules
+
+				if (Status changed)	
+					if (Status.Resolved)
+						ResolvedBy = actor.agent(Employee).Employee
+						DateResolved = current timestamp
+					else
+						initialize ResolvedBy
+						initialize DateResolved
+						initialize Resolution
+				else
+					DateUpdated = current timestamp
+					UpdatedBy   = actor.agent(Employee).Employee
+
+		ReassignIssue is an Instance Action      
+			completion message is "Task:<TaskName>Issue:<Summary>Reassigned"
+			Parameters
+				CloseManagementGroup 							
+				PrmFinanceTeam								is a FinanceTeam
+				PrmTaskIssueOwner							is a FinanceTeamMember
+			Local Fields
+				LocalActor    								is an Actor
+			
+			Parameter Rules
+				CloseManagementGroup
+					default to ClosePeriod.CloseManagementGroup
+					cannot be changed
+				PrmFinanceTeam
+					initial value is FinanceTeam
+					required
+						"TeamIsRequired"				
+				PrmTaskIssueOwner
+					initial value is TaskIssueOwner
+
+			Action Rules
+					
+				FinanceTeam = PrmFinanceTeam
+				TaskIssueOwner   = PrmTaskIssueOwner
+
+
+				if (TaskIssueOwner changed)
+					if (TaskIssueOwner entered)
+						if (TaskIssueOwner.TeamMember != actor.agent(Employee).Employee) 
+							if (CloseManagementGroup.OverrideResourceEmailNotifications
+							or  TaskIssueOwner.TeamMember.SendUpdatesAsEmail)
+								send email
+									to		TaskIssueOwner.TeamMember.EmailAddress
+									from	actor.agent(Employee).EmployeeWorkEmailAddress
+									subject "Issue:<Summary>ForTask:<TaskName>HasBeenAssignedToYou"
+									Contents
+											"AssignedOn_<current timestamp>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+		
+							if (CloseManagementGroup.OverrideResourceLandmarkNotifications
+							or  TaskIssueOwner.TeamMember.SendUpdatesAsNotification)
+								LocalActor = TaskIssueOwner.TeamMember.FinanceResourceActor
+								if (LocalActor entered)
+									send notification
+										to	LocalActor
+										description is	"Issue:<Summary>ForTask:<TaskName>HasBeenAssignedToYou"
+										priority is high
+						
+						if (old TaskIssueOwner entered)
+							if (old TaskIssueOwner.TeamMember != actor.agent(Employee).Employee) 
+								if (CloseManagementGroup.OverrideResourceEmailNotifications
+								or  old TaskIssueOwner.TeamMember.SendUpdatesAsEmail)
+									send email
+										to		old TaskIssueOwner.TeamMember.EmailAddress
+										from	actor.agent(Employee).EmployeeWorkEmailAddress
+										subject "Issue:<Summary>ForTask:<TaskName>NoLongerAssignedToYou"
+										Contents
+												if (TaskIssueOwner entered)
+													"AssignedOn_<current timestamp>To_<TaskIssueOwner.TeamMember.PreferredSimplePresentationName>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+												else
+													"AssignedOn_<current timestamp>To_<FinanceTeam>-<FinanceTeam.Description>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+				
+								if (CloseManagementGroup.OverrideResourceLandmarkNotifications
+								or  old TaskIssueOwner.TeamMember.SendUpdatesAsNotification)
+									LocalActor = old TaskIssueOwner.TeamMember.FinanceResourceActor
+									if (LocalActor entered)
+										send notification
+											to	LocalActor
+											description is	"Issue:<Summary>ForTask:<TaskName>NoLongerAssignedToYou"
+											priority is high
+											detail is "AssignedOn_<current timestamp>To_<ClosePeriodTask.DerivedReassignedTo>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+					else
+						if (old TaskIssueOwner.TeamMember != actor.agent(Employee).Employee) 
+							if (CloseManagementGroup.OverrideResourceEmailNotifications
+							or  old TaskIssueOwner.TeamMember.SendUpdatesAsEmail)
+								send email
+									to		old TaskIssueOwner.TeamMember.EmailAddress
+									from	actor.agent(Employee).EmployeeWorkEmailAddress
+									subject "Issue:<Summary>ForTask:<TaskName>NoLongerAssignedToYou"
+									Contents
+											if (TaskIssueOwner entered)
+												"AssignedOn_<current timestamp>To_<TaskIssueOwner.TeamMember.PreferredSimplePresentationName>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+											else
+												"AssignedOn_<current timestamp>To_<FinanceTeam>-<FinanceTeam.Description>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+			
+							if (CloseManagementGroup.OverrideResourceLandmarkNotifications
+							or  old TaskIssueOwner.TeamMember.SendUpdatesAsNotification)
+								LocalActor = old TaskIssueOwner.TeamMember.FinanceResourceActor
+								if (LocalActor entered)
+									send notification
+										to	LocalActor
+										description is	"Issue:<Summary>ForTask:<TaskName>NoLongerAssignedToYou"
+										priority is high
+										detail is "AssignedOn_<current timestamp>To_<ClosePeriodTask.DerivedReassignedTo>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+
+						LocalTeam = FinanceTeam
+						for each SendToTeamMembersRel
+							if ((each.FinanceTeamMember.TeamMember != actor.agent(Employee).Employee)  
+							and (each.FinanceTeamMember.TeamMember != old TaskIssueOwner.TeamMember)) 
+							  	if (CloseManagementGroup.OverrideResourceEmailNotifications
+							  	or  each.FinanceTeamMember.TeamMember.SendUpdatesAsEmail)
+									send email
+										to		each.FinanceTeamMember.TeamMember.EmailAddress
+										from	actor.agent(Employee).EmployeeWorkEmailAddress
+										subject "Issue:<Summary>ForTask<TaskName>HasBeenAssignedToYourTeamOf<FinanceTeam>"
+										Contents
+											"ReassignedOn_<current timestamp>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+			
+								if (CloseManagementGroup.OverrideResourceLandmarkNotifications
+								or  each.FinanceTeamMember.TeamMember.SendUpdatesAsNotification)
+									LocalActor = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+									if (LocalActor entered)
+										send notification
+											to	LocalActor
+											description is	"Issue:<Summary>ForTask:<TaskName>HasBeenAssignedToYourTeamOf<FinanceTeam>"
+											priority is high
+				else
+					LocalTeam = FinanceTeam
+					for each SendToTeamMembersRel
+						if (each.FinanceTeamMember.TeamMember != actor.agent(Employee).Employee)  
+						  	if (CloseManagementGroup.OverrideResourceEmailNotifications
+						  	or  each.FinanceTeamMember.TeamMember.SendUpdatesAsEmail)
+								send email
+									to		each.FinanceTeamMember.TeamMember.EmailAddress
+									from	actor.agent(Employee).EmployeeWorkEmailAddress
+									subject "Issue:<Summary>ForTask:<TaskName>HasBeenAssignedToYourTeamOf<FinanceTeam>"
+									Contents
+										"AssignedOn_<current timestamp>By_<actor.agent(Employee).Name.PreferredSimplePresentationName>"
+	
+							if (CloseManagementGroup.OverrideResourceLandmarkNotifications
+							or  each.FinanceTeamMember.TeamMember.SendUpdatesAsNotification)
+								LocalActor = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+								if (LocalActor entered)
+									send notification
+										to	LocalActor
+										description is	"Issue:<Summary>ForTask:<TaskName>HasBeenAssignedToYourTeamOf<FinanceTeam>"
+										priority is high
+
+		Delete is a Purge Action
+			valid when (AllowDelete)
+
+		ResolveIssue is an Instance Action
+			valid when (Status.Unresolved)
+
+			Parameters
+				PrmResolution 			is Text				
+			Parameter Rules
+				PrmResolution
+					required
+			Action Rules
+				Status = Status.Resolved
+				ResolvedBy = actor.agent(Employee).Employee
+				DateResolved = current timestamp
+				Resolution = PrmResolution		
+				if (Status.Resolved)
+					constraint (Resolution entered)
+						"ResolutionIsRequired"			

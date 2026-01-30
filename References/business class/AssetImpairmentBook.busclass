@@ -1,0 +1,685 @@
+AssetImpairmentBook is a BusinessClass
+	owned by am
+	
+	prefix is AImpB
+	
+	Ontology
+		symbolic key is AssetImpairmentBook
+	
+	Patterns
+		implements ContextualParent	
+		implements StaticJava
+		
+	Persistent Fields
+		ImpairmentBook					is a Book
+		OriginalMethod					is a Method
+		OriginalInServiceDate			is Date
+		OriginalConvention				is a Convention
+		OriginalLife					is a Life
+		OriginalLifeRemaining			is Decimal size 7.3
+		OriginalBasis					is an InternationalAmount
+		OriginalBookValue				is an InternationalAmount
+		OriginalLifeToDateDepreciation	is an InternationalAmount
+		OriginalYearToDateDepreciation	is an InternationalAmount
+		OriginalRevalueReserve			is an InternationalAmount
+		OriginalAccumulatedImpairment	is an InternationalAmount
+		OriginalSalvageValue			is an InternationalAmount
+		ImpairmentAmount				is an InternationalAmount
+
+	Local Fields
+
+
+
+
+
+		LocalPreviousImpairmentAmount				is an AssetImpairment
+		LocalDepreciationsProcessed					is Decimal size 7.3
+		LocalDepreciationEndDate					is Date
+		
+	Transient Fields
+		TransientFromCurrency 		is a FromCurrency
+			derive value from AssetBookRel.TransientFromCurrency
+		TransientAssetBookValue 	is an InternationalAmount
+			derive value from AssetBookRel.BookValue
+		CatchUp						is AlphaUpper 1
+        PostHistory					is Boolean    
+        ComputeOption				is like Compute								
+		MonthsProcessed	
+		TransientMethod				is like Method
+			derive value from AssetBookRel.Method
+		TransientBasis				is an InternationalAmount
+			derive value from AssetBookRel.Basis
+		TransientBookValue			is an InternationalAmount
+			derive value from AssetBookRel.BookValue		
+		TransientLife				is like Life
+			derive value from AssetBookRel.Life
+		TransientLifeRemaining		is Decimal size 7.3
+			derive value from AssetBookRel.LifeRemaining			
+
+
+	Field Rules
+		ImpairmentBook
+			initial value is Book.ImpairmentBook
+			cannot be changed
+			
+		ImpairmentAmount
+			constraint (ImpairmentAmount <= 0)
+				"ImpairmentsMustBeAReductionInValue"
+			constraint (!IsZeroImpairment)
+				"ReleasedImpairmentsWithAZeroImpairmentAmountCannotBeAdjusted.CreateANewImpairment" 
+			if (!IsFromTransferOrDisposal)
+				constraint (ImpairmentAmount >= (AssetBookRel.BookValue * -1))
+					"ImpairmentCannotExceedAssetBookValue<AssetBookRel.BookValue>"	
+
+			
+	
+	Conditions
+		IsUnreleased
+			when (AssetImpairment.Status.Unreleased
+			and !HasReleasedTransactions)
+		
+		IsReleased
+			when (AssetImpairment.Status.Released)	
+			
+		AssetIsReleased
+			when (Asset.Status.Released)	
+		
+		ImpairmentAmountEntered
+			when (ImpairmentAmount < 0)	
+			
+		HasReleasedTransactions	
+			when (ReleasedTransactionsRel exists)	
+						
+		HasUnReleasedTransactions	
+			when (UnreleasedAssetTransactionsRel exists)	
+			
+		HasReleasedBookTransactions	
+			when (ReleasedBookTransactionsRel exists)	
+						
+		HasUnReleasedBookTransactions	
+			when (UnReleasedImpairmentBookTransactionsRel exists)		
+
+
+
+
+
+
+			
+		ReleasedTransactionsExists
+			when (HasReleasedTransactions
+			or 	HasReleasedBookTransactions)
+		
+		IsFunctionalBook
+			when (AssetBookRel.ImpairmentBookOfOrigin not entered)	
+		
+		IsPostingBook
+			when (AssetBookRel.IsPostingBook)	
+			
+		IsImpairmentBook
+			when (ImpairmentBook entered)	
+			
+		IsActiveImpairment
+			when (AssetImpairment.IsActiveImpairment
+			and AssetImpairment.AllowUpdate)
+		
+		IsInProgress
+			when (UnreleasedTransactionsExist
+			or UnreleasedBookTransactionsExist)
+			
+		UnreleasedTransactionsExist
+			when (UnreleasedAssetTransactionsRel exists)	
+		
+		ReleasedTransactionsExist
+			when (ReleasedAssetTransactionsRel exists)
+		
+		UnreleasedBookTransactionsExist
+			when (UnreleasedAssetBookTransactionsRel exists)
+		
+		ReleasedBookTransactionsExist
+			when (ReleasedAssetBookTransactionsRel exists)
+		
+		IsFromTransferOrDisposal
+			when ((Asset.AssetProcess.Transfer
+			and (Asset.Status.Unreleased
+			or Asset.Status.PostRelease))
+			or (Asset.AssetProcess.Disposal
+			and Asset.Status.PostRelease))
+			
+		IsZeroImpairment
+			when (AssetImpairment.Status.PostRelease
+			and (old ImpairmentAmount = 0))
+		
+		UnreleasedImpairment
+			when (AssetImpairment.Status.Unreleased
+			and	 !OtherAssetImpairmentsRel exist)
+		
+		HasAmountChanged
+			when (ImpairmentAmount changed)
+		
+	Derived Fields		
+		LastImpairmentAmount is a DerivedField
+			type is like InternationalAmount
+			if (AssetBookRel.IsPostingBook)
+				return (first ReleasedLossTransactionsRel.AssetTransactionAmount.BaseAmount.EnteredCurrencyAmount)
+			else 
+				return (first ReleasedLossBookTransactionsRel.AssetTransactionAmount.BaseAmount.EnteredCurrencyAmount)
+
+		DerivedRevaluationReserve is a DerivedField
+			type is like InternationalAmount		
+			if (AssetBookRel.IsPostingBook)
+				return (sum RevaluationReserveTransactionsRel.AssetTransactionAmount.BaseAmount.EnteredCurrencyAmount)
+			else
+				return (sum BookRevaluationReserveTransactionsRel.AssetTransactionAmount.BaseAmount.EnteredCurrencyAmount)
+			
+		BasisLessReservedRevaluation is a DerivedField
+			type is like InternationalAmount	
+			return (AssetBookRel.Basis - DerivedRevaluationReserve)	
+		
+		RoundedLifeRemaining is a DerivedField	
+			type is Numeric 3
+			return (AssetBookRel.LifeRemaining)
+			
+		BookLessReservedRevaluation is a DerivedField
+			type is like InternationalAmount	
+			return (AssetBookRel.Basis - AssetBookRel.LifeToDateDepreciation - DerivedRevaluationReserve)				
+
+		DerivedAccumulatedImpairment is a DerivedField
+			type is like InternationalAmount		
+			if (AssetBookRel.IsPostingBook)
+				return (sum AccumulatedImpairmentTransactionsRel.TransactionAmount)
+			else
+				return (sum BookAccumulatedImpairmentTransactionsRel.TransactionAmount)
+		
+		DerivedAmortizedImpairment is a DerivedField
+			type is like InternationalAmount
+			if (AssetBookRel.IsPostingBook)
+				return ((sum AmortizedImpairmentTransactionsRel.AssetTransactionAmount.TransactionAmount) * -1)
+			else
+				return ((sum BookAmortizedImpairmentTransactionsRel.AssetTransactionAmount.TransactionAmount) * -1)
+
+ 		NumberOfPeriodsProcessed is a DerivedField
+ 			type is Decimal 7.3
+ 			if (AssetImpairment.ImpairmentDate entered)
+				MonthsProcessed.InDeprStartDate			= AssetImpairment.ImpairmentDate
+				MonthsProcessed.InServiceDate			= AssetImpairment.ImpairmentDate
+				MonthsProcessed.LastPeriodEnd			= AssetBookRel.CurrentBookCalendarRel.LastPeriodDate
+				MonthsProcessed.Convention				= AssetBookRel.Convention
+				MonthsProcessed.InBook					= Book	
+				MonthsProcessed.InCompany				= Asset.Company	
+				MonthsProcessed.InYearEndDate			= AssetBookRel.BookYearEndDate
+				MonthsProcessed.InYearBeginDate			= AssetBookRel.BookYearBeginDate	
+				MonthsProcessed.InPrevYearEndDate		= AssetBookRel.HistoryYearBookCalendarsRel2.YearBeginDate - 1 day
+
+				if (AssetBookRel.Convention.FullMonth)
+					LocalDepreciationEndDate = BookCalendarRel.YearEndDate
+					LocalDepreciationsProcessed = sum HistoryBookCalendarsRel.NumberOfDepreciationPeriodsClosed
+					LocalDepreciationsProcessed = LocalDepreciationsProcessed + MonthsProcessed.ReturnNumberOfMonthsProcessed
+					return LocalDepreciationsProcessed
+				return MonthsProcessed.ReturnNumberOfMonthsProcessed
+					
+	Relations
+		AssetBookRel 
+			one-to-one relation to AssetBook 
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= Book
+
+		ImpairmentBookRel
+			one-to-one relation to AssetBook 
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= ImpairmentBook
+						
+		UnReleasedTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.IsImpairmentTransaction
+				and related.TransactionStatus.Unreleased
+				and related.ProcessSequence = AssetImpairment)
+		
+		ReleasedTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.IsImpairmentTransaction
+				and related.TransactionStatus.Released
+				and related.ProcessSequence = AssetImpairment)
+
+		ImpairmentTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.ProcessSequence = AssetImpairment)					
+
+		UnreleasedAssetTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.AssetImpairment	= AssetImpairment
+				and related.TransactionStatus.Unreleased)	
+		
+		ReleasedAssetTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook
+			Instance Selection
+				where (related.AssetImpairment	= AssetImpairment
+				and (related.TransactionStatus.Released
+				or related.TransactionStatus.History))
+				
+		UnreleasedAssetBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.AssetImpairment	= AssetImpairment
+				and related.TransactionStatus.Unreleased)	
+		
+		ReleasedAssetBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook
+			Instance Selection
+				where (related.AssetImpairment	= AssetImpairment
+				and (related.TransactionStatus.Released
+				or related.TransactionStatus.History))
+		
+		ReleasedLossTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses Set10
+				related.Asset 					= Asset
+			Instance Selection
+				where (related.Company 			= Asset.Company
+				and related.Book				= Book
+				and related.TransactionStatus.Released
+				and related.IsImpairmentLossTransaction
+				and related.ProcessSequence = AssetImpairment)	
+
+		ReleasedLossBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses Set5
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset 					= Asset
+			Instance Selection
+				where (related.Company 			= Asset.Company
+				and related.Book				= Book
+				and related.TransactionStatus.History
+				and related.IsImpairmentLossTransaction)					
+
+		UnReleasedBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset	
+				related.Book					= Book	
+			Instance Selection
+				where (related.IsImpairmentTransaction
+				and related.TransactionStatus.Unreleased)
+
+		UnReleasedImpairmentBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.TransactionStatus.Unreleased)
+		
+		UnreleasedTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.ProcessSequence = AssetImpairment
+				and related.TransactionStatus.Unreleased)					
+
+		ReleasedBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset	
+				related.Book					= Book	
+			Instance Selection
+				where (related.IsImpairmentTransaction
+				and (related.TransactionStatus.History
+				or  related.TransactionStatus.Released))
+
+		ImpairmentBookTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.ProcessSequence	= AssetImpairment)
+				
+		AssetControlTransactionRel
+			one-to-one relation to AssetControlTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup			
+				related.Asset					= Asset
+				
+      	GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode = "AM"								
+		
+		AssetCompanyRel
+			one-to-one relation to AssetCompany
+			Field Mapping uses symbolic key
+				related.Company					= Asset.Company	
+
+        RevaluationReserveTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+              	related.Company				= Asset.Company
+               	related.Book				= Book
+               	related.Asset				= Asset
+                related.AssetAccountType	= "RRA"
+			Instance Selection
+				where (related.TransactionStatus = "R"
+				or related.TransactionStatus 	 = "H")          
+        
+       	BookRevaluationReserveTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+				related.FinanceEnterpriseGroup	= Book.FinanceEnterpriseGroup    
+              	related.Company					= Asset.Company
+               	related.Book					= Book
+               	related.Asset					= Asset
+                related.AssetAccountType		= "RRA"     
+
+        AccumulatedImpairmentTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+              	related.Company				= Asset.Company
+               	related.Book				= ImpairmentBook
+               	related.Asset				= Asset
+                related.AssetAccountType	= "IMT"
+
+
+
+        
+       	BookAccumulatedImpairmentTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+				related.FinanceEnterpriseGroup	= Book.FinanceEnterpriseGroup    
+              	related.Company					= Asset.Company
+               	related.Book					= ImpairmentBook
+               	related.Asset					= Asset
+                related.AssetAccountType		= "IMT"                   											
+
+        ImpairmentLossTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+              	related.Company				= Asset.Company
+               	related.Book				= Book
+               	related.Asset				= Asset
+                related.AssetAccountType	= "IML"
+			Instance Selection
+				where (related.TransactionStatus = "R"
+				or related.TransactionStatus 	 = "H")          
+        
+       	BookImpairmentTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+				related.FinanceEnterpriseGroup	= Book.FinanceEnterpriseGroup    
+              	related.Company					= Asset.Company
+               	related.Book					= Book
+               	related.Asset					= Asset
+                related.AssetAccountType		= "IML" 
+                
+        AmortizedImpairmentTransactionsRel
+			one-to-many relation to AssetTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+              	related.Company				= Asset.Company
+               	related.Book				= ImpairmentBook
+               	related.Asset				= Asset
+                related.AssetAccountType	= "IMA"
+
+
+
+				 		
+		BookAmortizedImpairmentTransactionsRel
+			one-to-many relation to AssetBookTransaction
+			Field Mapping uses ByCompanyBookAssetAccountType     
+				related.FinanceEnterpriseGroup	= Book.FinanceEnterpriseGroup    
+              	related.Company					= Asset.Company
+               	related.Book					= ImpairmentBook
+               	related.Asset					= Asset
+                related.AssetAccountType		= "IMA"  
+                
+       	CurrentBookCalendarRel
+       		one-to-one relation to BookCalendar
+			Field Mapping uses Set4
+				related.Company						= Asset.Company
+				related.Book						= Book       		
+       			
+		BookCalendarRel
+			one-to-many relation to BookCalendar  
+			Field Mapping uses Set2
+				related.Book						= Book 
+				related.Company						= Asset.Company
+			Instance Selection
+				where (related.YearBeginDate <= AssetImpairment.ImpairmentDate
+				and related.YearEndDate >= AssetImpairment.ImpairmentDate)	
+		
+		HistoryBookCalendarsRel
+			one-to-many relation to BookCalendar  
+			Field Mapping uses Set2
+				related.Book						= Book 
+				related.Company						= Asset.Company
+			Instance Selection
+				where (related.YearBeginDate > LocalDepreciationEndDate
+				and related.YearEndDate <= AssetBookRel.CurrentBookCalendarRel.LastPeriodDate)	
+       	
+       	OtherAssetImpairmentsRel
+       		one-to-many relation to AssetImpairment
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+			Instance Selection
+				where (related.AssetImpairment	!= AssetImpairment)
+       	
+       	AssetBookReleasedImpairmentRel 
+			one-to-many relation to AssetImpairmentBook 
+			Field Mapping uses ByAssetBook
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset					= Asset
+				related.Book					= Book
+			Instance Selection
+				where (related.AssetImpairment	!= AssetImpairment)
+
+       	PreviousReleasedImpairmentAssetTransactionsRel
+       		one-to-many relation to AssetTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.AssetProcess		= "IMA"
+				and (related.TransactionStatus.Released
+				or related.TransactionStatus.History)
+				and related.ProcessSequence = LocalPreviousImpairmentAmount)
+		
+		PreviousReleasedImpairmentAssetBookTransactionsRel
+       		one-to-many relation to AssetBookTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup				
+				related.Asset 					= Asset
+				related.Book					= ImpairmentBook	
+			Instance Selection
+				where (related.AssetProcess		= "IMA"
+				and related.TransactionStatus.History
+				and related.ProcessSequence = LocalPreviousImpairmentAmount)
+       		
+       		
+       		
+	Sets
+		ByBookAsset
+            indexed
+            Sort Order
+                FinanceEnterpriseGroup
+                Book
+                Asset			
+				AssetImpairment
+		
+		ByAssetBook
+            indexed
+            Sort Order
+                FinanceEnterpriseGroup
+                Asset
+                Book			
+				AssetImpairment descending
+			
+		ByAssetImpairmentBook
+            indexed
+            Sort Order
+                FinanceEnterpriseGroup
+                Asset
+                ImpairmentBook			
+				AssetImpairment descending
+				Book
+												
+	Rule Blocks
+
+	Actions
+		Create is an Action
+
+
+
+		Update is an Action
+			valid when (IsActiveImpairment)
+			Entrance Rules
+				constraint (CurrentBookCalendarRel exists)
+					"CurrentCalendarIsRequiredForImpairmentBook"
+				constraint (AssetBookRel.Active)
+					"ImpairmentCannotBeUpdatedForInActiveBooks"
+				if (AssetImpairment.Status.Released)
+					invoke Update AssetImpairment
+				else
+				if (UnreleasedImpairment)
+					invoke Delete UnReleasedImpairmentBookTransactionsRel		
+					invoke Delete UnreleasedTransactionsRel	
+							
+			Action Rules
+				constraint (ImpairmentAmount <= 0)
+					"ImpairmentMustBeNegative"
+				if (ImpairmentAmount entered
+				and !ImpairmentBookRel exists)
+					invoke Create AssetBook
+						invoked.AdjustmentDate			= current corporate date
+						invoked.FinanceEnterpriseGroup	= Book.FinanceEnterpriseGroup
+						invoked.Asset					= Asset
+						invoked.Book					= ImpairmentBook
+						invoked.Basis					= ImpairmentAmount
+						invoked.Active					= true
+						display "AIB_LifeRemaining<AssetBookRel.LifeRemaining>"
+						display "AIB_NbrMonthsProcessed<NumberOfPeriodsProcessed>"
+						invoked.Life					= (AssetBookRel.LifeRemaining + NumberOfPeriodsProcessed) 
+						invoked.LifeRemaining			= AssetBookRel.LifeRemaining
+						invoked.InServiceDate			= AssetImpairment.ImpairmentDate
+						invoked.TransientPostingDate	= AssetImpairment.PostingDate
+						if (AssetBookRel.IsAnSLMethod
+						or AssetBookRel.IsAnDBMethod)
+							invoked.Method				= "SL"
+						else 
+							invoked.Method				= AssetBookRel.Method
+						invoked.Convention				= AssetBookRel.Convention	
+						invoked.ComputeOption			= "Y"
+						invoked.ImpairmentBookOfOrigin	= Book
+				else
+					constraint (ImpairmentBookRel.Basis != ImpairmentAmount)
+						"ImpairmentAmountCannotBeEqualToPriorImpairmentAmount"
+					invoke Update ImpairmentBookRel
+						if (ImpairmentAmount != 0)
+							invoked.Basis 					= ImpairmentAmount
+						if (OtherAssetImpairmentsRel exists)
+							invoked.InServiceDate			= AssetImpairment.ImpairmentDate
+							invoked.Life					= (AssetBookRel.LifeRemaining + NumberOfPeriodsProcessed)
+						initialize invoked.LifeToDateDepreciation
+						initialize invoked.YearToDateDepreciation
+						invoked.ComputeOption			= "Y"
+						invoked.TransientPostingDate	= AssetImpairment.PostingDate
+						if (AssetImpairment.Status.PostRelease)
+							invoked.AdjustmentDate		= AssetImpairment.ImpairmentDate
+							
+		UpdateFromTransfer is an Update Action
+			restricted	
+							
+		UpdateTransactionPostingDate is an Instance Action
+			restricted
+			Parameters
+				NewPostingDate is Date
+					
+			Action Rules
+				if (AssetImpairment.Status.Unreleased)
+					if (IsInProgress)
+						invoke Update ImpairmentBookRel
+							invoked.Basis 					= ImpairmentAmount
+							invoked.InServiceDate			= AssetImpairment.ImpairmentDate
+							invoked.Life					= (AssetBookRel.LifeRemaining + NumberOfPeriodsProcessed)
+							invoked.TransientPostingDate	= AssetImpairment.PostingDate
+							initialize invoked.LifeToDateDepreciation
+							initialize invoked.YearToDateDepreciation
+							invoked.ComputeOption			= "Y"
+				else	
+					for each UnReleasedTransactionsRel
+						invoke Update each
+							invoked.PostingDate = NewPostingDate
+					for each UnReleasedBookTransactionsRel
+						invoke Update each
+							invoked.PostingDate = NewPostingDate						 	
+
+		ResetImpairment is an Instance Action
+			restricted
+			Action Rules
+				invoke PostRelease.ResetImpairment Asset
+
+					
+					
+		Delete is an Action
+			valid when (IsUnreleased)
+			Action Rules
+				if(OtherAssetImpairmentsRel not exists)
+					invoke Delete ImpairmentBookRel	
+				else
+					LocalPreviousImpairmentAmount = first AssetBookReleasedImpairmentRel.AssetImpairment
+					invoke Update ImpairmentBookRel
+						invoked.Basis 					= first AssetBookReleasedImpairmentRel.ImpairmentAmount
+						initialize invoked.LifeToDateDepreciation
+						initialize invoked.YearToDateDepreciation
+						if (PreviousReleasedImpairmentAssetTransactionsRel exists
+						or	PreviousReleasedImpairmentAssetBookTransactionsRel exists)
+							invoked.ComputeOption			= "Y"
+					invoke Delete ImpairmentTransactionsRel	
+					invoke Delete ImpairmentBookTransactionsRel				
+
+
+
+
+

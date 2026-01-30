@@ -1,0 +1,144 @@
+PurgeGLRecords is a BusinessTask
+    owned by GeneralLedger
+
+    Parameters
+		FinanceEnterpriseGroup    	
+        GeneralLedgerCloseConfiguration
+		GeneralLedgerCloseYear
+			context of GeneralLedgerCloseConfiguration
+		GeneralLedgerSystemCode
+		RecordType
+		AccountingEntity
+		AccountingEntityGroup
+		EntityOption				is Numeric 1
+	    	States
+				Single				value is 1
+				Group				value is 2
+				All					value is 3
+		SystemCodeSelectionOption	is Numeric 1
+	    	States
+				Single				value is 1
+				All					value is 2
+		PurgeGeneralLedgerTotal		is Boolean
+			default label is "PurgeGlobalLedgerTotal"
+		ReportOnly					is Boolean
+		
+    Parameter Rules
+		FinanceEnterpriseGroup
+        	initial value is actor.context.FinanceEnterpriseGroup
+        	required
+        GeneralLedgerCloseConfiguration
+        	required
+        		"Global_Ledger_Close_ConfigurationIsRequired"
+        GeneralLedgerCloseYear
+        	required
+        		"Global_Ledger_Close_YearIsRequired"
+        EntityOption
+        	required
+        		"<FinanceEnterpriseGroup.AccountingEntityLabel>_OptionIsRequired"
+        SystemCodeSelectionOption
+			required
+				"System_Code_OptionIsRequired"
+		AccountingEntity
+			if (EntityOption.Single)
+				required
+					"<FinanceEnterpriseGroup.AccountingEntityLabel>IsRequired"
+			else
+				AccountingEntity = blank
+		AccountingEntityGroup
+			if (EntityOption.Group)
+				required
+					"<FinanceEnterpriseGroup.AccountingEntityLabel>_GroupIsRequired"
+			else
+				AccountingEntityGroup = blank 
+		GeneralLedgerSystemCode
+			if(SystemCodeSelectionOption.Single)
+				required
+					"System_CodeIsRequired"
+			constraint (GeneralLedgerSystemCode != "TC")
+				"RecordsCannotBePurgedForSystemCode_<GeneralLedgerSystemCode>_<GeneralLedgerSystemCode.Description>"
+			constraint (GeneralLedgerSystemCode != "CA")
+				"RecordsCannotBePurgedForSystemCode_<GeneralLedgerSystemCode.Description>"
+				
+			
+		
+	Results
+		
+		LocalPurgeGLRecordsResultView 	is a PurgeGLRecordsResult view
+		AsyncId							is a AsyncActionRequest
+		PurgeGLBackgroundGroup			is AlphaUpper up to 200
+	
+    Actions
+
+		PurgeGLRecords is an Instance Action
+			
+				
+			Action Rules
+			
+				PurgeGLBackgroundGroup = "PurgeGLTransactionHistoryRecord"
+				
+				if (!ReportOnly)
+					confirmation required
+						"HistoricalRecordsWillBePermanentlyDeletedForYear_<GeneralLedgerCloseYear>"
+				
+				invoke Create PurgeGLRecordsResult
+					assign result to LocalPurgeGLRecordsResultView
+					invoked.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+					invoked.GeneralLedgerCloseConfiguration	= GeneralLedgerCloseConfiguration
+					invoked.GeneralLedgerCloseYear			= GeneralLedgerCloseYear
+					invoked.RecordType						= RecordType
+					invoked.GeneralLedgerSystemCode			= GeneralLedgerSystemCode	
+					invoked.AccountingEntity				= AccountingEntity
+					invoked.AccountingEntityGroup			= AccountingEntityGroup
+					invoked.EntityOption					= EntityOption
+					invoked.SystemCodeSelectionOption		= SystemCodeSelectionOption
+					invoked.PurgeGeneralLedgerTotal			= PurgeGeneralLedgerTotal
+					invoked.ReportOnly						= ReportOnly
+					invoked.Actor							= actor 
+				
+				if(EntityOption.Group)
+					invoke PurgeGLRecordAccountEntityGrp AccountingEntityGroupMember in background group(PurgeGLBackgroundGroup)
+						invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.PrmAccountingEntityGroup		= AccountingEntityGroup
+						invoked.PrmCloseConfiguration			= GeneralLedgerCloseConfiguration
+						invoked.PrmGeneralLedgerCloseYear		= GeneralLedgerCloseYear
+						invoked.PrmGeneralLedgerSystemCode		= GeneralLedgerSystemCode
+						invoked.PrmRecordType					= RecordType
+						invoked.PrmSystemCodeSelectionOption	= SystemCodeSelectionOption
+						invoked.PrmEntityOption					= EntityOption
+						invoked.PrmPurgeGeneralLedgerTotal		= PurgeGeneralLedgerTotal
+						invoked.PrmReportOnly					= ReportOnly
+						invoked.PrmPurgeGLRecordsResult			= LocalPurgeGLRecordsResultView.PurgeGLRecordsResult
+				else 
+				if(EntityOption.All)
+					invoke PurgeGLRecordFEG AccountingEntity in background group(PurgeGLBackgroundGroup)
+						invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.PrmCloseConfiguration			= GeneralLedgerCloseConfiguration
+						invoked.PrmGeneralLedgerCloseYear		= GeneralLedgerCloseYear
+						invoked.PrmGeneralLedgerSystemCode		= GeneralLedgerSystemCode
+						invoked.PrmRecordType					= RecordType
+						invoked.PrmSystemCodeSelectionOption	= SystemCodeSelectionOption
+						invoked.PrmEntityOption					= EntityOption
+						invoked.PrmPurgeGeneralLedgerTotal		= PurgeGeneralLedgerTotal
+						invoked.PrmReportOnly					= ReportOnly
+						invoked.PrmPurgeGLRecordsResult			= LocalPurgeGLRecordsResultView.PurgeGLRecordsResult
+				else 
+				if(EntityOption.Single)
+					invoke PurgeGLRecordFEG AccountingEntity in background group(PurgeGLBackgroundGroup)
+						invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+						invoked.PrmCloseConfiguration			= GeneralLedgerCloseConfiguration
+						invoked.PrmAccountingEntity				= AccountingEntity
+						invoked.PrmGeneralLedgerCloseYear		= GeneralLedgerCloseYear
+						invoked.PrmGeneralLedgerSystemCode		= GeneralLedgerSystemCode
+						invoked.PrmRecordType					= RecordType
+						invoked.PrmSystemCodeSelectionOption	= SystemCodeSelectionOption
+						invoked.PrmEntityOption					= EntityOption
+						invoked.PrmPurgeGeneralLedgerTotal		= PurgeGeneralLedgerTotal
+						invoked.PrmReportOnly					= ReportOnly
+						invoked.PrmPurgeGLRecordsResult			= LocalPurgeGLRecordsResultView.PurgeGLRecordsResult
+				
+				invoke SendPurgeCompleteNotification PurgeGLRecordsResultDetail
+					run after background group (PurgeGLBackgroundGroup)
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmPurgeGLRecordsResult			= LocalPurgeGLRecordsResultView.PurgeGLRecordsResult
+				

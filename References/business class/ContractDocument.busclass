@@ -1,0 +1,163 @@
+ContractDocument is a BusinessClass
+	owned by po
+	
+	prefix is Cdoc
+	
+	Ontology
+		symbolic key is ContractDocument
+	
+	Patterns
+	
+	Persistent Fields
+		Attachment 						is an AlternateAttachment
+		LatestDocumentRevision			is Boolean
+		AddendumVersion 				is Numeric size 4
+		LatestAddendum					is Boolean
+		FullVersion                     is Numeric size 4	
+		IDMUniqueID						is an IDMPID
+			protected
+	
+	Local Fields	
+		LocalContractMain               is Boolean
+		LocalChangeOrder            	is Boolean	
+		IDMItem
+		LocalAttributeCtr   			is Numeric 2
+
+	Conditions
+		
+		NotTheLatest
+			restricted
+			when (!IsLatestDocumentRevision
+			and   !IsLatestAddendumRevision)
+		IsLatestDocumentRevision
+			restricted
+  			when (LatestDocumentRevision)
+  		IsLatestAddendumRevision
+  			restricted
+  			when (LatestAddendum)
+  		IsMainDocument
+  			restricted
+  			when (AddendumVersion = 0)
+  		IsAddendumDocument
+  			restricted
+  			when (AddendumVersion > 0)
+	
+	Sets
+	
+		ByLatestDocRevision
+  			Sort Order
+  				ContractGroup	
+  				Contract
+  			Instance Selection
+  				where (IsLatestDocumentRevision)
+  		ByLatestAddendumRevision
+  			Sort Order
+  				ContractGroup	
+  				Contract
+  			Instance Selection
+  				where (IsLatestAddendumRevision)
+  		ByContractDocumentDescending
+  			Sort Order
+  				ContractGroup
+  				Contract
+  				ContractDocument descending
+	
+	Relations
+	
+		HasAnotherLatestDocumentRevisionRel
+			one-to-many relation to ContractDocument
+			Field Mapping uses ByLatestDocRevision
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+				
+		HasAnotherLatestAddendumRevisionRel
+			one-to-many relation to ContractDocument
+			Field Mapping uses ByLatestAddendumRevision
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+	
+	Field Rules
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+	
+	Derived Fields
+		DerivedIDMDocumentLink  is a DerivedField 
+			type is Alpha 2083
+			restricted
+			initialize IDMItem
+			IDMItem.DocumentType = "FSM_ContractDocument"
+			if (IDMUniqueID entered)
+				IDMItem.IDMUniqueId = IDMUniqueID
+				if (IDMItem.GetItemDetails)
+					IDMItem.IDMPID = IDMItem.IDMItemDetails.PID
+					return IDMItem.DerivedDrillBackLink
+			return blank
+	
+	Actions
+		
+		Create is a Create Action
+			restricted
+			Action Rules
+				if (not Contract.IsUsingIDMTemplate)
+					if (LocalContractMain = true)
+						if (Contract.AllowChangeOrder
+						and LocalChangeOrder)
+							Attachment.Title		= "ContractVersion.rtf"
+						else
+							Attachment.Title   		= "ContractDocument.rtf"
+					else 
+						Attachment.Title       		= "ContractAddendum.rtf"
+					Attachment.MimeType		    	= "application/rtf"
+				if (IsLatestDocumentRevision)
+					if (HasAnotherLatestDocumentRevisionRel exists)
+						invoke UpdateLatestDocumentRevision HasAnotherLatestDocumentRevisionRel
+							invoked.LatestDocumentRevision = false
+				if (IsLatestAddendumRevision)
+					if(HasAnotherLatestAddendumRevisionRel exists)
+						invoke UpdateLatestAddendumRevision HasAnotherLatestAddendumRevisionRel
+							invoked.LatestAddendum = false
+							
+		UpdateLatestDocumentRevision is an Update Action
+			restricted		
+		UpdateLatestAddendumRevision is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			valid when (NotTheLatest)
+		
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop
+

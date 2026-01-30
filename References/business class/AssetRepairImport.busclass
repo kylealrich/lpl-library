@@ -1,0 +1,253 @@
+AssetRepairImport is a BusinessClass
+    owned by am
+    prefix is RPI
+    classic name is AMRPRINTER
+
+    Ontology
+        symbolic key is AssetRepairImport
+            classic set name is RPISET1
+            classic name is SEQ-NUMBER
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+    Persistent Fields
+
+        InterfaceSystem                    is AlphaUpper size 2
+            classic name is SYSTEM
+            States
+                AssetManagement value is "AM"
+                Matching        value is "MA"
+                Payables        value is "AP"
+                Projects        value is "PS"
+        Asset
+        Project							   is a FinanceCodeBlockProjectOnly			
+            classic name is ACTIVITY
+        Description
+        BaseRepairCost                     is an InternationalAmount
+            classic name is REPAIR-BASE
+        BaseRepairTax                      is an InternationalAmount
+            classic name is REPAIR-TX-BASE
+        TransactionRepairCost              is an InternationalAmount
+            classic name is REPAIR-TRAN
+        TransactionRepairTax               is an InternationalAmount
+            classic name is REPAIR-TX-TRAN
+        BaseNumberOfDecimals
+            classic name is BASE-ND
+        TransactionNumberOfDecimals        is a CurrencyNumberOfDecimals
+            classic name is TRAN-ND
+        Currency
+            classic name is CURRENCY-CODE
+        RepairDate                         is Date
+        CreationDate                       is TimeStamp
+        CreatedBy                          is an Operator 
+        	holds pii
+            classic name is CREATOR-ID
+        InvoiceAndPurchaseOrderInformation
+            classic name for InvoiceAndPurchaseOrderInformation.InvoiceCompany is INV-COMPANY
+            classic name for InvoiceAndPurchaseOrderInformation.DistributionSequence is DIST-SEQ-NBR
+            classic name for InvoiceAndPurchaseOrderInformation.PurchaseOrder is PO-NBR
+		OriginatingAssetInterfaceOptions	is an AssetInterfaceOptions
+
+	Local Fields
+		CurrencyWork						is a FromCurrencyExchangeGroup        
+		LocalVendor							is like Vendor
+		LocalProject						is like Project
+
+	Context Fields
+		ExchangeDate		
+			
+    Conditions
+
+        IsProject
+        	restricted
+            when (Project.Project entered)
+
+        IsInvoice
+        	restricted
+            when (InvoiceAndPurchaseOrderInformation.Vendor entered)
+
+		PayablesAndMatchingInterface
+			restricted
+			when (InterfaceSystem.Payables 
+			or InterfaceSystem.Matching)
+
+		UpdateAllowed
+			restricted
+			when (!Asset.AssetProcess.Disposal
+			and !Asset.Status.Disposed)	
+				
+		CapitalizationUpgradeInProgress
+			restricted
+			when (Company.FinanceEnterpriseGroup.CapitalizationUpgradeProgess.InProgress)
+				
+	Relations
+		ProjectAssetInterfaceRel
+			one-to-many relation to ProjectAssetInterface
+			Field Mapping uses ByInterfaceRecord
+				related.FinanceEnterpriseGroup 	= Asset.FinanceEnterpriseGroup
+				related.InterfaceRecord			= reference to this instance
+
+		PayablesInvoiceDistributionRel
+			one-to-one relation to PayablesInvoiceDistribution
+			Field Mapping uses ByCompanyVendorInvoice
+				related.Company						= InvoiceAndPurchaseOrderInformation.InvoiceCompany
+				related.Vendor						= InvoiceAndPurchaseOrderInformation.Vendor
+				related.Invoice						= InvoiceAndPurchaseOrderInformation.PayablesInvoice.Invoice
+				related.Suffix						= InvoiceAndPurchaseOrderInformation.PayablesInvoice.Suffix
+				related.CancelSequence 				= blank
+				related.PayablesInvoiceDistribution	= InvoiceAndPurchaseOrderInformation.DistributionSequence
+
+		AssetRepairImportsRel
+			one-to-many relation to AssetRepairImport
+			Field Mapping uses ByProject
+            	related.Company               = Company
+
+		CompanyPayablesInvoicesRel
+        	one-to-many relation to PayablesInvoice
+            Field Mapping uses Set6
+            	related.Company               = Company
+            	
+		PayablesInvoicesRel
+        	one-to-many relation to PayablesInvoice
+            Field Mapping uses Set6
+            	related.Company               = Company
+                related.Vendor			      = InvoiceAndPurchaseOrderInformation.Vendor		
+
+		CompanyVendorsRel is a Vendor set
+
+		CompanyAssetsRel is an Asset(Company) set
+			Instance Selection
+				where (related.IsNotDisposed)
+
+
+
+
+			
+    Sets
+        Set2
+            indexed
+            Instance Selection
+                where (IsInvoice)
+            Sort Order
+                Company
+                InvoiceAndPurchaseOrderInformation.Vendor
+                InvoiceAndPurchaseOrderInformation.PayablesInvoice              
+                InvoiceAndPurchaseOrderInformation.DistributionSequence
+                Asset
+                AssetRepairImport
+
+        Set3
+            indexed
+            Instance Selection
+                where (IsProject)
+            Sort Order
+                Company
+                Project.Project
+                Asset
+                AssetRepairImport
+
+        ByProject
+            Sort Order
+                Company
+                Project.Project
+                InvoiceAndPurchaseOrderInformation.Vendor
+                InvoiceAndPurchaseOrderInformation.PayablesInvoice          
+                Asset
+                AssetRepairImport
+                
+    Field Rules
+        Company
+            required
+			LocalVendor		= InvoiceAndPurchaseOrderInformation.Vendor
+			LocalProject	= Project.Project
+			constraint (LocalVendor entered or LocalProject entered)
+				"VendorAndInvoiceOrProjectIsRequired"
+										
+        Asset
+            required																
+            
+		TransactionRepairTax
+			if (TransactionRepairTax entered
+			and Asset entered
+			and PayablesInvoiceDistributionRel.TaxIndicator.Taxable)
+				cannot be changed
+					"AssetItemHasLandedTax;CannotEnterAdditionalTaxInformation"		
+		
+		Description
+			required																
+			
+		TransactionRepairCost
+			required																
+					
+		RepairDate
+			required																
+			
+		CreationDate
+			default to current timestamp
+
+		CreatedBy
+			default to actor
+			
+		InterfaceSystem
+			default to "AM"
+			
+		Currency
+			default to Asset.Currency
+			
+			
+			
+	Rule Blocks
+		CalcCurrencyAmounts
+			if (!InterfaceSystem.Payables	
+			and !InterfaceSystem.Matching	
+			and !InterfaceSystem.Projects)	
+				if (Currency !=	Company.CompanyCurrency
+				and TransactionRepairCost entered)
+					CurrencyWork.TransactionAmount				= TransactionRepairCost
+		            CurrencyWork.FromCurrency					= Company.CompanyCurrency
+					CurrencyWork.BaseAmount.ToCurrency			= Currency
+					TransactionRepairCost						= CurrencyWork.BaseAmount.OutputCurrencyAmount
+				else
+					BaseRepairCost								= TransactionRepairCost
+					
+				if (Currency !=	Company.CompanyCurrency
+				and TransactionRepairTax entered)
+					CurrencyWork.TransactionAmount				= TransactionRepairTax
+		            CurrencyWork.FromCurrency					= Company.CompanyCurrency
+					CurrencyWork.BaseAmount.ToCurrency			= Currency
+					TransactionRepairTax						= CurrencyWork.BaseAmount.OutputCurrencyAmount
+				else
+					BaseRepairTax								= TransactionRepairTax
+							
+		
+			
+		
+	Actions
+		Create is a Create Action
+			valid when (!CapitalizationUpgradeInProgress)
+			Entrance Rules
+				if (Project not entered)
+					InvoiceAndPurchaseOrderInformation.InvoiceCompany	= Company
+				include CalcCurrencyAmounts
+				if (!PayablesAndMatchingInterface)
+					constraint (UpdateAllowed)
+						"AssetStatusDoesNotAllowRepair"
+				
+		Update is an Update Action
+			valid when (!CapitalizationUpgradeInProgress)
+			Entrance Rules
+				if (Project not entered)
+					InvoiceAndPurchaseOrderInformation.InvoiceCompany	= Company
+				include CalcCurrencyAmounts
+				if (!PayablesAndMatchingInterface)
+					constraint (UpdateAllowed)
+						"AssetStatusDoesNotAllowRepair"
+
+		Delete is a Delete Action
+			valid when (!CapitalizationUpgradeInProgress)
+			Action Rules
+				invoke DeleteAfterInterface ProjectAssetInterfaceRel

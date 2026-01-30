@@ -1,0 +1,1813 @@
+ReceivableNonARPaymentImport is a BusinessClass
+	owned by ar
+	prefix is NRI
+
+	Ontology
+		symbolic key is ReceivableNonARPaymentImport
+
+	Patterns
+		disable AuditIndex
+		disable Auditing
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		RunGroup
+		Company						is a ReceivableCompany
+		BatchNumber					is like ReceivablePaymentHeader
+			classic name is BATCH-NBR
+		ReceivableProcessLevel
+			classic name is PROCESS-LEVEL
+		CashCode
+		Currency					is a FromCurrency
+			classic name is CURRENCY-CD
+		CurrencyRate				is an OrigRate
+		DepositDate					is Date
+		GeneralLedgerDate			is Date
+			classic name is GL-DATE
+			default label is "GlobalLedgerDate"
+		TransNbr					is a TransactionNumber
+		TranAmt						is an InternationalAmount
+			precision is DerivedNumberOfDecimals
+		ShipTerm
+		ErrorMessage				is Alpha 150
+		RecordInError				is Boolean
+		InterfaceRun				is a ReceivablesInterfaceResult
+			delete ignored
+		ReceivablePaymentHeader
+			delete ignored
+		ReceivablePayment
+			delete ignored
+		Reference
+
+	Local Fields
+		InterfacedHeader															is a ReceivablePaymentHeader view
+		InterfacedPayment															is a ReceivablePayment view
+		InterfacedPaymentDistribution												is a ReceivableGLDistribution view
+		LocalReceivablesInterfaceResult												is a ReceivablesInterfaceResult
+		LocalFinanceEnterpriseGroup													is like FinanceEnterpriseGroup
+		LocalRunGroup																is like RunGroup
+		LocalCompany																is like ReceivableCompany
+		LocalBatchNumber															is like BatchNumber
+		LocalTransNbr																is like TransactionNumber
+		LocalTaxCode																is a TaxCode
+		ErrorOccurred																is Boolean
+		LocalErrorMessage															is Alpha 150
+		ParameterReference															is like Reference
+		LocalReceivablePaymentDistributionCount										is Numeric 12
+		InterfacedInvoiceHeader														is a ReceivablePaymentHeader view
+		InterfacedInvoicePayment													is a ReceivablePayment view
+		SumOfNonARReceivableGLDistributionRelAmountsDone							is Boolean
+		SumOfNonARReceivableGLDistributionRelDistributionAmountCurrencyAmount		is an InternationalAmount
+		LocalOperator																is like ReceivableOperator
+		HeaderCurrency																is a Currency
+		LocalTaxOriginCrossReference												is like ReceivableGLDistribution
+		LocalTaxOriginCrossReferenceUID												is like UniqueID
+
+	Transient Fields
+		BypassRequiredEdits															is Boolean
+		
+	Context Fields
+		ContextReceivableNonARPaymentImport											is a ReceivableNonARPaymentImport
+
+	Rule Blocks
+		InterfaceEdits
+			if (RunGroup not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= RunGroupNotEnteredMsg
+			else
+			if (Company not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= CompanyNotEnteredMsg
+			else
+			if (BatchNumber not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= BatchNumberNotEnteredMsg
+			
+			if  (IsHeaderRecord)
+				if (ReceivableProcessLevel not entered
+				and Company.DefaultReceivableProcessLevel entered)
+					ReceivableProcessLevel = Company.DefaultReceivableProcessLevel
+
+				if (ReceivableProcessLevel not entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= ProcessLevelNotEnteredMsg
+				else
+				if  (!PaymentsRel exists)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoPaymentsForBatchMsg
+				else
+				if  (!Company.PaymentBatchNumbering
+				and  ReceivableApplicationRel exists)
+					ErrorOccurred		= true
+					LocalErrorMessage	= ApplicationAlreadyExistsMsg
+				else
+				if  (TransNbr entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoTransNbrOnHeaderMsg
+				else
+				if  (TranAmt entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoTranAmtOnHeaderMsg
+				else
+				if (LocalCompanyRel.CashOperatorRequired)
+					if (LocalOperator not entered)
+						ErrorOccurred		= true
+						LocalErrorMessage	= OperatorNotEntered
+					else 
+					if (ReceivableOperatorRel not exists)
+						ErrorOccurred		= true
+						LocalErrorMessage	= OperatorNotExists
+					else
+					if (!ReceivableOperatorRel.ActiveStatus.Active)
+						ErrorOccurred		= true
+						LocalErrorMessage	= OperatorNotActive
+			else
+			if  (IsPaymentRecord)
+				if (!HeaderImportRel exists)
+					ErrorOccurred		= true
+					LocalErrorMessage	= HeaderImportFailedMsg
+				else
+				if  (ReceivableProcessLevel entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoProcessLevelOnPaymentMsg
+				else
+				if  (CashCode entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoCashCodeOnPaymentMsg
+				else
+				if  (Currency entered
+				or   CurrencyRate entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoCurrencyOnPaymentMsg
+				else
+				if  (DepositDate entered
+				or   GeneralLedgerDate entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= NoDepositDateOnPaymentMsg
+				else
+				if (TranAmt not entered)
+					ErrorOccurred		= true
+					LocalErrorMessage	= TranAmtNotEnteredMsg
+				else
+				if (TranAmt <= 0)
+					ErrorOccurred		= true
+					LocalErrorMessage	= TranAmtMustBeGreaterThanZero
+		
+		GiveDefaults
+			if (DepositDate not entered)
+				DepositDate = current corporate date
+			if (GeneralLedgerDate not entered)
+				GeneralLedgerDate = DepositDate
+			if (CashCode not entered)
+				CashCode = ReceivableProcessLevel.CashCode
+			if (Currency not entered)
+				Currency = CashCode.Currency
+			if (!Company.MultiCurrencyProcessing)
+				if (Currency != Company.Currency)
+					ErrorOccurred		= true
+					LocalErrorMessage	= CompanyNotMultiCurrencyMsg
+			if (CurrencyRate entered)
+				if (Currency = Company.Currency)
+					if (CurrencyRate != 1)
+						ErrorOccurred 		= true
+						LocalErrorMessage	= CurrencyMustBeOneMsg
+				if (Currency not entered)
+					ErrorOccurred 		= true
+					LocalErrorMessage	= CurrencyEnteredRateRequiredMsg
+
+		DistributionEdits
+			if (each.DistributionAccount not entered
+			and each.ReceivableDistributionCategory not entered)
+				ErrorOccurred		= true
+				LocalErrorMessage	= DistributionAccountNotEnteredMsg
+			else 
+			if  (each.TransactionAmount not entered
+			and !each.IsZeroAmountTaxDistribution)
+				ErrorOccurred		= true
+				LocalErrorMessage	= AmountRequiredForAllDistributions
+			else 
+			if (each.RunGroup not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= RunGroupNotEnteredMsg
+			else
+			if (each.Company not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= CompanyNotEnteredMsg
+			else
+			if (each.BatchNumber not entered)
+				ErrorOccurred 		= true
+				LocalErrorMessage	= BatchNumberNotEnteredMsg
+			else
+			if (each.TransNbr not entered)
+				ErrorOccurred		= true
+				LocalErrorMessage	= TransNbrNotEnteredMsg
+
+			if (!ErrorOccurred
+			and each.TaxCode entered
+			and (VertexCallByTransaction
+			or   TaxEntityUsesOneSource))
+				if (each.TaxOriginCrossReference not entered)
+					ErrorOccurred								= true
+					LocalErrorMessage							= TaxableDistributionsMustHaveTaxOriginCrossReferenceMsg
+
+			if (!ErrorOccurred
+			and each.TaxOriginCrossReference entered
+			and (VertexCallByTransaction
+			or   TaxEntityUsesOneSource))
+				LocalTaxOriginCrossReference 		= each.TaxOriginCrossReference
+				LocalTaxOriginCrossReferenceUID		= each.ReceivableNonARPaymentDistributionImport
+				if (each.TaxCode entered) 
+					if (LocalTaxOriginCrossReferenceGroupExceptSelfRel not exists)
+						ErrorOccurred								= true
+						LocalErrorMessage							= TaxableDistributionsMustHaveTaxDistributionsMsg
+					else
+					if (any LocalTaxOriginCrossReferenceGroupExceptSelfRel.TaxCode entered)
+						ErrorOccurred								= true
+						LocalErrorMessage							= OnlyOneTaxCodePerTaxOriginCrossReferenceMsg
+				else 
+					if (LocalTaxOriginCrossReferenceGroupExceptSelfRel not exists)
+						ErrorOccurred								= true
+						LocalErrorMessage							= TaxDistributionsMustHaveTaxableDistributionsMsg
+					else
+					if (!(any LocalTaxOriginCrossReferenceGroupExceptSelfRel.TaxCode entered))
+						ErrorOccurred								= true
+						LocalErrorMessage							= TaxDistributionsMustHaveTaxableDistributionsMsg
+
+		InterfaceThisPayment
+
+			initialize ErrorOccurred
+			include InterfaceEdits
+
+			if (ErrorOccurred)
+				invoke SetError
+					invoked.PrmErrorMessage				= LocalErrorMessage
+					invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+			else
+			if  (IsHeaderRecord)
+				include GiveDefaults
+				if (ErrorOccurred)
+					invoke SetError
+						invoked.PrmErrorMessage				= LocalErrorMessage
+						invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+				else
+					invoke OpenBatchUnreleased.Create ReceivablePaymentHeader
+						assign result to InterfacedHeader
+						resume on error
+							ErrorOccurred					= true
+							LocalErrorMessage				= error message
+						fill in user fields from this instance
+
+						invoked.Company						= Company
+						if  (!Company.PaymentBatchNumbering)
+							invoked.ReceivablePaymentHeader		= BatchNumber
+						invoked.ReceivableProcessLevel		= ReceivableProcessLevel
+						invoked.ReceivableOperator			= LocalOperator
+						invoked.DepositDate					= DepositDate
+						invoked.GeneralLedgerDate			= GeneralLedgerDate
+						invoked.Currency					= Currency
+						invoked.CurrencyRate				= CurrencyRate
+						if (Reference entered)
+							invoked.Reference				= Reference
+						else
+							invoked.Reference				= ParameterReference
+						invoked.CashCode					= CashCode
+						invoked.OriginatingInterfaceRun		= LocalReceivablesInterfaceResult
+						invoked.InterfaceInProcess			= true
+						invoked.Origin						= "N"  
+					if (ErrorOccurred)
+						invoke SetError
+							invoked.PrmErrorMessage				= LocalErrorMessage
+							invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+					else
+						ReceivablePaymentHeader				= InterfacedHeader.ReceivablePaymentHeader
+			else
+			if  (IsPaymentRecord)
+				
+				if (!HeaderImportRel.ReceivablePaymentHeader exists)
+					ErrorOccurred					= true
+					LocalErrorMessage				= HeaderImportFailedMsg
+				else
+					invoke InterfaceCreate ReceivablePayment
+						assign result to InterfacedPayment
+						resume on error
+							ErrorOccurred		= true
+							LocalErrorMessage	= error message
+						fill in user fields from this instance
+
+						invoked.Company					= Company
+						invoked.ReceivablePaymentHeader = HeaderImportRel.ReceivablePaymentHeader.ReceivablePaymentHeader
+						invoked.TypeOfPayment			= "N"
+						invoked.PaymentNumber			= TransNbr
+						invoked.TransactionAmount		= TranAmt
+						invoked.DepositDate				= HeaderImportRel.DepositDate
+						invoked.GeneralLedgerDate		= HeaderImportRel.GeneralLedgerDate
+						invoked.ReceivableProcessLevel	= HeaderImportRel.ReceivableProcessLevel
+						invoked.CashCode				= HeaderImportRel.CashCode
+						invoked.ShipTerm				= ShipTerm
+						invoked.OriginatingInterfaceRun	= LocalReceivablesInterfaceResult
+						invoked.Origin					= "N"  
+				if (ErrorOccurred)
+					invoke SetError
+						invoked.PrmErrorMessage				= LocalErrorMessage
+						invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+				else
+					ReceivablePaymentHeader				= InterfacedPayment.ReceivablePaymentHeader
+					ReceivablePayment					= InterfacedPayment.ReceivablePayment
+					invoke FastUpdate ReceivablePaymentHeader
+						invoked.BatchCount				+= 1
+						invoked.BatchTotal				+= TranAmt
+					
+					if (SumOfDistributionsDifference != 0)
+						ErrorOccurred 		= true
+						LocalErrorMessage	= DistributionsAreUnbalancedMsg
+						for each NonARReceivableGLDistributionImportRel
+							LocalReceivablePaymentDistributionCount += 1
+						invoke SetError
+							invoked.PrmErrorMessage				= LocalErrorMessage
+							invoked.InterfaceResults			= LocalReceivablesInterfaceResult	
+					else
+						for each NonARReceivableGLDistributionImportRel	
+							include DistributionEdits
+							
+							if (each.TaxCode entered)
+								if (each.TaxCode exists)
+									if (TaxEntityRel.UseTaxCodeAccounts)
+										LocalTaxCode = each.TaxCode
+										if (!EntityTaxCodeRel exists)
+											ErrorOccurred		= true
+											LocalErrorMessage	= EntityTaxCodeNotExistsMsg
+										else
+											invoke Update EntityTaxCodeRel		
+												resume on error
+													ErrorOccurred		= true
+													LocalErrorMessage	= error message
+									else
+										invoke Update TaxEntityRel				
+											resume on error
+												ErrorOccurred		= true
+												LocalErrorMessage	= error message
+								else
+									ErrorOccurred		= true
+									LocalErrorMessage	= TaxCodeNotExistsMsg
+
+							if (ErrorOccurred)
+								invoke SetError
+									invoked.PrmErrorMessage				= LocalErrorMessage
+									invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+							else
+								invoke CreateInterfacedNonARPaymentDistribution ReceivableGLDistribution
+									assign result to InterfacedPaymentDistribution
+									resume on error
+										ErrorOccurred		= true
+										LocalErrorMessage	= error message
+									invoked.FinanceEnterpriseGroup							= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+									invoked.TransType										= "N"
+									invoked.BatchNumber										= ReceivablePaymentHeader
+									invoked.Invoice											= TransNbr
+									invoked.SequenceNumber									= ReceivablePayment
+									invoked.ReceivableCompanyGroup.GlCompany				= Company
+									invoked.ReceivableCompanyDataGroup.TransactionCompany	= Company
+									invoked.ReceivableCompanyGroup.OriginCompany			= Company
+									invoked.ReceivableGLDistribution.GeneralLedgerAccount	= each.DistributionAccount
+									invoked.GeneralLedgerDate								= GeneralLedgerDate
+									invoked.DistributionAmount.CurrencyAmount				= each.TransactionAmount * -1
+									invoked.FromInterface									= true
+									invoked.Description										= each.Description
+									invoked.TransactionTaxableAmount						= each.TransactionTaxableAmount * -1
+									invoked.AdditionalTaxCode								= each.TaxCode
+									invoked.BypassCreateTaxDistribution						= true
+									invoked.TaxOriginCrossReference							= each.TaxOriginCrossReference
+									invoked.Units											= each.UnitsAmount
+									invoked.OriginatingInterfaceRun							= LocalReceivablesInterfaceResult
+									invoked.ReceivableCompanyDataGroup.UNSPSCCode			= each.UNSPSCCode
+									invoked.ReceivableCompanyDataGroup.ReceivableDistributionCategory = each.ReceivableDistributionCategory
+									if (VertexCallByTransaction
+									or TaxEntityUsesOneSource)
+										if (each.TaxOriginCrossReference entered)
+											if (each.TaxCode entered)
+												invoked.LinkedTaxGroup.Indicator					= "X" 
+												invoked.LinkedTaxGroup.TaxCode 						= each.TaxCode
+												if (each.TransactionTaxableAmount entered)
+													invoked.LinkedTaxGroup.TaxableAmount			= each.TransactionTaxableAmount * -1
+													invoked.TransactionTaxableAmount				= each.TransactionTaxableAmount * -1
+												else
+													invoked.LinkedTaxGroup.TaxableAmount			= each.TransactionAmount * -1
+													invoked.TransactionTaxableAmount				= each.TransactionAmount * -1
+
+								LocalReceivablePaymentDistributionCount += 1
+								if (ErrorOccurred)
+									invoke SetError
+										invoked.PrmErrorMessage				= LocalErrorMessage
+										invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+								else
+									invoke Update each
+										invoked.ReceivableGLDistribution = InterfacedPaymentDistribution
+									
+
+		SumNonARReceivableGLDistributionRel
+			if (!SumOfNonARReceivableGLDistributionRelAmountsDone)
+				initialize SumOfNonARReceivableGLDistributionRelDistributionAmountCurrencyAmount
+					for each NonARReceivableGLDistributionImportRel
+						SumOfNonARReceivableGLDistributionRelDistributionAmountCurrencyAmount	 += each.TransactionAmount
+				SumOfNonARReceivableGLDistributionRelAmountsDone = true
+
+	Field Groups
+		SecondaryKeyFields
+			RunGroup
+			Company
+			BatchNumber
+
+	Derived Fields
+
+		NoPaymentsForBatchMsg is a MessageField
+			restricted
+			"NoPaymentsExistForBatch"
+
+		InvalidRecordMsg is a MessageField
+			restricted
+			"RecordFoundThatIsNotAHeaderOrPaymentRecord"
+
+		ProcessLevelNotEnteredMsg is a MessageField
+			restricted
+			"ProcessLevelIsRequired"
+
+		NoTransNbrOnHeaderMsg is a MessageField
+			restricted
+			"TransactionNumberCannotBeEnteredOnHeaderRecord"
+
+		NoTranAmtOnHeaderMsg is a MessageField
+			restricted
+			"TransactionAmountCannotBeEnteredOnHeaderRecord"
+
+		NoProcessLevelOnPaymentMsg is a MessageField
+			restricted
+			"ProcessLevelCannotBeEnteredOnPaymentRecord"
+
+		NoCashCodeOnPaymentMsg is a MessageField
+			restricted
+			"CashCodeCannotBeEnteredOnPaymentRecord"
+
+		NoCurrencyOnPaymentMsg is a MessageField
+			restricted
+			"CurrencyAndCurrencyRateCannotBeEnteredOnPaymentRecord"
+
+		NoDepositDateOnPaymentMsg is a MessageField
+			restricted
+			"DepositDateAndGlobalLedgerCannotBeEnteredOnPaymentRecord"
+
+		ApplicationAlreadyExistsMsg is a MessageField
+			restricted
+			"ApplicationAlreadyExistsForBatch"
+
+		NoHeaderMsg is a MessageField
+			restricted
+			"InterfaceBatchRecordHasNotBeenInterfaced"
+
+		HeaderImportFailedMsg is a MessageField
+			restricted
+			"HeaderImportFailedOrIsMissing;CannotCreatePaymentRecord"
+
+		NoPaymentMsg is a MessageField
+			restricted
+			"InterfacePaymentRecordHasNotBeenInterfaced"
+
+		RunGroupNotEnteredMsg is a MessageField
+			restricted
+			"RunGroupIsRequired"
+
+		CompanyNotEnteredMsg is a MessageField
+			restricted
+			"CompanyIsRequired"
+
+		BatchNumberNotEnteredMsg is a MessageField
+			restricted
+			"BatchNumberIsRequired"
+
+		TranAmtNotEnteredMsg is a MessageField
+			restricted
+			"TransactionAmountIsRequired"
+
+		TranAmtMustBeGreaterThanZero is a MessageField
+			restricted
+			"TransactionAmountMustBeGreaterThanZero"
+
+		TransNbrNotEnteredMsg is a MessageField
+			restricted
+			"TransactionNumberIsRequiredForAllDistributions"
+
+		OnlyOneTaxCodePerTaxOriginCrossReferenceMsg is a MessageField
+			restricted
+			"TheTaxCodeIsOnlyAllowedOnTheTaxableDistributionForAUniqueTaxOriginCrossReferenceValue"
+		
+		TaxableDistributionsMustHaveTaxDistributionsMsg is a MessageField
+			restricted
+			"EachTaxableDistributionMustHaveAtLeastOneCorrespondingTaxDistributionWithTheSameTaxOriginCrossReferenceValue"
+
+		TaxableDistributionsMustHaveTaxOriginCrossReferenceMsg is a MessageField
+			restricted
+			"EachTaxableDistributionMustHaveATaxOriginCrossReferenceValue"
+
+		TaxDistributionsMustHaveTaxableDistributionsMsg is a MessageField
+			restricted
+			"EachTaxDistributionMustHaveACorrespondingTaxableDistributionWithTheSameTaxOriginCrossReferenceValue"
+
+		SequenceNotEnteredMsg is a MessageField
+			restricted
+			"SequenceIsRequiredForAllDistributions"
+
+		DistributionAccountNotEnteredMsg is a MessageField
+			restricted
+			"DistributionAccountIsRequiredForAllDistributions"
+
+		AmountRequiredForAllDistributions is a MessageField
+			restricted
+			"AmountRequiredForAllDistributions"
+
+		DistributionAmountsCannotBeZero is a MessageField
+			restricted
+			"DistributionAmountsCannotBeZero"
+
+		CompanyNotMultiCurrencyMsg is a MessageField
+			restricted
+			"CurrencyMustMatchCompany.CompanyIsNotMultiCurrency"
+
+		CurrencyEnteredRateRequiredMsg is a MessageField
+			restricted
+			"CurrencyIsRequired;RateIsEntered"
+
+		TaxCodeNotExistsMsg is a MessageField
+			restricted
+			"TaxCodeDoesNotExistForDistribution"
+
+		EntityTaxCodeNotExistsMsg is a MessageField
+			restricted
+			"EntityTaxCodeDoesNotExistForDistribution"
+
+		CurrencyMustBeOneMsg is a MessageField
+			restricted
+			"CurrencyExchangeRateMustBe1IfSameAsCompanyCurrency"
+
+		DistributionsAreUnbalancedMsg is a MessageField
+			restricted
+			"DistributionsAreNotBalanced"
+
+		OperatorNotEntered is a MessageField
+			restricted
+			"OperatorIsRequired"
+
+		OperatorNotExists is a MessageField
+			restricted
+			"ReceivableOperatorDoesNotExist"
+		
+		OperatorNotActive is a MessageField
+			restricted
+			"ReceivableOperatorIsNotActive"
+
+		SumOfDistributions is a DerivedField
+			type is like InternationalAmount
+				precision is DerivedNumberOfDecimals
+			if (!action type.Create)
+				include SumNonARReceivableGLDistributionRel
+				return SumOfNonARReceivableGLDistributionRelDistributionAmountCurrencyAmount
+
+		SumOfDistributionsDifference is a DerivedField
+			type is like InternationalAmount
+				precision is DerivedNumberOfDecimals
+			if (!action type.Create)
+				return (TranAmt + SumOfDistributions)
+
+		DerivedNumberOfDecimals is a ConditionalField
+			type is like OrigNd
+			restricted
+			if (HeaderImportRel	exists)
+				HeaderImportRel.Currency.NumberOfDecimals
+			else
+				Company.Currency.NumberOfDecimals
+
+		RecordType is a DerivedField
+			type is Alpha 12
+			if (IsHeaderRecord)
+				return "Header"
+			if (IsPaymentRecord)
+				return "Payment"
+
+	Field Rules
+		RunGroup
+			required
+			if (TransNbr entered
+			and !BypassRequiredEdits
+			and !action type.Create)
+				cannot be changed
+					"RunGroupCanOnlyBeChangedOnTheHeaderRecord"
+		Company
+			required
+			if (TransNbr entered
+			and !BypassRequiredEdits
+			and !action type.Create)
+				cannot be changed
+					"CompanyCanOnlyBeChangedOnTheHeaderRecord"
+		BatchNumber
+			required
+			if (TransNbr entered
+			and !BypassRequiredEdits
+			and !action type.Create)
+				cannot be changed
+					"BatchNumberCanOnlyBeChangedOnTheHeaderRecord"
+		ReceivableProcessLevel
+			if (TransNbr not entered)
+				default to Company.DefaultReceivableProcessLevel
+				required
+			if (TransNbr entered
+			and !BypassRequiredEdits
+			and !action type.Create)
+				cannot be changed
+					"ProcessLevelCanOnlyBeEnteredOnTheHeaderRecord"
+		DepositDate
+			if (TransNbr not entered)
+				default to current corporate date
+		GeneralLedgerDate
+			initial value is DepositDate
+			if (TransNbr not entered)
+				default to DepositDate
+		CashCode
+			if (TransNbr not entered)
+				default to ReceivableProcessLevel.CashCode
+		Currency
+			if (TransNbr not entered)
+				default to CashCode.Currency
+				if (!Company.MultiCurrencyProcessing)
+					constraint (Currency = Company.Currency)
+						"CurrencyMustMatchCompany.CompanyIsNotMultiCurrency"
+					if (CurrencyRate entered)
+						constraint (Currency entered)
+							"CurrencyIsRequired;RateIsEntered"
+		CurrencyRate
+			if (TransNbr not entered)
+				if (Currency != Company.Currency
+				and Currency changed 
+				and CurrencyRate not changed
+				and CurrencyRate entered)
+					confirmation required
+						"CurrencyHasChangedButNotRate.Continue?"
+
+				if (CurrencyRate entered)
+					if (Currency = Company.Currency)
+						constraint (CurrencyRate = 1)
+							"CurrencyExchangeRateMustBe1IfSameAsCompanyCurrency" 
+				
+		TranAmt
+			if (TransNbr entered)
+				required
+					"TransactionAmountMustBeGreaterThanZero"
+				constraint (TranAmt > 0)
+					"TransactionAmountMustBeGreaterThanZero"
+
+	Relations
+
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		HeaderImportRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= RunGroup
+				related.Company				= Company
+				related.BatchNumber			= BatchNumber
+				related.TransNbr			= blank
+
+		PaymentImportRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= RunGroup
+				related.Company				= Company
+				related.BatchNumber			= BatchNumber
+			Instance Selection
+				where (related.IsPaymentRecord)
+
+		PaymentsForHeaderRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= RunGroup
+				related.Company				= Company
+				related.BatchNumber			= BatchNumber
+			Instance Selection
+				where (related.IsPaymentRecord)
+
+		ReceivableApplicationRel							
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses Set2
+			Instance Selection
+				where (related.Company = Company
+				and	related.CreditTransaction.CreditCompany		= Company
+				and	related.CreditTransaction.CreditBatch		= BatchNumber)
+
+		PaymentsRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= RunGroup
+				related.Company				= Company
+				related.BatchNumber			= BatchNumber
+			Instance Selection
+				where (related.IsPaymentRecord)
+
+		CurrentHeaderRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= LocalRunGroup
+				related.Company				= LocalCompany
+				related.BatchNumber			= LocalBatchNumber
+				related.TransNbr			= blank
+
+		CurrentPaymentRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= LocalRunGroup
+				related.Company				= LocalCompany
+				related.BatchNumber			= LocalBatchNumber
+				related.TransNbr			= LocalTransNbr
+
+		RunGroupCompanyRecordsRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= LocalRunGroup
+				related.Company				= LocalCompany
+
+		RunGroupRecordsRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= LocalRunGroup
+
+		LocalInterfaceResultsRel
+			one-to-one relation to ReceivablesInterfaceResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.ReceivablesInterfaceResult			= LocalReceivablesInterfaceResult
+
+		OneSourceLocalInterfaceResultsRel
+			one-to-one relation to ReceivablesInterfaceResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= LocalFinanceEnterpriseGroup
+				related.ReceivablesInterfaceResult			= LocalReceivablesInterfaceResult
+
+		NonARReceivableGLDistributionImportRel
+			one-to-many relation to ReceivableNonARPaymentDistributionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			=	RunGroup
+				related.Company				=	Company
+				related.BatchNumber			=   BatchNumber
+				related.TransNbr			=	TransNbr
+
+		LocalTaxOriginCrossReferenceGroupExceptSelfRel
+			one-to-many relation using NonARReceivableGLDistributionImportRel
+			Instance Selection
+				where (related.TaxOriginCrossReference 	 					= LocalTaxOriginCrossReference
+				and    related.ReceivableNonARPaymentDistributionImport    != LocalTaxOriginCrossReferenceUID)
+
+		NonARReceivableGLDistributionImportBatchRel
+			one-to-many relation to ReceivableNonARPaymentDistributionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			=	RunGroup
+				related.Company				=	Company
+				related.BatchNumber			=   BatchNumber
+
+		ReceivableOperatorRel
+			one-to-one relation to ReceivableOperator
+			Field Mapping uses symbolic key
+				related.Company				 = LocalCompany
+				related.ReceivableOperator	 = LocalOperator
+
+		LocalCompanyRel
+			one-to-one relation to ReceivableCompany
+			Field Mapping uses symbolic key
+				related.Company				 = LocalCompany
+
+		TaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.TaxEntity				 = GeneralLedgerCompanyRel.AccountingEntity
+
+		EntityTaxCodeRel
+			one-to-one relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.TaxEntity				 = GeneralLedgerCompanyRel.AccountingEntity
+				related.TaxCode					 = LocalTaxCode
+
+		OldReceivableNonARPaymentImportHeaderRel
+			one-to-one relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= old RunGroup
+				related.Company				= old Company
+				related.BatchNumber			= old BatchNumber
+				related.TransNbr			= blank
+
+		OldReceivableNonARPaymentsImportRel
+			one-to-many relation to ReceivableNonARPaymentImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			= old RunGroup
+				related.Company				= old Company
+				related.BatchNumber			= old BatchNumber
+			Instance Selection
+				where (related.IsPaymentRecord)
+
+		OldNonARReceivableGLDistributionImportRel
+			one-to-many relation to ReceivableNonARPaymentDistributionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			=	old RunGroup
+				related.Company				=	old Company
+				related.BatchNumber			=   old BatchNumber
+
+		OldNonARReceivableGLDistributionImportForOnePaymentRel
+			one-to-many relation to ReceivableNonARPaymentDistributionImport
+			Field Mapping uses ByRunGroup
+				related.RunGroup			=	old RunGroup
+				related.Company				=	old Company
+				related.BatchNumber			=   old BatchNumber
+				related.TransNbr			=   old TransNbr
+
+	Conditions
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		IsHeaderRecord
+			restricted
+			when (TransNbr not entered)
+
+		IsPaymentRecord
+			restricted
+			when (TransNbr entered)
+
+		RecordExists
+			when (ReceivableNonARPaymentImport exists)
+
+		ErrorExists
+			when (ErrorMessage entered)
+
+		NotExistsOrIsHeaderRecord
+			restricted
+			when (!RecordExists
+			or IsHeaderRecord)
+
+		TaxEntityUsesOneSource
+			restricted
+			when (TaxEntityRel.ThirdParty.Sabrix)
+
+		TaxEntityUsesVertex
+			restricted
+			when (TaxEntityRel.ThirdParty.VertexOSeries)
+
+		VertexCallByTransaction
+			restricted
+			when (TaxEntityUsesVertex
+			and   TaxEntityRel.VertexCallMethod.ByTransaction)
+
+		AllowUpdate
+			when ((IsHeaderRecord
+			and	ReceivablePaymentHeader not entered)
+			or	!IsHeaderRecord)
+
+		AllowDeleteAllPaymentsAndDistributionsFromBatch
+			when (IsHeaderRecord
+			and PaymentsForHeaderRel exists)
+
+		AllowDeleteAllDistributionsFromBatch
+			when (IsHeaderRecord
+			and NonARReceivableGLDistributionImportBatchRel exists)
+
+	Sets
+		ByRunGroup
+			indexed
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+		ByInterfaceRun
+			Sort Order
+				InterfaceRun
+				RunGroup
+				Company
+				BatchNumber
+				ReceivableNonARPaymentImport
+
+	Actions
+		Create is a Create Action
+			Entrance Rules
+				if (TransNbr entered)
+					HeaderCurrency	= HeaderImportRel.Currency
+
+		Update is an Update Action
+			valid when (AllowUpdate)
+
+			Action Rules
+				if (IsPaymentRecord)
+					HeaderCurrency	= HeaderImportRel.Currency
+
+			Exit Rules
+
+				if (SecondaryKeyFields changed)
+					if (IsHeaderRecord)
+						invoke Update OldReceivableNonARPaymentsImportRel
+							invoked.RunGroup						= RunGroup
+							invoked.Company							= Company
+							invoked.BatchNumber						= BatchNumber
+							invoked.BypassRequiredEdits				= true
+					
+						invoke Update OldNonARReceivableGLDistributionImportRel
+							invoked.RunGroup		= RunGroup
+							invoked.Company			= Company
+							invoked.BatchNumber		= BatchNumber
+
+				if (IsPaymentRecord)
+					if (TransNbr changed)
+						invoke Update OldNonARReceivableGLDistributionImportForOnePaymentRel
+							invoked.TransNbr	= TransNbr
+					
+
+		Delete is a Delete Action
+			Entrance Rules
+				if (IsHeaderRecord)
+					constraint (!PaymentsRel exists)
+						"CannotDelete;PaymentRecordsExist"
+					constraint (ReceivablePaymentHeader not entered)
+						"CannotDelete;ReceivablePaymentHeaderExists"
+				if (IsPaymentRecord)
+					constraint (!NonARReceivableGLDistributionImportRel exists)
+						"CannotDelete;DistributionRecordsExist"
+					constraint (ReceivablePayment not entered)
+						"CannotDelete;ReceivablePaymentExists"
+					
+		ResetErrorMessage is an Instance Action
+			valid when (ErrorExists)							
+			Action Rules
+				initialize ErrorMessage
+
+		DeleteAllPaymentsAndDistributionsFromBatch is an Instance Action
+			valid when (AllowDeleteAllPaymentsAndDistributionsFromBatch)
+			Action Rules
+				invoke FastDelete NonARReceivableGLDistributionImportBatchRel
+				invoke FastDelete PaymentsForHeaderRel
+
+		DeleteAllDistributionsFromBatch is an Instance Action
+			valid when (AllowDeleteAllDistributionsFromBatch)
+			Action Rules
+				invoke FastDelete NonARReceivableGLDistributionImportBatchRel
+
+		DeleteAllPaymentsAndDistributionsFromRunGroup is a Set Action
+			confirmation required
+			default label is "DeleteAllPaymentsAndDistributionsFromRunGroup"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmRunGroup				is AlphaUpper 30
+					default label is "RunGroup"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup)
+
+			Sort Order
+				RunGroup
+
+			Action Rules
+
+				Empty Set Rules
+					invoke DeleteAllDistributionsFromRunGroupNoConfirmation ReceivableNonARPaymentDistributionImport
+						invoked.PrmRunGroup = PrmRunGroup
+
+				RunGroup Set Rules
+					Entrance Rules
+						invoke DeleteAllDistributionsFromRunGroupNoConfirmation ReceivableNonARPaymentDistributionImport
+							invoked.PrmRunGroup = PrmRunGroup
+
+				Instance Rules
+					invoke FastDelete
+
+		DeleteAllDistributionsFromRunGroup is a Set Action
+			confirmation required
+			default label is "DeleteAllDistributionsFromRunGroup"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmRunGroup				is AlphaUpper 30
+					default label is "RunGroup"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup)
+
+			Sort Order
+				RunGroup
+
+			Action Rules
+
+				Empty Set Rules
+					invoke DeleteAllDistributionsFromRunGroupNoConfirmation ReceivableNonARPaymentDistributionImport
+						invoked.PrmRunGroup = PrmRunGroup
+
+				RunGroup Set Rules
+					Entrance Rules
+						invoke DeleteAllDistributionsFromRunGroupNoConfirmation ReceivableNonARPaymentDistributionImport
+							invoked.PrmRunGroup = PrmRunGroup
+
+				Instance Rules
+
+		InterfaceNonARPayments is a Set Action
+			default label is "InterfaceNonARPayments"
+			Parameters
+				PrmFinanceEnterpriseGroup				is a FinanceEnterpriseGroup
+				PrmRunGroup								is a RunGroup
+					default label is "RunGroup"
+				PrmCompany								is a ReceivableCompany
+				PrmReference							is like Reference
+				PrmOperator								is like ReceivableOperator
+				ReleaseBatch							is Boolean
+				PrmCallOneSource						is Boolean
+				PrmCallVertex							is Boolean
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+
+				PrmRunGroup
+					required
+						"RunGroupIsRequired"
+
+				ReleaseBatch
+					initial value is true
+
+			Local Fields
+				LocalInstanceCount					is Numeric 10
+				LocalInterfaceResultView			is a ReceivablesInterfaceResult view
+				CurrentRunGroup						is like RunGroup
+				CurrentBatch						is like ReceivablePaymentHeader
+				CurrentCompany						is like ReceivableCompany
+				CurrentTransNbr						is like TransactionNumber
+				LocalActor							is Actor
+				LocalReceivablePaymentCount			is Numeric 12
+				LocalReceivablePaymentDetailCount	is Numeric 12
+				LocalReceivablePaymentBatchCount	is Numeric 12
+				LocalErrorOccurredInAnyPayment		is Boolean
+				BatchErrorMessage					is Alpha 150
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	=	 PrmFinanceEnterpriseGroup
+				and	(PrmCompany							 not entered
+				or	 Company						=	 PrmCompany))
+
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+			Action Rules
+
+				Empty Set Rules
+					invoke Create ReceivablesInterfaceResult
+						assign result to LocalInterfaceResultView
+						invoked.FinanceEnterpriseGroup		 = PrmFinanceEnterpriseGroup
+						invoked.RunTime						 = current timestamp
+						invoked.RunGroup					 = PrmRunGroup
+						invoked.RunType						 = 11
+						invoked.Company						 = PrmCompany
+						invoked.PrmReference				 = PrmReference
+						invoked.ReleaseBatch				 = ReleaseBatch
+						invoked.Status						 = 1
+					
+					invoke FastUpdate LocalInterfaceResultView.ReceivablesInterfaceResult
+						invoked.Operator				= PrmOperator
+
+
+				RunGroup Set Rules
+					Entrance Rules
+						CurrentRunGroup						 = RunGroup
+						ErrorOccurred						 = false
+
+						invoke Create ReceivablesInterfaceResult
+							assign result to LocalInterfaceResultView
+							invoked.FinanceEnterpriseGroup		 = PrmFinanceEnterpriseGroup
+							invoked.RunTime						 = current timestamp
+							invoked.RunGroup					 = PrmRunGroup
+							invoked.RunType						 = 11
+							invoked.Company						 = PrmCompany
+							invoked.PrmReference				 = PrmReference
+							invoked.ReleaseBatch				 = ReleaseBatch
+						LocalReceivablesInterfaceResult			 = LocalInterfaceResultView.ReceivablesInterfaceResult
+
+					Exit Rules
+
+						if (PrmCallVertex)
+							invoke Update LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.ReleaseBatch 						= false
+
+							invoke VertexCreateTaxLineItemsInterfaceNonARPayments ReceivableNonARPaymentImport
+								invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+								invoked.PrmRunGroup							= PrmRunGroup
+								invoked.PrmCompany							= PrmCompany
+								invoked.PrmReference						= PrmReference
+								invoked.PrmOperator							= PrmOperator
+								invoked.ReleaseBatch						= ReleaseBatch
+								invoked.PrmInterfaceResult					= LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.PrmReceivablePaymentBatchCount		= LocalReceivablePaymentBatchCount
+								invoked.PrmReceivablePaymentCount 			= LocalReceivablePaymentCount
+								invoked.PrmReceivablePaymentDetailCount		= LocalReceivablePaymentDetailCount
+								invoked.PrmInstanceCount					= LocalInstanceCount
+						else
+						if (PrmCallOneSource)
+							invoke Update LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.ReleaseBatch 						= false
+
+							invoke OneSourceCreateTaxLineItemsInterfaceNonARPayments ReceivableNonARPaymentImport
+								invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+								invoked.PrmRunGroup							= PrmRunGroup
+								invoked.PrmCompany							= PrmCompany
+								invoked.PrmReference						= PrmReference
+								invoked.PrmOperator							= PrmOperator
+								invoked.ReleaseBatch						= ReleaseBatch
+								invoked.PrmInterfaceResult					= LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.PrmReceivablePaymentBatchCount		= LocalReceivablePaymentBatchCount
+								invoked.PrmReceivablePaymentCount 			= LocalReceivablePaymentCount
+								invoked.PrmReceivablePaymentDetailCount		= LocalReceivablePaymentDetailCount
+								invoked.PrmInstanceCount					= LocalInstanceCount
+						else																		
+							invoke Update LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.RecordsProcessed		= LocalInstanceCount
+								if (LocalInterfaceResultView.Status != 2)
+									invoked.Status					= 1
+
+								invoked.ReceivableInterfaceCounts.BatchCount			= LocalReceivablePaymentBatchCount
+								invoked.ReceivableInterfaceCounts.PassedHeaderCount		= LocalReceivablePaymentCount
+								invoked.ReceivableInterfaceCounts.AdditionalDetailCount	= LocalReceivablePaymentDetailCount
+
+							invoke FastUpdate LocalInterfaceResultView.ReceivablesInterfaceResult
+								invoked.Operator				= PrmOperator
+
+							LocalActor = actor
+							if (LocalInterfaceResultView.Status != 2)
+								send notification
+									to LocalActor
+									description is "ReceivableNonARPaymentInterfaceHasCompleted"
+									priority is high
+									detail is "ResultsCanBeSeenInInterfaceResults"
+							else
+								send notification
+									to LocalActor
+									description is "ReceivableNonARPaymentInterfaceIsIncompleteDueToErrors"
+									priority is high
+									detail is "ResultsCanBeSeenInInterfaceResults"
+
+				Company Set Rules
+					Entrance Rules
+						CurrentCompany					= Company
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+				BatchNumber Set Rules
+					Entrance Rules
+						CurrentBatch					= BatchNumber
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+					Exit Rules
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						if (CurrentHeaderRel.VertexCallByTransaction)
+							PrmCallVertex						= true
+							LocalErrorOccurredInAnyPayment 		= false
+						else
+						if (CurrentHeaderRel.TaxEntityUsesOneSource)
+							PrmCallOneSource					= true
+							LocalErrorOccurredInAnyPayment 		= false
+						else												
+							if  (ReleaseBatch
+							and  !CurrentHeaderRel.RecordInError
+							and !LocalErrorOccurredInAnyPayment)
+								
+								invoke OpenBatchUnreleased.Release CurrentHeaderRel.ReceivablePaymentHeader
+									resume on error
+										LocalErrorOccurredInAnyPayment = true
+										BatchErrorMessage	= error message
+								
+								if (LocalErrorOccurredInAnyPayment)
+									invoke SetError CurrentHeaderRel
+										invoked.PrmErrorMessage				= BatchErrorMessage
+										invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+							
+							if (LocalErrorOccurredInAnyPayment)
+								for each CurrentHeaderRel.PaymentsRel
+									if (each.ReceivablePayment entered)
+										invoke Unreleased.Delete each.ReceivablePayment
+										invoke FastUpdate each
+											invoked.ReceivablePayment = blank
+									for each each.NonARReceivableGLDistributionImportRel
+										if (each.ReceivableGLDistribution entered)
+											invoke FastUpdate each
+												invoked.ReceivableGLDistribution = blank
+								if (CurrentHeaderRel.ReceivablePaymentHeader entered)
+									invoke OpenBatchUnreleased.Delete CurrentHeaderRel.ReceivablePaymentHeader
+									invoke FastUpdate CurrentHeaderRel
+										invoked.ReceivablePaymentHeader = blank
+									
+							if  (!CurrentHeaderRel.RecordInError
+							and  !LocalErrorOccurredInAnyPayment)
+								invoke FastUpdate CurrentHeaderRel.ReceivablePaymentHeader
+									invoked.InterfaceInProcess	= false
+								for each CurrentHeaderRel.PaymentsRel
+									for each each.NonARReceivableGLDistributionImportRel
+										invoke FastDelete each 
+									invoke FastDelete each
+								invoke FastDelete CurrentHeaderRel
+
+							LocalErrorOccurredInAnyPayment = false
+
+				TransNbr Set Rules
+					Entrance Rules
+						CurrentTransNbr = TransNbr
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						LocalTransNbr 					= CurrentTransNbr
+
+					Exit Rules
+						if (CurrentPaymentRel.RecordInError)
+							LocalErrorOccurredInAnyPayment = true
+
+				Instance Rules
+					ParameterReference					= PrmReference
+					LocalReceivablesInterfaceResult		= LocalInterfaceResultView.ReceivablesInterfaceResult
+					InterfaceRun						= LocalInterfaceResultView.ReceivablesInterfaceResult
+					RecordInError						= false
+					ErrorOccurred						= false
+					initialize ErrorMessage
+
+					include InterfaceThisPayment
+					LocalInstanceCount += 1
+					if (IsHeaderRecord)
+						LocalReceivablePaymentBatchCount	+= 1
+					if (IsPaymentRecord)
+						LocalReceivablePaymentCount			+= 1
+						LocalReceivablePaymentDetailCount	+= LocalReceivablePaymentDistributionCount
+
+
+		OneSourceCreateTaxLineItemsInterfaceNonARPayments is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup				is a FinanceEnterpriseGroup
+				PrmRunGroup								is a RunGroup
+					default label is "RunGroup"
+				PrmCompany								is a ReceivableCompany
+				PrmReference							is like Reference
+				PrmOperator								is like ReceivableOperator
+				ReleaseBatch							is Boolean
+				PrmInterfaceResult						is like ReceivablesInterfaceResult
+				PrmReceivablePaymentBatchCount			is Numeric 12
+				PrmReceivablePaymentCount 				is Numeric 12
+				PrmReceivablePaymentDetailCount			is Numeric 12
+				PrmInstanceCount						is Numeric 12
+
+
+			Local Fields
+				LocalInstanceCount					is Numeric 10
+				LocalInterfaceResultView			is a ReceivablesInterfaceResult view
+				CurrentRunGroup						is like RunGroup
+				CurrentBatch						is like ReceivablePaymentHeader
+				CurrentCompany						is like ReceivableCompany
+				CurrentTransNbr						is like TransactionNumber
+				LocalActor							is Actor
+				LocalReceivablePaymentCount			is Numeric 12
+				LocalReceivablePaymentDetailCount	is Numeric 12
+				LocalReceivablePaymentBatchCount	is Numeric 12
+				LocalErrorOccurredInAnyPayment		is Boolean
+				BatchErrorMessage					is Alpha 150
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	=	 PrmFinanceEnterpriseGroup
+				and	(PrmCompany							 not entered
+				or	 Company						=	 PrmCompany))
+
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+			Action Rules
+
+				RunGroup Set Rules
+					Exit Rules
+						invoke ProcessOneSourceInterfaceNonARPayments ReceivableNonARPaymentImport
+							invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup							= PrmRunGroup
+							invoked.PrmCompany							= PrmCompany
+							invoked.PrmReference						= PrmReference
+							invoked.PrmOperator							= PrmOperator
+							invoked.ReleaseBatch						= ReleaseBatch
+							invoked.PrmInterfaceResult					= PrmInterfaceResult
+							invoked.PrmReceivablePaymentBatchCount		= PrmReceivablePaymentBatchCount
+							invoked.PrmReceivablePaymentCount 			= PrmReceivablePaymentCount
+							invoked.PrmReceivablePaymentDetailCount		= PrmReceivablePaymentDetailCount
+							invoked.PrmInstanceCount					= PrmInstanceCount
+
+				Instance Rules
+					
+					if (IsPaymentRecord
+					and TaxEntityUsesOneSource
+					and ErrorMessage not entered)
+						
+						invoke Purge ReceivablePayment.TaxLineItemsRel
+						invoke OneSourceInterfaceNonARPaymentCreateTaxLineItems ReceivablePayment
+							resume on error
+								ErrorMessage = error message
+
+						if (ErrorMessage entered)
+							RecordInError						= true
+							LocalReceivablesInterfaceResult		= PrmInterfaceResult
+							invoke Update LocalInterfaceResultsRel
+								invoked.Status 					= 2
+
+
+		ProcessOneSourceInterfaceNonARPayments is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup				is a FinanceEnterpriseGroup
+				PrmRunGroup								is a RunGroup
+					default label is "RunGroup"
+				PrmCompany								is a ReceivableCompany
+				PrmReference							is like Reference
+				PrmOperator								is like ReceivableOperator
+				ReleaseBatch							is Boolean
+				PrmInterfaceResult						is a ReceivablesInterfaceResult
+					context of PrmFinanceEnterpriseGroup
+				PrmReceivablePaymentBatchCount			is Numeric 12
+				PrmReceivablePaymentCount 				is Numeric 12
+				PrmReceivablePaymentDetailCount			is Numeric 12
+				PrmInstanceCount						is Numeric 12
+
+			Local Fields
+				LocalInstanceCount					is Numeric 10
+				LocalInterfaceResultView			is a ReceivablesInterfaceResult view
+				CurrentRunGroup						is like RunGroup
+				CurrentBatch						is like ReceivablePaymentHeader
+				CurrentCompany						is like ReceivableCompany
+				CurrentTransNbr						is like TransactionNumber
+				LocalActor							is Actor
+				LocalReceivablePaymentCount			is Numeric 12
+				LocalReceivablePaymentDetailCount	is Numeric 12
+				LocalReceivablePaymentBatchCount	is Numeric 12
+				LocalErrorOccurredInAnyPayment		is Boolean
+				LocalSetStatus						is Boolean
+				BatchErrorMessage					is Alpha 150
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	=	 PrmFinanceEnterpriseGroup
+				and	(PrmCompany							 not entered
+				or	 Company						=	 PrmCompany))
+
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+			Action Rules
+
+				RunGroup Set Rules
+					Entrance Rules
+						CurrentRunGroup						 = RunGroup
+
+					Exit Rules
+						
+						LocalFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+						LocalReceivablesInterfaceResult		= PrmInterfaceResult
+
+						if (OneSourceLocalInterfaceResultsRel.Status != 2)
+							LocalSetStatus					= true
+
+						invoke Update OneSourceLocalInterfaceResultsRel
+							invoked.RecordsProcessed		= PrmInstanceCount
+							invoked.ReleaseBatch			= ReleaseBatch
+							if (LocalSetStatus)
+								invoked.Status					= 1
+							invoked.ReceivableInterfaceCounts.BatchCount			= PrmReceivablePaymentBatchCount
+							invoked.ReceivableInterfaceCounts.PassedHeaderCount		= PrmReceivablePaymentCount
+							invoked.ReceivableInterfaceCounts.AdditionalDetailCount	= PrmReceivablePaymentDetailCount
+
+						invoke FastUpdate OneSourceLocalInterfaceResultsRel
+							invoked.Operator				= PrmOperator
+
+						LocalActor = actor
+						if (OneSourceLocalInterfaceResultsRel.Status != 2)
+							send notification
+								to LocalActor
+								description is "ReceivableNonARPaymentInterfaceHasCompleted"
+								priority is high
+								detail is "ResultsCanBeSeenInInterfaceResults"
+						else
+							send notification
+								to LocalActor
+								description is "ReceivableNonARPaymentInterfaceIsIncompleteDueToErrors"
+								priority is high
+								detail is "ResultsCanBeSeenInInterfaceResults"
+
+				Company Set Rules
+					Entrance Rules
+						CurrentCompany					= Company
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+				BatchNumber Set Rules
+					Entrance Rules
+						CurrentBatch					= BatchNumber
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+					Exit Rules
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						
+						if (CurrentHeaderRel.TaxEntityUsesOneSource)
+							if  (ReleaseBatch
+							and  !CurrentHeaderRel.RecordInError
+							and !LocalErrorOccurredInAnyPayment)
+
+								invoke EditReceivablePaymentHeaderForOneSource CurrentHeaderRel.ReceivablePaymentHeader
+									resume on error
+										LocalErrorOccurredInAnyPayment = true
+										BatchErrorMessage	= error message
+
+								if (!LocalErrorOccurredInAnyPayment)
+									invoke TransitionBackgroundProcessing CurrentHeaderRel.ReceivablePaymentHeader
+										invoked.PrmBackgroundProcessing		= 1
+
+									invoke OpenBatchUnreleased.Release CurrentHeaderRel.ReceivablePaymentHeader
+										resume on error
+											LocalErrorOccurredInAnyPayment = true
+											BatchErrorMessage	= error message
+
+								if (LocalErrorOccurredInAnyPayment)
+									invoke SetError CurrentHeaderRel
+										invoked.PrmErrorMessage				= BatchErrorMessage
+										invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+
+							if (LocalErrorOccurredInAnyPayment)
+								for each CurrentHeaderRel.PaymentsRel
+									if (each.ReceivablePayment entered)
+										invoke Unreleased.Delete each.ReceivablePayment
+										invoke FastUpdate each
+											invoked.ReceivablePayment = blank
+									for each each.NonARReceivableGLDistributionImportRel
+										if (each.ReceivableGLDistribution entered)
+											invoke FastUpdate each
+												invoked.ReceivableGLDistribution = blank
+								if (CurrentHeaderRel.ReceivablePaymentHeader entered)
+									invoke OpenBatchUnreleased.Delete CurrentHeaderRel.ReceivablePaymentHeader
+									invoke FastUpdate CurrentHeaderRel
+										invoked.ReceivablePaymentHeader = blank
+									
+							if  (!CurrentHeaderRel.RecordInError
+							and  !LocalErrorOccurredInAnyPayment)
+								invoke FastUpdate CurrentHeaderRel.ReceivablePaymentHeader
+									invoked.InterfaceInProcess	= false
+								for each CurrentHeaderRel.PaymentsRel
+									for each each.NonARReceivableGLDistributionImportRel
+										invoke FastDelete each 
+									invoke FastDelete each
+								invoke FastDelete CurrentHeaderRel
+
+						LocalErrorOccurredInAnyPayment = false
+
+				TransNbr Set Rules
+					Entrance Rules
+						CurrentTransNbr = TransNbr
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						LocalTransNbr 					= CurrentTransNbr
+
+					Exit Rules
+						if (CurrentPaymentRel.RecordInError)
+							LocalErrorOccurredInAnyPayment = true
+
+				Instance Rules
+					
+					if (IsPaymentRecord
+					and TaxEntityUsesOneSource
+					and ErrorMessage not entered)
+						
+						invoke OneSourceInterfaceNonARPaymentVerifyTaxTolerance ReceivablePayment
+							resume on error
+								ErrorMessage = error message
+						
+						if (ErrorMessage entered)
+							RecordInError						= true
+							LocalReceivablesInterfaceResult		= PrmInterfaceResult
+							invoke Update LocalInterfaceResultsRel
+								invoked.Status 					= 2
+
+
+		VertexCreateTaxLineItemsInterfaceNonARPayments is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup				is a FinanceEnterpriseGroup
+				PrmRunGroup								is a RunGroup
+					default label is "RunGroup"
+				PrmCompany								is a ReceivableCompany
+				PrmReference							is like Reference
+				PrmOperator								is like ReceivableOperator
+				ReleaseBatch							is Boolean
+				PrmInterfaceResult						is like ReceivablesInterfaceResult
+				PrmReceivablePaymentBatchCount			is Numeric 12
+				PrmReceivablePaymentCount 				is Numeric 12
+				PrmReceivablePaymentDetailCount			is Numeric 12
+				PrmInstanceCount						is Numeric 12
+
+
+			Local Fields
+				LocalInstanceCount					is Numeric 10
+				LocalInterfaceResultView			is a ReceivablesInterfaceResult view
+				CurrentRunGroup						is like RunGroup
+				CurrentBatch						is like ReceivablePaymentHeader
+				CurrentCompany						is like ReceivableCompany
+				CurrentTransNbr						is like TransactionNumber
+				LocalActor							is Actor
+				LocalReceivablePaymentCount			is Numeric 12
+				LocalReceivablePaymentDetailCount	is Numeric 12
+				LocalReceivablePaymentBatchCount	is Numeric 12
+				LocalErrorOccurredInAnyPayment		is Boolean
+				BatchErrorMessage					is Alpha 150
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	=	 PrmFinanceEnterpriseGroup
+				and	(PrmCompany							 not entered
+				or	 Company						=	 PrmCompany))
+
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+			Action Rules
+
+				RunGroup Set Rules
+					Exit Rules
+						invoke ProcessVertexInterfaceNonARPayments ReceivableNonARPaymentImport
+							invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup							= PrmRunGroup
+							invoked.PrmCompany							= PrmCompany
+							invoked.PrmReference						= PrmReference
+							invoked.PrmOperator							= PrmOperator
+							invoked.ReleaseBatch						= ReleaseBatch
+							invoked.PrmInterfaceResult					= PrmInterfaceResult
+							invoked.PrmReceivablePaymentBatchCount		= PrmReceivablePaymentBatchCount
+							invoked.PrmReceivablePaymentCount 			= PrmReceivablePaymentCount
+							invoked.PrmReceivablePaymentDetailCount		= PrmReceivablePaymentDetailCount
+							invoked.PrmInstanceCount					= PrmInstanceCount
+
+				Instance Rules
+					
+					if (IsPaymentRecord
+					and VertexCallByTransaction
+					and ErrorMessage not entered)
+						
+						invoke Purge ReceivablePayment.TaxLineItemsRel
+						invoke VertexInterfaceNonARPaymentCreateTaxLineItems ReceivablePayment
+							resume on error
+								ErrorMessage = error message
+
+						if (ErrorMessage entered)
+							RecordInError						= true
+							LocalReceivablesInterfaceResult		= PrmInterfaceResult
+							invoke Update LocalInterfaceResultsRel
+								invoked.Status 					= 2
+
+
+		ProcessVertexInterfaceNonARPayments is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup				is a FinanceEnterpriseGroup
+				PrmRunGroup								is a RunGroup
+					default label is "RunGroup"
+				PrmCompany								is a ReceivableCompany
+				PrmReference							is like Reference
+				PrmOperator								is like ReceivableOperator
+				ReleaseBatch							is Boolean
+				PrmInterfaceResult						is a ReceivablesInterfaceResult
+					context of PrmFinanceEnterpriseGroup
+				PrmReceivablePaymentBatchCount			is Numeric 12
+				PrmReceivablePaymentCount 				is Numeric 12
+				PrmReceivablePaymentDetailCount			is Numeric 12
+				PrmInstanceCount						is Numeric 12
+
+			Local Fields
+				LocalInstanceCount					is Numeric 10
+				LocalInterfaceResultView			is a ReceivablesInterfaceResult view
+				CurrentRunGroup						is like RunGroup
+				CurrentBatch						is like ReceivablePaymentHeader
+				CurrentCompany						is like ReceivableCompany
+				CurrentTransNbr						is like TransactionNumber
+				LocalActor							is Actor
+				LocalReceivablePaymentCount			is Numeric 12
+				LocalReceivablePaymentDetailCount	is Numeric 12
+				LocalReceivablePaymentBatchCount	is Numeric 12
+				LocalErrorOccurredInAnyPayment		is Boolean
+				LocalSetStatus						is Boolean
+				BatchErrorMessage					is Alpha 150
+
+			Instance Selection
+				where (RunGroup	= PrmRunGroup
+				and	GeneralLedgerCompanyRel.FinanceEnterpriseGroup	=	 PrmFinanceEnterpriseGroup
+				and	(PrmCompany							 not entered
+				or	 Company						=	 PrmCompany))
+
+			Sort Order
+				RunGroup
+				Company
+				BatchNumber
+				TransNbr
+
+			Action Rules
+
+				RunGroup Set Rules
+					Entrance Rules
+						CurrentRunGroup						 = RunGroup
+
+					Exit Rules
+						
+						LocalFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+						LocalReceivablesInterfaceResult		= PrmInterfaceResult
+
+						if (OneSourceLocalInterfaceResultsRel.Status != 2)
+							LocalSetStatus					= true
+
+						invoke Update OneSourceLocalInterfaceResultsRel
+							invoked.RecordsProcessed		= PrmInstanceCount
+							invoked.ReleaseBatch			= ReleaseBatch
+							if (LocalSetStatus)
+								invoked.Status					= 1
+							invoked.ReceivableInterfaceCounts.BatchCount			= PrmReceivablePaymentBatchCount
+							invoked.ReceivableInterfaceCounts.PassedHeaderCount		= PrmReceivablePaymentCount
+							invoked.ReceivableInterfaceCounts.AdditionalDetailCount	= PrmReceivablePaymentDetailCount
+
+						invoke FastUpdate OneSourceLocalInterfaceResultsRel
+							invoked.Operator				= PrmOperator
+
+						LocalActor = actor
+						if (OneSourceLocalInterfaceResultsRel.Status != 2)
+							send notification
+								to LocalActor
+								description is "ReceivableNonARPaymentInterfaceHasCompleted"
+								priority is high
+								detail is "ResultsCanBeSeenInInterfaceResults"
+						else
+							send notification
+								to LocalActor
+								description is "ReceivableNonARPaymentInterfaceIsIncompleteDueToErrors"
+								priority is high
+								detail is "ResultsCanBeSeenInInterfaceResults"
+
+				Company Set Rules
+					Entrance Rules
+						CurrentCompany					= Company
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+				BatchNumber Set Rules
+					Entrance Rules
+						CurrentBatch					= BatchNumber
+						LocalCompany					= Company
+						LocalOperator					= PrmOperator
+
+					Exit Rules
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						
+						if (CurrentHeaderRel.VertexCallByTransaction)
+							if  (ReleaseBatch
+							and  !CurrentHeaderRel.RecordInError
+							and !LocalErrorOccurredInAnyPayment)
+
+								if (!LocalErrorOccurredInAnyPayment)
+									invoke TransitionBackgroundProcessing CurrentHeaderRel.ReceivablePaymentHeader
+										invoked.PrmBackgroundProcessing		= 1
+
+									invoke OpenBatchUnreleased.Release CurrentHeaderRel.ReceivablePaymentHeader
+										resume on error
+											LocalErrorOccurredInAnyPayment = true
+											BatchErrorMessage	= error message
+
+								if (LocalErrorOccurredInAnyPayment)
+									invoke SetError CurrentHeaderRel
+										invoked.PrmErrorMessage				= BatchErrorMessage
+										invoked.InterfaceResults			= LocalReceivablesInterfaceResult
+
+							if (LocalErrorOccurredInAnyPayment)
+								for each CurrentHeaderRel.PaymentsRel
+									if (each.ReceivablePayment entered)
+										for each each.ReceivablePayment.TaxLineItemsRel
+											invoke Delete each.LineItemUserFieldsRel
+											invoke Delete each
+										invoke Unreleased.Delete each.ReceivablePayment
+										invoke FastUpdate each
+											invoked.ReceivablePayment = blank
+									for each each.NonARReceivableGLDistributionImportRel
+										if (each.ReceivableGLDistribution entered)
+											invoke FastUpdate each
+												invoked.ReceivableGLDistribution = blank
+								if (CurrentHeaderRel.ReceivablePaymentHeader entered)
+									invoke OpenBatchUnreleased.Delete CurrentHeaderRel.ReceivablePaymentHeader
+									invoke FastUpdate CurrentHeaderRel
+										invoked.ReceivablePaymentHeader = blank
+									
+							if  (!CurrentHeaderRel.RecordInError
+							and  !LocalErrorOccurredInAnyPayment)
+								invoke FastUpdate CurrentHeaderRel.ReceivablePaymentHeader
+									invoked.InterfaceInProcess	= false
+								for each CurrentHeaderRel.PaymentsRel
+									for each each.NonARReceivableGLDistributionImportRel
+										invoke FastDelete each 
+									invoke FastDelete each
+								invoke FastDelete CurrentHeaderRel
+
+						LocalErrorOccurredInAnyPayment = false
+
+				TransNbr Set Rules
+					Entrance Rules
+						CurrentTransNbr = TransNbr
+
+						LocalRunGroup					= CurrentRunGroup
+						LocalCompany					= CurrentCompany
+						LocalBatchNumber				= CurrentBatch
+						LocalTransNbr 					= CurrentTransNbr
+
+					Exit Rules
+						if (CurrentPaymentRel.RecordInError)
+							LocalErrorOccurredInAnyPayment = true
+
+				Instance Rules
+					
+					if (IsPaymentRecord
+					and VertexCallByTransaction
+					and ErrorMessage not entered)
+						
+						invoke VertexInterfaceNonARPaymentVerifyTaxTolerance ReceivablePayment
+							resume on error
+								ErrorMessage = error message
+						
+						if (ErrorMessage entered)
+							RecordInError						= true
+							LocalReceivablesInterfaceResult		= PrmInterfaceResult
+							invoke Update LocalInterfaceResultsRel
+								invoked.Status 					= 2
+
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+
+		FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+		SetError is an Instance Action
+			restricted
+			Parameters
+				PrmErrorMessage			is Alpha 150
+				InterfaceResults		is like ReceivablesInterfaceResult
+			Action Rules
+				RecordInError						= true
+				ErrorMessage						= PrmErrorMessage
+
+				LocalReceivablesInterfaceResult 	= InterfaceResults
+				invoke Update LocalInterfaceResultsRel
+					invoked.Status 					= 2

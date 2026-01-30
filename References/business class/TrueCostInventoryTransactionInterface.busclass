@@ -1,0 +1,261 @@
+TrueCostInventoryTransactionInterface is a BusinessClass
+	owned by truecost
+	sql name is TrueCostInventoryTransInt
+	prefix is TCSIT
+	
+	Ontology
+		symbolic key is TrueCostInventoryTransactionInterface
+	
+	Patterns
+		disable Auditing
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		
+	Persistent Fields
+
+			AccountingEntity		is like AccountingEntity					
+			Company					is AlphaUpper 12
+			Location				is AlphaUpper 15
+			Transaction				is Numeric 10
+			TransactionDate			is Date
+			Item					is Numeric 10
+			Quantity				is Numeric 12
+			UnitCost				is Decimal 19.3
+			Status					is Numeric 10
+			AccountingUnit			is AlphaUpper 15
+			ErrorDescription		is Alpha 200 
+								
+	Field Rules
+	
+	Sets
+	
+	Derived Fields		
+		AverageUnitCostInitial  		is a ComputeField
+			type is Decimal 19.3
+			(InventoryTransactionRel.UnitCost * InventoryTransactionRel.Quantity)
+		
+		TotalQuantity					is a ComputeField
+			type is Numeric 12
+			(sum InventoryTransactionRel.Quantity)
+			
+		AverageUnitCostFinal  			is a ComputeField
+			type is Decimal 19.3
+
+			(sum AverageUnitCostInitial / sum InventoryTransactionRel.Quantity)
+		
+		LastDayOfMonth			is a DerivedField
+			type is Date
+			restricted
+			while (!LocalDate is last day in month)
+				LocalDate += 1 day
+			return LocalDate
+			
+		AverageResourceRate		is a DerivedField
+			type is Decimal 19.3
+			return AverageUnitCostFinal
+			
+		TQuantity				is a DerivedField
+			type is Numeric 12
+			return TotalQuantity
+		
+		TUnitCost				is a DerivedField
+			type is Decimal 19.3
+			return AverageUnitCostInitial
+			
+	Local Fields
+		LocalRunGroup					is like RunGroup
+		LocalLastSequence				is Numeric 12
+		LocalDate						is Date
+		LocalTrueCostConfiguration		is like TrueCostConfiguration
+		LocalAccountingEntity			is like AccountingEntity	
+		LocalAccountingUnit				is AlphaUpper 15		
+		LocalItem						is Numeric 10
+
+	Conditions
+		HasError
+			restricted
+			when (ErrorDescription entered)		
+	Relations
+		TrueCostConfigRel
+			one-to-one relation to TrueCostConfiguration
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration = TrueCostConfiguration
+		
+		InventoryTransactionRel
+			one-to-many relation to TrueCostInventoryTransactionInterface
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.AccountingEntity = AccountingEntity
+				and related.AccountingUnit		= AccountingUnit
+				and related.Item 				= Item
+				and related.TrueCostInventoryTransactionInterface.RunGroup			= LocalRunGroup)
+				
+		RunGroupRel
+			one-to-many relation to TrueCostInventoryTransactionInterface
+			Field Mapping uses symbolic key
+			Instance Selection
+				where(related.TrueCostInventoryTransactionInterface.RunGroup = LocalRunGroup)
+		
+		ResourceRateRel
+			one-to-many relation to TrueCostResourceRateTable
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.TrueCostResourceRateTable.AccountingEntity	= LocalAccountingEntity
+				and related.TrueCostResourceRateTable.Department			= LocalAccountingUnit
+				and related.TrueCostResourceRateTable.ResourceName			= LocalItem)
+				
+		CopyRunGroupRel
+			one-to-many relation to TrueCostInventoryTransactionInterface
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration								= LocalTrueCostConfiguration
+			Instance Selection
+				where(related.TrueCostInventoryTransactionInterface.RunGroup = LocalRunGroup)
+
+	Actions
+		Create is a Create Action
+			Entrance Rules						
+				LocalLastSequence = last TrueCostInventoryTransactionInterface.Sequence			
+				if(!TrueCostInventoryTransactionInterface.Sequence entered)
+					TrueCostInventoryTransactionInterface.Sequence = (LocalLastSequence + 1)
+				
+				
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			
+		Purge is a Purge Action
+			restricted 
+			          									
+		DeleteAllTransactionForRunGroup		is a Set Action
+			default label is "DeleteAllTransactionsForRunGroup"
+			Parameters
+				PrmRunGroup						is a RunGroup
+					default label is "RunGroup"
+					
+			Parameter Rules
+				PrmRunGroup
+					required
+						"Run_GroupIsRequired"
+					LocalRunGroup		=	PrmRunGroup				
+					constraint(RunGroupRel exists)
+						"Run_GroupDoesNotExist"
+			Instance Selection				
+				where(TrueCostInventoryTransactionInterface.RunGroup = PrmRunGroup)
+			
+			Action Rules
+				Instance Rules
+					invoke Delete
+										
+		GenerateResourceCapacityRates	is a Set Action
+			completion message is "GenerateResourceRateDataComplete"
+			Parameters
+				PrmRunGroup		is a RunGroup	
+					default label is "RunGroup"								
+			Parameter Rules
+				PrmRunGroup
+					required
+					LocalRunGroup = PrmRunGroup		
+			Instance Selection
+				where (TrueCostInventoryTransactionInterface.RunGroup			 = PrmRunGroup)			
+						
+			Local Fields
+				AverageUnitCost			is Decimal 19.3
+				LocalError				is Alpha 200 
+													
+			Sort Order
+				AccountingEntity
+				AccountingUnit
+				Item
+							
+			Accumulators
+				TotalUnitCost
+				TotalQuantity
+																
+			Action Rules
+				Set Rules
+					Entrance Rules
+						LocalDate = current corporate date
+
+				Empty Set Rules
+				
+				Item Set Rules
+					Entrance Rules
+						initialize LocalError
+						LocalAccountingEntity 	= AccountingEntity
+						LocalAccountingUnit		= AccountingUnit
+						LocalItem				= Item
+						
+
+
+								
+					Exit Rules
+
+
+						AverageUnitCost = TotalUnitCost / TotalQuantity
+
+						
+						if(ResourceRateRel not exist)	
+							invoke Create TrueCostResourceRateTable
+
+
+								invoked.TrueCostConfiguration							=	TrueCostConfiguration
+								invoked.TrueCostResourceRateTable.AccountingEntity		=	AccountingEntity
+								invoked.TrueCostResourceRateTable.Department			=	AccountingUnit
+								invoked.TrueCostResourceRateTable.ResourceName			=	Item
+								invoked.AverageResourceRate								=	AverageUnitCost
+								invoked.TrueCostResourceRateTable.EffectivePeriod		=	TransactionDate
+							
+							initialize TotalQuantity
+							initialize TotalUnitCost
+							initialize AverageUnitCost
+									
+				Instance Rules
+					TotalQuantity += Quantity
+					TotalUnitCost += Quantity * UnitCost
+
+
+						
+					if(ResourceRateRel exist)
+						LocalError = "Item_Already_Exists"					
+
+						invoke Update
+                        	invoked.ErrorDescription = LocalError
+                  	else
+                    	invoke Purge
+
+		CopyRunGroup					is a Set Action
+			default label is "CopyRunGroup"
+			
+			Parameters
+				PrmTCConfig				is a TrueCostConfiguration
+					default label is "True\CostConfiguration"
+				PrmRunGroupFrom			is a RunGroup
+					default label is "Copy_from_RunGroup"
+				PrmRunGroupTo			is a RunGroup
+					default label is "Copy_to_RunGroup"
+					
+			Parameter Rules
+				PrmTCConfig
+					required
+				PrmRunGroupFrom
+					required
+					LocalTrueCostConfiguration = PrmTCConfig
+					LocalRunGroup = PrmRunGroupFrom
+					constraint (CopyRunGroupRel exists)
+						"Source_Run_Group_does_not_exist"
+					constraint (PrmRunGroupFrom != PrmRunGroupTo)
+						"CopyFrom_Run_GroupCannotBeTheSameAsCopyTo_Run_Group"
+				PrmRunGroupTo
+					required
+					
+			Instance Selection
+				where (TrueCostConfiguration = PrmTCConfig
+				and TrueCostInventoryTransactionInterface.RunGroup = PrmRunGroupFrom)
+				
+			Action Rules
+				
+				Instance Rules
+					invoke Create TrueCostInventoryTransactionInterface
+						fill in fields from this instance
+							except invoked.RunGroup
+						invoked.RunGroup				= PrmRunGroupTo

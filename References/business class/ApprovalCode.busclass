@@ -1,0 +1,150 @@
+ApprovalCode is a BusinessClass
+    owned by sharedfinance
+    prefix is APRCD
+
+    Ontology
+    	symbolic key is ApprovalCode
+
+    Persistent Fields
+		Description					is Alpha 250
+			translatable
+		ApprovalCodeUsesMaximumAmounts		is Boolean
+		InitialApproverSelectionMethod		is Numeric 1
+			default label is "InitialApprovalLevel"
+			States
+				FirstApprovalLevel									value is 1
+				FirstApprovalLevelAuthorizedToApprovePayment		value is 2
+				SpecificApprovalLevel								value is 3
+		FinalApproverSelectionMethod		is Numeric 1
+			default label is "FinalApprovalLevel"
+			States
+				LastApprovalLevel									value is 1
+				FirstApprovalLevelAuthorizedToApprovePayment		value is 2
+		InitialApprovalLevel				is an ApprovalCodeResource
+			default label is "Level"
+		Active
+
+	Derived Fields
+		DerivedFirstApproverName is a DerivedField
+			type is Alpha 230 
+			restricted
+			if (ApprovalCodeResourceRel exists)
+				return first ApprovalCodeResourceRel.Approver.PreferredSimplePresentationName
+			else
+				return ""
+
+		DerivedFirstApproverEmailAddress is a DerivedField 
+			type is EmailAddressField
+			holds pii
+			restricted 
+			if (ApprovalCodeResourceRel exists)
+				return first ApprovalCodeResourceRel.Approver.EmailAddress
+			else
+				return ""
+
+		DerivedFirstApproverActor is a DerivedField
+			type is Actor 
+			restricted
+			if (ApprovalCodeResourceRel exists)
+				return first ApprovalCodeResourceRel.Approver.FinanceResourceActor
+			else
+				return ""
+
+		DerivedFirstApprover is a DerivedField
+			type is Numeric 13 
+			restricted
+			if (ApprovalCodeResourceRel exists)
+				return first ApprovalCodeResourceRel.Approver
+			else
+				return ""
+
+		ApprovalDescriptionID is a MessageField
+			"<Description>_(<ApprovalCode>)"		
+
+	Context Fields
+
+	Conditions
+		UsingFirstAndLastApprovers
+			restricted
+			when ((InitialApproverSelectionMethod.FirstApprovalLevel
+			or	  InitialApproverSelectionMethod.SpecificApprovalLevel)
+			and	  FinalApproverSelectionMethod.LastApprovalLevel)
+
+		HasApprovalLevels
+			restricted
+			when (ApprovalCodeResourceRel exists)
+			
+		HasInvalidEscalations
+			restricted
+			when (InvalidEscalationRel exists)
+			
+		HasInactiveResources
+			restricted
+			when (InactiveResourceRel exists)
+			
+		HasTeamWithNoMembers
+			restricted
+			when (NoMembersOnTeamRel exists)
+
+	Relations
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+
+		InvalidEscalationRel is a ApprovalCodeResource set
+			Instance Selection
+				where (related.InvalidEscalation)
+				
+		InactiveResourceRel is a ApprovalCodeResource set
+			Instance Selection
+				where (related.ApproverResourceInactive
+				or     related.ApproverTeamMemberInactive)
+				
+		NoMembersOnTeamRel is a ApprovalCodeResource set
+			Instance Selection
+				where (related.TeamHasNoMembers)
+
+		ApprovalCodeResourceNoMaxAmountRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByAmount
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (related.MaxApprovalAmount not entered
+				or	   related.MaxApprovalAmount = 0)
+
+	Field Rules
+		Description
+			required
+
+		InitialApproverSelectionMethod
+			if (ApprovalCodeUsesMaximumAmounts)
+				default to 1
+				if (!InitialApproverSelectionMethod.FirstApprovalLevel
+				and !InitialApproverSelectionMethod.SpecificApprovalLevel)
+					constraint (!ApprovalCodeResourceNoMaxAmountRel exists)
+						"AllApprovalLevelsMustHaveAMaximumApprovalAmountEnteredWhenInitialApprovalLevelIsNotFirstApprovalLevelOrSpecificApprovalLevel"
+
+		FinalApproverSelectionMethod
+			if (ApprovalCodeUsesMaximumAmounts)
+				default to 1
+
+		InitialApprovalLevel
+			if (InitialApproverSelectionMethod.SpecificApprovalLevel)
+				required
+
+	Attach Rules
+		constraint (Active)
+			"ApprovalCodeIsInactive"
+			
+	Actions
+		Create is a Create Action
+			completion message is "ApprovalCodeCreated"
+		
+		Update is an Update Action
+			completion message is "ApprovalCodeUpdated"
+		
+		Delete is a Delete Action
+			completion message is "ApprovalCodeDeleted"

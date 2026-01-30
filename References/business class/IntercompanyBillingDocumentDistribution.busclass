@@ -1,0 +1,129 @@
+IntercompanyBillingDocumentDistribution is a BusinessClass
+	owned by intercobilling
+	prefix is ICBCT
+	sql name is "ICBDocumentDistribution"
+
+	Ontology
+		symbolic key is IntercompanyBillingDocumentDistribution
+
+	Persistent Fields
+		Type						is AlphaUpper size 1
+			States
+				Withholding		value is blank 
+				Payables		value is "P"	
+				Receivables		value is "R"
+		Description
+		GeneralLedgerAccount		is a FinanceCodeBlockFull
+			default label is "GlobalLedgerAccount"	
+		DistributionAmount			is an InternationalAmount
+
+
+	Field Rules
+		GeneralLedgerAccount
+			if (Type.Payables)
+				default to IntercompanyBillingDocumentLine.RechargeItem.ToPayablePLAccount
+					default individual fields
+				default to IntercompanyBillingDocumentHeader.PayableEntity.ProcessLevel.ICBillingDefaultExpenseAccount
+					default individual fields
+
+			if (Type.Receivables)
+				default to IntercompanyBillingDocumentLine.RechargeItem.FromReceivablePLAccount
+					default individual fields
+				default to IntercompanyBillingDocumentHeader.ReceivableEntity.ProcessLevel.AccountingUnitFinanceCodeBlock
+					default individual fields
+
+
+	Derived Fields
+		TransactionDescription is a MessageField
+			restricted
+			"IntercompanyBillingWithholdingReversal"
+			
+		TransactionReference is a MessageField
+			restricted
+			"IntercompanyBillingDistribution"
+
+
+	Conditions
+		ActionIsAllowed
+			restricted
+			when (IntercompanyBillingDocumentHeader.Status.Unreleased
+			or    IntercompanyBillingDocumentHeader.Status.PendingApproval)
+
+		OtherDistribsHaveDifferentProjectOnRevenueAccount
+			restricted
+			when (DocumentDistributionMultiRevenueProjectRel exists)
+
+		IsPositiveDistribution
+			restricted
+			when (DistributionAmount >= 0)
+
+		IsNegativeDistribution
+			restricted
+			when (DistributionAmount < 0)
+
+
+	Relations
+		GLTransactionDetailRel
+			one-to-one relation to GLTransactionDetail
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction		= reference to this instance
+
+		DocumentDistributionMultiRevenueProjectRel
+			one-to-many relation to IntercompanyBillingDocumentDistribution
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (related.Type.Receivables
+				and    related.GeneralLedgerAccount.Project != GeneralLedgerAccount.Project)  
+
+
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				invoke Released.Create GLTransactionDetail
+					invoked.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+					invoked.OriginatingTransaction	= reference to this instance
+					invoked.System					= "IB"
+					invoked.Reference				= TransactionReference
+					invoked.AccountingEntity		= IntercompanyBillingDocumentHeader.PayableEntity.Company.AccountingEntity
+					invoked.TransactionAmount		= IntercompanyBillingDocumentLine.GLTransDetailAmount
+					invoked.UnitsAmount				= IntercompanyBillingDocumentLine.Quantity
+					invoked.CurrencyCode			= IntercompanyBillingDocumentHeader.DocumentCurrency
+					invoked.TransactionDate			= IntercompanyBillingDocumentHeader.InvoiceDate		 
+					invoked.PostingDate				= IntercompanyBillingDocumentHeader.PostDate
+					invoked.FinanceCodeBlock		= IntercompanyBillingDocumentLine.GLTransDetailAccount
+					invoked.ReportCurrencyAmount.KeepRateAndAmount						= true
+					invoked.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount	= IntercompanyBillingDocumentLine.GLTransDetailFunctionalAmount
+					invoked.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyRate	= IntercompanyBillingDocumentHeader.PayableEntity.CurrencyExchangeRate
+					invoked.GeneralLedgerEvent		= "WR"
+					invoked.ControlDocumentNumber	= IntercompanyBillingDocumentHeader
+					invoked.DocumentNumber			= IntercompanyBillingDocumentHeader
+					invoked.Description				= TransactionDescription
+					invoked.JournalizeGroup			= IntercompanyBillingDocumentLine.GLTransDetailJournalizeGroup
+
+		CreateRevenueDistribution is a Create Action
+			valid when (ActionIsAllowed)
+			Action Rules
+				Type = Type.Receivables
+
+		CreateExpenseDistribution is a Create Action
+			valid when (ActionIsAllowed)
+			Action Rules
+				Type = Type.Payables
+
+		Update is an Update Action
+			restricted
+
+		UpdateRevenueAndExpense is an Update Action
+			default label is "Update"
+			valid when (ActionIsAllowed)
+
+		Delete is a Purge Action
+			restricted
+
+		DeleteRevenueAndExpense is a Purge Action
+			default label is "Delete"
+			valid when (ActionIsAllowed)
+

@@ -1,0 +1,164 @@
+AccountingUnitSecurityGroupMember is a BusinessClass
+	owned by GeneralLedger
+	
+	prefix is AUSGM
+	sql name is AUSecurityGroupMember
+	
+	Ontology
+		symbolic key is AccountingUnitSecurityGroupMember
+		
+	Patterns
+	
+	Persistent Fields
+		AccountingUnitStructure
+		AccountingEntity
+        AccountingUnit
+        	delete cascades
+        AllAccountingUnitsForEntity is Boolean	
+
+	Context Fields
+
+	Local Fields
+		LocalAccountingEntity		is like AccountingEntity
+		LocalAccountingUnit			is like AccountingUnit
+		LocalSummaryAccountingUnit  is like AccountingUnit
+	
+	Derived Fields
+		RequiresRebuild		is a DerivedField
+			type is Boolean
+			return AccountingUnitSecurityGroup.RequiresRebuild
+	
+	Field Rules
+		AccountingUnitStructure
+			required
+		AccountingEntity
+			required	
+		AccountingUnit
+			if (!AllAccountingUnitsForEntity)
+				required
+				constraint (!AccountingUnit.AccountingUnitType.Posting)
+					"AccountingUnitCannotBePostingType"
+				constraint (AccountingUnitInStructureRel exists)
+					"AccountingUnitDoesNotBelongToStructure<AccountingUnitStructure>"
+			constraint (!AllAccountingUnitsForEntity)
+				"CannotSpecify_Accounting_UnitWith_AllOption"
+		AllAccountingUnitsForEntity
+			if (!AccountingUnit entered)
+				required
+			constraint (!AccountingUnit entered)
+				"CannotSpecify_Accounting_UnitWith_AllOption"
+						
+	Relations
+		AccountingUnitInStructureRel
+			one-to-many relation to AccountingUnitShadow
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+				related.AccountingUnitStructure = AccountingUnitStructure
+				related.AccountingEntity		= AccountingEntity
+				related.AccountingUnit			= AccountingUnit
+
+		AccountingUnitDescendantsRel
+			one-to-many relation to AccountingUnitShadow
+			Field Mapping uses BySummaryAccountingUnit
+				related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+				related.SummaryEntity			= AccountingEntity
+				related.SummaryAccountingUnit	= LocalSummaryAccountingUnit					
+
+		AccountingUnitAncestorsRel
+			one-to-many relation to AccountingUnitShadow
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup      = FinanceEnterpriseGroup
+				related.AccountingUnitStructure	    = AccountingUnitStructure
+				related.AccountingEntity			= AccountingEntity
+				related.AccountingUnit              = LocalSummaryAccountingUnit	
+				
+		GroupSecurityDetailRel
+			one-to-one relation to AccountingUnitSecurityGroupDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup      = FinanceEnterpriseGroup
+				related.AccountingUnitSecurityGroup = AccountingUnitSecurityGroup
+				related.AccountingEntity			= LocalAccountingEntity
+				related.AccountingUnit				= LocalAccountingUnit
+
+		EntityZoneAccountingUnitRel
+			one-to-one relation to AccountingUnitHierarchy
+			Field Mapping uses ByEntityZoneAccountingUnitInStructure
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.AccountingUnitStructure				= FinanceEnterpriseGroup.EnterpriseAUStructure
+				related.AccountingEntity					= AccountingEntity
+								
+	Sets
+		ByAccountingUnit
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingUnitSecurityGroup
+				AccountingEntity
+				AccountingUnit
+				
+	Rule Blocks
+		BuildDetail
+
+			LocalAccountingEntity = AccountingEntity
+			LocalAccountingUnit   = EntityZoneAccountingUnitRel.AccountingUnit
+			if (LocalAccountingUnit entered)
+				if (!GroupSecurityDetailRel exists)
+					invoke Create AccountingUnitSecurityGroupDetail
+						resume on error
+						invoked.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+						invoked.AccountingUnitSecurityGroup = AccountingUnitSecurityGroup
+						invoked.AccountingEntity 			= LocalAccountingEntity
+						invoked.AccountingUnit				= LocalAccountingUnit
+								
+			if (!AllAccountingUnitsForEntity)
+				LocalSummaryAccountingUnit = AccountingUnit
+				LocalAccountingUnit 	   = AccountingUnit
+				if (GroupSecurityDetailRel exists)
+					invoke ResetCreatedForHierarchyAccess GroupSecurityDetailRel
+				else
+					invoke Create AccountingUnitSecurityGroupDetail
+						resume on error
+						invoked.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+						invoked.AccountingUnitSecurityGroup = AccountingUnitSecurityGroup
+						invoked.AccountingEntity 			= AccountingEntity
+						invoked.AccountingUnit				= AccountingUnit
+			else
+				LocalSummaryAccountingUnit = AccountingEntity.ContextStructureAccountingUnitEntityNodeRel.AccountingUnit
+
+			if (!AllAccountingUnitsForEntity)
+				for each AccountingUnitAncestorsRel
+					LocalAccountingEntity = each.SummaryEntity
+					LocalAccountingUnit   = each.SummaryAccountingUnit
+					if (!GroupSecurityDetailRel exists)
+						invoke Create AccountingUnitSecurityGroupDetail
+							resume on error
+							invoked.FinanceEnterpriseGroup 		    	= FinanceEnterpriseGroup
+							invoked.AccountingUnitSecurityGroup   		= AccountingUnitSecurityGroup
+							invoked.AccountingEntity					= each.SummaryEntity			
+							invoked.AccountingUnit						= each.SummaryAccountingUnit
+							invoked.CreatedForHierarchyAccess			= true							
+			invoke CreateAccountingUnitSecurityGroupDetail AccountingUnitShadow
+				invoked.PrmFinanceEnterpriseGroup 		    		= FinanceEnterpriseGroup
+				invoked.PrmSummaryEntity							= AccountingEntity
+				invoked.PrmSummaryAccountingUnit					= LocalSummaryAccountingUnit
+				invoked.PrmAccountingUnitSecurityGroup   			= AccountingUnitSecurityGroup
+
+	Delete Rules
+		if (action != "DeleteFinal")
+			invoke SetRequiresRebuild AccountingUnitSecurityGroup
+				
+	Actions
+
+		Create is an Action
+			Exit Rules
+				include BuildDetail					
+						
+		Delete is an Action
+
+		DeleteFinal is a Delete Action
+			restricted
+							
+		RebuildMember is an Instance Action
+			restricted
+			Action Rules
+				include BuildDetail
+								

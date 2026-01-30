@@ -1,0 +1,662 @@
+ReceivableInvoiceDispute is a BusinessClass
+	owned by ar
+	prefix is ADP
+	classic name is ARDISPUTE
+
+	Ontology
+		symbolic key is ReceivableInvoiceDispute
+			classic set name is ADPSET1
+			classic name is SEQ
+			classic name for ReceivableInvoiceDetail.ReceivableInvoiceDetailType is TRANS-TYPE
+
+	Patterns
+		implements StaticJava
+		implements Archivable
+		disable AuditIndex
+
+	Persistent Fields
+
+		DisputedAmount				is an InternationalAmount
+			classic name is DISPUTE-AMT
+		DisputeCode					is a ReceivableInvoiceDisputeCode
+			classic name is DISPUTE-CD
+		BaseAmount					is an InternationalAmount
+			classic name is TRAN-AMT
+			precision is Company.Currency.NumberOfDecimals
+		OriginalDisputeAmount		is an InternationalAmount
+			classic name is ORIG-DISP
+		TransactionAmount			is an InternationalAmount
+			classic name is ORIG-AMT
+		OriginalCurrency			is a Currency
+			classic name is ORIG-CURRENCY
+			default label is "TransactionCurrency"	
+		DisputeDate					is Date
+		ResolveDate					is Date
+			classic name is RESOLV-DATE
+		Description
+			classic name is DESC
+		OriginatingInterfaceRun		is like ReceivablesInterfaceResult
+		ApplicationCloseResult
+			delete ignored
+
+
+
+	Rule Blocks
+		SumOpenReceivableInvoiceDetailRelAmounts	
+			if (!SumOfOpenReceivableInvoiceDetailRelDone)	
+				initialize SumOfOpenReceivableInvoiceDetailRelInvoiceAmountCurrencyAmount	
+				initialize SumOfOpenReceivableInvoiceDetailRelApplicationAmountCurrencyAmount	
+				initialize SumOfOpenReceivableInvoiceDetailRelAdjustmentAmountCurrencyAmount	
+					for each OpenReceivableInvoiceDetailRel
+						SumOfOpenReceivableInvoiceDetailRelInvoiceAmountCurrencyAmount		 += each.InvoiceAmount.CurrencyAmount			
+						SumOfOpenReceivableInvoiceDetailRelApplicationAmountCurrencyAmount	 += each.ApplicationAmount.CurrencyAmount	
+						SumOfOpenReceivableInvoiceDetailRelAdjustmentAmountCurrencyAmount	 += each.AdjustmentAmount.CurrencyAmount	
+				SumOfOpenReceivableInvoiceDetailRelDone = true	
+
+
+
+	Derived Fields
+
+		OpenStatusMessage				is a MessageField
+			restricted
+			"Open"
+
+
+		ClosedStatusMessage				is a MessageField
+			restricted
+			"Resolved"
+
+
+		Status							is a DerivedField
+			type is Text
+			if (IsClosedDispute)
+				return ClosedStatusMessage
+			else
+				return OpenStatusMessage
+
+		CommentsWithCount is a DerivedField
+            type is Alpha size 12
+			restricted
+            default label is "Comments"
+            return ("Comments (" + instance count of CompanyCustomerTransactionCommentRel + ")")
+
+		CompanyCustomerTransactionCommentRelCount is a ComputeField
+			type is Numeric size 6
+			(instance count of CompanyCustomerTransactionCommentRel)
+
+		CommentsExistsMessage			is a MessageField
+			restricted
+			"Customer_Comments_Exists"
+
+
+		NoCommentsExistsMessage			is a MessageField
+			restricted
+			"No_Customer_Comments_Exists"
+
+
+		InvoiceCommentsExistsMessage	is a MessageField
+			restricted
+			"Invoice_Comments_Exists"
+
+
+		NoInvoiceCommentsExistsMessage	is a MessageField
+			restricted
+			"No_Invoice_Comments_Exists"
+
+
+		CustomerComments				is a DerivedField
+			type is Text
+			if (IsCompanyCustomerComment)
+				return CommentsExistsMessage
+			else
+				return NoCommentsExistsMessage
+
+
+		TransactionComments				is a DerivedField
+			type is Text
+			if (IsCompanyCustomerTransactionComment)
+				return InvoiceCommentsExistsMessage
+			else
+				return NoInvoiceCommentsExistsMessage
+
+
+		InvoiceDetailTransactionAmount is a DerivedField		
+			type is like InternationalAmount
+			restricted	
+			include SumOpenReceivableInvoiceDetailRelAmounts	
+
+			return (SumOfOpenReceivableInvoiceDetailRelInvoiceAmountCurrencyAmount)	
+
+
+		AppliedReceivableInvoiceDetailAmount is a DerivedField	
+			type is like InternationalAmount
+			restricted	
+			include SumOpenReceivableInvoiceDetailRelAmounts	
+
+			return (SumOfOpenReceivableInvoiceDetailRelApplicationAmountCurrencyAmount)	
+
+
+		AdjustedReceivableInvoiceDetailAmount is a DerivedField	
+			type is like InternationalAmount
+			restricted	
+			include SumOpenReceivableInvoiceDetailRelAmounts	
+
+			return (SumOfOpenReceivableInvoiceDetailRelAdjustmentAmountCurrencyAmount)	
+
+
+		OpenReceivableInvoiceDetailAmount is a DerivedField	
+			type is like InternationalAmount
+			restricted	
+			return (AppliedReceivableInvoiceDetailAmount + AdjustedReceivableInvoiceDetailAmount)
+
+
+		OpenReceivableInvoiceAmount is a DerivedField	
+			type is like InternationalAmount
+			restricted	
+			return (ReceivableInvoiceDetail.ReceivableInvoiceRel.InvoiceAmount.CurrencyAmount - OpenReceivableInvoiceDetailAmount)
+
+
+		OpenReceivableInvoiceAmountDispute is a DerivedField	
+			type is like InternationalAmount
+			restricted	
+			return (InvoiceDetailTransactionAmount - OpenReceivableInvoiceDetailAmount)
+
+
+		CustomerGroupAgingPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			if (Company.CustomerGroupField.CustomerGroup.AgeDisputesRule.AgedInCurrentColumn
+			and Company.CustomerGroupField.CustomerGroup.ExpandedAgingPeriods)
+				return 3
+			else
+				return 2
+
+
+		AgingCodeAgingPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			if (CompanyCustomerRel.AgingCode.AgeDisputesRule.AgedInCurrentColumn
+			and CompanyCustomerRel.AgingCode.ExpandedAgingPeriods)
+				return 3
+			else
+				return 2
+
+
+		CompanyAgingPeriod is a DerivedField
+			type is Numeric 2
+			restricted
+			if (Company.AgeDisputesRule.AgedInCurrentColumn
+			and Company.ExpandedAgingPeriods)
+				return 3
+			else
+				return 2
+
+
+		CustomerGroupDisputeAmount is a DerivedField
+			type is like InternationalAmount
+
+			if (OriginalCurrency = first Company.CustomerGroupField.CustomerGroup.Currency)
+				return DisputedAmount
+			else
+			if (Company.Currency = first Company.CustomerGroupField.CustomerGroup.Currency)
+				return BaseAmount
+			else
+				CurrencyWork.FinanceEnterpriseGroup						= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				CurrencyWork.ExchangeDate								= DisputeDate
+				CurrencyWork.TransactionAmount							= DisputedAmount
+				CurrencyWork.FromCurrency								= OriginalCurrency
+				CurrencyWork.BaseAmount.ToCurrency						= Company.CustomerGroupField.CustomerGroup.Currency
+				return CurrencyWork.BaseAmount.OutputCurrencyAmount
+
+
+		DerivedTransactionCount is a DerivedField
+			type is Numeric 7
+			return 1		
+			
+		DisputeAmountDisplay			is a LabelField 
+			"<OriginalCurrency>_<DisputedAmount>"
+
+
+	Transient Fields
+		TransientSkipOpenDisputeCheck		is Boolean
+		TransientOverrideDunningProcess		is AlphaUpper size 1
+			States
+				ProcessNormally			value is blank
+				BypassDunningEntirely	value is "1"
+				DoNotSendForCollection	value is "2"
+		TransientDueDate					is Date	
+
+
+
+	Local Fields
+		CurrencyWork														is a ReceivableExchange
+		SumOfOpenReceivableInvoiceDetailRelDone								is Boolean	
+		SumOfOpenReceivableInvoiceDetailRelInvoiceAmountCurrencyAmount		is like InternationalAmount	
+		SumOfOpenReceivableInvoiceDetailRelApplicationAmountCurrencyAmount	is like InternationalAmount	
+		SumOfOpenReceivableInvoiceDetailRelAdjustmentAmountCurrencyAmount	is like InternationalAmount	
+
+
+	Field Rules
+		Description
+			default to DisputeCode.ReceivableInvoiceDisputeCode.Description
+			required
+
+		DisputedAmount
+			cannot be changed
+
+
+
+			if (!TransientSkipOpenDisputeCheck)
+				constraint (DisputedAmount <= ReceivableInvoiceDetail.ReceivableInvoiceRel.InvoiceAmount.CurrencyAmount)
+					"DisputedAmountCannotBeGreaterThanTransactionAmount"
+				constraint (DisputedAmount <= OpenReceivableInvoiceAmount)
+					"DisputedAmountCannotBeGreaterThanOpenAmount"
+			required
+
+
+
+
+
+
+
+		TransientOverrideDunningProcess
+			if (TransientOverrideDunningProcess entered)
+				constraint (CompanyCustomerRel.DunningLetterIndicator)
+					"Must_\Process_Normally_-_\Customer_\Dunning_\Letter_\IndicatorIsBlank"
+			if (TransientOverrideDunningProcess not entered
+			and CompanyCustomerRel.DunningLetterIndicator)
+				default to ReceivableInvoiceDetailRel.ReceivableInvoiceRel.OverrideDunningProcess
+
+		DisputeDate
+			required
+			default to current corporate date
+			if  (!TransientSkipOpenDisputeCheck)
+				constraint (DisputeDate >= ReceivableInvoiceDetail.ReceivableInvoiceRel.TransactionDate)
+					"DisputeDateCannotBeLessThanReceivableInvoiceTransactionDate"
+
+		ResolveDate	
+			if (ResolveDate entered)
+				constraint (ResolveDate >= DisputeDate)
+					"ResolveDateCannotBeLessThanDisputeDate"
+
+		BaseAmount
+			force default to ReceivableInvoiceDetail.InvoiceAmount.FunctionalAmount.EnteredCurrencyAmount
+			cannot be changed
+
+		TransactionAmount
+			force default to ReceivableInvoiceDetail.InvoiceAmount.CurrencyAmount
+			cannot be changed
+
+		OriginalCurrency
+			force default to ReceivableInvoiceDetailRel.OriginalCurrency
+			cannot be changed
+
+
+
+	Conditions
+
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+
+		SecurityGroupAllowsAccess	
+			when (actor.context.CompanySecurityGroup = blank
+			or	   CompanySecurityGroupMemberRel exists)
+
+
+		IsClosedDispute
+			when (ResolveDate entered)
+
+
+		IsOpenDisputes
+			when (ResolveDate not entered)
+
+
+		IsReceivableInvoice
+			restricted
+			when (ReceivableInvoiceRel exists)
+
+
+		IsCompanyCustomerComment
+			restricted
+			when (CompanyCustomerCommentRel exists)	
+
+
+		IsCompanyCustomerTransactionComment
+			restricted
+			when (CompanyCustomerTransactionCommentRel exists)
+
+
+		IsOpenReceivableInvoiceDispute
+			restricted
+			when (OpenReceivableInvoiceDisputeRel exists)
+
+
+		IsARToAPApplicationSelect
+			restricted
+			when (ARToAPApplicationSelectRel exists)
+
+
+		IsReceivableInvoiceDetail
+			restricted
+			when (ReceivableInvoiceDetailRel exists)
+
+
+		DueDateChangeAllowed
+			restricted
+			when (Company.TransactionDueDateChangeAllowed)
+
+
+		ReceivableInvoiceDisputeExists
+			restricted
+			when (this instance exists)
+
+
+
+	Relations
+
+		CompanyCustomerRel
+			classic name is ARCUSTOMER
+			one-to-one relation to CompanyCustomer
+			required
+			Field Mapping uses symbolic key
+				related.Company		 = Company
+				related.Customer	 = Customer
+
+
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+
+		CompanySecurityGroupMemberRel	
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+
+		ReceivableInvoiceRel
+			classic name is AROIHDR
+			one-to-one relation to ReceivableInvoice
+			required
+			Field Mapping uses Set4
+				related.Company					 = Company
+				related.Customer				 = Customer
+				related.ReceivableInvoiceType	 = ReceivableInvoiceDetail.AlternateReceivableInvoiceType
+				related.ReceivableInvoice		 = ReceivableInvoiceDetail.Invoice
+
+
+		CustomerRel
+			classic name is CUSTDESC
+			one-to-one relation to Customer
+			required
+			Field Mapping uses symbolic key
+				related.CustomerGroup	 = Company.CustomerGroupField.CustomerGroup
+				related.Customer		 = Customer
+
+
+		CompanyCustomerCommentRel
+			one-to-many relation to CompanyCustomerComment
+			Field Mapping uses Set3
+				related.Company							 = Company
+				related.Customer						 = Customer
+
+
+		CompanyCustomerTransactionCommentRel
+			one-to-many relation to CompanyCustomerComment
+			Field Mapping uses Set2
+				related.Company							 = Company
+				related.Customer						 = Customer
+				related.CommentType						 = "T"
+				related.TransactionType					 = ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+				related.Transaction						 = ReceivableInvoiceDetail.Invoice
+
+
+
+		OpenReceivableInvoiceDisputeRel
+			classic name is ARDISPUTE
+			one-to-many relation to ReceivableInvoiceDispute
+			Field Mapping uses Set5	//IEFIN-106354 replacing symbolic key with Set5 since it is defined with an Instance Selection of "IsOpenDisputes" or ResolveDate not entered
+				related.Company														 = Company
+				related.Customer													 = Customer
+			Instance Selection
+				where (related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType	 = ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+				and	related.ReceivableInvoiceDetail.Invoice							 = ReceivableInvoiceDetail.Invoice)
+
+
+
+		ARToAPApplicationSelectRel
+			one-to-one relation to ARToAPApplicationSelect
+			Field Mapping uses Set2
+				related.Company									 = Company
+				related.ARToAPApplicationSelect.TransactionType	 = ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+				related.ARToAPApplicationSelect.Invoice			 = ReceivableInvoiceDetail.Invoice
+				related.ARToAPApplicationSelect.PaymentSeq		 = ReceivableInvoiceDetail.PaymentSeq
+
+
+		ReceivableInvoiceDetailRel
+			one-to-many relation to ReceivableInvoiceDetail
+			Field Mapping uses Set3
+				related.Company														 = Company
+				related.Customer													 = Customer
+			Instance Selection
+				where  (related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType	 = ReceivableInvoiceDetail.ReceivableInvoiceDetailType)
+
+
+
+
+
+		OpenReceivableInvoiceDetailRel
+			one-to-many relation to ReceivableInvoiceDetail
+			Field Mapping uses Set3
+				related.Company														 = Company
+				related.Customer													 = Customer
+			Instance Selection
+				where (related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType	 = ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+				and	related.ReceivableInvoiceDetail.Invoice	 						 = ReceivableInvoiceDetail.Invoice
+				and	related.AlternateReceivableInvoiceType							 != "M")
+
+
+		ReceivableInvoiceDisputeCodeRel
+			classic name is DISPCODES
+			one-to-one relation to ReceivableInvoiceDisputeCode
+			Field Mapping uses symbolic key
+				related.Company							 = Company
+				related.ReceivableInvoiceDisputeCode	 = DisputeCode
+
+
+		SameReceivableInvoiceDetailRel
+			one-to-one relation to ReceivableInvoiceDetail
+			Field Mapping uses Set3
+				related.Company									= Company
+				related.Customer								= Customer
+				related.ReceivableInvoiceDetail					= ReceivableInvoiceDetail
+
+
+	Sets
+
+		Set2
+			indexed
+			Sort Order
+				Company
+				DisputeCode
+				Customer
+				ReceivableInvoiceDetail
+				ReceivableInvoiceDispute
+
+
+		Set3
+			indexed
+			Sort Order
+				Company
+				DisputeCode
+				DisputeDate
+				ResolveDate
+				Customer
+				ReceivableInvoiceDetail
+				ReceivableInvoiceDispute
+
+
+		Set4
+			indexed
+			Instance Selection
+				where (IsClosedDispute)
+			Sort Order
+				Company
+				DisputeCode
+				ResolveDate
+				Customer
+				ReceivableInvoiceDetail
+				ReceivableInvoiceDispute
+
+
+		Set5
+			indexed
+			Instance Selection
+				where (IsOpenDisputes)
+			Sort Order
+				Company
+				Customer
+				ReceivableInvoiceDetail
+				DisputeCode
+				ResolveDate
+				ReceivableInvoiceDispute
+
+
+		ByApplicationCloseResult
+			Sort Order
+				ApplicationCloseResult
+				Company
+				Customer
+				ReceivableInvoiceDetail
+				ReceivableInvoiceDispute
+
+		ByInterfaceRun
+			Sort Order
+				OriginatingInterfaceRun
+				Company
+				Customer
+				ReceivableInvoiceDetail
+				ReceivableInvoiceDispute
+
+	Actions
+		Create is a Create Action
+			restricted
+			Action Rules
+				constraint (ReceivableInvoiceDetail.ReceivableInvoiceRel.Status.Released)
+					"<ReceivableInvoiceDetail.ReceivableInvoiceDetailType><ReceivableInvoiceDetail.Invoice>IsNotReleased"
+				constraint (!IsARToAPApplicationSelect)
+					"ARToAPSelectRecordExistsCannotCreateReceivableInvoiceDisputeEntry"
+				if (!TransientSkipOpenDisputeCheck)
+					constraint (!IsOpenReceivableInvoiceDispute)
+						"OnlyOneOpenReceivableInvoiceDisputeAllowed" 
+
+			Exit Rules
+				if  (OriginatingInterfaceRun not entered)
+					invoke Update ReceivableInvoiceDisputeCodeRel
+						invoked.UsedFlag = true
+
+					invoke FastUpdate ReceivableInvoiceRel
+						invoked.OverrideDunningProcess = TransientOverrideDunningProcess
+
+				invoke FastUpdate CompanyCustomerRel
+					invoked.DisputedInvoices += 1
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "C")
+						invoked.DisputedInvoiceAmount -= DisputedAmount
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "I"
+					or  ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "D")
+						invoked.DisputedInvoiceAmount += DisputedAmount
+
+				if  (ReceivableInvoiceDetail.Project entered
+				or   ReceivableInvoiceDetail.ProjectContract entered
+				or   ReceivableInvoiceDetail.FinanceDimension2 entered)
+					invoke UpdateFromReceivableInvoiceDetail ReceivableInvoiceDetail.ReceivableProjectTransactionRel
+						invoked.DisputeSequence	= ReceivableInvoiceDispute
+
+
+		RestrictedCreate is a Create Action
+			restricted
+			bypass field rules
+			Exit Rules
+				invoke FastUpdate CompanyCustomerRel
+					invoked.DisputedInvoices += 1
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "C")
+						invoked.DisputedInvoiceAmount -= DisputedAmount
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "I"
+					or  ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "D")
+						invoked.DisputedInvoiceAmount += DisputedAmount
+
+
+		CreateFromAdjustmentMaintenance is a Create Action
+			restricted
+			bypass field rules
+			Action Rules
+				if (!TransientSkipOpenDisputeCheck)
+					constraint (!IsOpenReceivableInvoiceDispute)
+						"OnlyOneOpenReceivableInvoiceDisputeAllowed" 
+
+			Exit Rules
+				invoke FastUpdate CompanyCustomerRel
+					invoked.DisputedInvoices += 1
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "C")
+						invoked.DisputedInvoiceAmount -= DisputedAmount
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "I"
+					or  ReceivableInvoiceDetail.ReceivableInvoiceDetailType  = "D")
+						invoked.DisputedInvoiceAmount += DisputedAmount
+
+
+		Update is an Update Action
+			Field Rules
+			Action Rules
+			Exit Rules
+				invoke FastUpdate ReceivableInvoiceRel
+					invoked.OverrideDunningProcess = TransientOverrideDunningProcess
+				if (TransientDueDate entered)
+					constraint (TransientDueDate >= SameReceivableInvoiceDetailRel.TransactionDate)
+						"DueDateCannotBeLessThanTransactionDate"
+					invoke FastUpdate SameReceivableInvoiceDetailRel
+						invoked.DueDate = TransientDueDate
+				invoke FastUpdate CompanyCustomerRel
+					if (ResolveDate entered)
+						invoked.DisputedInvoices -= 1
+						if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "C")
+							invoked.DisputedInvoiceAmount += DisputedAmount
+						if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "I"
+						or  ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "D")
+							invoked.DisputedInvoiceAmount -= DisputedAmount
+
+				if (ARToAPApplicationSelectRel exists)
+					invoke Update ARToAPApplicationSelectRel
+						if (ResolveDate entered)
+							invoked.DisputeIndicator = blank
+
+
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+			Action Rules
+
+
+		Delete is a Delete Action
+			Exit Rules
+				invoke FastUpdate CompanyCustomerRel
+					invoked.DisputedInvoices -= 1
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "C")
+						invoked.DisputedInvoiceAmount += DisputedAmount
+					if (ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "I"
+					or  ReceivableInvoiceDetail.ReceivableInvoiceDetailType = "D")
+						invoked.DisputedInvoiceAmount -= DisputedAmount
+
+				if (ARToAPApplicationSelectRel exists)
+					invoke Update ARToAPApplicationSelectRel
+						if (ResolveDate not entered)
+							invoked.DisputeIndicator = blank
+
+
+		Purge is a Purge Action
+			restricted
+
+

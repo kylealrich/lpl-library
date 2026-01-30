@@ -1,0 +1,230 @@
+PayGroup is a BusinessClass
+    owned by ap
+    prefix is PAY
+    classic name is APPAYGROUP
+
+    Ontology
+        symbolic key is PayGroup
+            classic set name is PAYSET1
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Name
+        PostCompany                        is a GeneralLedgerCompany
+        	disable surrogates
+        NumberOfDecimals                   is Numeric size 1
+            classic name is CURR-ND
+        CashCode
+        BankTransactionCode
+            classic name is BANK-INST-CODE
+        LastDraftNumber
+            classic name is LAST-DRAFT-NBR
+            disable Auditing
+        BillOfExchangeAcceptanceAccounting is Boolean
+            sql name is BOExchangeAcceptanceAccounting
+            classic name is ACCEPT-ACCTING
+        BillOfExchangeAccrualCode          is a PayablesBillOfExchangeAccrualCode
+            classic name is DRAFT-CODE
+        Active                             is Boolean
+            classic name is ACTIVE-STATUS
+        InUse                              is Boolean
+            classic name is USED-FL
+        PayablesUserClass
+            classic name is USER-CLASS
+        SerialNumber                       is a SerialNum
+            classic name is SERIAL-NUM
+        BillOfExchangeNumbering            is AlphaUpper size 1
+            classic name is DRAFT-NBR-OPT
+            States
+                Automatic value is "A"
+                Manual    value is "M"
+        BillOfExchangeStatement            is Numeric size 8
+            classic name is BOE-STMT-NBR
+        UseBillOfExchangeDraftStatements   is Boolean
+            sql name is UBillOfExchangeDraftStatements
+            classic name is USE-DFT-STMTS
+		RemittanceAdviceFromEmailAddress	is an EmailAddress 
+			holds pii
+    Local Fields
+		LocalCompany is like PayablesCompany
+
+	Derived Fields
+	    BaseCurrency is a DerivedField
+	    	type is like Currency
+	    	restricted
+	    	return PostCompany.Currency
+
+		CreateMessage is a LabelField
+			restricted
+			"CreatePayGroup"
+		
+        FormLabel is a LabelField
+			restricted
+			"PayGroup:_"
+
+		DerivedPayGroupTitle is a StringField
+			type is Text
+			default label is "PayGroup"
+			PayGroup " - " Name
+		
+		DerivedFormTitle is a DerivedField
+	   		type is MessageField
+			restricted
+			if (RecordExists)
+				return FormLabel + DerivedPayGroupTitle
+			else
+				return CreateMessage
+	   
+	    
+    Conditions
+		RecordExists
+			restricted
+			when (PayGroup exists)
+		
+		IsCorrectBankStransactionCode
+			restricted
+			when (BankTransactionCode.BankTransactionType.CashPayment
+			or    BankTransactionCode.BankTransactionType.BillOfExchangePayment)		
+    
+    Relations
+
+        PayablesProcessingMonitorRel
+            classic name is APMONITOR
+            one-to-many relation to PayablesProcessingMonitor
+            delete restricted
+            Field Mapping uses symbolic key
+            Instance Selection
+                where (related.PayablesProcessingMonitor.PayGroup = PayGroup)
+
+        PayGroupCompanyRelationshipRel
+            classic name is APPAYCOREL
+            one-to-many relation to PayGroupCompanyRelationship
+            Field Mapping uses symbolic key
+                related.VendorGroup = VendorGroup
+                related.PayGroup 	= PayGroup
+                
+        PayablesInvoiceRel
+            one-to-many relation to PayablesInvoice
+            Field Mapping uses symbolic key
+                related.Company			= LocalCompany
+
+        PayablesInvoiceHistoryRel
+            one-to-many relation to PayablesInvoiceHistory
+            Field Mapping uses symbolic key
+                related.Company			= LocalCompany
+
+        PayablesCompanyRel
+            one-to-many relation to PayablesCompany
+            Field Mapping uses Set2
+                related.VendorGroup		= VendorGroup
+
+        PayGroupCompaniesRel
+            one-to-many relation to PayablesCompany
+            Field Mapping uses Set3
+                related.PayGroup		= PayGroup
+
+        PayablesElectronicTransferIDRel
+            one-to-many relation to PayablesElectronicTransferID
+            Field Mapping uses symbolic key
+                related.VendorGroup = VendorGroup
+                related.PayGroup	= PayGroup
+		
+		PayablesUserRel
+			one-to-many relation to PayablesUser
+			Field Mapping uses symbolic key
+				related.VendorGroup			= VendorGroup
+				related.PayablesUserClass	= PayablesUserClass
+				related.PayablesUser		= actor
+
+	Attach Rules
+		if (parentcontext.name != "CashPaymentRegister")		
+			constraint (Active)
+				"PayGroupIsNotActive"
+
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+			Action Rules
+				if (PostCompany changed)
+					for each PayGroupCompanyRelationshipRel
+						LocalCompany = each.Company
+						constraint (PayablesInvoiceRel not exists)
+							"CannotChangePostingCompany;InvoicesExist"              
+						constraint (PayablesInvoiceHistoryRel not exists)
+							"CannotChangePostingCompany;InvoicesExist"              
+				if (VendorGroup changed)
+					constraint (PayablesCompanyRel not exists)
+						"CannotChangeVendorGroup;CompanyIsAssigned"              
+
+		Delete is a Delete Action
+			Action Rules
+				constraint (PayGroupCompanyRelationshipRel not exists)
+					"CannotDelete;PayGroupCompanyRelationshipExists"          
+        
+		IncrementSerialNumber is an Instance Action
+			restricted
+			refresh and lock this instance
+			Action Rules
+				SerialNumber = SerialNumber + 1
+		
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                PostCompany
+                PayGroup
+
+    Field Rules
+        BankTransactionCode
+            required
+			constraint (IsCorrectBankStransactionCode)
+				"PaymentTypeMustBeCashOrBillOfExchange"                    
+
+        CashCode
+            required
+
+        Name
+            required
+
+        PostCompany
+            required
+            if (PostCompany changed
+            and PostCompany entered)
+            	constraint (BaseCurrency = PostCompany.Currency)
+            		"CannotChangePostCompany;BaseCurrenciesNotEqual"
+			constraint (PostCompany.FinanceEnterpriseGroup = VendorGroup.BusinessGroup.FinanceEnterpriseGroup)
+				"Finance_Enterprise_GroupFor_Posting_CompanyMustEqual_Finance_Enterprise_GroupOf_Vendor_Group"
+
+			for each PayGroupCompaniesRel
+				if  (each.Company.AccountingEntity != PayGroup.PostCompany.AccountingEntity)
+					constraint (each.GLInterEntityRelationRel exists)
+						"RelationshipBetweenCompany<each.Company>AccountingEntityAndPayGroupPostCompanyAccountingEntityDoesNotExist"
+
+        VendorGroup
+            required
+
+        Active
+            default to true
+
+		NumberOfDecimals
+			force default to PostCompany.CurrencyNumberOfDecimals
+
+        BillOfExchangeNumbering
+            default to "M"
+
+		BillOfExchangeAccrualCode
+			if (BillOfExchangeAcceptanceAccounting)
+				required
+					"B\O\EAccrualCodeRequired"                                
+		
+		PayablesUserClass
+			if (PayablesUserClass entered)
+				constraint (PayablesUserRel exists)
+					"User<actor>DoesNotBelongToUserClass<PayablesUserClass>"
+		

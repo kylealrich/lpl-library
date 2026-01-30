@@ -1,0 +1,242 @@
+ContractDeliverableContact is a BusinessClass
+	owned by po
+	
+	prefix is CDco
+	
+	Ontology
+		symbolic key is ContractDeliverableContact
+		
+	Patterns
+	
+	Persistent Fields
+		ContractAttachedContact
+		Contact                     is an Employee
+		Name                    	is a PersonName 
+			holds pii
+		Address                 	is a PostalAddressV2	
+			holds pii
+		Phone                   	is a Telephone 
+			holds pii
+		Email                   	is an EmailAddressMulti 
+			holds pii
+			default label is "EmailAddress"
+		ResponsibleForDeliverable	is Boolean
+ 		
+	Derived Fields
+	
+		DerivedName is a DerivedField
+			type is Alpha 101		
+			default label is "Name"
+			if (ContactEntered)
+				return Contact.FirstLastName
+			else
+				return Name.FirstAndLastName
+				
+		DerivedPhone is a DerivedField
+			type is Alpha 100
+			default label is "PhoneNumber"
+			if (ContactEntered)
+				return Contact.EmployeeWorkTelephone
+			else
+				return Phone.TelephoneDisplay
+				
+		DerivedEmail is a DerivedField 
+			type is EmailAddressField with multiple addresses 
+			holds pii
+			default label is "EmailAddress"
+			if (ContactEntered)
+				return Contact.EmployeeWorkEmailAddress
+			else
+				return Email
+
+	Field Rules
+
+		ResponsibleForDeliverable
+			if (ResponsibleForDeliverable changed)
+				if (old ResponsibleForDeliverable = true)
+					constraint (ResponsibleForDeliverable = true)
+						"InOrderToRemoveResponsibilityUseThe'RefreshOption'_thenMakeAnotherContactTheResponsiblePerson."
+				
+	Conditions
+		NotResponsibleForThisDeliverable
+			restricted
+			when (!ResponsibleForDeliverable)
+			
+		ContactEntered
+			when (Contact entered)
+		
+		ContractContactEntered
+			when (ContractAttachedContact entered)
+		
+		AllowsSendImmediate
+			restricted
+			when (Contract.NotContractTemplate
+			and  !Contract.ContractStatus.Closed)
+			
+		EmailAttachmentsExist 
+			restricted
+			when (DeliverableCommentsWithAttachmentsToEmailRel exists)
+			
+ 	Relations
+ 		OtherContractDeliverableResponsibleContactsRel
+ 			one-to-many relation to ContractDeliverableContact
+ 			Field Mapping uses symbolic key
+ 				related.ContractGroup					= ContractGroup
+ 				related.Contract						= Contract
+ 				related.ContractDeliverable				= ContractDeliverable
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.ResponsibleForDeliverable)
+ 				
+ 		ContractDeliverableResponsibleContactsRel
+ 			one-to-many relation to ContractDeliverableContact
+ 			Field Mapping uses symbolic key
+ 				related.ContractGroup					= ContractGroup
+ 				related.Contract						= Contract
+ 				related.ContractDeliverable				= ContractDeliverable
+			Instance Selection
+				where (related.ResponsibleForDeliverable)
+				
+		DeliverableCommentsWithAttachmentsToEmailRel
+			one-to-many relation to ContractDeliverableComment
+			Field Mapping uses part of key
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractDeliverable			= ContractDeliverable
+			Instance Selection
+				where (related.HasAttachmentToEmail)
+		
+		ContractGroupEmailTemplate2Rel
+			one-to-one relation to ContractGroupEmailTemplate2
+			Field Mapping uses symbolic key
+				related.ContractGroup                   = ContractGroup
+ 				
+	Sets
+				
+		ByContact
+			Sort Order
+				ContractGroup
+				Contract
+				ContractDeliverable
+				Contact
+				ContractDeliverableContact
+				
+ 	Actions
+ 		CreateAdHocContact is a Create Action
+			Entrance Rules
+			
+			Action Rules
+ 			
+				constraint (Email entered)
+ 					"MustEnterAnEmailAddresss"
+			
+ 			Exit Rules
+ 				if (ResponsibleForDeliverable)
+ 					for each OtherContractDeliverableResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForDeliverableToFalse = true
+					invoke Update ContractDeliverable
+						invoked.PersonResponsible		= DerivedName
+					
+ 		CreateContactFromEmployee is a Create Action
+			Entrance Rules
+			
+			Action Rules
+ 			
+				constraint (Contact.EmployeeWorkEmailAddressExists)
+					"ContactEmailAddressRequired"
+			
+ 			Exit Rules
+ 				if (ResponsibleForDeliverable)
+ 					for each OtherContractDeliverableResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForDeliverableToFalse = true
+					invoke Update ContractDeliverable
+						invoked.PersonResponsible		= DerivedName
+ 		
+ 		Update is an Update Action
+ 			Action Rules
+ 			
+ 				if (!ContactEntered)
+ 					constraint (Email entered)
+ 						"MustEnterAnEmailAddress"
+ 			
+ 			Exit Rules
+ 				if (ResponsibleForDeliverable)
+ 					for each OtherContractDeliverableResponsibleContactsRel
+ 						invoke FastUpdate each
+ 							invoked.PrmUpdateResponsibleForDeliverableToFalse = true
+					invoke Update ContractDeliverable
+						invoked.PersonResponsible		= DerivedName
+ 		
+ 		CreateFromDeliverable is a Create Action
+ 			restricted
+					
+ 		UpdateFromDeliverable is an Update Action
+ 			restricted
+ 		
+ 		Delete is a Delete Action
+ 		
+ 		Purge is a Purge Action
+			restricted
+			 		
+ 		FastUpdate is an Instance Action
+ 			restricted
+ 			Parameters
+ 				PrmUpdateResponsibleForDeliverableToFalse		is Boolean
+ 				
+ 			Action Rules
+ 				if (PrmUpdateResponsibleForDeliverableToFalse)
+ 					ResponsibleForDeliverable		= false
+ 					
+		SendImmediateEmail is an Instance Action
+			valid when (AllowsSendImmediate)
+			Parameters
+				PrmSendToEmailAddress					is an EmailAddressMulti 
+					holds pii
+				PrmCcEmail                              is an EmailAddressMulti 
+					holds pii
+				PrmEmailSubjectLine						is Alpha size up to 400
+				PrmEmailContents						is Alpha size up to 3000
+				PrmIncludeAttachments					is Boolean
+								
+			Parameter Rules
+				PrmSendToEmailAddress
+					initial value is DerivedEmail
+					required
+						"EmailAddressIsRequired"
+
+				PrmEmailSubjectLine
+					initial value is ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailSubject
+					
+					required
+						"EmailSubjectIsRequired"
+						
+				PrmEmailContents
+					initial value is ContractGroupEmailTemplate2Rel.FinalDeliverableAdhocEmailContent
+					
+					required
+						"EmailContentsAreRequired"
+						
+				PrmIncludeAttachments
+					constraint (EmailAttachmentsExist)
+						"CannotSelectToIncludeAttachmentsWhenNoAttachmentsExistToEmail"
+
+			Action Rules
+				invoke CreateImmediateEmail ContractNotificationEmail
+					invoked.ContractGroup					= ContractGroup
+					invoked.Contract						= Contract
+					invoked.ContractDeliverable				= ContractDeliverable
+					initialize invoked.ContractMilestone
+					invoked.SentToDeliverableContact		= ContractDeliverableContact
+					initialize invoked.SentToMilestoneContact
+					invoked.SentToEmailAddress				= PrmSendToEmailAddress
+					invoked.SentToCc                        = PrmCcEmail
+					invoked.SentFromPrimaryContractContact	= Contract.PrimaryContact
+					invoked.SentFromEmailAddress			= actor.ContactInfo.EmailAddress
+					invoked.EmailSubjectLine				= PrmEmailSubjectLine
+					invoked.EmailContent					= PrmEmailContents
+					invoked.NotificationType				= 4
+					invoked.IncludeAttachments				= PrmIncludeAttachments
+				
+			Exit Rules

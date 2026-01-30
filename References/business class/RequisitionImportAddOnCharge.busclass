@@ -1,0 +1,173 @@
+RequisitionImportAddOnCharge is a BusinessClass
+	owned by rq
+	prefix is RIAOC
+	
+	Ontology
+        symbolic key is RequisitionImportAddOnCharge
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+	
+	Persistent Fields
+		SpreadAddOnCharge                       is Boolean
+		Vendor
+        PurchaseFromLocation
+        AddOnChargePercent
+            classic name is AOC-RATE
+        EnteredUnitCost        					is an UnsignedUnitCost
+            classic name is ENT-UNIT-CST
+        TotalAddOnChargeAmount 					is an InternationalAmount
+            classic name is TOTAL-AOC
+        Taxable                         		is Boolean
+        TaxCode
+        Summarize								is Boolean
+        ZeroCost								is Boolean
+            classic name is ZERO-COST-FLG
+        LandedAddOnCharge						is Boolean
+            classic name is LANDED-FLAG
+        Currency
+            classic name is CURRENCY-CODE
+
+	Local Fields
+		LocalErrorMessage			is Alpha 150
+		LocalErrorOccurred			is Boolean
+		LocalCompany				is like InventoryCompany
+		LocalRequisitionImport		is like RequisitionImport
+		LocalRequisitionImportLine	is like RequisitionImportLine
+		
+	Field Rules
+
+	Conditions
+        DetailsExist
+            restricted
+            when (RequisitionImportLineDistributionsRel exists
+            or    RequisitionImportCommentsRel exists
+            or    RequisitionImportAddOnChargesRel exists)
+            
+        EntryExists
+        	restricted
+        	when (RequisitionImportAddOnCharge exists)
+			
+	Relations
+		
+		RequisitionImportLineDistributionsRel
+            one-to-many relation to RequisitionImportLineDistribution
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportCommentsRel
+            one-to-many relation to RequisitionImportComment
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+                
+        RequisitionImportAddOnChargesRel
+            one-to-many relation to RequisitionImportAddOnCharge
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+
+        RequisitionImportLinesRel
+            one-to-many relation to RequisitionImportLine
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company           			= LocalCompany
+                related.RequisitionImport  			= LocalRequisitionImport
+                related.RequisitionImportLine       = LocalRequisitionImportLine
+	
+	Actions
+	
+		Create is a Create Action
+    	
+    	CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+    	
+    	Update is an Update Action
+    	
+    	Delete is a Delete Action
+    	
+    	FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+		InterfaceRequisitionLineAddOnCharges is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRunGroup							is a RunGroup
+				PrmInterfaceResult					is a RequisitionInterfaceResult
+			Local Fields
+		    	LocalSetCompany                    	is like InventoryCompany
+				LocalSetRequisitionImport			is like RequisitionImport
+				LocalSetRequisitionImportLine		is like RequisitionImportLine
+			Instance Selection			
+				where (PrmRunGroup					= RequisitionImport.RunGroup
+				and    PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup)
+			Sort Order
+				Company
+				RequisitionImport
+				RequisitionImportLine
+				SpreadAddOnCharge
+			Action Rules
+				Empty Set Rules
+					invoke InterfaceRequisitionLineComments RequisitionImportComment
+						invoked.PrmFinanceEnterpriseGroup			= PrmFinanceEnterpriseGroup
+						invoked.PrmRunGroup							= PrmRunGroup
+						invoked.PrmInterfaceResult					= PrmInterfaceResult
+
+				Set Rules
+					Exit Rules
+						invoke InterfaceRequisitionLineComments RequisitionImportComment
+							invoked.PrmFinanceEnterpriseGroup		= PrmFinanceEnterpriseGroup
+							invoked.PrmRunGroup						= PrmRunGroup
+							invoked.PrmInterfaceResult				= PrmInterfaceResult
+
+				RequisitionImportLine Set Rules
+					Entrance Rules
+						LocalSetCompany								= Company
+						LocalSetRequisitionImport					= RequisitionImport	
+						LocalSetRequisitionImportLine				= RequisitionImportLine						
+					Exit Rules
+						LocalCompany								= LocalSetCompany
+						LocalRequisitionImport						= LocalSetRequisitionImport	
+						LocalRequisitionImportLine					= LocalSetRequisitionImportLine
+						if (not RequisitionImport.RecordInError
+		                and not DetailsExist) 
+		                    invoke FastDelete RequisitionImportLinesRel
+							
+				Instance Rules
+					if (not RequisitionImport.RecordInError)
+						if (SpreadAddOnCharge)
+							invoke Create RequisitionSpreadAddOnCharge
+								resume on error
+									LocalErrorOccurred				= true
+									LocalErrorMessage				= error message
+								fill in fields from this instance
+								invoked.Requisition					= RequisitionImport.DerivedRequisition
+						else
+							invoke Create RequisitionLineAddOnCharge
+								resume on error
+									LocalErrorOccurred				= true
+									LocalErrorMessage				= error message
+								fill in fields from this instance
+								invoked.Requisition					= RequisitionImport.DerivedRequisition
+								invoked.RequisitionLine				= RequisitionImportLine
+								invoked.LocalBypassComputeTotals	= true
+	
+						if (LocalErrorOccurred)
+							invoke SetError RequisitionImport
+								invoked.PrmErrorMessage				= LocalErrorMessage
+								invoked.PrmErrorLevel				= RequisitionImport.ErrorLevel.AddOnCharge
+						else
+							invoke FastDelete	
+					

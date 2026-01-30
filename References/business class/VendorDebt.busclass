@@ -1,0 +1,171 @@
+VendorDebt is a BusinessClass
+	owned by ap
+	prefix is VDEBT
+
+	Ontology
+		symbolic key is VendorDebt
+
+	Patterns
+		disable AuditIndex
+		implements ContextualParent
+
+	Persistent Fields
+		Priority						is a DisplayOrder
+		Sequence
+		PercentAllowed					is a Percent
+		MaxAmountAllowed				is an InternationalAmount
+		InterceptAccount				is a FinanceCodeBlockFull
+		AmountOwed						is an InternationalAmount
+		AmountPaid						is an InternationalAmount
+			protected
+		BalanceDue						is an InternationalAmount
+		RemittanceAdvice				is Alpha size up to 50
+		LastUpdated						is TimeStamp
+
+	Transient Fields
+		TransientTaxID					is AlphaUpper size 25
+			default label is "TaxID"
+
+	Derived Fields
+		DerivedDuplicatePriorityCount is a DerivedField
+			type is Numeric 5
+			restricted
+			return instance count of VendorDebtWithDuplicatePriorityRel
+
+		AccountingEntityLabel is a MessageField
+			restricted
+			"<actor.context.FinanceEnterpriseGroup.AccountingEntityLabel>"
+
+	Conditions
+		VendorHasDuplicatePriority
+			restricted
+			when (DerivedDuplicatePriorityCount > 1)
+
+		LastDuplicatePriority
+			restricted
+			when (VendorDebt.AccountingEntity = last VendorDebtWithDuplicatePriorityRel.VendorDebt.AccountingEntity)
+
+	Field Rules
+		Vendor
+			default to first VendorTaxIDRel.Vendor
+
+		VendorDebt.AccountingEntity
+			required
+
+		Priority
+			required
+			default to VendorOffsetDefaultRel.Priority
+
+		Sequence
+			required
+			default to VendorOffsetDefaultRel.Sequence
+			constraint (DuplicateSequenceRel !exists)
+				"Sequence<Sequence>HasAlreadyBeenUsedForPriority<Priority>"
+
+		PercentAllowed
+			required
+			default to VendorOffsetDefaultRel.PercentAllowed
+
+		MaxAmountAllowed
+			default to VendorOffsetDefaultRel.MaxAmountAllowed
+
+		InterceptAccount
+			required
+			default to VendorOffsetDefaultRel.InterceptAccount
+
+		AmountOwed
+			required
+
+			if (MaxAmountAllowed > AmountOwed)
+				MaxAmountAllowed = AmountOwed
+
+		BalanceDue
+			BalanceDue = AmountOwed - AmountPaid
+
+		RemittanceAdvice
+			default to VendorOffsetDefaultRel.RemittanceAdvice
+
+		LastUpdated
+			default to current timestamp
+
+	Relations
+		PriorityRel
+			one-to-many relation to VendorDebt
+			Field Mapping uses ByPrioritySequence 
+				related.VendorGroup				= VendorGroup
+				related.Vendor					= Vendor
+
+		VendorOffsetDefaultRel
+			one-to-many relation to VendorOffsetDefault
+			Field Mapping uses symbolic key
+				related.VendorGroup				= VendorGroup
+			Instance Selection
+				where (related.AccountingEntity		= VendorDebt.AccountingEntity)
+
+		VendorDebtWithDuplicatePriorityRel
+			one-to-many relation to VendorDebt
+			Field Mapping uses ByPrioritySequence 
+				related.VendorGroup				= VendorGroup
+				related.Vendor					= Vendor
+			Instance Selection
+				where (related.Priority			= Priority
+				and    related.BalanceDue		> 0)
+
+		DuplicateSequenceRel
+			one-to-many relation to VendorDebt
+			Field Mapping uses ByPrioritySequence 
+				related.VendorGroup				= VendorGroup
+				related.Vendor					= Vendor
+				related.Priority				= Priority
+			Instance Selection
+				where (related.Sequence			= Sequence
+				and    related.VendorDebt		!= VendorDebt)
+
+		VendorTaxIDRel
+			one-to-many relation to Vendor
+			Field Mapping uses ByTaxIdsOnly
+				related.TaxID				= TransientTaxID
+				related.VendorGroup			= VendorGroup
+
+	Sets
+		ByPrioritySequence
+			Sort Order
+				VendorGroup
+				Vendor
+				Priority
+				BalanceDue	
+				Sequence
+				VendorDebt
+
+	Actions
+
+		Create is a Create Action
+
+		Update is an Update Action
+
+		UpdateAmountPaid is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmAmountPaid		is an InternationalAmount
+			Action Rules
+				AmountPaid += PrmAmountPaid
+				BalanceDue = AmountOwed - AmountPaid
+
+		Delete is a Delete Action
+
+		Purge is a Purge Action
+			default label is untranslatable
+			restricted
+
+		PurgeVendorDebtRecords is a Set Action
+			completion message is "PurgeVendorDebtRecordsSubmitted"
+			Parameters
+				PrmVendorGroup			is a VendorGroup
+					default label is "VendorGroup"
+			Instance Selection
+				where (VendorGroup		= PrmVendorGroup)
+			Action Rules
+				Instance Rules
+					invoke Purge
+

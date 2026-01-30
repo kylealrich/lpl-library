@@ -1,0 +1,3769 @@
+POReceiptAdjustmentAndInspectionLine is a BusinessClass
+    owned by po
+    prefix is PJL
+    sql name is PORAdjustmentAndInspectionLine
+    classic name is PORECADJLN
+
+    Ontology
+        symbolic key is POReceiptAdjustmentAndInspectionLine
+            classic set name is PJLSET0
+            sql name is PORAdjustmentAndInspectionLine
+            sql name for POReceiptAdjustmentAndInspection is POReceiptAdjustmentAndInspection
+            classic name for POReceiptAdjustmentAndInspection is DOC-NBR-NUM
+            sql name for AdjustmentInspectionDocumentType is AInspectionDocumentType
+            classic name for AdjustmentInspectionDocumentType is DOC-TYPE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements BODId
+		implements TemplateDriven by PurchaseOrderReceiptLine
+			create instance
+				when (Quantity entered
+				or    CatchWeightQuantity entered
+				or    TransientAcceptReject.AcceptAll)
+
+    Persistent Fields
+
+        ReferenceNumber
+            classic name is REFERENCE-NO
+        PurchaseOrderReceipt
+            classic name is REC-NUMBER
+        PurchaseOrderReceiptLine
+            classic name is LINE-NBR
+        PurchaseOrder
+        PurchaseOrderLine
+            classic name is PO-LINE-NBR
+        UpdateDate                         is TimeStamp
+        DocumentDate                       is Date
+            classic name is DATE
+        Quantity
+
+        CatchWeightQuantity                is a Quantity
+            classic name is CATCH-WT-QTY
+            precision is PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity
+        ReceivingLocation     is an InventoryLocation  
+        Bin                                
+        CancelBackorder                    is Boolean
+            classic name is CANCEL-BO-FL
+        DetailsInBalance                   is Boolean
+            classic name is DETAIL-BAL-FL
+        Status                             is Numeric size 1
+            States
+                Unreleased value is 0
+                Released   value is 1
+        LastPurchaseOrderTransactionDetail
+            sql name is LPOrderTransactionDetail
+            classic name is LAST-POT-SEQ
+            disable Auditing
+        WriteOff                           is AlphaUpper size 1
+            States
+                WriteOff     value is "Y"
+                CreateReturn value is "N"
+                NoRejections value is blank
+        VendorReturn
+            classic name is RETURN-NUMBER
+        VendorReturnLine                 
+            classic name is RET-LINE-NBR
+        BuyerMessage                       is Boolean
+            classic name is BUYER-MSG-FLAG
+        GlobalLineType
+            classic name is GLBL-LINE-TYPE
+        Inspected 	is 		Boolean
+        PackageCondition					is Numeric size 1
+        	States
+        		Acceptable		value is 1
+        		Damaged			value is 2
+        		NotApplicable	value is 3
+        TemperatureControlledStorageType	is Numeric size 1
+        	default label is "Temperature\-\ControlledStorageType"
+        	States
+        		Frozen			value is 1
+        		Refrigerated	value is 2
+        		Ambient			value is 3
+        Temperature							is Numeric size 3
+        TemperatureScale					is AlphaUpper size 1
+        	States
+        		Fahrenheit		value is F
+        		Celsius			value is C
+        TemperatureExpirationDate			is TimeStamp
+
+	Transient Fields
+		TransientRejectedQuantity 						is an UnsignedQuantity
+			derive value from Quantity
+			default label is "RejectedQuantity"
+		TransientAcceptReject 								is AlphaUpper 1
+			default label is "ActionCode"
+			States
+				AcceptAll		value is "A"
+				Reject			value is "R"
+				Uninspect		value is "U"
+
+
+		TransactionSystemCode
+		InventoryTransaction
+
+		LocalRejectQuantityForTransaction								is like Quantity
+		LocalPOLineProcessStockQuantity 							is like Quantity
+		InterfaceHasDetails											is Boolean
+
+
+
+
+
+
+
+
+
+
+
+			
+	Field Rules
+		UpdateDate													
+			force default to current timestamp
+        DocumentDate
+        	force default to POReceiptAdjustmentAndInspection.DocumentDate
+        ReceivingLocation
+        	default to PurchaseOrderReceiptLine.ShipToLocation
+        Bin
+        	default to PurchaseOrderReceiptLine.Bin
+        
+        PurchaseOrderReceipt
+			default to POReceiptAdjustmentAndInspection.PurchaseOrderReceipt
+			constraint(PurchaseOrderReceipt.PurchaseOrder.Released)
+				"PurchaseOrderIsNotReleased"
+		
+		PurchaseOrderReceiptLine
+			default to ReceiptLinesForTemplateRel.PurchaseOrderReceiptLine
+			
+		PurchaseOrder
+			default to PurchaseOrderReceiptLine.PurchaseOrder	
+
+		PurchaseOrderLine
+			default to PurchaseOrderReceiptLine.PurchaseOrderLine
+		
+		BuyerMessage
+			default to PurchaseOrderReceiptLine.BuyerMessage
+		
+		WriteOff
+			if (IsInspection
+			and Quantity entered)
+				default to WriteOff.CreateReturn
+				
+		TransientAcceptReject
+			if (IsInspection)
+				if (TransientAcceptReject.AcceptAll)
+					if (AcceptedQuantity entered)
+						initialize TransientAcceptReject
+					constraint (TransientRejectedQuantity not entered)
+						"CannotEnterRejectedQuantityForAcceptAll"
+				else
+				if (TransientAcceptReject.Reject) 
+					constraint (TransientRejectedQuantity entered)
+						"FieldRejectedQuantityIsRequired"
+				else
+				if (TransientAcceptReject.Uninspect)
+					constraint (this instance exist)
+						"LineIsNotInspected"
+						
+		Quantity
+			
+			if (IsInspection)	
+				constraint (Quantity <= QuantityToInspect)
+					"CannotRejectMoreThanQuantityToInspect"
+		
+		CatchWeightQuantity
+			if (not PurchaseOrderReceiptLine.IsCatchWeightItemAndHasItemMaster)
+				cannot be entered
+					"CannotEnterCatchWeightQuantity;ItemNotSetUpForCatchWeight"
+			else
+				if ((IsAdjustment and Quantity not entered)
+				or  (IsInspection and Quantity entered))
+					required
+	
+					if ((Quantity < 0 and CatchWeightQuantity > 0)
+					or  (Quantity > 0 and CatchWeightQuantity < 0))
+						CatchWeightQuantity = CatchWeightQuantity * -1
+						
+		Temperature
+			if (Temperature changed
+			and	Temperature not entered)
+				initialize TemperatureScale
+				
+		TemperatureScale
+			if (Temperature entered)
+				required
+				
+			constraint (Temperature entered)
+				"CannotSelectATemperatureScaleWithoutATemperature"
+				
+    Conditions
+		LineExists
+			restricted
+			when (POReceiptAdjustmentAndInspectionLine exists)
+
+        IsAdjustment
+        	restricted
+            when (AdjustmentInspectionDocumentType.ReceiptAdjustment)
+
+        DetailsExist
+        	restricted
+            when (LastPurchaseOrderTransactionDetail >  blank)
+
+        IsInspection
+            when (AdjustmentInspectionDocumentType.ReceiptInspection)
+
+        IsReleased
+        	restricted
+            when (Status.Released)
+        
+        InspectionNotInspected
+        	restricted
+        	when (IsInspection and !Inspected)
+        
+		InspectedInspection
+			restricted
+			when (Inspected and IsInspection)            
+
+        IsUnreleased
+        	restricted
+            when (Status.Unreleased)
+
+		IsLotRequiredAtReceipt
+			restricted  
+			when (ItemlocRel.LotTracked.LotRequiredAtReceipt) 
+						
+		IsSerialRequiredAtReceipt
+			restricted
+			when (ItemlocRel.SerialTracked.SerialRequiredAtReceipt)
+		
+		IsBinTracked
+			restricted 	
+			when (ItemlocRel.BinTracked)
+		
+		IsBinLotSerialTracked
+			restricted
+			when ((Quantity entered or CatchWeightQuantity entered) 
+			and  (IsLotRequiredAtReceipt or IsSerialRequiredAtReceipt or IsBinTracked))	
+			
+		IsInventoryBinLotSerialTracked
+			restricted
+			when (IsBinLotSerialTracked and IsInventoried)
+		
+		HasDifferentLotExpirationDate
+			restricted
+			when (POTransactionDetailsDifferentLotExpirationRel exists)
+
+		IsInventoried
+			restricted
+            classic name is ITEMLOC
+            when (PurchaseOrderReceiptLine.ItemType.Inventoried)
+
+        IsNotCancelBackOrder
+        	restricted
+            when (!CancelBackorder)  
+            
+        IsCatchWeightItem
+        	restricted
+        	when (PurchaseOrderReceiptLine.IsCatchWeightItem)
+
+        HasBuyerMessage
+        	restricted
+            classic name is BUYER-MESSAGE
+            when (BuyerMessageRel exists)
+        
+        AssetDetailExist
+        	restricted
+			when (not IsInventoried
+			and PurchaseOrderLineAssetRel exist)
+
+		NotBalancedAssetDetailsExists
+			restricted
+			when (PurchaseOrderLineAssetRel exists
+			and   SumOfAssetDetailQuantity != PurchaseOrderLineAssetRel.ReceivedQuantity)
+
+		NotBalancedReceivedAssetDetailsExists
+			restricted
+			when (PurchaseOrderLineAssetDetailRel exists
+			and   SumOfReceivedAssetDetailQuantity != PurchaseOrderLineAssetRel.ReceivedQuantity)
+		
+		NotBalancedCancelledAssetDetailsExists
+			restricted
+			when (PurchaseOrderLineAssetDetailRel exists
+			and   SumOfCancelledAssetDetailQuantity != PurchaseOrderLineAssetRel.CancelledQuantity)
+		
+		NotBalancedRejectedAssetDetailsExists
+			restricted
+			when (PurchaseOrderLineAssetDetailRel exists
+			and   SumOfRejectedAssetDetailQuantity != PurchaseOrderLineAssetRel.RejecytedQuantity)
+			
+        POLineSourceExists
+        	restricted
+            when (POLineSourceRels exists)			
+			
+
+
+		IsQuantityMismatch
+			restricted
+			when ((IsCatchWeightItem
+			and  ((POReceiptAdjustmentAndInspection.IsInspectionDocument and IsInventoryBinLotSerialTracked and ((Quantity != sum PurchaseOrderTransactionDetailsRels.SecondaryQuantity) or (CatchWeightQuantity != sum PurchaseOrderTransactionDetailsRels.Quantity))) 
+			or    (POReceiptAdjustmentAndInspection.IsAdjustmentDocument and IsInventoryBinLotSerialTracked and ((Quantity != sum PurchaseOrderTransactionDetailsAdjRels.SecondaryQuantity) or (CatchWeightQuantity != sum PurchaseOrderTransactionDetailsRels.Quantity)))))
+			or    (not IsCatchWeightItem
+			and  ((POReceiptAdjustmentAndInspection.IsInspectionDocument and IsInventoryBinLotSerialTracked and (Quantity != sum PurchaseOrderTransactionDetailsRels.Quantity)) 
+			or    (POReceiptAdjustmentAndInspection.IsInspectionDocument and IsUDIRequiredAtReceipt and (Quantity != sum PurchaseOrderUDIDetailRejectionRel.DerivedQuantityInReceivedUOM))
+			or    (POReceiptAdjustmentAndInspection.IsAdjustmentDocument and IsUDIRequiredAtReceipt and (Quantity != sum PurchaseOrderUDIDetailAdjustmentRel.DerivedQuantityInReceivedUOM))
+			or    (POReceiptAdjustmentAndInspection.IsAdjustmentDocument and IsInventoryBinLotSerialTracked and (Quantity != sum PurchaseOrderTransactionDetailsAdjRels.Quantity)))))	
+	
+		IsTransactionOutOfBalance
+			restricted
+			when (((Quantity entered or CatchWeightQuantity entered) and IsInventoryBinLotSerialTracked and IsQuantityMismatch)
+			or    ((Quantity entered or CatchWeightQuantity entered) and IsUDIRequiredAtReceipt and IsQuantityMismatch))
+		
+		HasOverreceivingBuyerMessage
+			restricted
+			when (BuyerMessageRel.OverreceivingMessage)
+
+		HasUnreleasedBuyerMessage
+			restricted
+			when (BuyerMessageRel.OverreceivingMessage
+			and   BuyerMessageRel.Status.Unreleased)		
+			
+		HasUnreleasedBuyerMessages
+			restricted
+			when (UnreleasedBuyerMessageRel exists)
+		
+		IsItemDetailTracked
+			restricted
+			when (ItemlocRel.LotTracked.LotRequiredAtReceipt
+			or 	  ItemlocRel.SerialTracked.SerialRequiredAtReceipt
+		    or    ItemlocRel.BinTracked)
+		    
+	    HasItemRejectedAndWriteOffYes
+	    	restricted
+	    	when (Quantity > 0
+	    	and WriteOff.WriteOff)
+	    	
+	    HasAllItemAccepted
+	    	restricted
+	    	when (AcceptedQuantity > 0)
+	    	
+	    HasAllItemRejected
+	    	restricted
+	    	when (PurchaseOrderReceiptLine.EnteredReceivedQuantity = Quantity)	
+	    	
+    	IsStandardCosting
+    		restricted
+    		when (IccompanyRel.CostingMethod.StandardCosting)
+    		
+    	ThisDocumentVendorReturnExists
+    		restricted
+    		when (ThisDocumentVendorReturnRel exists)
+    	
+    	IsNotStandardCosting
+    		restricted
+    		when (!IsStandardCosting)
+    	
+    	HasInventoryTransactionUpdateToNonGeneralLedger
+    		restricted
+    		when (IsNotStandardCosting
+    		and   PurchaseOrderLine.CostOption.NoCharge
+    		and   PurchaseOrder.VendorReturn not entered)
+    	
+    	HasVendorItemBuyUOM
+    		restricted
+			when (PurchaseOrderReceiptLine.VendorItem.VendorBuyUOM.UnitOfMeasure entered)
+			
+		HasTemplateVendorItemBuyUOM
+			restricted
+			when (ReceiptLinesForTemplateRel.VendorItem.VendorBuyUOM.UnitOfMeasure entered)
+				
+        HasMultiplePOTransDetailReceive
+            restricted
+        	when (instance count of PurchaseOrderTransactionDetailsReceivingRel > 1)
+
+		HasRejections
+			restricted
+			when (RejectedInspectionTransactionRel exists)
+
+		ForInspectionCreate
+			restricted
+			when (IsInspection 
+			and   not LineExists)
+
+		IsUDITracked
+			restricted
+			when ((Quantity entered or CatchWeightQuantity entered) 
+			and   ItemlocRel.UDITracked.UDIRequiredAtReceipt)
+			
+		IsUDIRequiredAtReceipt
+			restricted
+			when (ItemlocRel.UDITracked.UDIRequiredAtReceipt
+			and   IsInventoried)
+			
+		LineNotExistsAndCatchWeight
+			when (not LineExists 
+			and   ReceiptLinesForTemplateRel.IsCatchWeightItem)
+			
+		LineExistsAndCatchWeight
+			when (LineExists
+			and IsCatchWeightItem)
+			
+		ShowCatchWeightPanel
+			when (LineNotExistsAndCatchWeight
+			or	  LineExistsAndCatchWeight)
+			
+		TemperatureEntered
+			when (Temperature entered)
+		
+		IsValidForActorContext
+			restricted
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+				
+		HasMatchedQuantityToWriteOff
+			restricted
+			when (DerivedWriteOffQuantity <= PurchaseOrderReceiptLine.MatchedQuantity)
+
+		HasNegativeQuantityAndPreviouslyMatched
+			restricted
+			when (Quantity < 0
+			and	  HasMatchedQuantityToWriteOff
+			and   WriteOff.WriteOff)
+		
+		HasNegativeQuantityToWriteOff
+			restricted
+			when (DerivedWriteOffQuantity entered
+			and   HasNegativeQuantityAndPreviouslyMatched)
+
+	Context Fields
+		FSMInboundBODTracker
+			
+	Derived Fields
+		DerivedQuantityFieldIsRequired is a DerivedField
+			type is MessageField
+			if (POReceiptAdjustmentAndInspection.IsAdjustmentDocument)
+				return "Adjustment Quantity Is Required For Catchweight Items When Adjustment Catchweight Quantity Entered"
+			else
+				return "Rejected Quantity Is Required For Catchweight Items When Rejected Catchweight Quantity Entered"
+				
+		DerivedTransactionDetailCount is a DerivedField
+			type is Numeric size 10
+			restricted
+			return instance count of AdjustmentInspectionDetailsRel
+
+		DerivedEnteredReceivedQuantity is a DerivedField
+			type is like Quantity
+			default label is "CurrentReceivedQuantity"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.EnteredReceivedQuantity
+			else
+				return ReceiptLinesForTemplateRel.EnteredReceivedQuantity
+
+		DerivedCatchWeightReceivedQuantity is a DerivedField
+			type is like Quantity
+			default label is "CurrentReceivedQuantity"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.CatchWeightQuantity
+			else
+				return ReceiptLinesForTemplateRel.CatchWeightQuantity
+
+		DerivedDisplayQuantity is a DerivedField
+			type is like Quantity
+			default label is "QuantityOrdered"
+			if (LineExists)
+				return PurchaseOrderLine.Quantity
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderLine.Quantity
+
+		DerivedDisplayRejectedQuantity is a DerivedField
+			type is like Quantity
+			default label is "QuantityRejected"
+			if (LineExists)
+				return PurchaseOrderLine.RejectedQuantity
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderLine.RejectedQuantity
+
+		DerivedDisplayOriginalQuantity is a DerivedField
+			type is like Quantity
+			default label is "OriginalReceivedQuantity"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.OriginalReceivedQuantity
+			else
+				return ReceiptLinesForTemplateRel.OriginalReceivedQuantity
+
+		DerivedDisplayReceiver is a DerivedField
+			type is like PurchaseOrderReceipt 
+			default label is "Receipt"
+			if (LineExists)
+				return PurchaseOrderReceipt
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderReceipt
+
+		DerivedDisplayDescription is a DerivedField
+			type is like Description
+			default label is "Description"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.PurchaseOrderLine.Description
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderLine.Description
+		
+		DerivedDisplayItem is a DerivedField
+			type is like Item
+			default label is "Item"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.Item
+			else
+				return ReceiptLinesForTemplateRel.Item
+
+		DerivedDisplayVendorItem is a DerivedField
+			type is like VendorItem
+			default label is "VendorItem"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.PurchaseOrderLine.VendorItem
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderLine.VendorItem
+
+		DerivedDisplayItemType is a DerivedField
+			type is like ItemType
+			default label is "ItemType"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.ItemType
+			else
+				return ReceiptLinesForTemplateRel.ItemType
+
+		DerivedDisplayShipToLocation is a DerivedField
+			type is like InventoryLocation
+			default label is "ReceivedLocation"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.ShipToLocation
+			else
+				return ReceiptLinesForTemplateRel.ShipToLocation
+
+		DerivedDisplayShipToLocationName is a DerivedField
+			type is like Name
+			if (LineExists)
+				return PurchaseOrderReceiptLine.ShipToLocation.Name
+			else
+				return ReceiptLinesForTemplateRel.ShipToLocation.Name
+
+		DerivedDisplayUnitOfMeasure is a DerivedField
+			type is like UnitOfMeasure
+			default label is "UOM"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.ReceivedUOM
+			else
+				return ReceiptLinesForTemplateRel.ReceivedUOM
+
+		DerivedDisplayCatchweightUOM is a DerivedField
+			type is like UnitOfMeasure
+			default label is "UOM"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.Item.StockUOM
+			else
+				return ReceiptLinesForTemplateRel.Item.StockUOM
+
+		DerivedDisplayEnteredBuyUOM is a DerivedField
+			type is like UnitOfMeasure
+			default label is "UOM"
+			if (LineExists)
+				return PurchaseOrderLine.EnteredBuyUOM
+			else
+				return ReceiptLinesForTemplateRel.PurchaseOrderLine.EnteredBuyUOM
+
+		DerivedDisplayUnitCostInReceivedUOM is a DerivedField
+			type is like UnitCost
+			default label is "UnitCost"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.DerivedOriginalUnitCostInReceivedUOM
+			else
+				return ReceiptLinesForTemplateRel.DerivedOriginalUnitCostInReceivedUOM
+
+		DerivedDisplayBin is a DerivedField
+			type is like Bin
+			default label is "OriginalBin"
+			if (LineExists)
+				return PurchaseOrderReceiptLine.Bin
+			else
+				return ReceiptLinesForTemplateRel.Bin
+		
+		DerivedRejectedQuantityWithUOM is a DerivedField
+			type is AlphaUpper size 15
+			if (PurchaseOrderLine.RejectedQuantity > 0)
+				return DisplayRejectedQuantity
+			else
+				return DerivedDisplayRejectedQuantity
+
+		DisplayQuantityOrdered is a MessageField
+			"<DerivedDisplayQuantity>_-_<DerivedDisplayEnteredBuyUOM>"
+		
+		DisplayOriginalQuantity is a MessageField
+			"<DerivedDisplayOriginalQuantity>_-_<DerivedDisplayUnitOfMeasure>"
+		
+		DisplayUnitCostInReceivedUOM is a MessageField
+			"<DerivedDisplayUnitCostInReceivedUOM>_-_<DerivedDisplayUnitOfMeasure>"
+
+		DisplayReceivedLocation is a MessageField
+			"<DerivedDisplayShipToLocation>_-_<DerivedDisplayShipToLocationName>"
+		
+		DisplayItem is a MessageField
+			"<DerivedDisplayItem>_-_<DerivedDisplayDescription>"
+		
+		DisplayRejectedQuantity is a MessageField
+			"<DerivedDisplayRejectedQuantity>_-_<PurchaseOrderReceiptLine.ReceivedUOM>"
+
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforInspectDelivery"
+			
+		ContextMessageText is a MessageField
+			restricted
+			"PurchaseOrderReceipt<PurchaseOrderReceipt>PurchaseOrder<PurchaseOrder>"	
+		
+		OvershipReturnQuantity is a DerivedField
+			type is like Quantity
+			if (LineExists)
+				return PurchaseOrderReceiptLine.VendorReturnLine.ReturnQuantity
+			else
+				return ReceiptLinesForTemplateRel.VendorReturnLine.ReturnQuantity
+
+		OvershipCatchWeightReturnQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			if (LineExists)
+				return PurchaseOrderReceiptLine.VendorReturnLine.CatchWeightQuantity
+			else
+				return ReceiptLinesForTemplateRel.VendorReturnLine.CatchWeightQuantity
+
+		QuantityToInspect is a DerivedField
+			type is like Quantity
+			if (LineExists)
+				return PurchaseOrderReceiptLine.EnteredReceivedQuantity - OvershipReturnQuantity
+			else
+				return ReceiptLinesForTemplateRel.EnteredReceivedQuantity - OvershipReturnQuantity
+	
+		CurrentReceivedQuantity is a ComputeField
+			type is Decimal size 13.4
+			restricted
+			(PurchaseOrderReceiptLine.EnteredReceivedQuantity + Quantity - OvershipReturnQuantity)
+
+		CurrentReceivedCatchWeightQuantity is a ComputeField
+			type is Decimal size 13.4
+			restricted
+			(PurchaseOrderReceiptLine.CatchWeightQuantity + CatchWeightQuantity - OvershipCatchWeightReturnQuantity)
+			
+		DerivedVendorPriceUOMQuantity is a DerivedField
+			type is like Quantity
+				precision is PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity
+			restricted
+			if (PurchaseOrderReceiptLine.HasItemMaster)
+				if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+					return CatchWeightQuantity
+            	else
+            	if (PurchaseOrderReceiptLine.ReceivedUOM != PurchaseOrderReceiptLine.VendorPriceUOM)
+            		initialize UOMCalculation
+	                UOMCalculation.InputUOM             = PurchaseOrderReceiptLine.ReceivedUOM
+	                UOMCalculation.InputUOMConversion   = PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+	                UOMCalculation.InputToUOM           = PurchaseOrderReceiptLine.VendorPriceUOM
+	                UOMCalculation.InputToUOMConversion = PurchaseOrderReceiptLine.VendorPriceUOMMultiplier
+	                UOMCalculation.InputQuantity        = Quantity
+	                UOMCalculation.Method               = UOMCalculation.Method.ConvertToAlternate
+	                UOMCalculation.InputDecimal			= PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity
+	                return UOMCalculation.OutputQuantity
+	           	else
+	           		return Quantity
+			else
+				return Quantity
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		BinDetailsLabel is a LabelField
+			restricted
+			"Bin_\Details"
+			
+		SerialDetailsLabel is a LabelField
+			restricted
+			"Serial_\Details"
+
+		LotDetailsLabel is a LabelField
+			restricted
+			"Lot_\Details"
+			
+		DifferentLotExpirationDate is a MessageField
+			"LineDetailCannotHaveSameLotWithDifferentLotExpirationDate"
+
+		UDIDetailsLabel is a LabelField
+			restricted
+			"UDI_\Details"
+
+		SerialUDIDetailsLabel is a LabelField
+			restricted
+			"Serial_\And_\UDI_\Details"
+	
+		LotUDIDetailsLabel is a LabelField
+			restricted
+			"Lot_\And_\UDI_\Details"
+			
+		TOBBinDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\Bin_\Details"
+			
+		TOBSerialDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\Serial_\Details"
+
+		TOBLotDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\Lot_\Details"				
+		
+		TOBUDIDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\UDI_\Details"
+								
+		TOBLotAndUDIDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\Lot_\And_\UDI_\Details"
+
+		TOBSerialAndUDIDetailsLabel is a LabelField
+			restricted
+			"Transaction_\Out_\Of_\Balance._\Enter_\Serial_\And_\UDI_\Details"
+					
+		BinMismatchMessage is a DerivedField
+			type is Alpha size 25
+			restricted
+			if (Bin.StorageCode != ItemlocRel.StorageCode)
+				return StorageCodeMismatch
+		StorageCodeMismatch		is a MessageField
+			restricted
+			"StorageCodeMismatch"
+										
+		BackOrderExistMessage is a DerivedField
+			type is Alpha size 15
+			restricted
+			if (PurchaseOrderLine.IsInventoryType)
+				if (ItemlocRel.BackorderedQuantity > 0)
+					return "BackordersExist" 
+		
+		BuyerMessageDisplay is a ConditionalField
+			type is Alpha size 20
+			if (HasUnreleasedBuyerMessage)
+				"Has Buyer Message" 
+			else
+				blank
+		
+		AOCUnitCost is a DerivedField		
+
+			type is like InternationalCost
+			restricted
+			return (sum PoreclineAOCRel.OriginalUnitCost)
+		
+		DerivedReceiptLineLandedCost is a DerivedField
+			type is like UnitCost
+			restricted
+			if (IsAdjustment and PurchaseOrderReceiptLine.VendorPriceUOMQuantity not entered
+			and LocalReceiptLineLandedCost entered)
+				return LocalReceiptLineLandedCost
+			else
+				return PurchaseOrderReceiptLine.DerivedLineStockUnitCost
+		
+		AssetDetails is a DerivedField
+			type is Alpha size 10
+			if (AssetDetailExist 
+			and PurchaseOrderLineAssetRel.IsAmpoastdtl)
+				return "*"
+		
+		SumOfAssetDetailQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (instance count of PurchaseOrderLineAssetDetailRel)
+				
+		SumOfReceivedAssetDetailQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (instance count of PurchaseOrderLineReceivedAssetDetailRel)
+			
+		SumOfCancelledAssetDetailQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (instance count of PurchaseOrderLineCancelledAssetDetailRel)
+		
+		SumOfRejectedAssetDetailQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (instance count of PurchaseOrderLineRejectedAssetDetailRel)
+				
+		CatchWeightMessage is a DerivedField
+			type is AlphaUpper size 00
+			if (PurchaseOrderLine.ItemExists
+			and PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth		
+			or PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth) 
+				return "Catch weight item"	
+						
+		AdjustmentOrRejectionDetails is a DerivedField
+			type is Alpha size 15
+			if (IsBinTracked)
+				return BinDetailsLabel
+			if (IsSerialRequiredAtReceipt)
+				return SerialDetailsLabel
+			if (IsLotRequiredAtReceipt)
+				return LotDetailsLabel
+			if (IsUDIRequiredAtReceipt)
+				return UDIDetailsLabel				
+		
+		ReceivingDetailLabel is a DerivedField
+			type is Alpha size 15
+			if (IsBinTracked)
+				return BinDetailsLabel
+			if (IsSerialRequiredAtReceipt and !IsUDIRequiredAtReceipt)
+				return SerialDetailsLabel
+			if (IsLotRequiredAtReceipt and !IsUDIRequiredAtReceipt)
+				return LotDetailsLabel
+			if (IsUDIRequiredAtReceipt and !IsSerialRequiredAtReceipt and !IsLotRequiredAtReceipt)
+				return UDIDetailsLabel
+			if (IsSerialRequiredAtReceipt and IsUDIRequiredAtReceipt)
+				return SerialUDIDetailsLabel
+			if (IsLotRequiredAtReceipt and IsUDIRequiredAtReceipt)
+				return LotUDIDetailsLabel
+				
+		TransactionOutOfBalanceDetails is a DerivedField
+			type is Alpha size 55
+			restricted
+			if ((Quantity entered or CatchWeightQuantity entered) and IsQuantityMismatch and IsInventoried)
+				if (IsBinTracked)
+					return TOBBinDetailsLabel
+				else
+				if (IsSerialRequiredAtReceipt and !IsUDIRequiredAtReceipt)
+					return TOBSerialDetailsLabel
+				else
+				if (IsLotRequiredAtReceipt and !IsUDIRequiredAtReceipt)
+					return TOBLotDetailsLabel
+				else
+				if (IsLotRequiredAtReceipt and IsUDIRequiredAtReceipt)
+					return TOBLotAndUDIDetailsLabel
+				else
+				if (IsSerialRequiredAtReceipt and IsUDIRequiredAtReceipt)
+					return TOBSerialAndUDIDetailsLabel
+			else 
+				return ""
+		
+
+
+
+
+
+
+
+		
+		
+		ValidRejectedQuantityUOM is a DerivedField
+            type is Alpha size 15
+			if (PurchaseOrderLine.RejectedQuantity > 0)
+				return PurchaseOrderReceiptLine.ReceivedUOM
+
+	
+		
+		InventoryTransactionLineRejectQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			if(Quantity>0)
+				if(WriteOff="N")
+					if(PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth 
+					or PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+						return CatchWeightQuantity
+					else
+						return Quantity
+				else
+					if(AcceptedQuantity  > 0 
+					and WriteOff = "Y")
+						if(PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth 
+						or PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+							return CatchWeightQuantity*-1
+						else
+							return Quantity*-1
+					
+		
+		AcceptedQuantity is a DerivedField
+			type is like Quantity
+			if(Quantity = 0 
+			and not Inspected)
+				return 0
+			else 
+
+				return PurchaseOrderReceiptLine.EnteredReceivedQuantity - Quantity - OvershipReturnQuantity
+		
+		DerivedRejectedQuantityInPOUOM is a DerivedField
+			type is like Quantity
+			restricted
+			if (PurchaseOrderReceiptLine.ReceivedUOM = PurchaseOrderLine.EnteredBuyUOM)
+				return Quantity
+			else
+				initialize UOMCalculation
+				UOMCalculation.InputUOM				= PurchaseOrderReceiptLine.ReceivedUOM
+				UOMCalculation.InputUOMConversion	= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+				UOMCalculation.InputQuantity		= Quantity
+				UOMCalculation.InputToUOM			= PurchaseOrderLine.EnteredBuyUOM
+				UOMCalculation.InputToUOMConversion	= PurchaseOrderLine.EnteredBuyUOMMultiplier
+				UOMCalculation.Method				= UOMCalculation.Method.ConvertToAlternate
+				return UOMCalculation.OutputQuantity
+		
+		TotalEnterQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return PurchaseOrderReceiptLine.EnteredReceivedQuantity-(PurchaseOrderReceiptLine.RejectedQuantity+PurchaseOrderReceiptLine.ChargebackQuantity)
+
+		TotalEnterCatchWeightQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return PurchaseOrderReceiptLine.CatchWeightQuantity - (PurchaseOrderReceiptLine.CatchWeightRejectedQuantity + PurchaseOrderReceiptLine.CatchWeightChargebackQuantity)
+
+		TotalPRLQuantity is a DerivedField 
+			type is like Quantity
+			restricted
+			if(IsInventoryBinLotSerialTracked 
+			and ItemlocRel exists)
+				return (Quantity+PurchaseOrderReceiptLine.EnteredReceivedQuantity+PurchaseOrderReceiptLine.ChargebackQuantity+PurchaseOrderReceiptLine.WriteOffQuantity)
+			else
+				return (PurchaseOrderReceiptLine.BuyUOMQuantity+PurchaseOrderReceiptLine.ChargebackQuantity+PurchaseOrderReceiptLine.WriteOffQuantity)
+		 
+		
+		DerivedWriteOffQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			if (Quantity < 0)
+				return (Quantity * -1)
+		
+		POMReturnQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (sum BuyerMessageRel.PurchaseOrderBuyerMessage.ReturnQuantity)
+		
+		TranQuantity is a DerivedField
+            type is like Quantity
+            restricted
+            if	(IsCatchWeightItem)
+				LocalTranQuantity = CatchWeightQuantity		
+			else
+				LocalTranQuantity = Quantity * PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+			if (LocalTranQuantity < 0)
+				return LocalTranQuantity * (-1)
+			else
+				return LocalTranQuantity
+
+		SecondaryTranQuantity  is a DerivedField
+            type is like Quantity
+            restricted
+            if	(IsCatchWeightItem)
+				if (Quantity < 0)
+					return Quantity * -1
+				else
+					return Quantity
+
+		QuantityValidate is a DerivedField
+			type is like Quantity
+			restricted
+			return (Quantity + PurchaseOrderReceiptLine.EnteredReceivedQuantity - BuyerMessageRel.ReturnQuantity - PurchaseOrderLine.RejectedQuantity)
+		
+		CatchWeightQuantityValidate is a DerivedField
+			type is like Quantity
+			restricted
+			return (CatchWeightQuantity + PurchaseOrderReceiptLine.CatchWeightQuantity - PurchaseOrderLine.CatchWeightRejectedQuantity)		
+		
+
+
+
+
+
+
+
+		         
+        
+        WriteOffAmount is a DerivedField		
+			type is like InternationalAmount
+			restricted
+			if (POReceiptAdjustmentAndInspection.VendorLocationRel.WriteOffAmount != 0)
+				return POReceiptAdjustmentAndInspection.VendorLocationRel.WriteOffAmount
+            else
+				if(PurchaseOrderReceiptLine.Vendor.WriteOffAmount != 0)
+					return PurchaseOrderReceiptLine.Vendor.WriteOffAmount
+            	else
+					if(POReceiptAdjustmentAndInspection.MatchCompanyRel.WriteOffAmount != 0)
+						return POReceiptAdjustmentAndInspection.MatchCompanyRel.WriteOffAmount
+						
+       
+        CommentCount                       is a DerivedField
+            type is Alpha size up to 20
+            if (POReceiptAdjustmentAndInspectionLineCommentRel exists)
+                return "(" + instance count of POReceiptAdjustmentAndInspectionLineCommentRel + ")"
+            else
+                return ""
+
+        QuantityExceed is a MessageField
+        	restricted
+			"QuantityReceivedExceedsOrderEntryRequest"
+			
+		Overshipment is a MessageField
+			restricted 									
+			"ExceedsOvershipmentTolerance"														//"POMSG.812"
+		
+		SubstituteMessage is a MessageField
+			restricted
+			"SubstituteReceivedForRequestedItem"
+			
+		NoVendorUnitcost is a MessageField
+			restricted
+			"NoVendorUnitcost"	
+			
+		DerivedAddOnChargeEnteredUnitCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (PurchaseOrderAndLineAddOnChargeRel exists)
+				return first PurchaseOrderAndLineAddOnChargeRel.EnteredUnitCost
+				
+		DerivedPOReceiptAdjustmentInspection is a DerivedField
+			type is Alpha 10
+			restricted
+			return POReceiptAdjustmentAndInspection using "%d"
+		
+
+		DerivedTenantID is a DerivedField 
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "tenantID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+			
+		InspectionRejDescription is a DerivedField
+			type is Alpha 100
+			restricted
+			return "Inspection Rejection for PO # "+ PurchaseOrder
+				
+		DerivedBODID is a DerivedField
+			type is Alpha 200
+			restricted 
+			return	"infor-nid:" + DerivedTenantID +":"+ Company.FinanceEnterpriseGroup +":"+ POReceiptAdjustmentAndInspectionLine +":"+ "?InspectionRej&verb=Process"
+			
+		InspectionRejAlertXML is a DerivedField
+			type is XMLDocument
+			restricted
+			InspectionRejAlertXML = template.IONInspectionRej_POReceiptAdjustmentAndInspectionLine_ST document for this instance
+								
+		DerivedPORelease is a DerivedField
+			type is Alpha 30
+			restricted 
+			return	PurchaseOrderReceipt.PORelease
+										
+		DerivedPOCode is a DerivedField
+			type is Alpha 30
+			restricted 
+			return	PurchaseOrderReceipt.POCode
+										
+		DerivedPORLVendorReturn is a DerivedField
+			type is Alpha 30
+			restricted 
+			return	PurchaseOrderReceiptLine.VendorReturn									
+										
+		DerivedPRIItem is a DerivedField
+			type is Alpha 30
+			restricted 
+			return	PurchaseOrderReceiptLine.Item	
+											
+		DerivedPRIItemDesc is a DerivedField
+			type is Alpha 30
+			restricted 
+			return	PurchaseOrderReceiptLine.PurchaseOrderLine.Description							
+
+
+
+
+		DerivedDelimiter is a DerivedField
+			type is Alpha size 5
+			restricted
+			LocalConfigurationParameter = "Generic_Delimiter"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedReleaseID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "releaseID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedVersionID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "VersionID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+					
+		DerivedLogicalID is a DerivedField
+			type is Alpha size 60
+			restricted
+			LocalConfigurationParameter = "logicalID"
+			if (FSMBODConfigurationParameterRel exists)
+				return FSMBODConfigurationParameterRel.Value
+
+		DerivedBODCurrentTimeStamp is a DerivedField
+			type is Alpha size 25
+			restricted
+			DerivedBODCurrentTimeStamp = current timestamp
+			return DerivedBODCurrentTimeStamp[1:4] + "-" + DerivedBODCurrentTimeStamp[5:6] + "-" + DerivedBODCurrentTimeStamp[7:8] + "T" + DerivedBODCurrentTimeStamp[9:10] + ":" + DerivedBODCurrentTimeStamp[11:12] + ":" + DerivedBODCurrentTimeStamp[13:14] + "Z"
+		
+		DerivedbodID is a DerivedField
+			type is Alpha size 300
+			restricted
+			return "infor-nid:" + DerivedTenantID +":"+ DerivedaccountingEntity + ":" + DeriveddocumentID + ":" + DerivedRevision + ":" + "?InspectionDelivery&verb=Sync&TrackerID=" + LocalFSMInboundBODTracker
+	
+		DerivedRevision is a DerivedField
+			type is Alpha 30
+			restricted 
+			if (PurchaseOrderReceipt.PORelease = "0")
+				return  ""
+			else
+				return	PurchaseOrderReceipt.PORelease
+		
+		DerivedaccountingEntity is a DerivedField
+			type is Alpha size 200
+			restricted
+			return DerivedFEG + DerivedDelimiter + DerivedAccountingEntity
+		
+		DerivedAccountingEntity is a DerivedField
+			type is Numeric size 12
+			restricted
+			return Company.AccountingEntity
+	
+		DerivedFEG is a DerivedField
+			type is Alpha size 4
+			restricted
+			return Company.FinanceEnterpriseGroup
+		
+		DerivedCompany is a DerivedField
+			type is Alpha size 4
+			restricted
+			return Company using "%d"
+	
+		DeriveddocumentID is a DerivedField
+			type is Alpha size 200
+			restricted
+			return DerivedCompany + DerivedDelimiter + DerivedAdjustmentInspectionDocumentType + DerivedDelimiter + POReceiptAdjustmentAndInspection + DerivedDelimiter + POReceiptAdjustmentAndInspectionLine
+	
+		DerivedAdjustmentInspectionDocumentType is a DerivedField
+			type is AlphaUpper size 2 
+			restricted
+			if (AdjustmentInspectionDocumentType = "ReceiptAdjustment")
+				return "RA"
+			else
+				return "IN"
+	
+		DerivedBODVariationID is a DerivedField
+			type is Alpha size 60
+			restricted
+			return bod id.VariationID
+	
+		Derivedlocation is a DerivedField
+			type is AlphaUpper size 20
+			restricted
+			return PurchaseOrderReceipt.ShipToLocation
+	
+		DerivedActionCode is a DerivedField
+			type is Alpha size 10
+			restricted
+			if(ActionCode = "C")
+				return "Add"
+			if(ActionCode = "U" or ActionCode ="D")
+				return "Replace"
+	
+		DerivedPJLUpdateDate is a DerivedField
+			type is Alpha size 25
+			restricted
+			DerivedPJLUpdateDate = UpdateDate
+			if (UpdateDate != "00000000")
+				return DerivedPJLUpdateDate[1:4] + "-" + DerivedPJLUpdateDate[5:6] + "-" + DerivedPJLUpdateDate[7:8]
+			else
+				return DerivedPJLUpdateDate
+	
+		DerivedOperatorID is a DerivedField
+			type is like Actor
+			restricted
+			return POReceiptAdjustmentAndInspection.OperatorID
+	
+		DerivedPJLDate is a DerivedField
+			type is Alpha size 25
+			restricted
+			DerivedPJLDate = DocumentDate
+			if (DocumentDate != "00000000")
+				return DerivedPJLDate[1:4] + "-" + DerivedPJLDate[5:6] + "-" + DerivedPJLDate[7:8]
+			else
+				return DerivedPJLDate
+	
+		DerivedEnteredReceivedQuantity2 is a DerivedField
+			type is Decimal size 13.4
+			restricted
+			return PurchaseOrderReceiptLine.EnteredReceivedQuantity
+	
+		DerivedPOReferenceDocumentID is a DerivedField
+			type is Alpha size 50 
+			restricted
+			if (DerivedPOCode != "")
+				if (DerivedPORelease != "0000")
+					return ( PurchaseOrder + "-" + DerivedPORelease + "-" + DerivedPOCode )
+				else
+					return ( PurchaseOrder + "-" + "0" + "-"+ DerivedPOCode )
+			else
+				if (DerivedPORelease != "0000")
+					return ( PurchaseOrder + "-" + DerivedPORelease )
+				else
+					return ( PurchaseOrder + "-" + "0" )
+	
+		DerivedItemID is a DerivedField
+			type is Alpha size 100
+			restricted
+			return DerivedFEG + DerivedDelimiter + DerivedBusinessGroup + DerivedDelimiter + DerivedPRIItem
+	
+		DerivedBusinessGroup is a DerivedField
+			type is AlphaUpper size 5
+			restricted
+			return Company.GeneralLedgerCompany.BusinessGroup
+	
+		DerivedReceivedUOM is a DerivedField
+			type is AlphaUpper size 4
+			restricted
+			return PurchaseOrderReceiptLine.ReceivedUOM
+
+		DerivedRejectedQuantityInStockUOM is a DerivedField
+			type is like Quantity
+			restricted
+			return Quantity * PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+
+		SyncInspectDeliveryXMLBOD is a DerivedField
+			type is XMLDocument
+			restricted
+			SyncInspectDeliveryXMLBOD = template.IONSyncInspectDelivery_POReceiptAdjustmentAndInspectionLine_ST document for this instance
+			return SyncInspectDeliveryXMLBOD
+
+		
+		TemperatureScaleValue is a ConditionalField
+			type is AlphaUpper size 1
+			if (TemperatureScale.Fahrenheit)
+				"F"
+			else
+			if (TemperatureScale.Celsius)
+				"C"
+			else
+				""
+			
+    Relations
+    	FSMInboundBODTrackerRel
+            one-to-one relation to FSMInboundBODTracker
+            Field Mapping uses symbolic key
+                related.FSMInboundBODTracker	= LocalFSMInboundBODTracker
+                
+		ReceiptLinesForTemplateRel
+			one-to-one relation to PurchaseOrderReceiptLine
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.PurchaseOrderReceipt		= POReceiptAdjustmentAndInspection.PurchaseOrderReceipt
+				related.PurchaseOrderReceiptLine	= POReceiptAdjustmentAndInspectionLine
+		
+		IccategoryRel
+            one-to-one relation to GeneralLedgerCategory
+            valid when (IsInventoried)
+            required
+            Field Mapping uses symbolic key
+                related.Company               = Company
+                related.InventoryLocation     = PurchaseOrderReceiptLine.ShipToLocation
+                related.GeneralLedgerCategory = ItemlocRel.GeneralLedgerCategory
+		
+		MacompanyRel
+            one-to-one relation to MatchCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+                
+		POReceiptAdjustmentAndInspectionLineCommentRel
+        	one-to-many relation to POReceiptAdjustmentAndInspectionLineComment
+        	Field Mapping uses part of key
+        		related.Company     	= Company
+        		related.AdjustmentInspectionDocumentType = AdjustmentInspectionDocumentType
+                related.POReceiptAdjustmentAndInspection 	= POReceiptAdjustmentAndInspection
+                related.POReceiptAdjustmentAndInspectionLine = POReceiptAdjustmentAndInspectionLine
+
+        InventoryTransactionLineRel
+            one-to-one relation to InventoryTransactionLine
+            valid when (IsInventoried)
+            Field Mapping uses Set1
+                related.Company                                    = Company
+                related.InventoryLocation                          = PurchaseOrderReceiptLine.ShipToLocation
+                related.TransactionSystemCode                      = "PO"
+                related.InventoryTransaction					   = PurchaseOrderReceipt	
+                related.InventoryTransactionLine.WarehouseShipment = blank
+                related.InventoryTransactionLine.LineNumber        = PurchaseOrderReceiptLine
+                related.InventoryTransactionLine.ComponentSequence = blank
+        
+        RejectedInspectionTransactionRel
+        	one-to-many relation to InventoryTransactionLine
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction								= reference to this instance
+			Instance Selection
+				where (related.IsInspectionRejection)
+                
+        PurchaseOrderAndLineAddOnChargeRel
+			one-to-many relation to PurchaseOrderAndLineAddOnCharge
+			Field Mapping uses Set3
+				related.Company				= Company
+				related.PurchaseOrder		= PurchaseOrder
+				related.PurchaseOrderLine	= PurchaseOrderLine
+
+		PurchaseOrderLineAddOnChargeRel
+			one-to-one relation to PurchaseOrderAndLineAddOnCharge
+			Field Mapping uses Set3
+				related.Company				= Company
+				related.PurchaseOrder		= PurchaseOrder
+				related.PurchaseOrderLine	= PurchaseOrderLine
+				related.AddOnCharge			= LocalPurchaseOrderLineAddOnCharge
+		
+		POAndLineAddOnChargeRel
+			one-to-many relation to PurchaseOrderAndLineAddOnCharge
+			Field Mapping uses Set3
+				related.Company				= Company
+				related.PurchaseOrder		= PurchaseOrder
+				related.PurchaseOrderLine	= PurchaseOrderLine
+			Instance Selection 
+                where (related.Closed= "Y")
+				
+				
+        InventoryCostHistoryRel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses symbolic key
+				related.Company								= Company
+				related.InventoryLocation					= PurchaseOrderReceiptLine.ShipToLocation
+				related.Item								= PurchaseOrderReceiptLine.Item
+		
+		InventoryCostHistoryForPOReceiptRel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set3
+				related.Company 							= Company
+				related.InventoryLocation					= PurchaseOrderReceiptLine.ShipToLocation
+				related.Item								= PurchaseOrderReceiptLine.Item
+			Instance Selection
+				where (related.ValidPurchaseOrderTransaction
+				and    related.DerivedOriginatingTransaction = PurchaseOrderReceipt)
+		
+        PoreclineAOCRel
+            one-to-many relation to PurchaseOrderReceiptLineAOC
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company              = Company
+                related.PurchaseOrderReceipt = PurchaseOrderReceipt
+                related.PurchaseOrderReceiptLine = PurchaseOrderReceiptLine
+                
+        IntrastatDetailRel
+			one-to-many relation to IntrastatDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				related.TaxEntity				= Company.AccountingEntity
+				related.IntrastatHeader			= PurchaseOrderReceipt.IntrastatHeaderRel.IntrastatHeader
+		
+        
+      		
+        IntrastatHeaderRel
+			one-to-many relation to IntrastatHeader
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				related.TaxEntity				= Company.AccountingEntity
+				
+        ItemUOMBuyRel
+        	one-to-one relation to ItemUOM
+        	Field Mapping uses symbolic key
+        		related.ItemGroup         = PurchaseOrderLine.ProcurementGroup
+        		related.Item              = PurchaseOrderLine.Item
+        		related.UnitOfMeasure     = PurchaseOrderLine.EnteredBuyUOM
+        		
+        BuyerMessageRel
+            one-to-one relation to PurchaseOrderBuyerMessage
+            delete cascades
+            Field Mapping uses Set5
+                related.Company                  = Company
+                related.PurchaseOrderReceipt     = PurchaseOrderReceipt
+                related.PurchaseOrderReceiptLine = PurchaseOrderReceiptLine
+
+
+                related.DocumentNumberNumeric    = POReceiptAdjustmentAndInspection
+                
+		UnreleasedBuyerMessageRel
+			one-to-many relation to PurchaseOrderBuyerMessage
+			Field Mapping uses AllByReceiver
+				related.Company					= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+			Instance Selection
+				where (related.Status.Unreleased)
+        
+        PurchaseOrderLineAssetRel
+ 			one-to-one relation to PurchaseOrderLineAsset
+ 			Field Mapping uses symbolic key
+ 				related.Company					= Company
+ 				related.PurchaseOrder			= PurchaseOrderReceipt.PurchaseOrder
+ 				related.PurchaseOrderLine		= PurchaseOrderLine
+        
+        PurchaseOrderAdjustLineAssetRel
+ 			one-to-one relation to PurchaseOrderLineAsset
+ 			Field Mapping uses symbolic key
+ 				related.Company					= Company
+ 				related.PurchaseOrder			= PurchaseOrder
+ 				related.PurchaseOrderLine		= PurchaseOrderLine        
+
+		PurchaseOrderLineAssetDetailRel
+			one-to-many relation to PurchaseOrderLineAssetDetail
+			Field Mapping uses Set2
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLineAsset		= PurchaseOrderLine
+		
+		PurchaseOrderLineReceivedAssetDetailRel
+			one-to-many relation to PurchaseOrderLineAssetDetail
+			Field Mapping uses Set2
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLineAsset		= PurchaseOrderLine
+			Instance Selection
+				where (related.Received.Yes)
+		
+		PurchaseOrderLineCancelledAssetDetailRel
+			one-to-many relation to PurchaseOrderLineAssetDetail
+			Field Mapping uses Set2
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLineAsset		= PurchaseOrderLine
+			Instance Selection
+				where (related.Cancelled.Yes)
+		
+		PurchaseOrderLineRejectedAssetDetailRel
+			one-to-many relation to PurchaseOrderLineAssetDetail
+			Field Mapping uses Set2
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderLineAsset		= PurchaseOrderLine
+			Instance Selection
+				where (related.Rejected.Yes)			
+										
+        PorecadjhdRel
+            one-to-one relation to POReceiptAdjustmentAndInspection
+            required
+            Field Mapping uses symbolic key
+                related.Company                          = Company
+                related.AdjustmentInspectionDocumentType = AdjustmentInspectionDocumentType
+                related.POReceiptAdjustmentAndInspection = POReceiptAdjustmentAndInspection
+
+        PotransdtlRels
+            one-to-many relation to PurchaseOrderTransactionDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType = AdjustmentInspectionDocumentType
+                and   related.PurchaseOrderTransactionDetail.DocumentNumberNumeric = POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderTransactionDetail.LineNumber = PurchaseOrderReceiptLine)
+                
+ 		PurchaseOrderLineSourceByRequisitionRel
+			one-to-many relation to PurchaseOrderLineSource
+			Field Mapping uses BySourceDocument
+				related.Company											= Company
+				related.PurchaseOrder									= PurchaseOrder
+ 		
+ 		POLineSourceRels
+ 			one-to-many relation to PurchaseOrderLineSource
+ 			Field Mapping uses Set1
+ 				related.Company				= Company
+                related.PurchaseOrder		= PurchaseOrder	
+ 				related.PurchaseOrderLine	= PurchaseOrderLine
+
+           
+
+
+
+
+
+
+		        
+
+		PurchaseOrderReceiptLineRels
+			one-to-many relation to PurchaseOrderReceiptLine
+		    Field Mapping uses symbolic key
+		    	related.Company                           = Company
+		        related.PurchaseOrderReceipt    	      = PurchaseOrderReceipt
+		        related.PurchaseOrderReceiptLine          = POReceiptAdjustmentAndInspectionLine
+		
+		PurchaseOrderLineRels
+			one-to-many relation to PurchaseOrderLine
+		    Field Mapping uses symbolic key
+		    	related.Company                           = Company
+		        related.PurchaseOrder    	      = PurchaseOrder
+		        related.PurchaseOrderLine          = PurchaseOrderLine
+         
+	    
+	    ItemlocRel
+            one-to-one relation to ItemLocation
+            valid when (IsInventoried)
+            required
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = PurchaseOrderReceiptLine.ShipToLocation
+                related.Item              = PurchaseOrderReceiptLine.Item
+	    
+	    UnreleasedMatchPurchaseOrderInvoicesRel
+            one-to-many relation to MatchPurchaseOrderInvoice
+
+            Field Mapping uses symbolic key
+                related.Company 				= Company
+                related.PurchaseOrder        	= PurchaseOrder
+          	Instance Selection
+          		where (related.PayablesInvoice.Status.Unreleased)
+	    
+	    
+
+	    PurchaseOrderTransactionDetailsRels  
+            one-to-many relation to PurchaseOrderTransactionDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType = AdjustmentInspectionDocumentType
+                and   related.PurchaseOrderTransactionDetail.DocumentNumberNumeric = POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderTransactionDetail.LineNumber = POReceiptAdjustmentAndInspectionLine)
+
+		PurchaseOrderTransactionDetailsReject
+			one-to-many relation to PurchaseOrderTransactionDetail
+			Field Mapping uses symbolic key
+				related.Company	= Company
+			Instance Selection
+				where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.ReceivingInspectionRejection
+                and    related.PurchaseOrderTransactionDetail.DocumentNumberNumeric = POReceiptAdjustmentAndInspection
+                and    related.PurchaseOrderTransactionDetail.LineNumber = POReceiptAdjustmentAndInspectionLine
+				and    related.Bin 		= LocalBin
+				and	   related.Lot 		= LocalLot
+				and	   related.Sublot	= LocalSublot
+				and    related.Serial 	= LocalSerial)
+                
+	    PurchaseOrderTransactionDetailsReceivingRel  
+	        one-to-many relation to PurchaseOrderTransactionDetail
+	        Field Mapping uses symbolic key
+	            related.Company = Company
+	        Instance Selection
+	            where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.Receiving
+	            and   related.PurchaseOrderTransactionDetail.DocumentNumberNumeric = PurchaseOrderReceipt
+	            and   related.PurchaseOrderTransactionDetail.LineNumber = PurchaseOrderReceiptLine)
+	            
+        StockOnHandDetailForBinRel								
+			one-to-one relation to StockOnHandDetail
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.InventoryLocation				= PurchaseOrderReceiptLine.ShipToLocation
+				related.Item							= PurchaseOrderReceiptLine.Item
+				related.StockOnHandDetail.UnitOfMeasure	= PurchaseOrderReceiptLine.ReceivedUOM
+				related.StockOnHandDetail.Lot			= blank	
+				related.StockOnHandDetail.Sublot		= blank 
+				related.StockOnHandDetail.Bin			= LocalBin
+        
+        PurchaseOrderLineDistributionRel 
+        	one-to-many relation to PurchaseOrderLineDistribution
+        	Field Mapping uses symbolic key
+        		related.Company                         = Company
+        		related.PurchaseOrder                   = PurchaseOrder
+        		related.PurchaseOrderLine               = PurchaseOrderLine
+        
+        IccompanyRel
+            one-to-one relation to InventoryCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+                
+        PurchaseOrderTransactionDetailsAdjRels  
+            one-to-many relation to PurchaseOrderTransactionDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.ReceivingAdjustment
+                and   related.PurchaseOrderTransactionDetail.DocumentNumberNumeric = POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderTransactionDetail.LineNumber = POReceiptAdjustmentAndInspectionLine)                       	
+         
+		POTransactionDetailsDifferentLotExpirationRel  
+            one-to-many relation to PurchaseOrderTransactionDetail
+            Field Mapping uses ByLine
+                related.Company 																			= Company
+				related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType						= PurchaseTransactionDocumentType.ReceivingAdjustment
+				related.PurchaseOrderTransactionDetail.DocumentNumberNumeric								= POReceiptAdjustmentAndInspection
+				related.PurchaseOrderTransactionDetail.LineNumber 											= POReceiptAdjustmentAndInspectionLine
+            Instance Selection
+                where (related.HasLotOrSerial
+				and   related.HasDifferentLotExpirationDate) 
+
+      	PurchaseOrderReceiptLinesRel
+			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses Set6
+				related.Company  				= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+                related.PurchaseOrderLine		= PurchaseOrderReceiptLine.PurchaseOrderLine
+
+        PurchaseOrderLineSourceByOrderEntryRel
+			one-to-many relation to PurchaseOrderLineSource
+			Field Mapping uses Set1
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrderLine.PurchaseOrder
+				related.PurchaseOrderLine		= PurchaseOrderLine
+			Instance Selection
+				where (related.PurchaseOrderLineSource.SourceDocumentOrigin.OrderEntry)
+				 
+		RemoveObsoleteBuyerMessageRel
+		    one-to-one relation to PurchaseOrderBuyerMessage
+		    delete cascades
+		    Field Mapping uses Set3
+	    	    related.Company                  = Company
+		        related.PurchaseOrderReceipt     = PurchaseOrderReceipt
+		        related.PurchaseOrderReceiptLine = PurchaseOrderReceiptLine
+
+		PurchaseFromLocationRel
+			one-to-one relation to PurchaseFromLocation
+			Field Mapping uses symbolic key
+				related.VendorGroup				= PurchaseOrderReceiptLine.Vendor.VendorGroup
+				related.Vendor					= PurchaseOrderReceiptLine.Vendor
+				related.PurchaseFromLocation	= PurchaseOrderLine.PurchaseFromLocation		
+		
+		PurchasingVendorRel
+			one-to-one relation to PurchasingVendor
+			Field Mapping uses symbolic key
+				related.VendorGroup				= PurchaseOrderReceiptLine.Vendor.VendorGroup
+				related.Vendor					= PurchaseOrderReceiptLine.Vendor
+		        
+        VendorReturnRel
+    		one-to-one relation to VendorReturn
+        	Field Mapping uses Set1 
+          		related.Company                  = Company
+          		related.VendorReturn			 = PurchaseOrderReceiptLine.VendorReturn
+          		
+
+        VendorReturnLinesRel
+    		one-to-many relation to VendorReturnLine
+        	Field Mapping uses ByCompanyAndVendorReturnLine
+          		related.Company					 = Company
+				related.VendorReturnLine  		 = PurchaseOrderReceiptLine				
+			Instance Selection
+				where (related.DocumentNumberNumeric != POReceiptAdjustmentAndInspection
+				and    related.PurchaseOrderReceipt   = PurchaseOrderReceiptLine.PurchaseOrderReceipt)
+
+
+        VendorReturnLinesFromReceiptTemplateRel
+    		one-to-many relation to VendorReturnLine
+        	Field Mapping uses ByCompanyAndVendorReturnLine
+          		related.Company					 = Company
+				related.VendorReturnLine  		 = POReceiptAdjustmentAndInspectionLine				
+			Instance Selection
+				where (related.DocumentNumberNumeric != POReceiptAdjustmentAndInspection
+				and    related.PurchaseOrderReceipt   = POReceiptAdjustmentAndInspection.PurchaseOrderReceipt)
+
+        ThisDocumentVendorReturnRel
+        	one-to-one relation to VendorReturn
+        	Field Mapping uses Set1
+        		related.Company                  = Company
+          		related.VendorReturn			 = VendorReturn
+        
+        PurchaseOrderReceiptTrackingRel
+            one-to-many relation to PurchaseOrderReceiptTracking
+            Field Mapping uses symbolic key
+                related.Company                  = Company
+                related.PurchaseOrderReceipt     = PurchaseOrderReceipt
+                related.PurchaseOrderReceiptLine = PurchaseOrderReceiptLine
+          
+		InventoryTransactionLineDetailRel
+			one-to-many relation to InventoryTransactionLineDetail
+			Field Mapping uses Set2
+				related.Company										= Company
+            	related.InventoryLocation							= PurchaseOrderReceiptLine.ShipToLocation	
+            	related.TransactionSystemCode						= TransactionSystemCode.PurchaseOrder 
+            	related.InventoryTransaction						= LocalInventoryTransaction
+            	related.InventoryTransactionLine.WarehouseShipment	= LocalInventoryTransactionLine.InventoryTransactionLine.WarehouseShipment
+            	related.Item										= LocalItem	
+            	related.Lot											= LocalLot
+            	related.Serial										= LocalSerial
+            	related.Bin											= LocalBin
+            	related.InventoryTransactionLine.LineNumber			= LocalInventoryTransactionLine.InventoryTransactionLine.LineNumber
+            	related.InventoryTransactionLine.ComponentSequence	= LocalInventoryTransactionLine.InventoryTransactionLine.ComponentSequence
+
+		ReceivingDetailsRel
+	        one-to-many relation to PurchaseOrderTransactionDetail
+	        Field Mapping uses ByLine
+	            related.Company 																	= Company
+	            related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType				= PurchaseTransactionDocumentType.Receiving
+	            related.PurchaseOrderTransactionDetail.DocumentNumberNumeric 						= PurchaseOrderReceipt
+	            related.PurchaseOrderTransactionDetail.LineNumber 									= PurchaseOrderReceiptLine
+
+		AdjustmentInspectionDetailsRel
+			one-to-many relation to PurchaseOrderTransactionDetail
+			Field Mapping uses ByLine
+				related.Company																		= Company
+				related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType				= AdjustmentInspectionDocumentType
+				related.PurchaseOrderTransactionDetail.DocumentNumberNumeric						= POReceiptAdjustmentAndInspection
+				related.PurchaseOrderTransactionDetail.LineNumber									= POReceiptAdjustmentAndInspectionLine
+		
+		ReceivedDetailsForOtherBinsRel
+			one-to-many relation to PurchaseOrderTransactionDetail
+			Field Mapping uses ByLine
+				related.Company																		= Company
+				related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType				= PurchaseTransactionDocumentType.Receiving
+				related.PurchaseOrderTransactionDetail.DocumentNumberNumeric						= POReceiptAdjustmentAndInspection
+				related.PurchaseOrderTransactionDetail.LineNumber									= POReceiptAdjustmentAndInspectionLine
+			Instance Selection
+				where (related.Bin					!= LocalFirstBin)
+
+        PurchaseOrderUDIDetailRel  
+            one-to-many relation to PurchaseOrderUDIDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType.ReceivingAdjustment
+                and   related.PurchaseOrderUDIDetail.DocumentNumberNumeric = POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderUDIDetail.LineNumber = POReceiptAdjustmentAndInspectionLine)
+
+		PurchaseOrderUDIDetailAdjustmentRel  
+            one-to-many relation to PurchaseOrderUDIDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType	= AdjustmentInspectionDocumentType.ReceiptAdjustment
+                and   related.PurchaseOrderUDIDetail.DocumentNumberNumeric				= POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderUDIDetail.LineNumber							= POReceiptAdjustmentAndInspectionLine)
+
+		PurchaseOrderUDIDetailRejectionRel  
+            one-to-many relation to PurchaseOrderUDIDetail
+            delete cascades
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType	= AdjustmentInspectionDocumentType.ReceiptInspection
+                and   related.PurchaseOrderUDIDetail.DocumentNumberNumeric				= POReceiptAdjustmentAndInspection
+                and   related.PurchaseOrderUDIDetail.LineNumber							= POReceiptAdjustmentAndInspectionLine)
+				
+		PurgeProcurementTransactionDistributionRel
+			one-to-many relation to ProcurementTransactionDistribution
+			Field Mapping uses symbolic key
+				related.Company							= Company
+			Instance Selection
+				include deleted records
+				where (related.SystemCode				= "PO"
+				and   related.Location					= PurchaseOrderReceiptLine.ShipToLocation
+				and   related.ProcurementDocumentNumber	= DerivedPOReceiptAdjustmentInspection
+				and   related.LineNumber				= PurchaseOrderReceiptLine
+				and   (related.DocumentType = "RA" or related.DocumentType = "AC"))
+				
+		PurgeReceiptAdjustmentAndInspectionLineDistRel
+			one-to-many relation to POReceiptAdjustmentAndInspectionLineDistribution
+			Field Mapping uses symbolic key
+				related.Company  									= Company
+			Instance Selection
+				include deleted records
+				where (related.POReceiptAdjustmentAndInspection		= POReceiptAdjustmentAndInspection
+				and    related.POReceiptAdjustmentAndInspectionLine	= POReceiptAdjustmentAndInspectionLine)
+
+
+
+		FSMBODConfigurationParameterRel
+        	one-to-one relation to FSMBODConfigurationParameter
+			Field Mapping uses symbolic key
+            	related.FSMBODConfigurationParameter 		= LocalConfigurationParameter
+		
+		FSMBODConfigurationPARel
+        	one-to-one relation to FSMBODConfiguration
+			Field Mapping uses symbolic key
+            	related.FSMBODConfiguration.Verb 		= 2
+            	related.FSMBODConfiguration.Noun 		= "PulseAlert"
+            	related.FSMBODConfiguration.Direction 	= 1
+        
+        FSMBODConfigurationDetailPARel
+        	one-to-many relation to FSMBODConfigurationDetail
+			Field Mapping uses symbolic key
+            	related.FSMBODConfiguration.Verb 			= 2	
+            	related.FSMBODConfiguration.Noun 			= "PulseAlert"
+            	related.FSMBODConfiguration.Direction 		= 1
+            Instance Selection
+				where (related.Alert						= "FSM_ION_InspectionItemRejectedAlert"
+				and	   related.Enable)
+
+
+
+
+		FSMBODConfigurationRel
+        	one-to-one relation to FSMBODConfiguration
+			Field Mapping uses symbolic key
+            	related.FSMBODConfiguration.Verb 		= 1
+            	related.FSMBODConfiguration.Noun 		= "InspectDelivery"
+            	related.FSMBODConfiguration.Direction 	= 1
+
+
+		GeneralLedgerCompanyRel
+            one-to-one relation to GeneralLedgerCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+                		
+    Sets
+
+        Set1
+            indexed
+            Sort Order
+                Company
+                AdjustmentInspectionDocumentType
+                POReceiptAdjustmentAndInspection descending
+                PurchaseOrderReceiptLine
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                PurchaseOrderReceipt
+                PurchaseOrderReceiptLine
+                AdjustmentInspectionDocumentType
+                POReceiptAdjustmentAndInspection
+
+        Set3
+            indexed
+            Instance Selection
+                where (IsReleased)
+            Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+                DocumentDate descending
+                AdjustmentInspectionDocumentType
+                POReceiptAdjustmentAndInspection
+                PurchaseOrderReceiptLine
+
+
+
+
+
+
+
+
+                
+
+        Set5
+            indexed
+            Instance Selection
+                where (IsReleased)
+            Sort Order
+                Company
+                PurchaseOrderReceipt
+                PurchaseOrderReceiptLine
+                POReceiptAdjustmentAndInspection
+        
+        
+
+
+
+
+
+		
+		
+	Local Fields
+		LocalUseInputValue	is Boolean
+
+		OvershipmentCost is a InternationalAmount	
+		LocalItemLocationHoldQty is a Quantity
+
+		LocalDeliveredQuantity is a Quantity
+		RemainingReceivedQuantity is a Quantity
+		LocalVendorPriceUOMQuantity  is a Quantity
+		LocalExtendedAmount is a InternationalAmount
+		LocalRecAOCQuantity is a Quantity
+		LocalRecAOCMatchedQuantity is a Quantity
+		LocalAOCRecQuantityToMatch is a Quantity
+		LocalAOCRecAmountToMatch is a InternationalAmount
+		LocalAOCRecTotalAoc is a InternationalAmount
+		LocalAOCRecTotalAocPO is a InternationalAmount 
+		LocalRejectQuantity is a Quantity
+		LocalICTUnitCostCurr is a InternationalCost
+		LocalBaseCost is a InternationalCost
+		LocalInventoryTransLineSecondaryQuantity is a Quantity
+		LocalInventoryTransLineTransactionUOM                is a UnitOfMeasure
+		LocalInventoryTransLineTransactionUOMMultiplier      is an UOMMultiplier
+		LocalICTWSQuantity is a Quantity
+		LocalLineSequence is Numeric size 4 
+		LocalMMDISTQuantity is a Quantity
+		LocalInventoryTranDocumentType is a InventoryDocumentType	
+		LocalConvertAdjInspQuantity is a Quantity
+		LocalTotalAdjQuantity is a Quantity
+		LocalTotalMatchQuantity is a Quantity
+		LocalMMDSTAcctUnit is a FinanceCodeBlock 
+		LocalMMDSTAcct is a GeneralLedgerChartAccount 
+
+
+
+		LocalConvMatchQuantity is a Quantity
+		LocalLastDeliverySequence is Alpha size 10	
+		LocalUnitCost								is like UnitCost			
+		LocalRemainingQuantity						is like Quantity
+		LocalChangedQuantity						is like Quantity
+		LocalInventoryCostHistoryRemainingQuantity	is like Quantity
+		LocalReceiptLineLandedCost					is like UnitCost
+    	LocalInventoryCostHistoryQuantity is like Quantity
+    	LocalInventoryCostHistoryCost				is an InternationalCost
+    	LocalTotalInventoryHistoryCost is an InternationalCost
+		LocalZeroCost								is Boolean
+		LocalPUCQuantity is a Quantity
+		LocalTotalReceivedQuantity	is a Quantity
+		LocalTransactionQuantity	is a Quantity
+		UOMCalculation
+		RoundedValue
+		SumBuyUOMQuantity			is a Quantity
+		LocalPercentUndershipped	is like UndershipmentTolerancePercentage
+		LocalPercentOvershipped		is like OvershipmentTolerancePercentage
+		LocalArray					is a PurchaseOrderBuyerMessageCommentArray
+		Counter1					is Numeric size 1
+		LocalOverreceived			is Boolean
+		LocalBuyerMessage			is Boolean
+
+		LocalItem					is an Item
+		OvershipQuantity            is a Quantity
+		CurrencyTable
+		LocalCurrencyExchange             	 is a CurrencyExchange
+		LocalFromCurrency					 is a FromCurrency
+		LocalTransactionAmount				 is a CurrencyAmount
+		LocalExchangeDate					 is a ExchangeDate
+		LocalTitle 				                    is Alpha size 255
+		ActionCode							        is Alpha size 1
+			States
+				Create  value is "C"
+				Update	value is "U"
+				Delete	value is "D"		
+		LocalFirstBin						is like Bin
+		LocalBin							is like Bin
+		LocalLot							is like ItemLot
+		LocalSublot							is like Sublot
+		LocalSerial							is like ItemSerialNumber
+		LocalTranQuantity					is like Quantity
+		LocalQuantity						is like Quantity
+		LocalCatchWeightQuantity			is like Quantity
+		LocalInventoryTransaction			is an InventoryTransaction
+		LocalInventoryTransactionLine		is an InventoryTransactionLine	view
+		LocalAcceptQuantity					is a Quantity
+		LocalAcceptCatchWeightQuantity		is a Quantity
+		LocalItemType						is an ItemType
+		LocalPostingType					is AlphaUpper size 2
+		LocalDistributionAccount			is a FinanceCodeBlock
+		LocalDistributionQuantity			is a Quantity
+		LocalDistributionAmount				is an InternationalCost
+		LocalCreateVariance					is Boolean
+		LocalAddOnCharge					is like AddOnCharge
+		LocalPurchaseOrderLineAddOnCharge	is like AddOnCharge
+		LocalNativeLPLBODTrigger			is Boolean
+		NewBODTracker  				is a FSMInboundBODTracker view
+		LocalFSMInboundBODTracker	is Numeric 15
+		Error            			is Boolean
+	    ErrorMessage     			is Alpha 300
+	    LocalConfigurationParameter		is Alpha size up to 200
+	Field Groups
+		HeaderAndLocation
+			POReceiptAdjustmentAndInspection
+			ReceivingLocation
+		
+	Rule Blocks
+		PopulateItemAndItemType
+			if (LineExists)
+				LocalItem		= PurchaseOrderReceiptLine.Item
+				LocalItemType	= PurchaseOrderReceiptLine.ItemType
+			else
+				LocalItem		= ReceiptLinesForTemplateRel.Item
+				LocalItemType	= ReceiptLinesForTemplateRel.ItemType
+		
+		CommonReleaseRules
+			if (POReceiptAdjustmentAndInspection.IsAdjustmentDocument)
+				constraint (not HasUnreleasedBuyerMessages)
+					"Receipt<PurchaseOrderReceipt>AdjustmentDocument<POReceiptAdjustmentAndInspection>Line<PurchaseOrderLine.LineNumber>HasOutstandingBuyerMessage"
+			
+			if (IntrastatHeaderRel.Status.Open)
+				if (IntrastatDetailRel exists)
+					invoke Update IntrastatDetailRel
+						invoked.ICNCode								= PurchaseOrderLine.ICNCode
+						invoked.IntrastatHeader.IntrastatNumber		= PurchaseOrderReceipt.IntrastatHeaderRel.IntrastatHeader.IntrastatNumber
+						invoked.ReceivedAmount						= (PurchaseOrderReceiptLine.ExtendedAmount +(PurchaseOrderReceiptLine.TaxableUnitCost * Quantity))
+						invoked.SupplementaryQuantity				= (PurchaseOrderLine.SupplementaryQuantity * Quantity / PurchaseOrderLine.Quantity)
+						invoked.StockWeight							= (PurchaseOrderLine.StockWeight / PurchaseOrderLine.Quantity * Quantity)
+		
+		CreateOrUpdateTransactionDetailForSingleBin
+			if (IsInventoried
+			and IsBinTracked
+			and !IsLotRequiredAtReceipt
+			and !IsSerialRequiredAtReceipt
+			and Bin entered
+			and not InterfaceHasDetails
+			and (Quantity entered or CatchWeightQuantity entered))
+
+				LocalFirstBin = first ReceivingDetailsRel.Bin
+				if (ReceivedDetailsForOtherBinsRel not exists)
+					if (AdjustmentInspectionDetailsRel not exists)
+						invoke Create PurchaseOrderTransactionDetail
+							invoked.Company				 											= Company
+							invoked.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType  = AdjustmentInspectionDocumentType
+							invoked.PurchaseOrderTransactionDetail.DocumentNumberNumeric 			= POReceiptAdjustmentAndInspection
+							invoked.PurchaseOrderTransactionDetail.LineNumber			 			= POReceiptAdjustmentAndInspectionLine
+							invoked.PurchaseOrderTransactionDetail.TransactionSequence   			= LastPurchaseOrderTransactionDetail
+							invoked.Bin					 											= Bin
+							invoked.Item				 											= PurchaseOrderReceiptLine.Item
+							if (IsCatchWeightItem)
+								invoked.Quantity 			 										= CatchWeightQuantity
+								invoked.SecondaryQuantity											= Quantity
+							else
+								invoked.Quantity													= Quantity
+					else
+					if  (DerivedTransactionDetailCount = 1 
+					and  DetailsInBalance
+					and (Quantity changed or Bin changed))
+						invoke Update first AdjustmentInspectionDetailsRel
+							if (IsCatchWeightItem)
+								invoked.Quantity 			 										= CatchWeightQuantity
+								invoked.SecondaryQuantity											= Quantity
+							else
+								invoked.Quantity													= Quantity
+		    				invoked.Bin					= Bin
+    	
+    	UpdateInventoryCostHistory
+			if (Company.InventoryCompany.CostingMethod.LastInFirstOut)
+				for each InventoryCostHistoryRel
+					include DecreaseInventoryCostHistory
+			else
+				for each InventoryCostHistoryRel
+					include DecreaseInventoryCostHistory
+    	
+    
+    	
+    	DecreaseInventoryCostHistory	
+			LocalInventoryCostHistoryRemainingQuantity = each.ReceivedQuantity - each.InspectionHoldQuantity - each.UsedQuantity	
+
+			if (LocalRemainingQuantity <= LocalInventoryCostHistoryRemainingQuantity)
+				LocalInventoryCostHistoryQuantity 	= LocalRemainingQuantity
+			else
+				LocalInventoryCostHistoryQuantity	= LocalInventoryCostHistoryRemainingQuantity
+
+			LocalInventoryCostHistoryCost 			= LocalInventoryCostHistoryQuantity * each.UnitCost
+			LocalTotalInventoryHistoryCost 		   += LocalInventoryCostHistoryCost
+			
+			LocalRemainingQuantity 			   		-= LocalInventoryCostHistoryQuantity		
+			
+			if (LocalRemainingQuantity = 0)
+				end for each
+		
+		CreateInventoryTransactionLineDistribution
+			invoke Create InventoryTransactionLineDistribution
+				fill in fields from this instance					
+				invoked.InventoryTransaction						= LocalInventoryTransaction
+				invoked.InventoryTransactionLine					= LocalInventoryTransactionLine.InventoryTransactionLine
+				invoked.TransactionSystemCode						= LocalInventoryTransactionLine.TransactionSystemCode
+				invoked.System										= TransactionSystemCode.PurchaseOrder
+				invoked.InventoryLocation							= PurchaseOrderReceiptLine.ShipToLocation
+				invoked.PostingType									= LocalPostingType
+				invoked.PostingDate									= DocumentDate
+				if (PurchaseOrderReceipt.PurchaseOrder.CurrencyExchangeSetPoint.Receiving)
+					invoked.TransactionDate  						= PurchaseOrderReceipt.ReceivedDate
+				else
+					invoked.TransactionDate  						= PurchaseOrderReceipt.PurchaseOrder.PurchaseOrderDate
+				invoked.GLFinanceCodeBlock							= LocalDistributionAccount
+				invoked.GLTransactionAmount							= LocalDistributionAmount
+				invoked.CurrencyCode								= PurchaseOrderReceipt.PurchaseOrder.Currency
+				invoked.AddOnCharge 								= LocalAddOnCharge
+				invoked.GeneralLedgerEvent							= TransactionSystemCode.PurchaseOrder
+				invoked.DocumentNumber								= LocalInventoryTransaction.InventoryTransaction
+				initialize invoked.Status
+				invoked.BypassUnitAndAmountEdit 					= PurchaseOrderReceiptLine.BypassUnitAndAmountEdit
+				invoked.BypassActiveCodeBlockEdit					= true
+				if (not LocalDistributionAccount.GeneralLedgerChartAccount.AllowUnits.No)
+					if (LocalPostingType = "O1") 
+						invoked.UnitsAmount							= LocalDistributionQuantity * -1
+					else
+						invoked.UnitsAmount							= LocalDistributionQuantity
+		
+		CreateInventoryAndOffsetDistributions
+			LocalPostingType				= InventoryTransactionLineDistribution.PostingType.Inventory
+			
+			if (IsStandardCosting and ItemlocRel.StandardCost entered
+			and PurchaseOrderReceiptLine.PurchaseOrderLine.DerivedLandedUnitCostInStockUOM != PurchaseOrderReceiptLine.DerivedStandardCostInPOCurrency
+			and (IsInspection or (IsAdjustment and not PurchaseOrderReceiptLine.InspectionRequired)))
+				LocalDistributionAmount		= LocalDistributionQuantity * PurchaseOrderReceiptLine.DerivedStandardCostInPOCurrency
+				LocalCreateVariance			= true
+			else
+				LocalDistributionAmount		= LocalDistributionQuantity * DerivedReceiptLineLandedCost
+				
+			include CreateInventoryTransactionLineDistribution
+			
+
+			if (LocalCreateVariance)
+				LocalPostingType			= InventoryTransactionLineDistribution.PostingType.Offset
+				LocalDistributionAccount 	= ItemlocRel.GeneralLedgerCategory.CostVarianceAccount
+				LocalDistributionAmount		= LocalDistributionQuantity * (DerivedReceiptLineLandedCost - PurchaseOrderReceiptLine.DerivedStandardCostInPOCurrency)
+				
+				include CreateInventoryTransactionLineDistribution
+			
+
+			LocalPostingType				= InventoryTransactionLineDistribution.PostingType.Offset
+			
+			if (IsInspection)
+				LocalDistributionAccount	= ReceivingLocation.InspectionHoldAccount
+			else
+				if (IsAdjustment)
+					if (HasNegativeQuantityToWriteOff)
+						if (PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount entered)
+							LocalDistributionAccount    = PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount
+						else
+							LocalDistributionAccount    = MacompanyRel.MatchWriteOffAccount					
+					else
+					if (PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount entered)
+						LocalDistributionAccount	= PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount
+					else
+						LocalDistributionAccount	= MacompanyRel.ReceiptAccrualAccount
+			
+			LocalDistributionAmount			= ((DerivedReceiptLineLandedCost - PurchaseOrderReceiptLine.LocalTotalLineAOCLandedCost) * (LocalDistributionQuantity * -1))
+			
+			include CreateInventoryTransactionLineDistribution
+				
+			for each PurchaseOrderReceiptLine.LandedReceiptLineAddOnChargesRel
+				LocalDistributionAmount 		= (((each.LandedUnitCost / PurchaseOrderReceiptLine.VendorPriceUOMMultiplier) * LocalDistributionQuantity) * -1)
+				LocalAddOnCharge 				= each.AddOnCharge
+				
+				include CreateInventoryTransactionLineDistribution
+		
+    	CreateInventoryTransactionLineAndDetailForRejectedInspectionItem  
+			LocalInventoryTransaction	= InventoryTransactionForRejectedInspectionItem
+			invoke Unreleased.Create InventoryTransactionLine	
+				assign result to LocalInventoryTransactionLine
+				fill in fields from this instance
+				invoked.OriginatingTransaction 						= reference to this instance
+				invoked.Company							            = Company
+				invoked.TransactionSystemCode 						= TransactionSystemCode.PurchaseOrder 
+				invoked.InventoryLocation						 	= PurchaseOrderReceiptLine.ShipToLocation
+				invoked.InventoryTransaction						= LocalInventoryTransaction
+				invoked.Item										= PurchaseOrderReceiptLine.Item
+				invoked.StockOnHandQuantity							= ItemlocRel.StockOnHandQuantity + LocalRejectQuantityForTransaction
+				invoked.OffsetAccount 								= ReceivingLocation.InspectionHoldAccount
+				invoked.InventoryAccount							= ReceivingLocation.ScrapAccount
+				invoked.DetailsInBalance							= DetailsInBalance
+				invoked.BypassActiveCodeBlockEdit   				= true				
+				invoked.EAMWorkOrder								= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrder
+				invoked.EAMWorkOrderActivity						= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrderActivity
+				if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+					invoked.SecondaryUOM							= PurchaseOrderReceiptLine.ReceivedUOM
+					invoked.SecondaryQuantity						= Quantity				
+					invoked.Quantity								= CatchWeightQuantity	
+					invoked.TransactionUOM							= PurchaseOrderReceiptLine.Item.StockUOM
+					invoked.TransactionUOMMultiplier				= 1
+					invoked.UnitCost								= PurchaseOrderReceiptLine.OriginalUnitCost
+				else
+					invoked.Quantity								= Quantity
+					invoked.TransactionUOM							= PurchaseOrderReceiptLine.ReceivedUOM
+					invoked.TransactionUOMMultiplier				= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+					invoked.UnitCost								= PurchaseOrderReceiptLine.DerivedReceivedUOMUnitCostInBaseCurrency
+				if (ItemlocRel.BinTracked)
+					if (Bin entered)
+						invoked.Bin												= Bin
+					else
+						invoked.MultipleBins									= true
+		
+			if (PurchaseOrderTransactionDetailsRels exist)
+				include CreateInventoryTransactionDetail
+			
+
+
+			LocalDistributionAccount		= ReceivingLocation.ScrapAccount
+			
+			if (PurchaseOrderReceiptLine.IsCatchWeightItemAndHasItemMaster)
+				LocalDistributionQuantity	= CatchWeightQuantity
+			else
+				LocalDistributionQuantity	= Quantity * PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+			
+			include CreateInventoryAndOffsetDistributions
+			
+
+
+
+
+
+
+
+
+		
+		CreateInventoryTransactionLineAndDetailForAdjustmentItem
+			LocalInventoryTransaction	= InventoryTransactionForAdjustmentItem
+			invoke Unreleased.Create InventoryTransactionLine	
+				assign result to LocalInventoryTransactionLine
+				fill in fields from this instance
+				invoked.OriginatingTransaction 									= reference to this instance
+				invoked.Company													= Company
+				invoked.TransactionSystemCode 									= TransactionSystemCode.PurchaseOrder 
+				invoked.InventoryLocation						 				= PurchaseOrderReceiptLine.ShipToLocation
+				invoked.DetailsInBalance										= DetailsInBalance
+				initialize invoked.InventoryTransactionLine.WarehouseShipment
+				if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+					invoked.SecondaryUOM										= PurchaseOrderReceiptLine.ReceivedUOM
+	        		invoked.SecondaryUOMMultiplier								= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+					invoked.SecondaryQuantity									= Quantity 
+					invoked.TransactionUOM										= PurchaseOrderReceiptLine.Item.StockUOM
+					invoked.TransactionUOMMultiplier							= 1
+					invoked.Quantity											= CatchWeightQuantity 
+					if (CatchWeightQuantity entered)
+						invoked.UnitCost										= PurchaseOrderReceiptLine.OriginalUnitCost
+				else
+					invoked.TransactionUOM										= PurchaseOrderReceiptLine.ReceivedUOM
+					invoked.TransactionUOMMultiplier							= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+					invoked.Quantity											= Quantity
+					invoked.UnitCost											= PurchaseOrderReceiptLine.DerivedReceivedUOMUnitCostInBaseCurrency
+				invoked.InventoryTransaction									= LocalInventoryTransaction
+	        	invoked.UnitCostInTransactionCurrency           				= PurchaseOrderReceiptLine.DerivedUnitCostInReceivedUOM
+	        	if (PurchaseOrderAndLineAddOnChargeRel exists)
+	        		invoked.AddOnChargeUnitCost									= DerivedAddOnChargeEnteredUnitCost
+					invoked.AddOnCostAccount									= ItemlocRel.GeneralLedgerCategory.InventoryAccount
+				invoked.Item													= PurchaseOrderReceiptLine.Item
+				if (PurchaseOrderReceiptLine.InspectionRequired)
+					invoked.InventoryAccount									= ReceivingLocation.InspectionHoldAccount
+				if (PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount entered)
+					invoked.OffsetAccount										= PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount
+				else
+					invoked.OffsetAccount										= MacompanyRel.ReceiptAccrualAccount
+				if (ItemlocRel.BinTracked)
+					if (Bin entered)
+						invoked.Bin												= Bin
+					else
+						invoked.MultipleBins									= true
+				invoked.BypassActiveCodeBlockEdit   							= true
+				invoked.EAMWorkOrder											= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrder
+				invoked.EAMWorkOrderActivity									= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrderActivity
+			
+			if (PurchaseOrderTransactionDetailsRels exist)
+				include CreateInventoryTransactionDetail
+			
+
+			if (PurchaseOrderReceiptLine.InspectionRequired)
+				LocalDistributionAccount	= ReceivingLocation.InspectionHoldAccount
+			else
+				LocalDistributionAccount	= ItemlocRel.GeneralLedgerCategory.InventoryAccount
+			
+			if (PurchaseOrderReceiptLine.IsCatchWeightItemAndHasItemMaster)
+				LocalDistributionQuantity	= CatchWeightQuantity
+			else
+				LocalDistributionQuantity	= Quantity * PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+			
+			include CreateInventoryAndOffsetDistributions
+			
+    	CreateInventoryTransactionLineAndDetailForAcceptedInspectionItem 
+    		LocalInventoryTransaction	= InventoryTransactionForAcceptedInspectionItem
+    		if (HasMultiplePOTransDetailReceive
+    		and Bin entered)
+    			initialize Bin
+    		
+    		invoke Unreleased.Create InventoryTransactionLine	
+				assign result to LocalInventoryTransactionLine
+				fill in fields from this instance
+				invoked.OriginatingTransaction 									= reference to this instance
+				invoked.Company													= Company
+				invoked.TransactionSystemCode 									= TransactionSystemCode.PurchaseOrder 
+				invoked.InventoryLocation						 				= PurchaseOrderReceiptLine.ShipToLocation
+				invoked.DetailsInBalance										= true
+				initialize invoked.InventoryTransactionLine.WarehouseShipment
+				if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+					invoked.SecondaryUOM										= PurchaseOrderReceiptLine.ReceivedUOM
+                    invoked.SecondaryQuantity                                   = AcceptedQuantity
+					invoked.TransactionUOM										= PurchaseOrderReceiptLine.Item.StockUOM
+					invoked.TransactionUOMMultiplier							= 1
+                    invoked.Quantity											= PurchaseOrderReceiptLine.CatchWeightQuantity - CatchWeightQuantity
+                    invoked.UnitCost											= PurchaseOrderReceiptLine.OriginalUnitCost
+				else
+					invoked.TransactionUOM										= PurchaseOrderReceiptLine.ReceivedUOM
+					invoked.TransactionUOMMultiplier							= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+					invoked.Quantity                                            = AcceptedQuantity
+					invoked.UnitCost											= PurchaseOrderReceiptLine.DerivedReceivedUOMUnitCostInBaseCurrency
+				invoked.InventoryTransaction									= LocalInventoryTransaction
+				invoked.StockOnHandQuantity										= ItemlocRel.StockOnHandQuantity - LocalRejectQuantityForTransaction
+	        	invoked.UnitCostInTransactionCurrency           				= PurchaseOrderReceiptLine.PurchaseOrderLine.EnteredUnitCost
+				invoked.Item													= PurchaseOrderReceiptLine.Item
+				invoked.OffsetAccount = ReceivingLocation.InspectionHoldAccount
+				invoked.BypassActiveCodeBlockEdit   							= true
+				invoked.EAMWorkOrder											= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrder
+				invoked.EAMWorkOrderActivity									= PurchaseOrderReceiptLine.PurchaseOrderLine.EAMWorkOrderActivity
+				if (ItemlocRel.BinTracked)
+					if (Bin entered)
+						invoked.Bin												= Bin
+					else
+						invoked.MultipleBins									= true
+
+
+			for each PurchaseOrderTransactionDetailsReceivingRel
+				LocalBin							= each.Bin
+				LocalLot							= each.Lot
+				LocalSublot							= each.Sublot
+				LocalSerial							= each.Serial
+				if (IsCatchWeightItem)
+					LocalAcceptQuantity				= each.SecondaryQuantity
+					LocalAcceptCatchWeightQuantity	= each.Quantity
+				else
+					LocalAcceptQuantity				= each.Quantity
+
+				for each PurchaseOrderTransactionDetailsReject
+					if (IsCatchWeightItem)
+						LocalAcceptQuantity				-= each.SecondaryQuantity
+						LocalAcceptCatchWeightQuantity	-= each.Quantity
+					else
+						LocalAcceptQuantity				-= each.Quantity
+
+				if (LocalAcceptQuantity entered
+				and not LocalInventoryTransactionLine.IsBinTrackedItemWithSingleBin)
+					invoke Unreleased.Create InventoryTransactionLineDetail
+						invoked.Company										= Company 
+						invoked.InventoryLocation							= PurchaseOrderReceiptLine.ShipToLocation
+						invoked.TransactionSystemCode						= TransactionSystemCode.PurchaseOrder 
+						invoked.InventoryTransaction						= LocalInventoryTransaction
+						invoked.InventoryTransactionLine.WarehouseShipment	= LocalInventoryTransactionLine.InventoryTransactionLine.WarehouseShipment
+						invoked.InventoryTransactionLine.LineNumber			= LocalInventoryTransactionLine.InventoryTransactionLine.LineNumber
+						invoked.InventoryTransactionLine.ComponentSequence	= LocalInventoryTransactionLine.InventoryTransactionLine.ComponentSequence
+						invoked.Item										= PurchaseOrderReceiptLine.Item
+						invoked.UnitOfMeasure								= LocalInventoryTransactionLine.TransactionUOM
+						invoked.Bin											= LocalBin
+						invoked.Lot											= LocalLot
+						invoked.Sublot										= LocalSublot
+						invoked.Serial										= LocalSerial
+						if (IsCatchWeightItem)
+							invoked.Quantity								= LocalAcceptCatchWeightQuantity
+							invoked.SecondaryQuantity						= LocalAcceptQuantity
+						else
+							invoked.Quantity								= LocalAcceptQuantity
+				
+
+
+			LocalDistributionAccount		= ItemlocRel.GeneralLedgerCategory.InventoryAccount
+			
+			if (PurchaseOrderReceiptLine.IsCatchWeightItemAndHasItemMaster)
+				LocalDistributionQuantity	= PurchaseOrderReceiptLine.CatchWeightQuantity - CatchWeightQuantity 
+			else
+				LocalDistributionQuantity	= AcceptedQuantity * PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+			
+			include CreateInventoryAndOffsetDistributions
+		
+		CreateInventoryTransactionDetail
+			if (not LocalInventoryTransactionLine.IsBinTrackedItemWithSingleBin)
+				for each PurchaseOrderTransactionDetailsRels						
+					LocalItem						= each.Item
+					LocalBin						= each.Bin
+					LocalLot						= each.Lot
+					LocalSerial						= each.Serial
+					if (IsCatchWeightItem)
+						LocalQuantity				= each.SecondaryQuantity
+						LocalCatchWeightQuantity	= each.Quantity
+					else
+						LocalQuantity				= each.Quantity
+					if (InventoryTransactionLineDetailRel not exists)
+						invoke Unreleased.Create InventoryTransactionLineDetail
+							invoked.Company										= Company 
+							invoked.InventoryLocation							= PurchaseOrderReceiptLine.ShipToLocation
+							invoked.TransactionSystemCode						= TransactionSystemCode.PurchaseOrder 
+							invoked.InventoryTransaction						= LocalInventoryTransaction
+							invoked.InventoryTransactionLine.WarehouseShipment	= LocalInventoryTransactionLine.InventoryTransactionLine.WarehouseShipment
+							invoked.InventoryTransactionLine.LineNumber			= LocalInventoryTransactionLine.InventoryTransactionLine.LineNumber
+							invoked.InventoryTransactionLine.ComponentSequence	= LocalInventoryTransactionLine.InventoryTransactionLine.ComponentSequence
+							invoked.Item										= LocalItem
+							invoked.UnitOfMeasure								= LocalInventoryTransactionLine.TransactionUOM
+							invoked.Serial										= LocalSerial
+							invoked.Lot											= LocalLot
+							invoked.LotExpirationDate							= each.LotExpirationDate
+							invoked.Sublot										= each.Sublot
+							invoked.LotOnHold									= each.LotOnHold
+							invoked.Bin											= LocalBin
+							if (IsCatchWeightItem)
+								invoked.Quantity								= LocalCatchWeightQuantity
+								invoked.SecondaryQuantity						= LocalQuantity
+							else
+								invoked.Quantity								= LocalQuantity
+					else
+	        				invoke UpdateFromTransactionLine InventoryTransactionLineDetailRel
+	        					if (IsCatchWeightItem)
+	        						invoked.PrmQuantity							= LocalCatchWeightQuantity
+	        						invoked.PrmSecondaryQuantity				= LocalQuantity
+	        					else
+									invoked.PrmQuantity							= LocalQuantity        				
+								            
+    	CalculateTolerances    																					
+			initialize LocalOverreceived
+			initialize LocalBuyerMessage
+
+			
+			if (PurchaseOrderLine.EnteredBuyUOM = PurchaseOrderReceiptLine.ReceivedUOM)
+			   	LocalTransactionQuantity		= Quantity
+		   	else
+		   		LocalItem						= PurchaseOrderReceiptLine.Item
+				UOMCalculation.InputUOM			= PurchaseOrderReceiptLine.ReceivedUOM
+				UOMCalculation.InputToUOM		= PurchaseOrderLine.EnteredBuyUOM
+				UOMCalculation.InputQuantity	= Quantity
+				UOMCalculation.Method			= UOMCalculation.Method.ConvertToAlternate
+		   		LocalTransactionQuantity		= UOMCalculation.OutputQuantity
+	   		
+	   		if (BuyerMessageRel exists)	 
+	   			LocalTotalReceivedQuantity	=	PurchaseOrderReceiptLine.EnteredReceivedQuantity + LocalTransactionQuantity
+	   			constraint (LocalTotalReceivedQuantity >= BuyerMessageRel.ReturnQuantity)
+	   				"LineReceivedQuantityCannotBeLessThanReturnedQuantity"									// "POPRLTOLPD.PORCT.224"
+	   		if (PurchaseOrderReceiptLine = PurchaseOrderReceiptLine.PurchaseOrderLine)
+	   			initialize SumBuyUOMQuantity
+   			else
+				for each PurchaseOrderReceiptLinesRel
+					SumBuyUOMQuantity += each.BuyUOMQuantity
+				SumBuyUOMQuantity	= PurchaseOrderReceiptLine.BuyUOMQuantity
+					
+			initialize LocalTotalReceivedQuantity
+			LocalTotalReceivedQuantity = PurchaseOrderLine.ReceivedQuantity + LocalTransactionQuantity + SumBuyUOMQuantity
+
+
+
+			if (LocalTotalReceivedQuantity > PurchaseOrderLine.QuantityToProcess)
+				if (PurchaseOrderLineSourceByOrderEntryRel exists 
+				and Company.CustomerOrderOvershipmentMessages)
+					if (not HasOverreceivingBuyerMessage)
+						Counter1	+= 1 
+						LocalArray.PurchaseOrderBuyerMessageComment[Counter1].Comment	= QuantityExceed
+					LocalOverreceived 	  = true
+					LocalBuyerMessage	  = true	
+				else 
+				if (not Company.DisableOvershipmentMessages
+				and not PurchaseOrderReceiptLine.ShipToLocation.DisableOvershipmentMessages
+				and not PurchaseOrderLine.OvershipmentToleranceOption.DisableOvershipmentMessage)
+					LocalPercentOvershipped = ((LocalTotalReceivedQuantity - PurchaseOrderLine.QuantityToProcess)/ PurchaseOrderLine.QuantityToProcess)
+					if (LocalPercentOvershipped > PurchaseOrderLine.OvershipmentTolerancePercentage)
+						if (not HasOverreceivingBuyerMessage)
+							Counter1	+= 1 
+							LocalArray.PurchaseOrderBuyerMessageComment[Counter1].Comment	= Overshipment
+						LocalOverreceived 	  = true
+						LocalBuyerMessage	  = true	
+					
+
+
+
+
+
+
+					
+
+			if (LocalOverreceived)
+				if (HasBuyerMessage) 
+					invoke UpdateFromPOReceiptLine BuyerMessageRel
+						invoked.PrmOverreceivingMessage  = LocalOverreceived
+				else	
+					increment Company.LastMessageSequence by 1
+					invoke Create BuyerMessageRel	
+						invoked.Company										= Company
+						invoked.Buyer										= PurchaseOrderReceipt.Buyer
+						invoked.BuyerMessageType							= "R"
+						invoked.PurchaseOrder								= PurchaseOrder
+						invoked.ShipToLocation								= PurchaseOrderReceiptLine.ShipToLocation
+						invoked.PurchaseOrderReceiptLine					= PurchaseOrderReceiptLine
+						invoked.PurchaseOrderReceipt						= PurchaseOrderReceipt
+						invoked.Vendor										= PurchaseOrderReceiptLine.Vendor
+						invoked.Invoice										= PurchaseOrderReceiptLine.Invoice
+						invoked.Suffix										= PurchaseOrderReceiptLine.Suffix
+						invoked.PurchaseOrderBuyerMessage.MessageDate		= current timestamp
+						invoked.PurchaseOrderBuyerMessage.MessageSequence	= Company.LastMessageSequence
+						invoked.Status										= 1
+						invoked.OverreceivingMessage						= LocalOverreceived							
+						invoked.DocumentNumberNumeric						= POReceiptAdjustmentAndInspection		
+						invoked.PurchaseOrderBuyerMessageCommentArray		= LocalArray 
+			else
+				if (HasUnreleasedBuyerMessage)
+					invoke Delete BuyerMessageRel
+			
+			if (LocalOverreceived)
+				if(Company.PurchasingCompany.OvershipmentBudgetEdit)
+					OvershipQuantity= LocalTotalReceivedQuantity - LocalPOLineProcessStockQuantity
+					
+					if(PurchaseOrderReceiptLine.VendorBuyUOM = PurchaseOrderReceiptLine.ReceivedUOM)
+						OvershipmentCost= PurchaseOrderReceiptLine.OriginalUnitCost*OvershipQuantity
+					else
+						OvershipmentCost= PurchaseOrderLine.VendorBuyUnitCost*OvershipQuantity
+					for each PurchaseOrderLineDistributionRel
+						if (!each.ContractCommitments)
+							invoke EditCommitmentIncrease each
+								invoked.FromReceiving 			= true
+								invoked.ParmCommitmentIncrease 	= OvershipmentCost
+			
+			BuyerMessage = LocalBuyerMessage
+			
+
+			if (not CancelBackorder
+			and not LocalOverreceived
+			and LocalTotalReceivedQuantity < PurchaseOrderLine.QuantityToProcess)
+				if (PurchaseOrderLine.UndershipmentToleranceOption.CancelAllBackorders)
+					CancelBackorder = true
+				else
+				if (PurchaseOrderLine.UndershipmentTolerancePercentage entered)
+					LocalPercentUndershipped = ((PurchaseOrderLine.QuantityToProcess - LocalTotalReceivedQuantity)/ PurchaseOrderLine.QuantityToProcess)
+					if (LocalPercentUndershipped <= PurchaseOrderLine.UndershipmentTolerancePercentage)
+						CancelBackorder = true
+								
+
+
+
+
+
+
+
+
+
+
+
+
+		
+		CreateProcurementTransactionDistribution
+			invoke Create POReceiptAdjustmentAndInspectionLineDistribution
+				invoked.Company                                 = PurchaseOrderLine.Company
+				invoked.POReceiptAdjustmentAndInspection		= POReceiptAdjustmentAndInspection
+				invoked.POReceiptAdjustmentAndInspectionLine	= POReceiptAdjustmentAndInspectionLine 
+				invoked.DistributionQuantity 	                = LocalMMDISTQuantity
+				invoked.AdjustmentInspectionDocumentType		= POReceiptAdjustmentAndInspection.AdjustmentInspectionDocumentType
+				invoked.DistributionAccount.AccountingUnit      = LocalMMDSTAcctUnit
+				invoked.DistributionAccount.GeneralLedgerChartAccount = LocalMMDSTAcct
+				invoked.PostingType								= "I1"
+				
+				
+		CreateMMDIST 
+			if((not (LocalInventoryTranDocumentType="RJ" and WriteOff="N") and (IccompanyRel.CostingMethod.StandardCosting and PurchaseOrderLine.CostOption=2 and PurchaseOrder.VendorReturn=0) ))
+				if(LocalInventoryTransLineSecondaryQuantity=0)
+					LocalMMDISTQuantity=LocalICTWSQuantity*LocalInventoryTransLineTransactionUOMMultiplier
+				else
+					LocalMMDISTQuantity=CatchWeightQuantity
+					
+				if(IsAdjustment)
+					if(PurchaseOrderReceiptLine.InspectionRequired and PurchaseOrderReceiptLine.Status=5)
+						if(VendorReturn exists )
+							if(VendorReturnLine exists)
+								LocalLineSequence=LocalLineSequence+1
+								if(Quantity=VendorReturnLine.ReturnQuantity)
+									LocalMMDISTQuantity = VendorReturnLine.ReturnQuantity
+									LocalMMDSTAcctUnit = IccategoryRel.InventoryAccount.AccountingUnit
+									LocalMMDSTAcct = IccategoryRel.InventoryAccount.GeneralLedgerChartAccount
+
+									include CreateProcurementTransactionDistribution
+								else
+									LocalMMDISTQuantity=LocalMMDISTQuantity-VendorReturnLine.ReturnQuantity
+									LocalMMDSTAcctUnit = ReceivingLocation.InspectionHoldAccount.AccountingUnit
+									LocalMMDSTAcct = ReceivingLocation.InspectionHoldAccount.GeneralLedgerChartAccount
+
+									include CreateProcurementTransactionDistribution
+									LocalLineSequence=LocalLineSequence+1
+									LocalMMDISTQuantity = VendorReturnLine.ReturnQuantity
+									LocalMMDSTAcctUnit = IccategoryRel.InventoryAccount.AccountingUnit
+									LocalMMDSTAcct = IccategoryRel.InventoryAccount.GeneralLedgerChartAccount
+
+									include CreateProcurementTransactionDistribution
+							else
+								LocalMMDSTAcctUnit = ReceivingLocation.InspectionHoldAccount.AccountingUnit
+								LocalMMDSTAcct = ReceivingLocation.InspectionHoldAccount.GeneralLedgerChartAccount
+
+								include CreateProcurementTransactionDistribution
+						else
+							LocalMMDSTAcctUnit = ReceivingLocation.InspectionHoldAccount.AccountingUnit
+							LocalMMDSTAcct = ReceivingLocation.InspectionHoldAccount.GeneralLedgerChartAccount
+
+							include CreateProcurementTransactionDistribution
+					else
+						LocalMMDISTQuantity = VendorReturnLine.ReturnQuantity
+						LocalMMDSTAcctUnit = IccategoryRel.InventoryAccount.AccountingUnit
+						LocalMMDSTAcct = IccategoryRel.InventoryAccount.GeneralLedgerChartAccount
+
+						include CreateProcurementTransactionDistribution
+				if(LocalInventoryTranDocumentType="AC")
+					LocalMMDISTQuantity = VendorReturnLine.ReturnQuantity
+					LocalMMDSTAcctUnit = IccategoryRel.InventoryAccount.AccountingUnit
+					LocalMMDSTAcct = IccategoryRel.InventoryAccount.GeneralLedgerChartAccount
+
+					include CreateProcurementTransactionDistribution
+				if(LocalInventoryTranDocumentType="RJ")
+					LocalMMDSTAcctUnit = ReceivingLocation.ScrapAccount.AccountingUnit
+					LocalMMDSTAcct = ReceivingLocation.ScrapAccount.GeneralLedgerChartAccount
+
+					include CreateProcurementTransactionDistribution
+
+
+				if(PurchaseOrderReceiptLine.ReceivedUOMMultiplier not = PurchaseOrderReceiptLine.VendorBuyUOMMultiplier)
+					LocalConvertAdjInspQuantity=Quantity*PurchaseOrderReceiptLine.ReceivedUOMMultiplier/PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+					initialize RoundedValue
+					RoundedValue.RoundInput			= LocalConvertAdjInspQuantity
+					RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+					RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+					LocalConvertAdjInspQuantity		= RoundedValue.RoundResult
+				else
+					LocalConvertAdjInspQuantity=Quantity
+				
+				
+				if(IsAdjustment)
+					LocalTotalAdjQuantity = LocalConvertAdjInspQuantity + PurchaseOrderReceiptLine.WriteOffQuantity + PurchaseOrderReceiptLine.BuyUOMQuantity + PurchaseOrderReceiptLine.ChargebackQuantity
+					LocalTotalMatchQuantity = PurchaseOrderReceiptLine.MatchedQuantity + PurchaseOrderReceiptLine.ArchivedQuantity
+					if(LocalTotalAdjQuantity<LocalTotalMatchQuantity and Quantity<0 and WriteOff="Y")
+						if( PurchaseOrderReceiptLine.ProcessLevel entered )
+							if(PurchaseOrderReceiptLine.ProcessLevel exists)
+								LocalMMDSTAcctUnit=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.AccountingUnit
+								LocalMMDSTAcct=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+							else
+								LocalMMDSTAcctUnit=MacompanyRel.MatchWriteOffAccount.AccountingUnit
+								LocalMMDSTAcct=MacompanyRel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+					else
+						if(PurchaseOrderReceiptLine.OriginalUnitCost=0 and LocalICTUnitCostCurr not = 0)
+							LocalMMDSTAcctUnit=ReceivingLocation.VendorReturnSuspenseAccount.AccountingUnit
+							LocalMMDSTAcct=ReceivingLocation.VendorReturnSuspenseAccount.GeneralLedgerChartAccount
+
+						else
+							if( PurchaseOrderReceiptLine.ProcessLevel entered )
+								if(PurchaseOrderReceiptLine.ProcessLevel exists)
+									LocalMMDSTAcctUnit=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.AccountingUnit
+									LocalMMDSTAcct=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+							else
+								if(LocalMMDSTAcctUnit = "")
+									LocalMMDSTAcctUnit=MacompanyRel.MatchWriteOffAccount.AccountingUnit
+									LocalMMDSTAcct=MacompanyRel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+
+				else
+					LocalMMDSTAcctUnit=ReceivingLocation.InspectionHoldAccount.AccountingUnit
+					LocalMMDSTAcct=ReceivingLocation.InspectionHoldAccount.GeneralLedgerChartAccount
+
+				
+
+													
+				if(LocalInventoryTranDocumentType="RA" and PurchaseOrderReceiptLine.MatchedQuantity>0 and Quantity<0 and TotalPRLQuantity < LocalTotalMatchQuantity and LocalTotalAdjQuantity< LocalTotalMatchQuantity)	
+					LocalMMDISTQuantity= TotalPRLQuantity - LocalTotalMatchQuantity *  PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+					LocalMMDISTQuantity = LocalMMDISTQuantity * -1		
+					LocalLineSequence=LocalLineSequence+1
+					include CreateProcurementTransactionDistribution
+					LocalMMDISTQuantity=LocalTotalMatchQuantity-LocalConvertAdjInspQuantity+TotalPRLQuantity*-1*PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+					LocalLineSequence=LocalLineSequence+1
+					include CreateProcurementTransactionDistribution
+				else
+					if(LocalInventoryTranDocumentType="RA" and PurchaseOrderReceiptLine.MatchedQuantity>0 and Quantity<0 and LocalTotalAdjQuantity<LocalTotalMatchQuantity and WriteOff="Y")
+						LocalConvMatchQuantity= PurchaseOrderReceiptLine.WriteOffQuantity * PurchaseOrderReceiptLine.VendorBuyUOMMultiplier												
+						initialize RoundedValue
+						RoundedValue.RoundInput			= LocalConvMatchQuantity
+						RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+						RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+						LocalConvMatchQuantity		= RoundedValue.RoundResult						
+						if(LocalConvMatchQuantity not = 0)	
+							LocalMMDISTQuantity=LocalConvMatchQuantity							
+							if(MacompanyRel exists)
+								LocalMMDSTAcctUnit=MacompanyRel.MatchWriteOffAccount.AccountingUnit
+								LocalMMDSTAcct=MacompanyRel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+							LocalLineSequence=LocalLineSequence+1
+							include CreateProcurementTransactionDistribution							
+						LocalMMDISTQuantity	= LocalConvMatchQuantity + (Quantity * InventoryTransactionLineRel.TransactionUOMMultiplier * -1)								
+						
+						if(PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount.AccountingUnit not entered)
+							if(MacompanyRel exists)
+								LocalMMDSTAcctUnit=MacompanyRel.MatchWriteOffAccount.AccountingUnit
+								LocalMMDSTAcct=MacompanyRel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+						else
+							LocalMMDSTAcctUnit=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.AccountingUnit
+							LocalMMDSTAcct=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+						
+						LocalLineSequence=LocalLineSequence+1
+						include CreateProcurementTransactionDistribution
+						
+					else
+						if(LocalInventoryTranDocumentType="RA" and PurchaseOrderReceiptLine.MatchedQuantity=0 and Quantity<0 )
+							LocalMMDISTQuantity	= LocalICTWSQuantity * -1 * InventoryTransactionLineRel.TransactionUOMMultiplier								 
+							
+							if(PurchaseOrderReceiptLine.ProcessLevel.ReceiptAccrualAccount.AccountingUnit not entered)
+								if(MacompanyRel exists)
+									LocalMMDSTAcctUnit=MacompanyRel.MatchWriteOffAccount.AccountingUnit
+									LocalMMDSTAcct=MacompanyRel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+								else
+									LocalMMDSTAcctUnit=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.AccountingUnit
+									LocalMMDSTAcct=PurchaseOrderReceiptLine.ProcessLevel.MatchWriteOffAccount.GeneralLedgerChartAccount
+
+						
+							LocalLineSequence=LocalLineSequence+1
+							include CreateProcurementTransactionDistribution
+							
+						else
+							if (LocalInventoryTransLineSecondaryQuantity=0)
+								LocalMMDISTQuantity	= LocalICTWSQuantity * -1 * InventoryTransactionLineRel.TransactionUOMMultiplier
+							else
+								LocalMMDISTQuantity = CatchWeightQuantity * -1
+							LocalLineSequence=LocalLineSequence+1
+							include CreateProcurementTransactionDistribution
+							
+
+							
+
+		
+	 
+					
+
+
+	StateCycles
+		POReceiptInspectionlineLifeCycle is a StateCycle
+			state field is Status
+			Unreleased is a State
+				
+				CreateInspection is a Create Action
+					valid when (ForInspectionCreate)
+					Action Rules
+						include PopulateItemAndItemType
+						
+						Inspected 	= true		
+						Quantity	= TransientRejectedQuantity
+						
+					Exit Rules
+				
+						include CreateOrUpdateTransactionDetailForSingleBin
+						
+						invoke UpdateStatusFromPORAdjInspLine PurchaseOrderReceiptLine
+							invoked.PrmStatus	= PurchaseOrderReceiptLine.Status.ReleasedUnreleasedInspection
+						
+						if (AssetDetailExist)
+							increment PurchaseOrderLineAssetRel.RejecytedQuantity by Quantity
+					
+				CreateAdjustment is a Create Action
+					valid when (IsAdjustment)
+					Field Rules	
+						Quantity
+							if (not IsCatchWeightItem)
+								required
+									"MustEnterAQuantityToAdjustBy"							
+
+							if (Quantity < 0)
+								constraint ((Quantity * -1) <= PurchaseOrderReceiptLine.EnteredReceivedQuantity)	
+									"CannotAdjustReceivedQuantityBelowZero"
+
+							constraint (QuantityValidate >= 0)	
+								"CannotAdjust,NetReceivedWillBeLessThanZero"
+
+						CatchWeightQuantity
+							if (CatchWeightQuantity < 0)
+								constraint ((CatchWeightQuantity * -1) <= PurchaseOrderReceiptLine.CatchWeightQuantity)	
+									"CannotAdjustCatchWeightQuantityBelowZero"
+							
+							constraint (CatchWeightQuantityValidate >= 0)	
+								"CannotAdjust,NetReceivedWillBeLessThanZero"
+
+					Entrance Rules
+						default PurchaseOrderReceipt to POReceiptAdjustmentAndInspection.PurchaseOrderReceipt
+						default PurchaseOrderReceiptLine to ReceiptLinesForTemplateRel.PurchaseOrderReceiptLine
+
+					Action Rules
+						include PopulateItemAndItemType
+						
+						if (PurchaseOrderReceiptLine.ArchivedQuantity entered 
+						or  PurchaseOrderReceiptLine.ArchivedWriteOffQuantity entered)
+							constraint (Quantity not entered and CatchWeightQuantity not entered)
+								"CannotAdjust;QuantityArchived"
+						else
+							if (IsCatchWeightItem)
+								constraint (CatchWeightQuantity entered or Quantity entered)
+									"MustEnterEitherQuantityOrCatchWeightQuantityToAdjustBy"
+
+						if (PurchaseOrderReceiptLine.MatchedQuantity entered)
+							if (IsCatchWeightItem)
+
+
+								if  (CatchWeightQuantity entered and CatchWeightQuantity < 0 
+								and ((CatchWeightQuantity + PurchaseOrderReceiptLine.OpenToMatchQuantity) < 0))
+									constraint (WriteOff.WriteOff)
+										"AdjustingUnderMatchedQuantity,Write-offIfMatchedMustBeWrite-Off"
+							else
+								if  (Quantity entered and Quantity < 0 
+								and ((DerivedVendorPriceUOMQuantity + PurchaseOrderReceiptLine.OpenToMatchQuantity) < 0))
+									constraint (WriteOff.WriteOff)
+										"AdjustingUnderMatchedQuantity,Write-offIfMatchedMustBeWrite-Off"
+
+						if  ((Quantity entered and Quantity > 0 
+						and ((TotalEnterQuantity + Quantity) < PurchaseOrderReceiptLine.MatchedQuantity))
+						or  (CatchWeightQuantity entered and CatchWeightQuantity > 0 
+						and ((TotalEnterCatchWeightQuantity + CatchWeightQuantity) < PurchaseOrderReceiptLine.CatchWeightMatchedQuantity)))
+							constraint (WriteOff entered)
+								"AdjustingBelowMatchedQuantity,WriteOffIfMatchedRequired"
+
+					Exit Rules
+						include CalculateTolerances	
+						include CreateOrUpdateTransactionDetailForSingleBin
+						if (AssetDetailExist)
+							increment PurchaseOrderLineAssetRel.ReceivedQuantity by Quantity
+					
+				DeleteAdjustment is a Delete Action
+					default label is "Delete"
+					valid when (IsAdjustment)
+					Entrance Rules
+						confirmation required
+							"ThisWillDeleteTheItemLine"
+						
+						if ((Quantity entered or CatchWeightQuantity entered) 
+						and AssetDetailExist)
+							decrement PurchaseOrderLineAssetRel.ReceivedQuantity by Quantity
+
+				DeleteAdjustmentFromHeader is a Delete Action
+					restricted
+					Entrance Rules
+						if ((Quantity entered or CatchWeightQuantity entered) 
+						and AssetDetailExist)
+							decrement PurchaseOrderLineAssetRel.ReceivedQuantity by Quantity
+				
+				DeleteInspection is a Delete Action
+					restricted
+					Entrance Rules
+						
+						if (Quantity entered 
+						and AssetDetailExist)
+							decrement PurchaseOrderLineAssetRel.RejecytedQuantity by Quantity
+
+					Exit Rules
+						invoke UpdateStatusFromPORAdjInspLine PurchaseOrderReceiptLine
+							invoked.PrmStatus	= PurchaseOrderReceiptLine.Status.ReleasedRequiresInspection
+				
+				
+				UpdateAdjustment is an Update Action
+					default label is "Update"
+					valid when (IsAdjustment)
+					completion message is "<TransactionOutOfBalanceDetails>"
+					Field Rules	
+						Quantity
+							if (not IsCatchWeightItem)
+								required
+									"MustEnterAQuantityToAdjustBy"							
+
+							if (Quantity < 0)
+								constraint ((Quantity * -1) <= PurchaseOrderReceiptLine.EnteredReceivedQuantity)	
+									"CannotAdjustReceivedQuantityBelowZero"
+
+							constraint (QuantityValidate >= 0)	
+								"CannotAdjust,NetReceivedWillBeLessThanZero"
+
+						CatchWeightQuantity
+							if (CatchWeightQuantity < 0)
+								constraint ((CatchWeightQuantity * -1) <= PurchaseOrderReceiptLine.CatchWeightQuantity)	
+									"CannotAdjustCatchWeightQuantityBelowZero"
+							
+							constraint (CatchWeightQuantityValidate >= 0)	
+								"CannotAdjust,NetReceivedWillBeLessThanZero"
+					Action Rules
+						include PopulateItemAndItemType
+						
+						if (PurchaseOrderReceiptLine.ArchivedQuantity entered 
+						or  PurchaseOrderReceiptLine.ArchivedWriteOffQuantity entered)
+							constraint (Quantity not entered)
+								"CannotAdjust;QuantityArchived"
+						else
+							if (IsCatchWeightItem)
+								constraint (CatchWeightQuantity entered or Quantity entered)
+									"MustEnterEitherQuantityOrCatchWeightQuantityToAdjustBy"
+						
+						if (Quantity changed or CatchWeightQuantity changed)
+							include CalculateTolerances
+
+						if (PurchaseOrderReceiptLine.MatchedQuantity entered)
+							if (IsCatchWeightItem)
+
+
+								if   (CatchWeightQuantity entered and CatchWeightQuantity < 0 
+								and ((CatchWeightQuantity + PurchaseOrderReceiptLine.OpenToMatchQuantity) < 0))
+									constraint (WriteOff.WriteOff)
+										"AdjustingUnderMatchedQuantity,Write-offIfMatchedMustBeWrite-Off"
+							else
+								if  (Quantity entered and Quantity < 0 
+								and ((DerivedVendorPriceUOMQuantity + PurchaseOrderReceiptLine.OpenToMatchQuantity) < 0))
+									constraint (WriteOff.WriteOff)
+										"AdjustingUnderMatchedQuantity,Write-offIfMatchedMustBeWrite-Off"
+
+
+						if  ((Quantity entered and Quantity > 0 
+						and ((TotalEnterQuantity + Quantity) < PurchaseOrderReceiptLine.MatchedQuantity))
+						or  (CatchWeightQuantity entered and CatchWeightQuantity > 0 
+						and ((TotalEnterCatchWeightQuantity + CatchWeightQuantity) < PurchaseOrderReceiptLine.CatchWeightMatchedQuantity)))
+							constraint (WriteOff entered)
+								"AdjustingBelowMatchedQuantity,WriteOffIfMatchedRequired"
+									
+						if (CancelBackorder)
+							constraint (!UnreleasedMatchPurchaseOrderInvoicesRel exists)
+								"CannotCancelBackOrder-UnmatchedInvoicesExistForPO"
+						
+						if	(PurchaseOrderLine.MatchedQuantity entered
+						and (Quantity = PurchaseOrderLine.MatchedQuantity  
+						or  ((PurchaseOrderLine.ReceivedQuantity + Quantity) < PurchaseOrderLine.MatchedQuantity)))
+							constraint(not CancelBackorder)
+								"CannotCancelBackorderLineHasActivity" 
+						
+						constraint (PurchaseOrderReceiptLine.ArchivedQuantity not entered
+						and			PurchaseOrderReceiptLine.ArchivedWriteOffQuantity not entered)
+							"CannotAdjust;QuantityArchived"
+						
+						constraint (PurchaseOrderReceiptLine.DerivedReceivedQuantity >= PurchaseOrderReceiptLine.DerivedProcessedQuantity)
+							"MatchedQuantityGreaterThanReceivedQuantity;FurtherAdjustmentsNotAllowed"
+							
+					Exit Rules
+						if ((Quantity changed or CatchWeightQuantity changed)
+						and AssetDetailExist)
+							increment PurchaseOrderLineAssetRel.ReceivedQuantity by (Quantity - old Quantity)
+							
+				UpdateInspection is an Update Action
+					default label is "Update"
+					valid when (IsInspection)
+					completion message is "<TransactionOutOfBalanceDetails>"
+					Action Rules
+						include PopulateItemAndItemType
+						
+						if  (Quantity entered and Quantity < 0 
+						and ((Quantity + PurchaseOrderReceiptLine.OpenToMatchQuantity) < 0))
+							constraint (WriteOff.WriteOff)
+								"AdjustingUnderMatchedQuantity,Write-offIfMatchedMustBeWrite-Off"
+						
+						if  (Quantity entered and Quantity > 0 
+						and ((TotalEnterQuantity + Quantity) < PurchaseOrderReceiptLine.MatchedQuantity))
+							constraint (WriteOff entered)
+								"AdjustingBelowMatchedQuantity,WriteOffIfMatchedRequired"
+						
+						LocalUseInputValue 	= true
+						Quantity			= TransientRejectedQuantity
+						
+						if (TransientAcceptReject.AcceptAll)
+							initialize Quantity
+						
+						else
+						if (TransientAcceptReject not entered
+						and TransientRejectedQuantity not entered)
+							display "2005"
+							confirmation required
+								"ReducingRejectedQuantityToZeroWillAcceptAllQuantities.Continue?"
+							initialize Quantity	
+					
+					Exit Rules
+						if (AssetDetailExist)
+							if (PurchaseOrderLineAssetRel.RejecytedQuantity not entered)
+								constraint (PurchaseOrderReceiptLine.EnteredReceivedQuantity = PurchaseOrderLineAssetRel.ReceivedQuantity)
+									"AssetDetailDoesNotMatchTotalReceivedQuantity"
+								
+							if (Quantity changed)
+								increment PurchaseOrderLineAssetRel.RejecytedQuantity by (Quantity - old Quantity)
+						
+						if (Quantity not entered)
+							if (PurchaseOrderTransactionDetailsRels exists)
+
+								for each PurchaseOrderTransactionDetailsRels
+									invoke Delete each
+						else
+							include CreateOrUpdateTransactionDetailForSingleBin
+								
+						if (TransientAcceptReject.Uninspect)
+							invoke DeleteInspection
+				
+				ReleaseInspection is an Instance Action
+					default label is "Release"
+					restricted
+					Parameters
+						PrmInventoryTransactionForAcceptedInspectionItem	is like InventoryTransaction
+						PrmInventoryTransactionForRejectedInspectionItem	is like InventoryTransaction
+					
+					Local Fields
+						InventoryTransactionForAcceptedInspectionItem		is like InventoryTransaction
+						InventoryTransactionForRejectedInspectionItem		is like InventoryTransaction
+						ValidateQuantity									is a Quantity
+						ValidateCatchWeightQuantity							is a Quantity
+					Action Rules
+						include CommonReleaseRules
+						
+						constraint (not NotBalancedRejectedAssetDetailsExists)
+							"Line<PurchaseOrderLine.LineNumber>-AssetDetailsRejectedMustMatchTotalQuantity;CannotReleaseInspection"
+						
+						if (Quantity entered 
+						and IsInventoryBinLotSerialTracked)
+							if (IsCatchWeightItem)
+								ValidateCatchWeightQuantity		= sum PurchaseOrderTransactionDetailsRels.Quantity
+								ValidateQuantity				= sum PurchaseOrderTransactionDetailsRels.SecondaryQuantity
+								
+								constraint (ValidateQuantity = Quantity
+								and			ValidateCatchWeightQuantity = CatchWeightQuantity)
+									"<ReceivingDetailLabel>QuantityDoesNotEqualRejectedQuantityForLine<PurchaseOrderLine.LineNumber>"
+							else
+								ValidateQuantity = sum PurchaseOrderTransactionDetailsRels.Quantity
+								
+								constraint (ValidateQuantity = Quantity)
+									"<ReceivingDetailLabel>QuantityDoesNotEqualRejectedQuantityForLine<PurchaseOrderLine.LineNumber>"
+						
+						if (PurchaseOrderReceiptLine.ReceivedDate < ItemlocRel.FreezeDate)
+							constraint (not ItemlocRel.FrozenForPhysicalInventory)
+								"ItemIsFrozenByPhysicalInventory"
+						
+						if (not IccompanyRel.AllowNegativeStockOnHand
+						and Quantity < 0) 
+							if (PurchaseOrderReceiptLine.ItemType.Inventoried)
+								constraint (TranQuantity <= ItemlocRel.StockOnHandQuantity)
+									"TransactionQuantityOnLine<PurchaseOrderLine.LineNumber>GreaterThanStockOnHandQuantityForItem"
+						
+						InventoryTransactionForAcceptedInspectionItem    = PrmInventoryTransactionForAcceptedInspectionItem
+						InventoryTransactionForRejectedInspectionItem    = PrmInventoryTransactionForRejectedInspectionItem
+						
+						if (Quantity entered)
+							if (PurchaseOrderReceiptLine.ReceivedUOM = PurchaseOrderReceiptLine.VendorBuyUOM)
+								LocalRejectQuantity				= Quantity
+							else
+								initialize UOMCalculation
+								UOMCalculation.InputQuantity		= Quantity
+								UOMCalculation.InputUOM				= PurchaseOrderReceiptLine.ReceivedUOM
+								UOMCalculation.InputUOMConversion   = PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+								UOMCalculation.InputToUOM			= PurchaseOrderReceiptLine.VendorBuyUOM
+								UOMCalculation.InputToUOMConversion	= PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+								UOMCalculation.Method				= UOMCalculation.Method.ConvertToAlternate
+								if (PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity.0Decimals)
+									UOMCalculation.ValidateDecimal	= true
+								else
+									UOMCalculation.DoRounding		= true
+									UOMCalculation.InputDecimal		= PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity
+								LocalRejectQuantity = UOMCalculation.OutputQuantity
+								
+							invoke UpdateRejQtyFromPORAdjInspLine PurchaseOrderReceiptLine
+								invoked.PrmRejectedQuantity 			=  LocalRejectQuantity
+								invoked.PrmCatchWeightRejectedQuantity	= CatchWeightQuantity
+							
+							invoke UpdateRejectQtyFromPORInspectionLine PurchaseOrderLine                          
+								invoked.PrmRejectedQuantity 			= LocalRejectQuantity
+								invoked.PrmCatchWeightRejectedQuantity	= CatchWeightQuantity
+								
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+						
+						if (PurchaseOrderReceiptLine.ItemType.Inventoried)
+						
+							if (PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth 
+							or  PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+								LocalInventoryTransLineSecondaryQuantity	= Quantity	
+							
+							if (CatchWeightQuantity not entered)
+								LocalInventoryTransLineTransactionUOM=PurchaseOrderReceiptLine.ReceivedUOM
+								LocalInventoryTransLineTransactionUOMMultiplier	= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+							else
+								LocalInventoryTransLineTransactionUOMMultiplier	= 1	
+						
+							if (Quantity > 0)
+								LocalInventoryTranDocumentType	= LocalInventoryTranDocumentType.RejectedInspectionItem
+								if(PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth 
+								or PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+									LocalICTWSQuantity=CatchWeightQuantity
+								else
+									LocalICTWSQuantity=Quantity
+								include CreateMMDIST 
+								if (WriteOff.CreateReturn)
+									if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+										LocalRejectQuantityForTransaction = CatchWeightQuantity
+									else
+										LocalRejectQuantityForTransaction = Quantity
+								else
+									include CreateInventoryTransactionLineAndDetailForRejectedInspectionItem
+									
+									invoke Release LocalInventoryTransactionLine.InventoryTransactionLine
+										invoked.PrmSkipDistributions		= true
+									
+									invoke UpdateFromTransaction InventoryCostHistoryForPOReceiptRel
+										if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+											invoked.PrmReceivedQuantity		= CatchWeightQuantity * -1
+										else
+											invoked.PrmReceivedQuantity		= DerivedRejectedQuantityInStockUOM * -1
+							
+							if (AcceptedQuantity > 0)
+								initialize LocalRejectQuantityForTransaction
+								if (WriteOff.WriteOff)
+									if (PurchaseOrderReceiptLine.Item.IsCatchWeightItem)
+										LocalRejectQuantityForTransaction = CatchWeightQuantity
+									else
+										LocalRejectQuantityForTransaction = Quantity
+								LocalInventoryTranDocumentType = LocalInventoryTranDocumentType.AcceptedInspectionItem
+								LocalICTWSQuantity = AcceptedQuantity
+								include CreateMMDIST
+								include CreateInventoryTransactionLineAndDetailForAcceptedInspectionItem
+								
+								invoke Release LocalInventoryTransactionLine.InventoryTransactionLine
+									invoked.PrmSkipDistributions			= true
+							
+							if (Company.PackageTrackingLevel.LineLevel)
+								for each PurchaseOrderReceiptTrackingRel
+									invoke CreateArrival each
+							
+						make transition to Released
+					
+					Exit Rules
+						invoke UpdateStatusFromPORAdjInspLine PurchaseOrderReceiptLine
+							invoked.PrmStatus = PurchaseOrderReceiptLine.Status.ReleasedInspected
+						
+						invoke FastUpdate PurchaseOrderReceiptLine
+							initialize invoked.InspectionRequired
+						if(Company.FinanceEnterpriseGroup.BODTrigger)	
+							if (Quantity > 0)
+								trigger "InspectionRejService" PA service
+									resume on error
+									title is "EG:<Company.FinanceEnterpriseGroup>CO:<Company>PO:<PurchaseOrder>POI:<POReceiptAdjustmentAndInspection>"
+									Criteria
+										Company.FinanceEnterpriseGroup
+										Company
+										Company.AccountingEntity
+				
+									Variables
+										Company
+											variable name is POCompany
+										PurchaseOrderReceipt
+											variable name is PORecNum								
+										PurchaseOrder	
+											variable name is PurchaseOrderNum		
+										PurchaseOrderReceipt.PORelease
+											variable name is PORelease
+										PurchaseOrderReceipt.POCode
+											variable name is POCode
+										PurchaseOrderReceiptLine.VendorReturn
+											variable name is PORLVendorReturn
+										ReceivingLocation
+											variable name is PRIReceLocation
+										PurchaseOrderReceiptLine.Item	
+											variable name is PRIItem
+										PurchaseOrderReceiptLine.PurchaseOrderLine.Description
+											variable name is PRIItemDesc
+										Quantity
+											variable name is PRIREJQty
+										PurchaseOrderReceipt.Buyer
+											variable name is BUYERCODE
+										Company
+											variable name is LawsonCompany
+										Company.AccountingEntity
+											variable name is Accountingentity	
+								invoke InspectionRejAlert
+								
+							LocalTitle = "EG:"+Company.FinanceEnterpriseGroup+" CO:"+Company+" PORA:"+POReceiptAdjustmentAndInspection+" POAL:"+POReceiptAdjustmentAndInspectionLine		
+							if (Status.Released)
+								increment bod id.VariationID
+								if (bod id.VariationID <=1)
+									ActionCode = ActionCode.Update
+									trigger PayablesService.InspectDeliveryService PA service
+										resume on error
+										title is "<LocalTitle>"
+										Criteria
+											Company.FinanceEnterpriseGroup
+											Company
+										Variables
+											ActionCode
+											include persistent fields from POReceiptAdjustmentAndInspection
+											include persistent fields from POReceiptAdjustmentAndInspectionLine
+											include persistent fields from PurchaseOrderReceipt
+											include persistent fields from PurchaseOrderReceiptLine
+											bod id.VariationID
+												variable name is VariationId
+											AcceptedQuantity
+												variable name is AcceptedQuantity
+											Company.FinanceEnterpriseGroup
+												variable name is FinanceEnterpriseGroup	
+											Company.GeneralLedgerCompany.AccountingEntity
+												variable name is AccountingEntity
+
+										
+										
+				
+									
+				ReleaseAdjustment is an Instance Action
+					default label is "Release"
+					restricted
+					Parameters
+						PrmInventoryTransactionForAdjustmentItem		is like InventoryTransaction
+					
+					Local Fields
+						InventoryTransactionForAdjustmentItem			is like InventoryTransaction
+						ValidateQuantity  is a Quantity
+						ValidateCatchWeightQuantity is a Quantity
+						ValidateUDIQuantity	is a Quantity
+					Action Rules
+						include CommonReleaseRules
+						
+						if (IsCatchWeightItem)
+							ValidateCatchWeightQuantity = sum PurchaseOrderTransactionDetailsAdjRels.Quantity
+							ValidateQuantity			= sum PurchaseOrderTransactionDetailsAdjRels.SecondaryQuantity
+						else
+							ValidateQuantity = sum PurchaseOrderTransactionDetailsAdjRels.Quantity
+						ValidateUDIQuantity = sum PurchaseOrderUDIDetailRel.DerivedQuantityInReceivedUOM
+						
+						constraint (not NotBalancedReceivedAssetDetailsExists)
+							"Line<PurchaseOrderLine.LineNumber>-AssetDetailsReceivedMustMatchTotalQuantity;CannotReleaseAdjustment"
+						
+						constraint (not NotBalancedCancelledAssetDetailsExists)
+							"Line<PurchaseOrderLine.LineNumber>-AssetDetailsCancelledMustMatchTotalQuantity;CannotReleaseAdjustment"
+							
+						if (Quantity entered or CatchWeightQuantity entered) 
+							if (IsInventoryBinLotSerialTracked)
+								constraint (not HasDifferentLotExpirationDate)
+									"CannotEnterSameLotWithDifferentExpiryDate"
+								if (IsCatchWeightItem)
+									constraint (ValidateQuantity = Quantity
+									and			ValidateCatchWeightQuantity = CatchWeightQuantity)
+										"<ReceivingDetailLabel>QuantityDoesNotEqualAdjustmentQuantityForLine<PurchaseOrderLine.LineNumber>"
+								else
+									constraint (ValidateQuantity = Quantity)
+										"<ReceivingDetailLabel>QuantityDoesNotEqualAdjustmentQuantityForLine<PurchaseOrderLine.LineNumber>"
+
+							if (IsUDIRequiredAtReceipt)
+								constraint (ValidateUDIQuantity = Quantity)
+									"<ReceivingDetailLabel>QuantityDoesNotEqualAdjustmentQuantityForLine<PurchaseOrderLine.LineNumber>"
+						
+						if (PurchaseOrderReceiptLine.ReceivedDate < ItemlocRel.FreezeDate)
+							constraint (not ItemlocRel.FrozenForPhysicalInventory)
+								"ItemIsFrozenByPhysicalInventory"
+
+						if (not IccompanyRel.AllowNegativeStockOnHand
+						and PurchaseOrderReceiptLine.ItemType.Inventoried)
+							if ((not IsCatchWeightItem and Quantity < 0) 
+							or   CatchWeightQuantity < 0)
+								constraint (TranQuantity <= ItemlocRel.StockOnHandQuantity)
+									"TransactionQuantityOnLine<PurchaseOrderLine.LineNumber>GreaterThanStockOnHandQuantityForItem<PurchaseOrderReceiptLine.Item>"
+
+						  		constraint (TranQuantity <= ItemlocRel.AvailableQuantityInStockUOM)
+						  			"TransactionQuantityOnLine<PurchaseOrderLine.LineNumber>GreaterThanAvailableQuantityForItem<PurchaseOrderReceiptLine.Item>;AllocatedQuantitysExist"
+	
+							if (IsCatchWeightItem and Quantity < 0)
+								constraint (SecondaryTranQuantity <= ItemlocRel.SecondaryQuantity)
+									"TransactionQuantityOnLine<PurchaseOrderLine.LineNumber>GreaterThanStockOnHandQuantityForItem<PurchaseOrderReceiptLine.Item>"
+
+						  		constraint (SecondaryTranQuantity <= ItemlocRel.AvailableQuantity)
+						  			"TransactionQuantityOnLine<PurchaseOrderLine.LineNumber>GreaterThanAvailableQuantityForItem<PurchaseOrderReceiptLine.Item>;AllocatedQuantitysExist"
+
+						invoke UpdatePOLineFromAdjustment PurchaseOrderLine
+							invoked.PrmReceivingActivityDate    = DocumentDate
+						
+						LocalReceiptLineLandedCost = PurchaseOrderReceiptLine.DerivedLineStockUnitCost
+						
+
+						invoke UpdatePOReceiptLineFromPOAdjustment PurchaseOrderReceiptLine 
+							invoked.PrmEnteredReceivedQuantity	= Quantity
+							invoked.PrmCancelBackorder			= CancelBackorder
+							invoked.PrmCatchWeightQuantity		= CatchWeightQuantity
+							if (HasNegativeQuantityToWriteOff)
+								invoked.PrmWriteOffQuantity     = DerivedWriteOffQuantity
+                            	invoked.PrmHasMatchedQuantity   = true
+									
+						InventoryTransactionForAdjustmentItem            = PrmInventoryTransactionForAdjustmentItem
+
+						if (PurchaseOrderReceiptLine.FullyDelivered) 
+							RemainingReceivedQuantity = PurchaseOrderReceiptLine.EnteredReceivedQuantity
+
+							if (PurchaseOrderReceiptLine.HasItemMaster 
+							and PurchaseOrderReceiptLine.ReceivedUOM not = PurchaseOrderLine.EnteredBuyUOM)
+								initialize UOMCalculation
+								UOMCalculation.InputQuantity		= RemainingReceivedQuantity
+								UOMCalculation.InputUOM				= PurchaseOrderReceiptLine.ReceivedUOM
+								UOMCalculation.InputUOMConversion   = PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+								UOMCalculation.InputToUOM			= PurchaseOrderReceiptLine.VendorBuyUOM
+								UOMCalculation.InputToUOMConversion = PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+								UOMCalculation.InputUnitCost		= PurchaseOrderReceiptLine.OriginalUnitCost
+								UOMCalculation.Method				= UOMCalculation.Method.ConvertToAlternate
+								if (PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity.0Decimals)
+									UOMCalculation.ValidateDecimal	= true
+								else
+									UOMCalculation.DoRounding		= true
+									UOMCalculation.InputDecimal		= PurchaseOrderReceiptLine.Item.NumberOfDecimalsQuantity
+								RemainingReceivedQuantity 			= UOMCalculation.OutputQuantity
+
+							for each POLineSourceRels
+								if (IsCatchWeightItem) 
+									LocalDeliveredQuantity = each.DeliveredQuantity + Quantity
+								else
+									if (RemainingReceivedQuantity > 0)
+										if (RemainingReceivedQuantity > each.Quantity)
+											LocalDeliveredQuantity = each.Quantity
+										else
+			 								LocalDeliveredQuantity = RemainingReceivedQuantity
+			 								
+			 							RemainingReceivedQuantity = RemainingReceivedQuantity - LocalDeliveredQuantity 
+									else
+										initialize LocalDeliveredQuantity
+	
+									if(each.PurchaseOrderLineSource = last POLineSourceRels.PurchaseOrderLineSource) 
+										LocalDeliveredQuantity = LocalDeliveredQuantity + RemainingReceivedQuantity 
+									
+								invoke UpdatePurchaseorderLineSource each 
+									invoked.PrmDeliveredQuantity	= LocalDeliveredQuantity
+									
+								if(each.RequisitionRel exists and LocalDeliveredQuantity entered)
+					    		    LocalLastDeliverySequence =  each.RequisitionRel.LastDeliverySequence + 1
+					    			invoke Create RequisitionTransaction
+					    				invoked.RequisitionTransaction.RequisitionSequence 		= LocalLastDeliverySequence
+					    				invoked.Company 								   		= Company
+					    				invoked.FromCompanyLocation 					   		= each.RequisitionRel.FromCompanyLocation
+					    				invoked.RequisitionTransaction.RequisitionDocumentType 	= RequisitionDocumentType.ReceivingAdjustment
+					    				invoked.RequisitionTransaction.DocumentNumberNumeric 	= POReceiptAdjustmentAndInspection
+					    				invoked.RequisitionTransaction.Requisition 				= each.PurchaseOrderLineSource.SourceDocumentNumeric
+					    				invoked.RequisitionTransaction.RequisitionLine 			= each.PurchaseOrderLineSource.SourceDocumentLineNumber
+					    				invoked.TransactionDate 								= current corporate date
+					    				invoked.ItemType 										= PurchaseOrderReceiptLine.ItemType
+					    				invoked.Item 											= PurchaseOrderReceiptLine.Item
+					    				invoked.TransactionUnitCost 							= each.DerivedRequisitionUnitCostInStockUOM
+	    								invoked.UnitCost										= each.DerivedRequisitionBaseUnitCostInStockUOM
+					    				invoked.StockUOM 										= PurchaseOrderReceiptLine.Item.StockUOM
+					    				invoked.RequestingLocation  							= each.RequestingLocation
+					    				invoked.Note 											= each.DeliverTo
+										if (IsCatchWeightItem)
+											invoked.Quantity 									= CatchWeightQuantity
+										else
+											invoked.Quantity 									= each.DeliveredQuantity * each.EnteredUOMMultiplier
+							
+						if (PurchaseOrderReceiptLine.ReceivedUOM = PurchaseOrderReceiptLine.VendorPriceUOM)
+							LocalVendorPriceUOMQuantity	= PurchaseOrderReceiptLine.EnteredReceivedQuantity
+						else
+							if (IsCatchWeightItem)
+								LocalVendorPriceUOMQuantity		= PurchaseOrderReceiptLine.CatchWeightQuantity
+							else
+								LocalVendorPriceUOMQuantity	=PurchaseOrderReceiptLine.EnteredReceivedQuantity * (PurchaseOrderReceiptLine.ReceivedUOMMultiplier / PurchaseOrderReceiptLine.VendorPriceUOMMultiplier)				
+								initialize RoundedValue
+								RoundedValue.RoundInput			= LocalVendorPriceUOMQuantity
+								RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+								RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+								LocalVendorPriceUOMQuantity		= RoundedValue.RoundResult
+								
+						LocalExtendedAmount	= LocalVendorPriceUOMQuantity * PurchaseOrderReceiptLine.MatchUnitCost
+						
+						initialize RoundedValue
+						RoundedValue.RoundInput			= LocalExtendedAmount
+						RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+						RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+						LocalExtendedAmount				= RoundedValue.RoundResult
+					
+						for each PoreclineAOCRel
+							LocalRecAOCQuantity =	Quantity + each.ReceivedQuantity
+							if (PurchaseOrderReceiptLine.MatchedQuantity=LocalRecAOCQuantity)
+								if  (each.MatchedQuantity > 0 
+								and (each.MatchedQuantity + Quantity = LocalRecAOCQuantity))
+									LocalRecAOCMatchedQuantity=LocalRecAOCQuantity
+							else
+								LocalAOCRecQuantityToMatch=Quantity+each.ReceivedQuantityToMatch
+								LocalAOCRecAmountToMatch=LocalAOCRecQuantityToMatch*each.OriginalUnitCost
+								initialize RoundedValue
+								RoundedValue.RoundInput			= LocalAOCRecAmountToMatch
+								RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+								RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+								LocalAOCRecAmountToMatch		= RoundedValue.RoundResult
+							
+							if (LocalRecAOCQuantity > 0)
+								LocalPurchaseOrderLineAddOnCharge = each.AddOnCharge
+								if (PurchaseOrderLineAddOnChargeRel exists)
+									LocalAOCRecTotalAoc	= PurchaseOrderLineAddOnChargeRel.EnteredUnitCost * LocalRecAOCQuantity
+							
+							
+							if (PurchaseOrder.Currency = each.Currency)
+								LocalAOCRecTotalAocPO=LocalAOCRecTotalAoc 
+							else
+
+								initialize LocalCurrencyExchange
+								LocalFromCurrency								= PurchaseOrderReceipt.Currency
+								LocalCurrencyExchange.ToCurrency				= PurchaseOrder.Currency
+								LocalExchangeDate								= PurchaseOrder.PurchaseOrderDate
+								LocalTransactionAmount							= LocalAOCRecTotalAoc
+								LocalCurrencyExchange.EnteredCurrencyRate		= PurchaseOrderReceipt.ReceiptCurrencyConversionRate
+								LocalAOCRecTotalAocPO=LocalCurrencyExchange.OutputCurrencyAmount
+								
+							if (LocalRecAOCQuantity > 0)			
+								invoke Update PoreclineAOCRel
+									invoked.ReceivedQuantity	= LocalRecAOCQuantity
+									invoked.MatchedQuantity	= LocalRecAOCQuantity
+									invoked.ReceivedQuantityToMatch=LocalAOCRecQuantityToMatch
+									invoked.ReceivedAmountToMatch=LocalAOCRecAmountToMatch
+									invoked.OpenToMatchQuantity=LocalAOCRecAmountToMatch
+									invoked.TotalAddOnChargeAmount=LocalAOCRecTotalAoc
+							else
+								invoke Delete PoreclineAOCRel
+						
+						if (Quantity < 0)
+							LocalFromCurrency  = PurchaseOrderReceipt.Currency
+							initialize LocalTransactionAmount					
+							LocalExchangeDate 						 = PurchaseOrder.PurchaseOrderDate                	
+							LocalCurrencyExchange.ToCurrency		 = Company.Currency
+							CurrencyTable  							 = Company.CurrencyTable                	                			        
+		
+							if (LocalCurrencyExchange.IsRateDefined)
+								if (LocalCurrencyExchange.RelationshipOverrideTolerance entered
+								and not LocalCurrencyExchange.TranCurrRelationship.OverrideProtection)	
+									constraint (PurchaseOrder.EnteredCurrencyConversionRate >= LocalCurrencyExchange.RateToleranceLoLimit 
+									and  		PurchaseOrder.EnteredCurrencyConversionRate <= LocalCurrencyExchange.RateToleranceHiLimit)
+										"CalculatedRateIsNotWithInToleranceRange"
+						
+						if (PurchaseOrderReceiptLine.ItemType.Inventoried)
+							if  (Quantity not entered
+							and (IccompanyRel.CostingMethod.AverageCosting 
+							or   IccompanyRel.CostingMethod.FirstInFirstOut 
+							or   IccompanyRel.CostingMethod.LastInFirstOut))		
+
+								if (InventoryTransactionLineRel.InventoryTransaction.InventoryDocumentType.CostAdjustment)
+									if (PurchaseOrderReceiptLine.MatchDetailKey = PurchaseOrderReceiptLine.MatchDetailKey)
+										LocalBaseCost	= LocalBaseCost + InventoryTransactionLineRel.UnitCostInTransactionCurrency
+								else 
+									LocalBaseCost	= LocalBaseCost + InventoryTransactionLineRel.UnitCostInTransactionCurrency
+								
+								if (LocalBaseCost = 0)
+									if (InventoryCostHistoryRel exists)
+										if (PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth
+										or  PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+											if ((InventoryCostHistoryRel.ReceivedQuantity - InventoryCostHistoryRel.UsedQuantity) >= (CatchWeightQuantity * -1))
+												LocalBaseCost	= PurchaseOrderReceiptLine.MatchUnitCost / PurchaseOrderReceiptLine.VendorPriceUOMMultiplier
+												initialize RoundedValue
+												RoundedValue.RoundInput			= LocalBaseCost
+												RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+												RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+												LocalBaseCost					= RoundedValue.RoundResult
+										else
+											if ((InventoryCostHistoryRel.ReceivedQuantity - InventoryCostHistoryRel.UsedQuantity)>=(Quantity*PurchaseOrderReceiptLine.ReceivedUOMMultiplier*-1))
+												LocalBaseCost	= PurchaseOrderReceiptLine.MatchUnitCost / PurchaseOrderReceiptLine.VendorPriceUOMMultiplier
+												initialize RoundedValue
+												RoundedValue.RoundInput			= LocalBaseCost
+												RoundedValue.RoundingType		= RoundedValue.RoundingType.Low	 
+												RoundedValue.RoundingMethodFW	= RoundedValue.RoundingMethodFW.MultipleOf
+												LocalBaseCost					= RoundedValue.RoundResult
+
+									if (ItemlocRel.ItemLocation.NoCharge)
+										LocalZeroCost = true
+									else
+										if (Company.InventoryCompany.CostingMethod.AverageCosting)
+											LocalUnitCost = ItemlocRel.ItemLocation.DerivedItemAverageCost
+										if (Company.InventoryCompany.CostingMethod.StandardCosting)
+											LocalUnitCost = ItemlocRel.ItemLocation.StandardCost
+										
+										
+										if (PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth
+										or  PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+											LocalPUCQuantity	= CatchWeightQuantity
+										else
+											LocalPUCQuantity	= Quantity * PurchaseOrderReceiptLine.VendorBuyUOMMultiplier
+										if (Company.InventoryCompany.CostingMethod.FirstInFirstOut
+										or  Company.InventoryCompany.CostingMethod.LastInFirstOut)
+											if (LocalPUCQuantity < 0)									
+												LocalRemainingQuantity = LocalPUCQuantity * -1
+											else	
+												LocalRemainingQuantity = LocalPUCQuantity
+											
+											include UpdateInventoryCostHistory 
+											if (LocalRemainingQuantity entered)
+												LocalChangedQuantity = VendorReturnLine.ReturnQuantity - LocalRemainingQuantity
+											if (LocalChangedQuantity < 0)
+												LocalUnitCost = LocalTotalInventoryHistoryCost /(LocalChangedQuantity * -1)
+											if (LocalChangedQuantity = 0)
+												initialize LocalUnitCost
+											if (LocalChangedQuantity > 0)
+												LocalUnitCost = LocalTotalInventoryHistoryCost / LocalChangedQuantity
+									
+									if (LocalUnitCost not entered
+									and ItemlocRel.ItemLocation.StockOnHandQuantity > 0)
+										LocalZeroCost = true
+									
+									if (LocalUnitCost > 0
+									or (LocalUnitCost = 0
+									and LocalZeroCost))
+										LocalBaseCost = LocalUnitCost
+
+							
+							if (IsCatchWeightItem)
+								LocalInventoryTransLineTransactionUOMMultiplier	= 1	
+								LocalInventoryTransLineSecondaryQuantity		= Quantity	
+							else
+								LocalInventoryTransLineTransactionUOM 			= PurchaseOrderReceiptLine.ReceivedUOM
+								LocalInventoryTransLineTransactionUOMMultiplier	= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+						
+							LocalInventoryTranDocumentType = LocalInventoryTranDocumentType.PurchaseOrderReceiptAdjustment
+							if (PurchaseOrderReceiptLine.Item.CatchWeightCode.AllTransactionsRequireBoth 
+							or  PurchaseOrderReceiptLine.Item.CatchWeightCode.ReceiptRequiresBoth)
+								LocalICTWSQuantity	= CatchWeightQuantity
+							else
+								LocalICTWSQuantity	= Quantity
+							LocalICTWSQuantity	= AcceptedQuantity
+							include CreateMMDIST
+							include CreateInventoryTransactionLineAndDetailForAdjustmentItem
+
+							invoke Release LocalInventoryTransactionLine.InventoryTransactionLine
+								invoked.PrmSkipDistributions						= true
+								if (PurchaseOrderReceiptLine.InspectionRequired)
+									invoked.PrmInspectionHoldQuantity				= Quantity
+									invoked.PrmInspectionHoldCatchWeightQuantity	= CatchWeightQuantity
+							
+							if (Company.PackageTrackingLevel.LineLevel)
+								for each PurchaseOrderReceiptTrackingRel
+									invoke CreateArrival each
+							
+
+				    		if (IsAdjustment 
+				    		and PurchaseOrderReceiptLine.Status.ReleasedRequiresInspection)
+
+					    		invoke Update ItemlocRel
+					    			invoked.Company           					= Company
+					                invoked.InventoryLocation 					= PurchaseOrderReceiptLine.ShipToLocation
+					                invoked.Item              					= PurchaseOrderReceiptLine.Item
+					    			invoked.InspectionHoldQuantity 				+= Quantity
+					    			invoked.InspectionHoldCatchWeightQuantity	+= CatchWeightQuantity
+							
+						make transition to Released
+					
+					Exit Rules
+						
+			Released is a State
+    
+    Actions
+			
+		UpdateBODIdFields is an Instance Action
+			restricted
+			Parameters
+				PrmAccountingEntity  is Alpha size 22
+					default label is "AccountingEntity"
+				PrmLocation          is Alpha size 22
+					default label is "Location" 
+				PrmDocumentID        is Alpha size 100
+					default label is "DocumentID"
+				PrmSystemOfRecord    is Alpha size 1
+					default label is "SystemOfRecord"
+				PrmVariationID       is Alpha size 22
+					default label is "VariationID"	
+			Action Rules
+				if (bod id.AccountingEntity != PrmAccountingEntity)
+					bod id.AccountingEntity 	= PrmAccountingEntity
+				if (bod id.Location != PrmLocation)
+					bod id.Location				= PrmLocation
+				if (bod id.DocumentID != PrmDocumentID)
+					bod id.DocumentID			= PrmDocumentID
+				if (bod id.SystemOfRecord != PrmSystemOfRecord)
+					bod id.SystemOfRecord		= PrmSystemOfRecord
+				if (bod id.VariationID != PrmVariationID)
+					bod id.VariationID			= PrmVariationID				
+				
+		ClearBuyerMessage is an Instance Action
+			restricted
+			Action Rules
+				initialize BuyerMessage
+           	
+        SetInspectionRequiredOnReceiptLine is an Instance Action
+        	restricted
+        	Parameters
+				PrmInspectionRequired is Boolean
+			Action Rules
+				invoke FastUpdate PurchaseOrderReceiptLine
+					invoked.InspectionRequired = PrmInspectionRequired
+					
+		CreateVendorReturns is an Instance Action
+			restricted
+			Parameters
+				PrmVendorReturn	is a VendorReturn
+
+			Action Rules
+				VendorReturn = PrmVendorReturn
+		 		invoke Create VendorReturnLine
+		 			assign result to VendorReturnLine
+		 			fill in fields from this instance
+		 			invoked.LocalInspectionReject		= true
+    		 		invoked.Company 					= Company
+		 	 		invoked.VendorReturn 				= PrmVendorReturn
+		 	 		invoked.VendorReturnLine 			= POReceiptAdjustmentAndInspectionLine
+		 	 		invoked.PurchaseOrderReceipt 		= PurchaseOrderReceipt
+		 	 		invoked.DocumentNumberNumeric		= POReceiptAdjustmentAndInspection
+		 	 		invoked.ReturnQuantity       		= Quantity
+		 	 		if (POReceiptAdjustmentAndInspection.VendorClaimType.NoCharge)
+		 	 			initialize invoked.UnitCost
+		 	 		else
+		 	 			invoked.UnitCost				= PurchaseOrderReceiptLine.DerivedOriginalUnitCostInReceivedUOM
+		 	 		invoked.Item                 		= PurchaseOrderReceiptLine.Item
+		 	 		invoked.ItemType             		= PurchaseOrderReceiptLine.ItemType
+		 	 		invoked.Description          		= PurchaseOrderReceiptLine.Description
+		 	 		invoked.VendorItem					= PurchaseOrderReceiptLine.VendorItem
+		 	 		invoked.EnteredUOM					= PurchaseOrderReceiptLine.ReceivedUOM
+		 	 		invoked.EnteredUOMMultiplier		= PurchaseOrderReceiptLine.ReceivedUOMMultiplier
+		 	 		invoked.VendorPriceUOM				= PurchaseOrderReceiptLine.VendorPriceUOM
+		 	 		invoked.VendorPriceUOMMultiplier	= PurchaseOrderReceiptLine.VendorPriceUOMMultiplier
+		 	 		invoked.TaxCode						= PurchaseOrderReceiptLine.TaxCode
+		 	 		invoked.OriginalPurchaseOrder 		= PurchaseOrderReceiptLine.PurchaseOrder
+					invoked.OriginalPurchaseOrderLine 	= PurchaseOrderReceiptLine.PurchaseOrderLine
+					invoked.ItemGTIN					= PurchaseOrderReceiptLine.ItemGTIN
+					invoked.InspectionRequired			= PurchaseOrderReceiptLine.PurchaseOrderLine.InspectionRequired
+					invoked.LastUpdateDate				= current timestamp
+					invoked.LastUpdateBy				= actor      	
+				
+				for each PurchaseOrderTransactionDetailsRels
+					invoke Create VendorReturnLineDetail
+						fill in fields from VendorReturnLine
+						invoked.LocalInspectionReject	= true
+						invoked.Quantity 				= each.Quantity
+						invoked.Bin						= each.Bin
+						invoked.Lot						= each.Lot
+						invoked.Sublot					= each.Sublot
+						invoked.Serial					= each.Serial
+						invoked.SecondaryQuantity 		= each.SecondaryQuantity
+						invoked.LotOnHold				= each.LotOnHold
+						invoked.LotExpirationDate		= each.LotExpirationDate
+					
+					invoke UpdateSerialStatus each
+					
+				for each PurchaseOrderUDIDetailRejectionRel
+					invoke Create PurchaseOrderUDIDetail
+						fill in fields from each
+						invoked.Company													= Company
+						invoked.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType 	= PurchaseTransactionDocumentType.VendorReturn
+            			invoked.PurchaseOrderUDIDetail.DocumentNumberNumeric			= PrmVendorReturn 
+            			invoked.PurchaseOrderUDIDetail.LineNumber						= POReceiptAdjustmentAndInspectionLine
+						
+		SetDetailsInBalance is an Instance Action
+			restricted
+			Action Rules
+				initialize LocalQuantity
+				if (IsItemDetailTracked)
+					for each PurchaseOrderTransactionDetailsRels
+						if (IsCatchWeightItem)
+							LocalQuantity				+= each.SecondaryQuantity
+							LocalCatchWeightQuantity	+= each.Quantity
+						else
+							LocalQuantity 				+= each.Quantity
+					
+					if (Quantity 			= LocalQuantity
+					and CatchWeightQuantity = LocalCatchWeightQuantity)
+						DetailsInBalance = true
+					else
+						initialize DetailsInBalance
+
+				if (IsUDIRequiredAtReceipt)
+					for each PurchaseOrderUDIDetailRel
+						LocalQuantity += each.Quantity
+					
+					if (Quantity = LocalQuantity)
+						DetailsInBalance = true
+					else
+						initialize DetailsInBalance							
+						
+		Purge is a Purge Action
+			restricted
+			
+			Entrance Rules
+				invoke Purge PurgeProcurementTransactionDistributionRel
+				invoke Purge PurgeReceiptAdjustmentAndInspectionLineDistRel
+				
+		
+
+		InspectionRejAlert is an Instance Action
+			restricted
+			Parameters
+			Action Rules
+				if (Company.FinanceEnterpriseGroup.BODTrigger and FSMBODConfigurationPARel.Enable)
+      				if(FSMBODConfigurationDetailPARel.Enable)	
+						invoke TriggerPulseAlert FSMBODConfigurationPARel
+							invoked.PrmActorGroup 	= "BUYER" 
+							invoked.PrmMainXML 		= InspectionRejAlertXML	
+							invoked.PrmDescription	= InspectionRejDescription
+							invoked.PrmBODID		= DerivedBODID
+		
+		TriggerInspectDeliveryNativeLPLBOD is an Instance Action
+			restricted
+			Entrance Rules
+			Action Rules
+				invoke NativeLPLBODTriggerChecks FSMBODConfigurationRel
+					invoked.PrmVerb 					= 1
+					invoked.PrmNoun						= "InspectDelivery"
+					invoked.PrmDirection				= 1
+					invoked.PrmTriggerFrom				= "POReceiptAdjustmentAndInspectionLine"
+					invoked.PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+					invoked.PrmMainUserTemplate 		= "IONSyncInspectDelivery_POReceiptAdjustmentAndInspectionLine_ST"
+				LocalNativeLPLBODTrigger = FSMBODConfigurationRel.NativeLPLBODTrigger
+				if(LocalNativeLPLBODTrigger and Company.FinanceEnterpriseGroup.BODTrigger)
+					if(FSMInboundBODTracker not entered)
+						invoke Create FSMInboundBODTracker
+							assign result to NewBODTracker
+							invoked.Verb 					= 1
+							invoked.Noun 					= "InspectDelivery"				
+							invoked.BODDocumentID			= DeriveddocumentID
+							invoked.BODVariationID			= DerivedBODVariationID
+							invoked.Status					= 1
+							invoked.StartDate				= system current timestamp
+							invoked.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+							invoked.Direction				= 1
+							invoked.BODAccountingEntity		= DerivedaccountingEntity
+							invoked.Reference1				= Company
+							invoked.Reference2				= AdjustmentInspectionDocumentType
+							invoked.Reference3				= POReceiptAdjustmentAndInspection
+							invoked.Reference4				= POReceiptAdjustmentAndInspectionLine
+							initialize invoked.Error			
+							initialize invoked.ErrorMessage					
+						LocalFSMInboundBODTracker			= NewBODTracker.FSMInboundBODTracker
+					else 
+						display "EnteredIntoElse"
+						LocalFSMInboundBODTracker			= FSMInboundBODTracker
+						invoke Update FSMInboundBODTrackerRel
+							invoked.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+							invoked.BODDocumentID			= DeriveddocumentID
+							invoked.BODVariationID			= DerivedBODVariationID
+							invoked.Status					= 1
+							invoked.StartDate				= system current timestamp
+							invoked.Direction				= 1
+							invoked.BODAccountingEntity		= DerivedaccountingEntity
+							invoked.Reference1				= Company
+							invoked.Reference2				= AdjustmentInspectionDocumentType
+							invoked.Reference3				= POReceiptAdjustmentAndInspection
+							invoked.Reference4				= POReceiptAdjustmentAndInspectionLine
+							initialize invoked.Error			
+							initialize invoked.ErrorMessage
+					invoke SendInspectDeliveryBODNativeLPL
+						resume on error
+							Error            							= true
+							ErrorMessage     							= error message
+					if(Error)
+						invoke Update FSMInboundBODTrackerRel
+							invoked.Error 								= Error
+							invoked.ErrorMessage 						= ErrorMessage
+							invoked.Status								= 2
+							invoked.CloseDate							= system current timestamp
+							invoked.BODXML								= SyncInspectDeliveryXMLBOD
+							invoked.BODID								= DerivedbodID
+					else
+						invoke Update FSMInboundBODTrackerRel
+							invoked.Status									= 3
+							invoked.CloseDate								= system current timestamp
+							invoked.BODXML									= SyncInspectDeliveryXMLBOD
+							invoked.BODID									= DerivedbodID
+
+		SendInspectDeliveryBODNativeLPL is an Instance Action
+			restricted
+			Entrance Rules
+			Parameters
+			Action Rules
+				send ion bod
+					bod is SyncInspectDeliveryXMLBOD
+					bod type is "Sync.InspectDelivery"
+					document id is  DeriveddocumentID
+					variation id is DerivedBODVariationID
+					accounting entity is DerivedaccountingEntity
+					location is Derivedlocation
+
+	
+		
+

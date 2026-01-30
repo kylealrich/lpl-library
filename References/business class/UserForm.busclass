@@ -1,0 +1,662 @@
+UserForm is a BusinessClass
+    owned by repository
+    prefix is URFM
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+
+    Ontology
+        symbolic key is UserForm
+
+    Persistent Fields
+    	Owner is like Actor
+    	BusinessView
+    	BusinessForm 	is LPLName
+    	Actor
+    	UserFolder
+    		delete cascades
+		Status 			is a UserObjectStatus
+    	LPL             is LPL
+    	Description		is a ConfigDescription
+    	UserEditorType
+    	Independent		is Boolean
+    	LPLIndex		is Text  
+    	UserAction		is LPLName // Only set for "extension" type User Actions so we can deal with cleaning up implicit Action Forms for
+
+
+    	ErrorText		is Text
+
+	Transient Fields
+		TBusinessForm is a BusinessForm
+			default label is "BusinessForm"
+			derive value from DerivedBusinessForm 
+
+    Derived Fields
+    	DerivedBusinessForm is a DerivedField
+    		type is LPLName
+    		restricted
+    		if (BusinessFormRel exists)
+    			return BusinessForm
+
+    		return blank
+
+    	ContextKey is a DerivedField
+    		type is LPLName
+    		if (Actor entered)
+	    		return  "Actor  '" + Actor + "', " + BusinessView + ", " + BusinessForm
+    		if (UserFolder entered)
+    			return "Folder '" + UserFolder.Name + "', " + BusinessView + ", " + BusinessForm
+    		return  "blank, " + BusinessView + ", " + BusinessForm
+
+		ConfigActor is a ConditionalField
+			type is Actor
+			default label is "Actor"
+			if (IsFolder)
+				UserFolder.Actor
+			else
+				Actor
+
+		ParseText is a NativeField
+			type is Text
+
+		OverrideNotificationDescription is a MessageField
+    		"YourPersonalizationHasBeenUpdated"
+
+		OverrideNotificationDetails is a MessageField
+    		"YourPreviousModificationsFor<BusinessView>.<BusinessForm>HaveBeenOverriddenByTheConfigurationAdministratorAndAreNoLongerActive"
+
+	    BusinessClassViewMF is a MessageField
+            "Business_Class"
+
+	    BusinessTaskViewMF is a MessageField
+            "Business_Task"
+
+        BusinessViewDefaultMF is a MessageField
+            "View"
+
+        BusinessViewLabel is a ConditionalField
+            type is Alpha 20
+            if (BusinessView.Type.BusinessClass)
+                BusinessClassViewMF
+            else
+            if (BusinessView.Type.BusinessTask)
+                BusinessTaskViewMF
+            else
+                BusinessViewDefaultMF
+
+		NewInitialLPL is a NativeField
+		    type is Text
+		    
+		UpdIndIndexStamp is a NativeField
+			type is Text
+			restricted
+			default label is "UpdateIndexStamp"
+
+
+        OverriddenCount is a DerivedField
+            type is Numeric size 4
+            if (Global)
+                return (instance count of OverriddenConfigurationRel)
+            else
+                return blank
+
+	Local Fields
+		LocParseText 	    is Text
+		LocBasedOnForm      is a BusinessForm
+		LocActor            is Actor
+		LocBusinessView     is LPLName
+		LocName             is LPLName
+		
+    Field Rules
+		Owner
+			default to actor
+    	BusinessView
+    		required
+
+    	BusinessForm
+    		required
+
+
+    		constraint (Global or BusinessFormRel exists) 
+    			"PersonalizationsAndFoldersMustBeBackedByAnExistingForm"
+    			
+    		if (BusinessFormRel exists
+    		and not BusinessFormRel.IsConfigurable)
+    			if (Global)
+    				confirmation required
+    					"ThisWillCreateAConfigurationForANonConfigurableTypeWhichWillNotBeUsedByTheSystem.Continue?"
+    			else
+    				confirmation required
+    					"ThisWillCreateAPersonalizationForANonConfigurableTypeWhichWillNotBeUsedByTheSystem.Continue?"
+
+    	Actor
+    		if (old Independent 
+    		and IsFormIndependent
+			and Actor entered
+			and not old Actor entered)
+				cannot be changed
+					"CannotChangeAnIndependentFormToAPersonalization.PleaseCreateANewPersonalization"
+
+    		constraint (UserFolder not entered)
+    			"CannotEnterBothActorAndFolder"
+
+		UserFolder
+			if (old Independent  
+			and IsFormIndependent
+			and UserFolder entered
+			and not old UserFolder entered)
+				cannot be changed
+					"CannotChangeAnIndependentFormToAFolder.PleaseCreateANewFolder"
+
+   			constraint (Actor not entered)
+   				"CannotEnterBothActorAndFolder"
+
+		LPL
+			required
+
+			if (LPL changed)
+				LPLIndex = blank
+
+			if (Status.Active)
+				LocParseText = ParseText
+
+				if (not LocParseText = blank)
+					confirmation required
+						"<LocParseText>:_User_FormIsInvalid.__DoYouWantToSaveAnyway?"
+
+					Status = Status.Invalid
+					ErrorText = LocParseText
+
+		UserEditorType
+			default to UserEditorType.LPL
+
+		Status
+			if (Status.Active)
+				initialize ErrorText
+
+    Conditions
+    	IsFolder
+    		default label is "Folder"
+   			when (UserFolder entered)
+
+   		IsActor
+   			default label is "Actor"
+   			when (Actor entered)
+
+    	Global
+    		when (!IsActor and !IsFolder)
+
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when ((IsFolder and UserFolder.Actor not entered) or Global)
+
+		IsForUserBusinessView
+			default label is untranslatable
+			when (BusinessView.IsUserClass)
+
+		IsFormDependent
+			restricted
+			when (BusinessFormRel exists
+			and   not BusinessFormRel.Independent)
+
+		IsFormIndependent
+			restricted
+			when (not BusinessFormRel exists
+			or    BusinessFormRel.Independent)
+
+		CondIndependent
+			restricted
+			when (Global and IsFormIndependent)
+
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+        IsOverridden
+        	default label is "Overridden"
+            when (first OverriddenConfigurationRel exists
+            and Global)
+
+	Relations
+    	DuplicateRel
+    		one-to-many relation to UserForm 
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessView
+				related.BusinessForm = BusinessForm
+				related.Actor 		 = Actor
+			Instance Selection
+				where (related.UserFolder not entered
+				and    related.UserForm != UserForm)
+
+		BusinessFormRel
+			one-to-one relation to BusinessForm
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+				related.BusinessForm = BusinessForm
+
+		OverriddenConfigurationRel
+    		one-to-many relation to UserForm
+			Field Mapping uses ByViewFormActor
+				related.BusinessView = BusinessView
+				related.BusinessForm = BusinessForm
+	        Instance Selection
+		        where (not related.Global and not related.IsFolder)
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses ByEntityType
+                related.EntityType = 10
+                related.BusinessView = BusinessView
+                related.Name = BusinessForm
+                related.Actor = Actor
+
+		LocalDuplicateRel
+		    one-to-many relation to UserForm
+			Field Mapping uses AllActorSet
+			    related.Actor           = LocActor
+			    related.BusinessView    = LocBusinessView
+				related.BusinessForm    = LocName
+
+		LocalBusinessFormRel
+			one-to-one relation to BusinessForm
+			Field Mapping uses symbolic key
+			    related.BusinessView    = LocBusinessView
+				related.BusinessForm    = LocName
+
+	Actions
+    	Create is a Create Action
+    		Action Rules
+	    		if (TBusinessForm entered)
+	    			if (BusinessForm entered)
+	    				constraint (BusinessForm = TBusinessForm)
+	    					"OnlyFormOrAnExistingFormCanBeEntered" 
+
+	    			BusinessForm = TBusinessForm
+
+				Independent = CondIndependent
+
+    		Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+
+				invoke FireEvent
+    			
+    	CreateFromSnapshot is a Create Action
+			restricted
+			bypass field rules
+
+				
+			Exit Rules
+
+			    if (Independent
+    			and Status.Active)
+					LPLIndex = UpdIndIndexStamp
+					
+    	Update is an Update Action
+    		Action Rules
+    			if (TBusinessForm entered)
+	    			if (BusinessForm entered)
+	    				constraint (BusinessForm = TBusinessForm)
+	    					"OnlyFormOrAnExistingFormCanBeEntered" 
+
+	    			BusinessForm = TBusinessForm
+
+				Independent = CondIndependent
+
+    			if (not UserFolder entered)
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					if (Actor entered) 
+    						confirmation required
+								"User_FormPersonalizationExists.__DoYouWantToOverwrite?"
+    					else
+    						confirmation required
+								"User_FormConfigurationExists.__DoYouWantToOverwrite?"
+    					invoke Delete DuplicateRel
+
+     		Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+
+				invoke FireEvent
+    			
+    	UpdateFromSnapshot is an Update Action
+			restricted
+			bypass field rules
+
+				
+			Action Rules
+				if (not UserFolder entered)
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					invoke Delete DuplicateRel
+			
+			Exit Rules
+
+			    if (Independent
+    			and Status.Active)
+					LPLIndex = UpdIndIndexStamp
+			
+    	Delete is a Delete Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+    	DeleteFromSnapshot is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+			
+		Purge is a Purge Action
+			restricted
+    		Exit Rules
+    			invoke FireEvent
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		Action Rules
+
+    			LocParseText = ParseText
+
+				if (not LocParseText = blank)
+					constraint(LocParseText = blank)
+						"<LocParseText>:_User_FormIsInvalid._Cannot_Activate."
+
+				Status = Status.Active
+				initialize ErrorText
+
+			Exit Rules
+
+
+
+				if (Independent)
+					LocParseText = ParseText 
+
+    			invoke FireEvent
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		Action Rules
+    			Status = Status.Inactive
+
+			Exit Rules
+    			invoke FireEvent
+
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+
+			Exit Rules
+    			invoke FireEvent
+
+		FireEvent is an Instance Action
+			restricted
+
+		OverridePersonalizations is a Set Action
+			run in foreground
+			Parameters
+				Config is a UserForm
+					default label is "Configuration"
+
+			Parameter Rules
+				Config
+					required
+					constraint(Config.Global)
+						"OverridePersonalizationsActionIsOnlyValidForAConfiguration"
+
+			Instance Selection
+		   		where (BusinessView = Config.BusinessView
+		   		and    BusinessForm = Config.BusinessForm
+		   		and    IsActor
+		   		and    not UserFolder entered)
+
+		   	Action Rules
+		   		Instance Rules
+		   			invoke Update
+		   				invoked.LPL = Config.LPL
+
+		   			invoke CreateMessage UserNotification
+		   				invoked.ParamActor 			= Actor
+		   				invoked.ParamPriority 		= 5
+		   				invoked.ParamDescription	= this instance(locale of Actor.IsoLocale).OverrideNotificationDescription
+		   				invoked.ParamDetails		= this instance(locale of Actor.IsoLocale).OverrideNotificationDetails
+
+		DeletePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			BusinessView
+        		BusinessForm
+
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+		PurgePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				include deleted records
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			BusinessView
+        		BusinessForm
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+
+        CreateConfiguration is a Create Action
+        	completion message is "ConfigurationCreated"
+            Parameters
+                BusinessView
+                Form          is a BusinessForm
+
+			Parameter Rules
+				BusinessView
+					required
+				Form
+					required
+
+            Entrance Rules
+                LocActor = blank
+                LocBusinessView = BusinessView
+                LocName = Form
+                constraint (!LocalDuplicateRel exists)
+                    "ConfigurationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                    invoked.BusinessView = BusinessView
+                    invoked.BusinessForm = Form
+                    invoked.LPL          = BusinessFormRel.BaseLPL
+
+        CreateNewForm is a Create Action
+            default label is "AddNewForm"
+        	completion message is "NewFormCreated"
+            Parameters
+                BusinessView
+                FormName is LPLName
+                BasedOnForm is a BusinessForm
+
+			Parameter Rules
+				BusinessView
+					required
+				FormName
+					required
+
+			Entrance Rules
+				constraint (BusinessView.Type.BusinessClass)
+					"CanOnlyCreateNewFormsForBusinesClasses"
+
+                LocActor = blank
+                LocBusinessView = BusinessView
+                LocName = FormName
+                constraint (!LocalDuplicateRel exists)
+                    "FormNameInUse'<LocName>'"
+
+                constraint (!LocalBusinessFormRel exists)
+                    "FormNameInUse'<LocName>'"
+
+            Action Rules
+                if (BasedOnForm.IsActionForm)
+                    confirmation required
+                        "CopyingAnActionFormWillImpactWhichFormIsAssociatedWithTheAction.DoYouWantToSaveAnyway?"
+
+                invoke Create this instance
+                    invoked.BusinessView = BusinessView
+                    invoked.BusinessForm = FormName
+                    invoked.Independent  = true
+
+                    if (BasedOnForm entered)
+                        invoked.LocBasedOnForm = BasedOnForm
+
+                    invoked.LPL = this instance.NewInitialLPL
+
+        CreatePersonalization is a Create Action
+        	completion message is "PersonalizationCreated"
+            Parameters
+                BusinessView
+                Form          is a BusinessForm
+
+			Parameter Rules
+				BusinessView
+					required
+			    Form
+			        required
+
+            Entrance Rules
+                LocActor = actor
+                LocBusinessView = BusinessView
+                LocName = Form
+                constraint (!LocalDuplicateRel exists)
+                    "PersonalizationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+					invoked.Actor			= actor
+                    invoked.BusinessView 	= BusinessView
+                    invoked.BusinessForm 	= Form
+					invoked.LPL 			= BusinessFormRel.LPL
+
+		TagItem is an Instance Action
+			valid when (not IsFolder)
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserFormIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserFormIsInvalid,TagAnyway?"
+							
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance		  
+
+    Sets
+    	ActorSet
+    		Sort Order
+    			Actor
+    			BusinessView
+        		BusinessForm
+        	Instance Selection
+        		where (IsActor)
+
+		FolderSet
+			Sort Order
+    			UserFolder
+    			BusinessView
+        		BusinessForm
+    		Instance Selection
+				where (IsFolder)
+
+		AllActorSet
+			duplicates
+    		Sort Order
+    			Actor
+    			BusinessView
+        		BusinessForm
+
+		GlobalSet
+			Sort Order
+				BusinessView
+				BusinessForm
+			Instance Selection
+				where (Global)
+
+		ByViewFormActor
+			sql name is URFMBYVFA
+			Sort Order
+				BusinessView
+				BusinessForm
+				Actor
+				UserFolder
+				UserForm
+
+		ByFormViewActor
+			sql name is URFMBYFVA
+			Sort Order
+				BusinessForm
+				BusinessView
+				Actor
+				UserFolder
+				UserForm
+
+		IndependentConfigForms
+			sql name is URIDTCF
+			Sort Order
+				BusinessView
+				BusinessForm
+			Instance Selection
+				where (Independent)

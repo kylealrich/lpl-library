@@ -1,0 +1,189 @@
+ItemUPC is a BusinessClass
+    owned by ic
+    prefix is IPC
+    classic name is ITEMUPC
+
+    Ontology
+        symbolic key is ItemUPC
+            classic set name is IPCSET1
+            classic name is UPC
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        UnitOfMeasure       is a UnitOfMeasureEdit
+            classic name for UnitOfMeasure.UnitOfMeasure is UOM
+        UnitOfMeasureCost   is an InternationalCost
+            classic name is UOM-COST
+                precision is Item.NumberOfDecimalsCost
+        UPCType             is AlphaUpper size 1
+            States
+                Primary value is "P"
+        SuppressLeadingZero is AlphaUpper size 6
+            classic name is ZERO-SUPP-FL
+        UseSaleUOM          is Boolean
+        SaleByManufacturer  is Boolean
+            classic name is SALE-BY-MFG
+        SaleByDistributor   is Boolean
+            classic name is SALE-BY-DISTR
+		FromWorksheetResult is an ItemInformationWorksheetResult
+
+    Derived Fields
+
+        ItemTypeUPC is a ConditionalField
+            type is Numeric size 1
+            restricted
+            if (HasItemUPC)
+                2
+            else
+                blank
+
+    Conditions
+
+        HasItemUPC
+            classic name is UPC-ENTERED
+            restricted
+            when (ItemUPC entered)
+
+		UPCDuplicated
+			restricted
+			when (DuplicateUPCRel exists)
+
+		UOMDuplicated
+			restricted
+			when (DuplicateUOMRel exists)
+
+		ConsolidatedItemMasterExists
+			restricted 
+			when (ConsolidatedItemMasterRel exists)                
+
+	Relations
+		DuplicateUPCRel
+			one-to-many relation to ItemUPC
+			Field Mapping uses Set5
+				related.ItemGroup		= ItemGroup
+				related.ItemUPC			= ItemUPC
+			Instance Selection
+				where (related.Item	!= Item)
+
+		DuplicateUOMRel
+			one-to-many relation to ItemUPC
+			Field Mapping uses Set6
+				related.ItemGroup		= ItemGroup
+				related.Item			= Item
+				related.UnitOfMeasure	= UnitOfMeasure
+			Instance Selection
+				where (related.ItemUPC != ItemUPC)
+
+        OnContractLineRel 
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item 
+            Instance Selection 
+                where (related.Upc = ItemUPC)
+
+        ContractLineForItemUOMRel
+            one-to-many relation to ContractLine 
+            Field Mapping uses ByItemContractLine
+                related.ContractGroup       = ItemGroup 
+                related.ItemNumber          = Item  
+            Instance Selection 
+                where (related.UOM.UnitOfMeasure = UnitOfMeasure) 
+
+		ConsolidatedItemMasterRel
+			one-to-many relation to ConsolidatedItemMaster
+			Field Mapping uses ByInternalItem     
+				related.ContractGroup	    = ItemGroup
+				related.InternalItem		= Item        
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                ItemUPC
+                ItemGroup
+
+        Set5
+            indexed
+            Instance Selection
+                where (HasItemUPC)
+            Sort Order
+                ItemGroup
+                ItemUPC
+
+        Set6
+            indexed
+            Sort Order
+                ItemGroup
+                Item
+                UnitOfMeasure
+                ItemUPC
+                
+        FromWorksheet
+        	Sort Order
+        		FromWorksheetResult
+        		ItemGroup
+        		Item
+        		ItemUPC
+
+	Field Rules
+		
+		ItemUPC
+			constraint (!UPCDuplicated)
+				"UPCAlreadyExistsForAnotherItem:<first DuplicateUPCRel.Item>"
+
+		UnitOfMeasure
+			required
+				"UnitOfMeasureIsRequired"
+			constraint (!UOMDuplicated)
+				"AnotherUPCExistsWithTheSameUnitOfMeasure"
+
+		UnitOfMeasureCost
+			constraint (UnitOfMeasureCost decimals <= Item.NumberOfDecimalsCost)
+				"TooManyDecimalsEntered:MaxIs<Item.NumberOfDecimalsCost>"	
+
+	Actions
+		
+		Create is a Create Action
+
+            Action Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterUPC    = true
+                        invoked.UPCToEnter  = ItemUPC
+
+		Update is an Update Action
+
+            Action Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveUPC = true            
+            Exit Rules 
+                for each ContractLineForItemUOMRel 
+                    invoke FastUpdateWithoutEdits each 
+                        invoked.EnterUPC    = true
+                        invoked.UPCToEnter  = ItemUPC 
+
+		Delete is a Delete Action
+
+            Entrance Rules 
+                for each OnContractLineRel 
+                    invoke FastUpdateWithoutEdits each
+                        invoked.RemoveUPC = true
+
+				if (ConsolidatedItemMasterExists)
+					invoke UpdateUOMDetails ConsolidatedItemMasterRel 
+						invoked.ParmHIBCCDI		= ItemUPC 
+						invoked.ParmUOM         = UnitOfMeasure.UnitOfMeasure
+						invoked.ParmDeleted     = true  		
+	Action Exit Rules
+		invoke ItemDetailChanged Item 
+
+		if  (ConsolidatedItemMasterExists)
+			invoke Update ConsolidatedItemMasterRel            
+		

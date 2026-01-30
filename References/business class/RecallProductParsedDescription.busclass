@@ -1,0 +1,275 @@
+RecallProductParsedDescription is a BusinessClass
+    owned by recall
+    prefix is RMPPD
+
+    Ontology
+    	symbolic key is RecallProductParsedDescription
+    
+    Persistent Fields
+   		Description			is Alpha size up to 1000
+   	
+   	Local Fields
+   		LocalRecallProduct	is a RecallProduct
+   		
+   	Conditions
+   		ProductHasSerialNumbers
+   			restricted
+   			when (RecallProductSerialRel exists)
+   			
+   		ProductHasLotNumbers
+   			restricted
+   			when (RecallProductLotRel exists)
+   		
+   	Relations
+   		RecallProductSerialRel
+   			one-to-many relation to RecallProductSerial
+   			Field Mapping uses symbolic key
+   				related.RecallGroup	  = RecallGroup
+   				related.RecallNotice  = RecallNotice
+   				related.RecallProduct = LocalRecallProduct
+   				
+   		RecallProductLotRel
+   			one-to-many relation to RecallProductLot
+   			Field Mapping uses symbolic key
+   				related.RecallGroup	  = RecallGroup
+   				related.RecallNotice  = RecallNotice
+   				related.RecallProduct = LocalRecallProduct
+   			
+  		RecallProductSerialDuplicateRel
+   			one-to-one relation to RecallProductSerial
+   			Field Mapping uses symbolic key
+   				related.RecallGroup	  		= RecallGroup
+   				related.RecallNotice  		= RecallNotice
+   				related.RecallProduct 		= RecallProduct
+   				related.RecallProductSerial	= Description
+   				
+   		RecallProductLotDuplicateRel
+   			one-to-one relation to RecallProductLot
+   			Field Mapping uses symbolic key
+   				related.RecallGroup	  		= RecallGroup
+   				related.RecallNotice  		= RecallNotice
+   				related.RecallProduct 		= RecallProduct
+   				related.RecallProductLot    = Description 
+
+   	Actions
+    	Create is a Create Action
+		
+		CreateNewProduct is an Instance Action
+			Action Rules
+				invoke Create RecallProduct
+					invoked.RecallGroup	 = RecallGroup
+					invoked.RecallNotice = RecallNotice 
+					invoked.ProductName  = Description
+					
+			Exit Rules
+				invoke Delete
+		 
+		CreateLotNumber is an Instance Action
+			valid when (!RecallNotice.Equipment)
+			Parameters
+				Product is a RecallProduct
+			
+			Parameter Rules
+				Product
+					initial value is RecallProduct
+					required
+					
+			Action Rules
+				LocalRecallProduct = Product
+				
+				constraint (!Description[11] entered)
+						"LotNumberMustBeLessThan10Characters"
+						
+				constraint (!ProductHasSerialNumbers)
+					"CannotAttachLotNumbersToProduct<Product>;SerialNumbersAlreadyExist"
+					
+				invoke Create RecallProductLot
+					invoked.RecallGroup		 = RecallGroup
+					invoked.RecallNotice	 = RecallNotice 
+					invoked.RecallProduct	 = Product 
+					invoked.RecallProductLot = Description
+					
+			Exit Rules
+				invoke Delete
+					
+		CreateSerialNumber is an Instance Action
+			Parameters
+				Product is a RecallProduct
+			
+			Parameter Rules
+				Product
+					initial value is RecallProduct
+					required
+					
+			Action Rules
+				LocalRecallProduct = Product
+				
+				if (!RecallNotice.Equipment)
+					constraint (!Description[17] entered)
+						"SerialNumberMustBeLessThan16Characters"
+						
+					constraint (!ProductHasLotNumbers)
+						"CannotAttachSerialNumbersToProduct<Product>;LotNumbersAlreadyExist"
+					
+					invoke Create RecallProductSerial
+						invoked.RecallGroup			= RecallGroup
+						invoked.RecallNotice		= RecallNotice 
+						invoked.RecallProduct		= Product
+						invoked.RecallProductSerial = Description
+				
+				else
+					constraint (!Description[31] entered)
+						"SerialNumberMustBeLessThan30Characters"
+						
+					invoke Create RecallEquipmentSerial
+						invoked.RecallGroup			  = RecallGroup
+						invoked.RecallNotice		  = RecallNotice 
+						invoked.RecallProduct		  = Product
+						invoked.RecallEquipmentSerial = Description
+			
+			Exit Rules
+				invoke Delete
+					
+		UpdateNotice is an Instance Action
+			Local Fields
+				LocalNoticeName		   is Alpha size 100
+				LocalNoticeDescription is Text
+				
+			Parameters
+				ReplaceName			   is Boolean
+				ConcatenateName 	   is Boolean
+				ReplaceDescription	   is Boolean
+				ConcatenateDescription is Boolean
+			
+			Parameter Rules
+				ReplaceName
+					constraint (!ConcatenateName)
+						"CannotReplaceAndConcatenateName"
+				
+				ReplaceDescription
+					constraint (!ConcatenateDescription)
+						"CannotReplaceAndConcatenateDescription"
+						
+			Exit Rules
+				constraint (ReplaceName entered
+				or			ConcatenateName entered
+				or			ReplaceDescription entered
+				or			ConcatenateDescription entered)
+					"MustSelectAnAction"
+					
+				if (ConcatenateName)
+					LocalNoticeName = RecallNotice.Name
+				if (ConcatenateDescription)
+					LocalNoticeDescription = RecallNotice.Description
+					
+				invoke Update Pending RecallNotice
+					invoked.RecallGroup   = RecallGroup
+					invoked.RecallNotice  = RecallNotice 
+					if (ReplaceName)
+						invoked.Name = Description
+					if (ConcatenateName)
+						invoked.Name = LocalNoticeName + " " + Description
+					if (ReplaceDescription)
+						invoked.Description = Description
+					if (ConcatenateDescription)
+						invoked.Description = LocalNoticeDescription + " " + Description
+						
+				invoke Delete
+				
+		UpdateItemInformation is an Instance Action
+			restricted
+			Parameters
+				ItemCode 		is Alpha 50
+				ExpirationDate 	is Alpha 20
+				
+			Action Rules
+				if (ItemCode entered)
+					if (ItemCode != "LotNumber"
+					and ItemCode != "SerialNumber"
+					and Description entered)
+						invoke Update RecallProduct
+							if (ItemCode = "Manufacturer")
+								invoked.ManufacturerInformation.ManufacturerNumber = Description
+							else 
+							if (ItemCode = "UDI")
+								invoked.UDI = Description
+							if (ItemCode = "NDC")
+								invoked.NDC = Description
+							else
+							if (ItemCode = "GTIN")
+								invoked.GlobalTradeItemNumber = Description
+
+					if (ItemCode = "LotNumber"
+					and Description entered)
+						if (RecallProductLotDuplicateRel !exists)
+							invoke Create RecallProductLot
+								invoked.RecallGroup		 = RecallGroup
+								invoked.RecallNotice	 = RecallNotice 
+								invoked.RecallProduct	 = RecallProduct 
+								invoked.RecallProductLot = Description							
+								invoked.ExpirationDate   = ExpirationDate
+					else
+					if (ItemCode = "SerialNumber"
+					and Description entered)
+						if (RecallProductSerialDuplicateRel !exists)
+							invoke Create RecallProductSerial
+								invoked.RecallGroup		 	= RecallGroup
+								invoked.RecallNotice	 	= RecallNotice 
+								invoked.RecallProduct	 	= RecallProduct 
+								invoked.RecallProductSerial	= Description							
+				
+				invoke Purge
+		
+		UpdateProduct is an Instance Action
+			Local Fields
+				LocalProductName		is Alpha size 100
+				LocalProductDescription is Alpha size up to 750 
+					
+			Parameters
+				ReplaceName			   is Boolean
+				ConcatenateName 	   is Boolean
+				ReplaceDescription	   is Boolean
+				ConcatenateDescription is Boolean
+			
+			Parameter Rules
+				ReplaceName
+					constraint (!ConcatenateName)
+						"CannotReplaceAndConcatenateName"
+				
+				ReplaceDescription
+					constraint (!ConcatenateDescription)
+						"CannotReplaceAndConcatenateDescription"
+							
+			Exit Rules
+				constraint (ReplaceName entered
+				or			ConcatenateName entered
+				or			ReplaceDescription entered
+				or			ConcatenateDescription entered)
+					"MustSelectAnAction"
+					
+				if (ConcatenateName)
+					LocalProductName = RecallProduct.ProductName
+				if (ConcatenateDescription)
+					LocalProductDescription = RecallProduct.ProductDescription
+					
+				invoke Update RecallProduct
+					invoked.RecallGroup   = RecallGroup
+					invoked.RecallNotice  = RecallNotice 
+					invoked.RecallProduct = RecallProduct
+					if (ReplaceName)
+						invoked.ProductName = Description
+					if (ConcatenateName)
+						invoked.ProductName = LocalProductName + " " + Description
+					if (ReplaceDescription)
+						invoked.ProductDescription = Description
+					if (ConcatenateDescription)
+						invoked.ProductDescription = LocalProductDescription + " " + Description
+						
+				invoke Purge
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			
+		Purge is a Purge Action
+			restricted

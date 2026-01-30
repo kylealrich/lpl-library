@@ -1,0 +1,683 @@
+CheckPoint is a BusinessClass
+    owned by la
+    prefix is CKPT
+	default label is "Checkpoint"
+    
+    Ontology
+    	symbolic key is CheckPoint
+    	
+    Patterns
+        implements CRUD
+        implements CreateStamp
+        implements UpdateStamp
+        disable Auditing
+        disable EffectiveDated
+        disable AsOfDateProcessing
+
+    Persistent Fields
+    	Actor
+    	AsyncActionRequest
+    	AsyncActionTrigger
+    	SegmentsInUse		is Numeric size 1
+    	RestartSegment1     is Alpha size up to 1000
+    	RestartSegment2     is Alpha size up to 1000
+    	RestartSegment3     is Alpha size up to 1000
+    	RestartSegment4     is Alpha size up to 1000
+    	RestartSegment5     is Alpha size up to 1000
+    	RestartSegment6     is Alpha size up to 1000
+    	RestartSegment7     is Alpha size up to 1000
+    	RestartInformation 	is Text
+    	RestartSize			is Numeric size 10
+    	BusinessView		
+    	BusinessAction		
+    	PendingRestart		is Boolean 
+    
+    Local Fields
+    	RestartMsgType 		is Numeric size 1
+    	LocCheckPointRef	is BusinessObjectReference to CheckPoint
+    	LocalRestartInformation is Text
+    	LocalDecodingError is Text
+      
+	Derived Fields
+		RestartMessage1 is a MessageField
+			restricted
+			"TriggerHasBeenRequeued."
+    		
+    	RestartMessage2 is a MessageField
+    		restricted
+    		"TriggerNoLongerExists.AttemptedToCreateTrigger.ReferToTheAsyncActionRequest."
+    		
+		RestartMessage3 is a MessageField
+			restricted
+    		"RequestNoLongerExists.CheckpointMarkedForRestart.ActionScheduled."  
+    	
+    	RestartMessage4 is a MessageField
+    		restricted
+    		"Action<BusinessView>.<BusinessAction>Completed."     		
+    
+    	RestartMessage is a DerivedField
+    		type is MessageField
+    		restricted
+    		
+    		if (RestartMsgType = 1)
+    			return RestartMessage1
+			else    			
+    		if (RestartMsgType = 2)
+    			return RestartMessage2
+    		else
+    		if (RestartMsgType = 3)
+    			return RestartMessage3
+    		else
+    		if (RestartMsgType = 4)
+    			return RestartMessage4
+    		else
+    			return ""
+
+		StatusMessageError is a MessageField
+    		restricted
+    		"ActionFailed.CheckpointWillRestartWhenTriggerResumes.UseRestartAction."
+    			
+		StatusMessageCPInUse is a MessageField
+    		restricted
+    		"ActionRunning.CheckpointInUse."   
+    						
+		StatusMessageFinished is a MessageField
+    		restricted
+    		"ActionFinished.CheckpointShouldHaveBeenRemoved.LogicError." 	
+    			    						
+		StatusMessageRetry is a MessageField
+    		restricted
+    		"ActionInRetry.CheckpointWillRestartWhenTriggerResumes."	  
+    			
+		StatusMessageNotPending is a MessageField
+    		restricted
+    		"NoTriggerFound.ToRestartUseRestartAction."    	
+    					     			  			    						
+    	StatusMessageNoRequest is a MessageField 
+    		restricted
+    		"NoRequestOrTriggerFound.ToRestartUseRestartAction."
+
+		StatusMessagePending is a MessageField
+    		restricted
+    		"PendingRestart.NoTriggerFound.ReferToAsyncActionRequestForScheduleInformationOrUseRestartAction."	
+
+		StatusMessageWaitForActionGroup is a MessageField
+    		restricted
+    		"ActionWaitingOnActionGroupMembersToCompleteBeforeResuming."	
+    	
+    	StatusMessageWaitForSynchronizedGroup is a MessageField
+    		restricted
+    		"ActionWaitingOnSynchronizedGroup."
+    		
+		StatusMessage is a DerivedField
+    		type is MessageField
+
+    		if (AsyncActionTrigger.IsErrorState)
+    			return StatusMessageError
+    		else
+    		if (AsyncActionTrigger.Status = 1)
+    			return ""
+
+    		else
+			if (AsyncActionTrigger.Status = 2)
+				return ""
+
+			else
+    		if (AsyncActionTrigger.Status = 5)
+    			return StatusMessageCPInUse
+			else
+    		if (AsyncActionTrigger.Status = 8)
+    			return StatusMessageFinished  
+			else
+    		if (AsyncActionTrigger.Status = 9)
+    			return StatusMessageRetry
+			else
+			if (AsyncActionTrigger.Status = 10)
+				return StatusMessageWaitForActionGroup
+			else
+			if (AsyncActionTrigger.Status = 11)
+				return StatusMessageWaitForSynchronizedGroup
+    		else
+    		if (AsyncActionRequest exists)
+    			if (PendingRestart)
+    				return StatusMessagePending
+    			else
+    				return StatusMessageNotPending
+    		else
+				return StatusMessageNoRequest
+				
+		DerActionParameters is a NativeField	
+			type is Text
+			restricted			
+
+		DecodedRestartInformation is a NativeField
+			type is Text
+
+		DecodingError is a DerivedField
+            type is Text
+            restricted
+            if (LocalDecodingError entered)
+                return LocalDecodingError
+            else
+            if (DecodedRestartInformation not entered)
+                return LocalDecodingError
+            else
+                return ""
+
+	Conditions
+	    ErrorDecoding
+        	when (DecodedRestartInformation not entered and DecodingError entered)
+
+		CanReschedule
+			default label is "RescheduleAllowed"
+    		when ((AsyncActionRequest exists       
+    		and   not AsyncActionTrigger.Status.WaitForSynchronizedGroup
+    		and   (AsyncActionTrigger.IsErrorState 
+    		or    (AsyncActionTrigger.Status.WaitForActionGroup 
+    		and    AsyncActionTrigger.CanResumeStream))) 
+    		or   (not AsyncActionTrigger exists    
+    		and   not ProcessingTriggers exist))   
+
+ 		UsesSegments
+			when (SegmentsInUse > 0)
+
+		UnencodedSegments
+			when (SegmentsInUse > 0 and SegmentsInUse <= 7)
+
+		EncodedSegments
+			when (SegmentsInUse = 9)
+			
+		RequestEntered
+			when (AsyncActionRequest entered)
+			
+		RequestExists
+			when (AsyncActionRequest exists)
+						
+		TriggerEntered
+			when (AsyncActionTrigger entered)
+			
+		TriggerExists
+			when (AsyncActionTrigger exists)			
+			
+		HasViewAction
+			default label is "ActionEntered"
+			when (BusinessView entered
+			and   BusinessAction entered)		
+			
+    Sets
+		ByCreateStamp
+			indexed
+			Sort Order
+				create stamp
+				CheckPoint
+		
+		ByUpdateStamp
+			indexed
+			Sort Order
+				update stamp
+				CheckPoint
+		
+		ByAsyncActionTrigger
+			indexed
+			Sort Order
+				AsyncActionRequest
+				AsyncActionTrigger
+				CheckPoint
+			Instance Selection
+				where (TriggerEntered)
+
+		ByBusViewActionActor
+			indexed
+			Sort Order
+				BusinessView
+				BusinessAction
+				PendingRestart
+				Actor
+				CheckPoint		
+			Instance Selection
+				where (HasViewAction)		
+				
+		ByAsyncActionRequestTrigger
+			indexed
+			Sort Order
+				AsyncActionRequest
+				AsyncActionTrigger
+				CheckPoint
+			Instance Selection
+				where (RequestEntered)
+
+		ByAsyncActionRequestTriggerUniqueID
+			indexed
+			Sort Order
+				AsyncActionRequest
+				AsyncActionTrigger
+				UniqueID
+			Instance Selection
+				where (TriggerEntered)
+				
+	Relations
+		ProcessingTriggers
+    		one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerByRequest
+				related.AsyncActionRequest = AsyncActionRequest
+			Instance Selection
+				where (related.Status = 1
+				or related.Status = 2
+				or related.Status = 5
+				or related.Status = 9)
+		
+		WorkFileRel
+			one-to-many relation to WorkFile
+			Field Mapping uses ByCheckPointRef
+				related.CheckPointRef = LocCheckPointRef	
+
+
+
+		
+		OldRequestInvocationRel
+			one-to-one relation to AsyncActionInvocation
+			Field Mapping uses ByAsyncActionRequestTrigger
+				related.AsyncActionRequest = old AsyncActionRequest
+				related.TriggerUniqueID = blank
+
+		OldTriggerInvocationRel
+			one-to-one relation to AsyncActionInvocation
+			Field Mapping uses ByAsyncActionRequestTrigger
+				related.AsyncActionRequest = old AsyncActionRequest
+				related.TriggerUniqueID = old AsyncActionTrigger.UniqueID
+
+		NewRequestInvocationRel
+			one-to-one relation to AsyncActionInvocation
+			Field Mapping uses ByAsyncActionRequestTrigger
+				related.AsyncActionRequest = AsyncActionRequest
+				related.TriggerUniqueID = blank
+
+		NewTriggerInvocationRel
+			one-to-one relation to AsyncActionInvocation
+			Field Mapping uses ByAsyncActionRequestTrigger
+				related.AsyncActionRequest = AsyncActionRequest
+				related.TriggerUniqueID = AsyncActionTrigger.UniqueID
+
+		OldUnFinishedNotInProgressStateTriggerInvocationsRel
+			one-to-many relation to AsyncActionInvocation
+			Field Mapping uses ByAsyncActionRequestTrigger
+				related.AsyncActionRequest = old AsyncActionRequest
+			Instance Selection
+				where (related.TriggerUniqueID != blank
+				and    related.AsyncActionInvocationStatus != 5		
+				and    related.AsyncActionInvocationStatus != 8)	
+
+		RelatedCheckPointsRel
+			default label is "RelatedCheckpointsRelation"
+			one-to-many relation to CheckPoint
+			Field Mapping uses ByAsyncActionRequestTriggerUniqueID
+				related.AsyncActionRequest = AsyncActionRequest
+				related.AsyncActionTrigger = AsyncActionTrigger 
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+				
+	
+	Field Rules 
+		Actor
+			cannot be changed
+		
+		AsyncActionRequest
+			if (AsyncActionTrigger exists)
+				default to AsyncActionTrigger.AsyncActionRequest
+			
+	Actions
+		Create is a Create Action	
+			restricted
+			Field Rules
+				Actor
+					force default to actor
+					
+		Update is an Update Action
+			restricted 
+			bypass field rules
+
+			Entrance Rules
+
+				
+				if ((old AsyncActionRequest != AsyncActionRequest)
+				or  (old AsyncActionTrigger != AsyncActionTrigger))
+					if ((OldTriggerInvocationRel exists)
+					and (NewTriggerInvocationRel exists))
+						invoke ChangeTriggerInvocationValues
+				
+				if (old AsyncActionRequest != AsyncActionRequest)
+
+
+
+
+
+
+	                for each OldUnFinishedNotInProgressStateTriggerInvocationsRel
+	                    invoke Update each
+		            		invoked.AsyncActionRequest 	= AsyncActionRequest
+					invoke UpdateUnFinishedTriggerInvocations AsyncActionRequest
+	
+					if ((OldRequestInvocationRel exists)
+					and (NewRequestInvocationRel exists))
+						invoke ChangeRequestInvocationValues
+
+		Uncompress is an Instance Action
+		    valid when EncodedSegments
+
+
+
+
+
+            Exit Rules
+		        SegmentsInUse = 0
+
+		ChangeRequestInvocationValues is an Instance Action
+			restricted 
+			
+			Local Fields
+				NewLastModTime					is TimeStamp
+				NewAsyncActionInvocationStatus	is an AsyncActionInvocationStatus 
+				NewName 						is Alpha 80
+				NewGroup 						is Alpha 40
+				NewActor		 				is Actor
+				NewDataArea 					is a DataArea
+				NewTimeToExec 					is TimeStamp
+				NewActionParameters 			is DataView
+				NewImplementingClass 			is a BusinessView
+				NewAsyncAction 					is a BusinessAction
+				NewInvokedFrom					is an AsyncActionInvocation
+				NewInvokedFromName				is Alpha 80
+				NewStatusChanged				is TimeStamp
+				NewStarted						is TimeStamp
+				NewFinished						is TimeStamp
+				NewFailureCode 					is an AsyncTriggerFailureCode
+				NewResult 						is an AsyncException
+				NewType							is Numeric size 1
+			
+			Entrance Rules
+				NewLastModTime					= NewRequestInvocationRel.LastModTime
+				NewAsyncActionInvocationStatus	= NewRequestInvocationRel.AsyncActionInvocationStatus
+				NewName							= NewRequestInvocationRel.Name
+				NewGroup						= NewRequestInvocationRel.Group
+				NewActor						= NewRequestInvocationRel.Actor
+				NewDataArea						= NewRequestInvocationRel.DataArea
+				NewTimeToExec					= NewRequestInvocationRel.TimeToExec
+				NewActionParameters				= NewRequestInvocationRel.ActionParameters
+				NewImplementingClass			= NewRequestInvocationRel.ImplementingClass
+				NewAsyncAction					= NewRequestInvocationRel.AsyncAction
+				NewInvokedFrom					= NewRequestInvocationRel.InvokedFrom
+				NewInvokedFromName				= NewRequestInvocationRel.InvokedFrom.Name
+				NewStatusChanged				= NewRequestInvocationRel.StatusChanged
+				NewStarted						= NewRequestInvocationRel.Started
+				NewFinished						= NewRequestInvocationRel.Finished
+				NewFailureCode					= NewRequestInvocationRel.FailureCode
+				NewResult						= NewRequestInvocationRel.Result
+				NewType							= NewRequestInvocationRel.Type
+				
+				invoke DeleteInternal NewRequestInvocationRel   
+			
+			Action Rules
+				invoke Update OldRequestInvocationRel
+					invoked.AsyncActionRequest			= AsyncActionRequest 
+
+
+					invoked.LastModTime					= NewLastModTime
+					invoked.AsyncActionInvocationStatus	= NewAsyncActionInvocationStatus
+					invoked.Name						= NewName
+					invoked.Group						= NewGroup
+					invoked.Actor						= NewActor
+					invoked.DataArea					= NewDataArea
+					invoked.TimeToExec					= NewTimeToExec
+					invoked.ActionParameters			= NewActionParameters
+					invoked.ImplementingClass			= NewImplementingClass
+					invoked.AsyncAction					= NewAsyncAction
+					invoked.InvokedFrom					= NewInvokedFrom
+					invoked.InvokedFromName				= NewInvokedFromName
+					invoked.StatusChanged				= NewStatusChanged
+					invoked.Started						= NewStarted
+					invoked.Finished					= NewFinished
+					invoked.FailureCode					= NewFailureCode
+					invoked.Result						= NewResult
+					invoked.Type						= NewType
+		
+
+		ChangeTriggerInvocationValues is an Instance Action
+			restricted 
+			
+			Local Fields
+				NewLastModTime					is TimeStamp
+				NewAsyncActionInvocationStatus	is an AsyncActionInvocationStatus 
+				NewName 						is Alpha 80
+				NewGroup 						is Alpha 40
+				NewActor		 				is Actor
+				NewDataArea 					is a DataArea
+				NewTimeToExec 					is TimeStamp
+				NewActionParameters 			is DataView
+				NewImplementingClass 			is a BusinessView
+				NewAsyncAction 					is a BusinessAction
+				NewInvokedFrom					is an AsyncActionInvocation
+				NewInvokedFromName				is Alpha 80
+				NewStatusChanged				is TimeStamp
+				NewStarted						is TimeStamp
+				NewFinished						is TimeStamp
+				NewFailureCode 					is an AsyncTriggerFailureCode
+				NewResult 						is an AsyncException
+				NewType							is Numeric size 1
+				NewTriggerUniqueID				is UniqueID
+			
+			Entrance Rules
+				NewLastModTime					= NewTriggerInvocationRel.LastModTime
+				NewAsyncActionInvocationStatus	= NewTriggerInvocationRel.AsyncActionInvocationStatus
+				NewName							= NewTriggerInvocationRel.Name
+				NewGroup						= NewTriggerInvocationRel.Group
+				NewActor						= NewTriggerInvocationRel.Actor
+				NewDataArea						= NewTriggerInvocationRel.DataArea
+				NewTimeToExec					= NewTriggerInvocationRel.TimeToExec
+				NewActionParameters				= NewTriggerInvocationRel.ActionParameters
+				NewImplementingClass			= NewTriggerInvocationRel.ImplementingClass
+				NewAsyncAction					= NewTriggerInvocationRel.AsyncAction
+				NewInvokedFrom					= NewTriggerInvocationRel.InvokedFrom
+				NewInvokedFromName				= NewTriggerInvocationRel.InvokedFrom.Name
+				NewStatusChanged				= NewTriggerInvocationRel.StatusChanged
+				NewStarted						= NewTriggerInvocationRel.Started
+				NewFinished						= NewTriggerInvocationRel.Finished
+				NewFailureCode					= NewTriggerInvocationRel.FailureCode
+				NewResult						= NewTriggerInvocationRel.Result
+				NewType							= NewTriggerInvocationRel.Type
+				NewTriggerUniqueID				= NewTriggerInvocationRel.TriggerUniqueID
+				
+				invoke DeleteInternal NewTriggerInvocationRel   
+			
+			Action Rules
+				invoke Update OldTriggerInvocationRel
+					invoked.AsyncActionRequest			= AsyncActionRequest 
+					invoked.AsyncActionTrigger			= AsyncActionTrigger 
+					invoked.TriggerUniqueID				= NewTriggerUniqueID
+					invoked.LastModTime					= NewLastModTime
+					invoked.AsyncActionInvocationStatus	= NewAsyncActionInvocationStatus
+					invoked.Name						= NewName
+					invoked.Group						= NewGroup
+					invoked.Actor						= NewActor
+					invoked.DataArea					= NewDataArea
+					invoked.TimeToExec					= NewTimeToExec
+					invoked.ActionParameters			= NewActionParameters
+					invoked.ImplementingClass			= NewImplementingClass
+					invoked.AsyncAction					= NewAsyncAction
+					invoked.InvokedFrom					= NewInvokedFrom
+					invoked.InvokedFromName				= NewInvokedFromName
+					invoked.StatusChanged				= NewStatusChanged
+					invoked.Started						= NewStarted
+					invoked.Finished					= NewFinished
+					invoked.FailureCode					= NewFailureCode
+					invoked.Result						= NewResult
+					invoked.Type						= NewType
+		
+		Delete is a Delete Action
+			
+			Entrance Rules
+				if (RelatedCheckPointsRel exists)
+					confirmation required
+						"MultipleCheckpointsExistForTheJob.DeletingCheckpointsCanLeaveDataInAnInconsistentState.AreYouSureYouWantToDeleteCheckpoints?"
+				else
+					confirmation required
+						"DeletingACheckpointCanLeaveDataInAnInconsistentState.AreYouSureYouWantToDelete?"
+						
+				if (AsyncActionTrigger exists)
+					constraint (not AsyncActionTrigger.Status.InProgress)
+						"CannotDeleteInProcessCheckpoint"
+
+				for each RelatedCheckPointsRel
+					if (each.AsyncActionTrigger exists)
+						constraint (not each.AsyncActionTrigger.Status.InProgress)
+							"CannotDelete,RelatedInProcessCheckpointExists"
+						
+
+				for each RelatedCheckPointsRel
+					invoke DeleteRelatedWorkFiles each
+					invoke DeleteInternal each
+
+				LocCheckPointRef = reference to this instance
+								
+			Action Rules
+				if (AsyncActionTrigger exists)
+					
+					if (AsyncActionTrigger.Status.Queued)
+						invoke Queued.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.PendingStart)
+						invoke PendingStart.Delete AsyncActionTrigger 
+					else
+					if (AsyncActionTrigger.Status.LostWhilePending)
+						invoke LostWhilePending.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.FailedToStart)
+						invoke FailedToStart.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.LostWhileInProgress)
+						invoke LostWhileInProgress.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.TerminatedAbnormally)
+						invoke TerminatedAbnormally.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.Finished) 
+						invoke Finished.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.InRetry)
+						invoke InRetry.Delete AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.WaitForActionGroup)
+						invoke WaitForActionGroup.Delete AsyncActionTrigger	
+					else
+					if (AsyncActionTrigger.Status.WaitForSynchronizedGroup)
+						invoke WaitForSynchronizedGroup.Delete AsyncActionTrigger					
+					
+
+
+				for each WorkFileRel
+					if (!each.ScheduledForDeletion)
+						invoke RemoveWorkFile each
+		
+
+		DeleteForRunOnErrorRequest is a Delete Action
+			restricted
+			Entrance Rules
+				for each RelatedCheckPointsRel
+					invoke DeleteRelatedWorkFiles each
+					invoke DeleteInternal each
+
+				LocCheckPointRef = reference to this instance
+								
+			Action Rules
+
+
+				for each WorkFileRel
+					if (!each.ScheduledForDeletion)
+						invoke RemoveWorkFile each
+		
+		DeleteInternal is a Delete Action
+			restricted
+
+		DeleteRelatedWorkFiles is an Instance Action
+			restricted
+			
+			Entrance Rules
+				LocCheckPointRef = reference to this instance
+
+			Action Rules
+
+
+					for each WorkFileRel
+						if (!each.ScheduledForDeletion)
+							invoke RemoveWorkFile each
+
+
+		Restart is an Instance Action
+			valid when (CanReschedule)
+			completion message is "<RestartMessage>"
+			
+			Local Fields
+				LocTrigger is like AsyncActionTrigger
+			
+			Action Rules
+				PendingRestart = true
+				
+				if  (not Actor = actor
+				and (BusinessAction.ActionType.Set
+				and  BusinessAction.Synchronicity.Synchronous)
+				or  (not BusinessAction.ActionType.Set
+				and  not BusinessAction.Synchronicity.Asynchronous))
+					Actor = actor 
+			
+			Exit Rules
+				if (AsyncActionTrigger exists)
+					if (AsyncActionTrigger.Status.LostWhilePending)
+						RestartMsgType = 1
+						invoke LostWhilePending.Requeue AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.FailedToStart)
+						RestartMsgType = 1
+						invoke FailedToStart.Requeue AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.LostWhileInProgress)
+						RestartMsgType = 1
+						invoke LostWhileInProgress.Requeue AsyncActionTrigger
+					else
+					if (AsyncActionTrigger.Status.TerminatedAbnormally)
+						RestartMsgType = 1
+						invoke TerminatedAbnormally.Requeue AsyncActionTrigger
+					else
+						RestartMsgType = 2
+						invoke ProcessRequest AsyncActionRequest
+				else
+				if (AsyncActionRequest exists)	
+					RestartMsgType = 2
+					invoke ProcessRequest AsyncActionRequest
+					
+					LocTrigger = AsyncActionRequest.last AsyncActionTrigger set.AsyncActionTrigger 
+					
+					if (LocTrigger > 0)
+						AsyncActionTrigger = LocTrigger
+				else
+				if (BusinessAction.Synchronicity.Asynchronous
+				or (BusinessAction.Synchronicity.Default
+				and BusinessAction.ActionType.Set))
+					initialize AsyncActionRequest 
+					invoke Create AsyncActionRequest
+						assign result to AsyncActionRequest
+						invoked.Name 				= BusinessView + "." + BusinessAction
+						invoked.Group	 			= BusinessView.Module
+						invoked.ImplementingClass	= BusinessView
+						invoked.AsyncAction			= BusinessAction
+						invoked.ScheduleConcurrency	= 1		
+						invoked.ActionParameters	= DerActionParameters	
+						
+					LocTrigger = AsyncActionRequest.last AsyncActionTrigger set.AsyncActionTrigger 
+					
+					if (LocTrigger > 0)
+						AsyncActionTrigger = LocTrigger											
+				else
+					invoke RunAction
+					
+		RunAction is an Instance Action 
+			restricted
+			

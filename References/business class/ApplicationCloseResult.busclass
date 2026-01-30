@@ -1,0 +1,282 @@
+ApplicationCloseResult is a BusinessClass
+	owned by ar
+
+	prefix is ApClR
+
+	Ontology
+		symbolic key is ApplicationCloseResult
+
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+		disable EffectiveDated
+		disable DataTranslations
+
+
+	Persistent Fields
+		PrmCompany						is a ReceivableCompany
+			default label is "Company"
+		PrmCompanyGroup					is a GeneralLedgerCompanyGroup
+			default label is "CompanyGroup"
+		RunTime							is TimeStamp
+		Status							is Numeric 1
+			States
+				InProcess					value is 0
+				Complete					value is 1
+		BackgroundGroupAsyncId			is an AsyncActionRequest
+			delete ignored
+		
+	Local Fields
+		BackgroundGroup			is AlphaUpper up to 60
+		WsCreateDate			is TimeStamp
+		LocalActor				is Actor
+		
+	Derived Fields
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+
+		InProcessMessage is a MessageField
+			restricted
+			"InProcess"
+
+		CompleteMessage is a MessageField
+			restricted
+			"Complete"
+
+		RepresentativeText is a StringField
+			type is Text
+			default label is "ApplicationCloseResult"
+			"Application Close Result - " ApplicationCloseResult
+
+		RepresentativeTextCompany is a StringField
+			type is Text
+			default label is "ApplicationCloseResult"
+			"Application Close Result - " ApplicationCloseResult " for Company " PrmCompany.RepresentativeText
+
+		RepresentativeTextCompanyGroup is a StringField
+			type is Text
+			default label is "ApplicationCloseResult"
+			"Application Close Result - " ApplicationCloseResult " for CompanyGroup " PrmCompanyGroup.RepresentativeText
+
+		DerivedBackgroundGroup is a DerivedField  
+			type is AlphaUpper up to 100
+			restricted
+			return ("ApplicationCloseResult_" + FinanceEnterpriseGroup + "_" + ApplicationCloseResult)
+
+		DerivedFormTitle is a DerivedField
+			type is MessageField
+			restricted
+			if PrmCompany entered
+				return RepresentativeTextCompany
+			else
+				return RepresentativeTextCompanyGroup
+
+		DerivedRunDate is a DerivedField		
+			type is Date
+			restricted
+			return RunTime date
+
+	Field Rules
+		PrmCompany
+			if (PrmCompanyGroup not entered)
+				required
+					"CompanyOrGlobalLedgerCompanyGroupRequired"
+
+		PrmCompanyGroup
+			if (PrmCompany entered)
+				cannot be entered
+					"CannotEnterGlobalLedgerCompanyGroupIfCompanyEntered"
+
+		RunTime
+			default to current timestamp
+
+	Conditions
+		IsValidForActorContext
+			restricted
+			when (FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		ShowOverAppliedMemos
+			restricted
+			when ((PrmCompany.OverApplyInvoice
+			and   OverAppliedReceivableInvoiceDetailRel exists)
+			or (PrmCompanyGroup entered
+			and ReceivableCompanyRel exists
+			and OverAppliedReceivableInvoiceDetailRel exists))
+
+	Relations
+		ReceivableApplicationRel
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses ByApplicationCloseResult
+				related.ApplicationCloseResult		= ApplicationCloseResult
+			Instance Selection
+				where (related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		ReceivableApplicationAvailableForPostingRel	
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses ByApplicationCloseResult
+				related.ApplicationCloseResult		= ApplicationCloseResult
+			Instance Selection
+				where (related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and   related.Status.AvailableForPosting)	
+
+		ReceivableInvoiceDetailRel
+			one-to-many relation to ReceivableInvoiceDetail
+			Field Mapping uses ByApplicationCloseResult
+				related.ApplicationCloseResult		= ApplicationCloseResult
+			Instance Selection
+				where (related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		OverAppliedReceivableInvoiceDetailRel
+			one-to-many relation to ReceivableInvoiceDetail
+			Field Mapping uses ByApplicationCloseResult
+				related.ApplicationCloseResult		= ApplicationCloseResult
+			Instance Selection
+				where (related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and	   related.Origin = "D")
+
+		ReceivableInvoiceDisputeRel
+			one-to-many relation to ReceivableInvoiceDispute
+			Field Mapping uses ByApplicationCloseResult
+				related.ApplicationCloseResult		= ApplicationCloseResult
+			Instance Selection
+				where (related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		ReceivableGLDistributionRel
+			one-to-many relation to ReceivableGLDistribution
+			Field Mapping uses ByApplicationCloseResult
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.ApplicationCloseResult		= ApplicationCloseResult
+				
+		GeneralLedgerCompanyGroupMemberRel
+			one-to-many relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup = PrmCompanyGroup
+
+		ReceivableCompanyRel
+			one-to-many relation to ReceivableCompany
+			Field Mapping uses symbolic key
+				related.Company = any GeneralLedgerCompanyGroupMemberRel.Company
+			Instance Selection
+				where (related.OverApplyInvoice)
+
+
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				ApplicationCloseResult
+				FinanceEnterpriseGroup
+
+		ByCompany
+			Sort Order
+				PrmCompany
+				ApplicationCloseResult
+				FinanceEnterpriseGroup
+
+	Actions
+		Create is a Create Action				
+			restricted
+			Action Rules
+			
+			
+		PerformApplicationClose is a Create Action
+			completion message is "PerformApplicationCloseSubmitted"
+			Entrance Rules
+				constraint (PrmCompany entered or PrmCompanyGroup entered)
+					"CompanyOr_\Company_\GroupIsRequired"
+				if (PrmCompany entered)
+					FinanceEnterpriseGroup = PrmCompany.FinanceEnterpriseGroup
+				else 
+				if (PrmCompanyGroup entered)
+					FinanceEnterpriseGroup = PrmCompanyGroup.first GeneralLedgerCompanyGroupMembersRel.Company.FinanceEnterpriseGroup
+				if (FinanceEnterpriseGroup not entered)
+					FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+				constraint (FinanceEnterpriseGroup entered)
+					"Finance_\Enterprise_\GroupIsRequired"
+
+			Exit Rules
+				display "=========ApplicationClose============"
+				
+				BackgroundGroup = "ApplicationCloseResult_" + ApplicationCloseResult
+				invoke ApplicationClose ReceivableApplication in background group(BackgroundGroup)
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmCompany						= PrmCompany
+					invoked.PrmApplicationCloseResult		= ApplicationCloseResult
+					invoked.PrmCreateDate					= WsCreateDate
+					invoked.PrmIsCreate						= true 
+				display "=========ProcessWorkApplicationClose============"
+				invoke Process WorkApplicationCloseE in background group(BackgroundGroup)
+					run after BackgroundGroupAsyncId
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmApplicationCloseResult		= ApplicationCloseResult
+					invoked.PrmCreateDate					= WsCreateDate
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+
+
+		UpdateStatusOnResult is an Instance Action
+			restricted
+			Local Fields
+				DoNothing	is Boolean
+			Action Rules
+				if (Status.InProcess)
+
+					if (ReceivableApplicationAvailableForPostingRel exists)	
+						DoNothing = true
+
+					if (!DoNothing)
+						Status = 1
+
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "ApplicationCloseHasCompleted"
+							priority is high
+							detail is "ResultsCanBeSeenInApplicationCloseResults"
+
+		DeleteAllResults is a Set Action		
+			default label is "DeleteAllResults"
+			confirmation required
+				"DeletingApplicationCloseResultWillPreventAccessToAnyListViewsAssociatedWithTheResultSet"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and	   DerivedRunDate <= PrmCutoffDate)
+			
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoApplicationCloseResultRecordsFoundToDelete"
+						priority is medium
+				
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "ApplicationCloseResultsHaveBeenDeletedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Delete

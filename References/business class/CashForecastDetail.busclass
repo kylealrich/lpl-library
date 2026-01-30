@@ -1,0 +1,213 @@
+CashForecastDetail is a BusinessClass
+	owned by cashmgmt
+	prefix is CMCFD
+
+	Ontology
+		symbolic key is CashForecastDetail
+		
+	Persistent Fields
+		Description			is Alpha 250
+		ForecastAmount		is an InternationalAmount
+		AmountOverridden	is Boolean
+		Adjustment			is Boolean
+		Reconciled			is Boolean
+    	Comment				is Text
+	
+	Transient Fields
+		TransientFromCurrency	is a FromCurrency
+			derive value from CashForecastAccount.CashManagementAccount.Currency
+		IsSystemCalculated 		is Boolean
+		ForecastAmountAction	is Numeric 1
+			States	
+				OverrideForecastAmount	value is 1
+				AppendForecastAmount	value is 2
+		
+	Field Rules
+		Description
+			required
+		
+		ForecastAmount
+
+
+
+
+
+
+
+			required
+	
+	Conditions
+		ForecastUpdatable
+			restricted
+			when (CashForecast.Status.New
+			or	 (CashForecast.Status.Active
+			and	  CashForecastPeriod >= current corporate date))
+				
+	Relations
+		CashForecastPeriodAmountRel
+			one-to-one relation to CashForecastPeriodAmount
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	 = CashManagementGroup
+				related.CashForecast		 = CashForecast
+				related.CashForecastAccount	 = CashForecastAccount
+				related.CashForecastPeriod 	 = CashForecastPeriod
+				related.CashForecastCategory = CashForecastCategory
+				
+		BankStatementReconciliationRel
+			one-to-many relation to BankStatementReconciliation
+			Field Mapping uses ByRelatedCashForecastDetail 
+				related.CashManagementGroup		  = CashManagementGroup
+				related.CashManagementAccount	  = CashForecastAccount.CashManagementAccount
+				related.RelatedCashForecastDetail = reference to CashForecastDetail
+		
+	Actions
+		Create is a Create Action
+			valid when (ForecastUpdatable)
+			Action Rules
+				invoke UpdateOnly CashForecastPeriodAmountRel
+					if (ForecastAmountAction.OverrideForecastAmount)
+						invoked.ForecastAmount	= ForecastAmount
+					else
+						invoked.ForecastAmount += ForecastAmount
+					invoked.SystemCalculated	= IsSystemCalculated
+				
+				if (ForecastAmountAction.OverrideForecastAmount)
+					AmountOverridden = true
+		
+		CreateOnly is a Create Action
+			default label is untranslatable
+			restricted
+						
+		Update is an Update Action
+			valid when (ForecastUpdatable)
+			Action Rules
+				invoke UpdateOnly CashForecastPeriodAmountRel
+					invoked.ForecastAmount += (ForecastAmount - old ForecastAmount)
+									
+		Delete is a Delete Action
+			valid when (ForecastUpdatable)
+			Action Rules
+				invoke UpdateOnly CashForecastPeriodAmountRel
+					invoked.ForecastAmount += (ForecastAmount * -1)
+					
+		DeleteOnly is a Delete Action
+			default label is untranslatable
+			restricted
+
+		Purge is a Purge Action
+			restricted
+			
+		LoadDetailsIntoReconciliation is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+  				PrmCashManagementGroup		is a CashManagementGroup
+  				PrmCashForecast				is a CashForecast
+  				PrmCashManagementAccount	is a CashManagementAccount
+  				PrmBankStatement			is a BankStatement
+  				PrmStatementDate			is Date
+  				PrmReconcileByAccount		is Boolean
+				PrmMassStatementLoad		is Boolean
+  				PrmMassAccountLoad			is Boolean
+  				
+  			Parameter Rules
+  				PrmCashManagementGroup		required
+  				PrmCashForecast				required
+  				PrmCashManagementAccount	required
+  				PrmStatementDate			required
+  			
+  			Local Fields
+  				BackgroundGroup				is AlphaUpper up to 50
+  				
+  			Sort Order
+				CashManagementGroup
+				CashForecast
+				CashForecastAccount
+				CashForecastPeriod
+				
+			Instance Selection
+  				where (CashManagementGroup						 = PrmCashManagementGroup
+  				and    CashForecast								 = PrmCashForecast
+  				and    CashForecastAccount.CashManagementAccount = PrmCashManagementAccount
+  				and	   CashForecastPeriod						 = PrmStatementDate
+				and    !BankStatementReconciliationRel exists
+  				and    PrmBankStatement							 = PrmBankStatement) 
+
+			Action Rules
+				Empty Set Rules
+					if (!PrmReconcileByAccount)
+						increment PrmBankStatement.CompletedReconLoadProcesses
+						if (PrmBankStatement.CompletedReconLoadProcesses = PrmBankStatement.TotalReconciliationProcesses)
+							if (PrmMassStatementLoad)
+								BackgroundGroup = PrmCashManagementGroup + current corporate date
+							else
+								BackgroundGroup = PrmCashManagementGroup + PrmCashManagementAccount + PrmBankStatement
+							invoke ReconcileStatementLines BankStatementReconciliation in background group(BackgroundGroup)
+								invoked.PrmCashManagementGroup		= PrmCashManagementGroup
+								invoked.PrmCashManagementAccount	= PrmCashManagementAccount
+								invoked.PrmBankStatement			= PrmBankStatement
+					else
+						increment PrmCashManagementAccount.CompletedReconLoadProcesses
+						if (PrmCashManagementAccount.CompletedReconLoadProcesses = PrmCashManagementAccount.TotalReconciliationProcesses)
+							if (PrmMassAccountLoad)
+								BackgroundGroup = PrmCashManagementGroup + current corporate date
+							else
+								BackgroundGroup = PrmCashManagementGroup + PrmCashManagementAccount + current corporate date
+							invoke ReconcileStatementLines PrmCashManagementAccount in background group(BackgroundGroup)
+								invoked.PrmMassAccountLoad	= PrmMassAccountLoad
+								
+				Set Rules
+					Exit Rules
+						if (!PrmReconcileByAccount)
+							increment PrmBankStatement.CompletedReconLoadProcesses
+							if (PrmBankStatement.CompletedReconLoadProcesses = PrmBankStatement.TotalReconciliationProcesses)
+								if (PrmMassStatementLoad)
+									BackgroundGroup = PrmCashManagementGroup + current corporate date
+								else
+									BackgroundGroup = PrmCashManagementGroup + PrmCashManagementAccount + PrmBankStatement
+								invoke ReconcileStatementLines BankStatementReconciliation in background group(BackgroundGroup)
+									invoked.PrmCashManagementGroup		= PrmCashManagementGroup
+									invoked.PrmCashManagementAccount	= PrmCashManagementAccount
+									invoked.PrmBankStatement			= PrmBankStatement
+						else
+							increment PrmCashManagementAccount.CompletedReconLoadProcesses
+							if (PrmCashManagementAccount.CompletedReconLoadProcesses = PrmCashManagementAccount.TotalReconciliationProcesses)
+								if (PrmMassAccountLoad)
+									BackgroundGroup = PrmCashManagementGroup + current corporate date
+								else
+									BackgroundGroup = PrmCashManagementGroup + PrmCashManagementAccount + current corporate date
+								invoke ReconcileStatementLines PrmCashManagementAccount in background group(BackgroundGroup)
+									invoked.PrmMassAccountLoad	= PrmMassAccountLoad
+									
+				Instance Rules
+
+					invoke Create BankStatementReconciliation
+						fill in fields from this instance
+						invoked.CashManagementGroup			= PrmCashManagementGroup
+						invoked.CashManagementAccount		= PrmCashManagementAccount
+						invoked.BankStatement				= PrmBankStatement
+						invoked.RelatedCashForecastDetail	= reference to CashForecastDetail
+						invoked.CashTransactionCategory		= CashForecastCategory.CashTransactionCategory
+						invoked.LineType					= 5 
+						invoked.TransactionDate				= PrmStatementDate
+						invoked.Description					= Description
+						if (ForecastAmount < 0)
+							invoked.TransactionAmount		= (ForecastAmount * -1)
+							invoked.DebitCreditIndicator	= "D"
+						else
+							invoked.TransactionAmount		= ForecastAmount
+							invoked.DebitCreditIndicator	= "C"
+						if (PrmCashManagementAccount.ReconcileToForecast.Secondary)
+							invoked.SecondaryReconTransaction	= true
+						
+		ReconcileDetailTransaction is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmReconciled	is Boolean
+			
+			Action Rules
+				Reconciled	= PrmReconciled
+			
+			Exit Rules
+				invoke UpdateReconciledStatus CashForecastPeriodAmountRel

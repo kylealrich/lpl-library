@@ -1,0 +1,232 @@
+AlternateResponseOccurs is a Field
+
+    Representation
+    	AlternateResponseDetails
+        	occurs 5 times
+        		
+	Patterns
+		implements CompactFormat
+	
+	Context Fields
+    	SourcingEventLineResponse
+    		required
+    	SourcingEventLine
+    		
+    Local Fields
+    	LocalItem  				is like Item
+    	LocalVendorItem 		is like VendorItem
+    	LocalUOM   				is like UnitOfMeasureEdit
+    	LocalGTIN       		is like ItemGTIN
+    	GTINCheckDigit
+		LocalValidCheckDigit    is Boolean
+    
+    Field Rules
+    
+    	AlternateResponseOccurs
+			no duplicates on AlternateResponseOccurs.VendorItem
+			for each AlternateResponseOccurs.AlternateResponseDetails
+				if (each.Quantity entered)
+					if (SourcingEventLineRel.RequireFullQuantity)
+						constraint (each.Quantity = SourcingEventLineRel.Quantity)
+							"ResponseQuantityMustBeEqualToLineQuantityOf<SourcingEventLineRel.Quantity>ForVendorItem<each.VendorItem>"
+					constraint (each.ResponseAmount entered)
+						"MustEnterAResponseAmountOrNoChargeForVendorItem<each.VendorItem>"
+				if (each.ResponseAmount entered)
+					if (SourcingEventLineRel.ServiceCode.Amount
+					or  (SourcingEventLineRel.Quantity = 1
+					and  each.Quantity !entered))
+						each.Quantity = 1
+					constraint (each.Quantity entered)
+						"QuantityIsRequired"
+			
+					if (each.UOM !entered)	
+						each.UOM.UnitOfMeasure = SourcingEventLineRel.UOM.UnitOfMeasure
+
+					if (SourcingEventLineRel.OutputType.PO)
+						if   (SourcingEventRel.WeightingCriteria.DeliveryWeighting entered
+					    or    SourcingEventLineRel.WeightingCriteria.DeliveryWeighting entered
+					    or    SourcingEventRel.DeliveryDateResponseRequired)
+							constraint (each.DeliveryDate entered)
+								"DeliveryDateIsRequired"
+		    			else
+						if (!SourcingEventRel.WeightingCriteria.DeliveryWeighting entered
+						and !SourcingEventLineRel.WeightingCriteria.DeliveryWeighting entered
+						and  SourcingEventLineRel.RequestedDeliveryDate entered
+						and  each.DeliveryDate !entered)
+			    			each.DeliveryDate = SourcingEventLineRel.RequestedDeliveryDate
+			    			
+			    		if  (each.DeliveryDate entered
+			    		and (SourcingEventLineRel.RequestedDeliveryDate !entered
+			    		or   SourcingEventLineRel.RequestedDeliveryDate != each.DeliveryDate))
+							if (SourcingEventLineResponse.DeliveryDateOverride entered)
+								constraint (SourcingEventLineResponse.DeliveryDateOverride >= current corporate date)
+		    						"DeliveryDateOverrideCannotBeBeforeCurrentDate"
+							else 
+								constraint (each.DeliveryDate >= current corporate date)
+									"DeliveryDateCannotBeBeforeCurrentDate;MustEnterOverrideDeliveryDate"
+	
+				if (SourcingEventLineRel.OutputType.PO
+				or  SourcingEventLineRel.NonServiceContracts)
+					if (!each.GlobalTradeItemNumber entered
+					and  each.ResponseAmount entered
+					and  !SourcingEventLineRel.ItemType.Service)
+		    			constraint (each.VendorItem entered)
+		    				"VendorItemIsRequired"
+
+				if (each.ResponseAmount entered
+				and SourcingEventLineRel.ItemType.Service)				
+					if (SourcingEventLineRel.OutputType.PO)
+		    			constraint (each.VendorItem entered)
+		    				"ValueIsRequiredInVendorItemField;PleaseEnterAShortServiceDescriptionHere"
+					if (SourcingEventLineRel.ContractOutput)
+		    			constraint (each.VendorItemDescription entered)
+		    				"DescriptionIsRequired"					
+				LocalVendorItem = each.VendorItem
+				LocalUOM  		= each.UOM	
+				LocalGTIN       = each.GlobalTradeItemNumber
+				if (VendorItemRel exists)
+					each.VendorItemDescription = first VendorItemRel.VendorItemDescription
+				else
+				if (ItemGTINRel exists)
+					each.VendorItemDescription = first ItemGTINRel.FullDescription
+				else
+				if (SourcingEventLineRel.DisplayVendorItem)
+		    		if (each.VendorItem entered
+		    		and VendorItemRel !exists)
+		    			constraint (each.VendorItemDescription entered)
+		    				"DescriptionIsRequired"
+
+	    		if (each.GlobalTradeItemNumber entered)
+	    			if (each.GlobalTradeItemNumber !exists)
+	       				initialize GTINCheckDigit
+						GTINCheckDigit.ItemGTIN		= each.GlobalTradeItemNumber
+						LocalValidCheckDigit        = GTINCheckDigit.ValidCheckDigit
+						constraint (LocalValidCheckDigit = true)
+							"GTINCheckDigitIsInvalid" 
+	
+				if (each.GlobalTradeItemNumber entered)
+					if (SourcingEventLine.OutputType.PO)
+						if (each.Item exists)
+							constraint (each.GlobalTradeItemNumber exists)
+								"GTINDoesNotExist;MustMaintainOnItemMaster"
+	
+				if (VendorItemRel exists)
+					if (ItemGTINRel exists)
+						constraint (first ItemGTINRel.Manufacturer.ManufacturerCode 		= 	first VendorItemRel.Manufacturer.ManufacturerCode
+						and         first ItemGTINRel.Manufacturer.ManufacturerDivision 	= 	first VendorItemRel.Manufacturer.ManufacturerDivision
+						and         first ItemGTINRel.ManufacturerNumber 					= 	first VendorItemRel.ManufacturerNumber)
+							"CannotEnterBothVendorItem<each.VendorItem>AndGTIN<each.GlobalTradeItemNumber>"
+				
+			
+				if  (SourcingEventLineRel.OutputType.Service
+				and (each.AwardQuantity > 0
+				or   each.AwardForContract = true))
+					constraint (!each.ResponseAmount.NoCharge)
+						"SupplierRespondedWithNoCharge;OutputTypeServiceRequiresACostAmount;CannotAward"
+					
+				if (SourcingEventLineRel.ServiceCode.Amount)
+					if (each.AwardQuantity > 0)
+						constraint (each.AwardQuantity = 1)
+							"AwardQuantityMustBeOneForAmountServiceItem" 
+					
+				if (each.AwardQuantity > 0
+				or   each.AwardForContract = true)
+					constraint (each.AwardQuantity <= each.Quantity)
+						"AwardQuantityCannotBeGreaterThanResponseQuantity"
+					
+					if (VendorItemRel exists)
+						constraint (first VendorItemRel.Active)
+							"VendorItem<each.VendorItem>IsInactive"
+					
+					if (VendorItemRel exists)		
+						LocalItem = first VendorItemRel.Item
+						constraint (!ItemUOMRel.ValidForBuying.Inactive)
+	        				"<each.UOM.UnitOfMeasure>IsAnInactiveBuyUOMForThisItem"
+	        			constraint (ItemUOMRel exists)
+	        				"<each.UOM.UnitOfMeasure>IsAnInvalidUOMForThisItem"
+	        			constraint (ItemUOMRel.OKForBuying)
+	        				"<each.UOM.UnitOfMeasure>IsNotAValidBuyUOMForThisItem"
+						if (ItemLocationRel exists)
+							if (ItemLocationRel.DefaultSourceUOM entered)
+								constraint (ItemLocationRel.DefaultSourceUOM.UnitOfMeasure = each.UOM.UnitOfMeasure)
+									"UOMMustMatchTheDefaultSourceUOMOf<ItemLocationRel.DefaultSourceUOM>ForShipTo"
+						
+						if (first VendorItemRel.VendorPriceUOM entered
+						and first VendorItemRel.VendorBuyUOM entered)
+							constraint (first VendorItemRel.VendorPriceUOM.UnitOfMeasure = each.UOM.UnitOfMeasure)
+								"PriceUOMOf<first VendorItemRel.VendorPriceUOM.UnitOfMeasure>ForVendorItem<each.VendorItem>DoesNotMatchResponseUOMOf<each.UOM.UnitOfMeasure>"
+						else
+						if (first VendorItemRel.VendorBuyUOM entered
+						and !SourcingEventLineRel.OutputType.PO)
+							constraint (first VendorItemRel.VendorBuyUOM.UnitOfMeasure = each.UOM.UnitOfMeasure)
+								"BuyUOMOf<first VendorItemRel.VendorBuyUOM.UnitOfMeasure>ForVendorItem<each.VendorItem>DoesNotMatchResponseUOMOf<each.UOM.UnitOfMeasure>"
+						else
+						if (first VendorItemRel.VendorPriceUOM entered)
+							constraint (first VendorItemRel.VendorPriceUOM.UnitOfMeasure = each.UOM.UnitOfMeasure)
+								"PriceUOMOf<first VendorItemRel.VendorPriceUOM.UnitOfMeasure>ForVendorItem<each.VendorItem>DoesNotMatchResponseUOMOf<each.UOM.UnitOfMeasure>"
+					
+						each.Item = first VendorItemRel.Item
+						
+					if (SourcingEventLineRel.OutputType.PO
+					and VendorItemRel exists)
+						if (first VendorItemRel.MinimumOrderQuantity entered)
+							if (first VendorItemRel.VendorBuyUOM not entered
+							or  first VendorItemRel.VendorBuyUOM = each.UOM)
+								constraint (each.AwardQuantity >= each.VendorItem.MinimumOrderQuantity)
+									"VendorItemHasMinimumQuantityPer_POLineOf<each.VendorItem.MinimumOrderQuantity>"
+					
+					if (ItemGTINRel exists)  
+						constraint (first ItemGTINRel.Active)
+							"GTIN<each.GlobalTradeItemNumber>IsInactive"
+
+						if (each.UOM entered)
+							constraint (ItemGTINRel.UnitOfMeasure = each.UOM)
+								"GTIN<each.GlobalTradeItemNumber>UnitOfMeasureMustBeTheSameAsResponseUOM"
+						
+						if (!VendorItemRel exists)
+							each.Item = first ItemGTINRel.Item	
+
+	Relations
+
+		
+		SourcingEventRel
+			one-to-one relation to SourcingEvent
+			Field Mapping uses symbolic key
+				related.Company                             = SourcingEventLineResponse.Company
+				related.SourcingEvent                       = SourcingEventLineResponse.SourcingEvent
+		
+		SourcingEventLineRel
+			one-to-one relation to SourcingEventLine
+			Field Mapping uses symbolic key
+				related.Company                             = SourcingEventLineResponse.Company
+				related.SourcingEvent                       = SourcingEventLineResponse.SourcingEvent
+				related.SourcingEventLine                   = SourcingEventLineResponse.SourcingEventLine
+				
+		ItemUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup               = SourcingEventLineResponse.Company.SourcingGroup
+				related.Item                    = LocalItem
+				related.UnitOfMeasure           = LocalUOM.UnitOfMeasure
+				
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company				= SourcingEventLineResponse.Company
+				related.InventoryLocation	= SourcingEventLineRel.ShipTo
+				related.Item				= LocalItem
+		
+		VendorItemRel
+			one-to-many relation to VendorItem
+			Field Mapping uses Set3
+				related.ProcurementGroup    = SourcingEventLineResponse.Company.SourcingGroup
+				related.Vendor				= SourcingEventLineResponse.NotifiedSupplier.Supplier.Vendor
+				related.VendorItem			= LocalVendorItem
+		
+		ItemGTINRel
+			one-to-many relation to ItemGTIN
+			Field Mapping uses Set2
+				related.ItemGroup           = SourcingEventLineResponse.Company.SourcingGroup
+				related.ItemGTIN            = LocalGTIN
+				
+    

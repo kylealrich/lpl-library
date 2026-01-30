@@ -1,0 +1,274 @@
+CalculateTaxAmount is a Field
+
+	Representation
+
+		Group Fields
+			PayablesCompany
+	        MatchOrExpense				is AlphaUpper size 1
+	            States
+	                Match 		value is "M"
+	                Expense		value is "E"
+			TaxCode
+			LandedFlag					is Alpha size 1
+			InputFinanceStructure		is a FinanceCodeBlock
+			TransactionTaxAmount		is an InternationalAmount
+			TransactionInvoiceAmount	is an InternationalAmount
+			TaxAdjustment
+			OriginalTaxableAmount		is an InternationalAmount
+			AccrualFlag					is Alpha size 1
+			AccrualCode					is like PayablesAccrualCode
+	                
+	                
+			
+	Transient Fields
+		OutputErrorNumber					is Numeric size 3
+		OutputErrorMessage					is Alpha size 100
+		AptxrwsTranTxblAmt					is an InternationalAmount
+		AptxrwsOrigDistSeq					is a DistributionSequence
+		AptxrwsTotDistAmt					is an InternationalAmount
+		AptxrwsTaxRate						is Percent 7.5
+		AptxrwsItmDtlsExist					is Boolean
+		AptxrwsAocDtlsExist					is Boolean
+		
+
+	Context Fields
+		Vendor
+		PayablesInvoice
+
+	Derived Fields	 
+		PerformCalculateTaxAmount	is a DerivedField
+			type is Boolean
+			initialize OutputErrorNumber
+			initialize OutputErrorMessage
+			
+			AptxrwsRemainTax = TransactionTaxAmount
+
+			for each PayablesInvoiceDetailRel
+				AptxrwsTotDistAmt = each.TotalDistributionAmount
+				if (each.TaxableUnitCost entered)
+					AptxrwsTotDistAmt = each.TaxableUnitCost * each.MatchedQuantity
+				AptxrwsTranTxblAmt += AptxrwsTotDistAmt
+			
+			for each PayablesInvoiceAddOnChargeRel
+				AptxrwsTranTxblAmt += each.TotalDistributionAmount
+				if (TaxAdjustment.OverrideProductOnly
+				and each.TaxType		= "I")
+					AptxrwsExclTaxAmt += each.TaxAmount
+			
+			AptxrwsNoLinkTaxSwitch = false
+			
+			for each PayablesInvoiceDistributionRel
+				if (each.TaxableAmount not entered)
+					AptxrwsTranTxblAmt += each.DistributionAmount
+				else
+					AptxrwsTranTxblAmt += each.TaxableAmount
+			
+				if (MatchOrExpense.Expense
+				and each.TaxIndicator.None)
+					AptxrwsNoLinkTaxSwitch = true
+			
+			if (TaxAdjustment.Calculate)
+				AptxrwsTranTxblAmt = OriginalTaxableAmount
+				AptxrwsNoLinkTaxSwitch = true
+			
+			if (MatchOrExpense.Expense
+			and AptxrwsTranTxblAmt	!= OriginalTaxableAmount
+			and OriginalTaxableAmount entered)
+				AptxrwsTranTxblAmt = OriginalTaxableAmount
+
+			if (TransactionTaxAmount	>= AptxrwsTranTxblAmt
+			and TransactionTaxAmount	> 0
+			and PayablesInvoice.InvoiceType.CreditMemo)
+				ErrorFound = true
+				OutputErrorNumber = 676
+				OutputErrorMessage = "CannotCalculate,TaxAmountIsGreaterThanTaxableAmt"
+				return false
+			
+			if (PayablesInvoice.InvoiceType.CreditMemo
+			or  TransactionTaxAmount	< 0)
+				LocalAmount1 = TransactionTaxAmount * -1
+				LocalAmount2 = AptxrwsTranTxblAmt * -1
+				if (LocalAmount1 >= LocalAmount2)
+					ErrorFound = true
+					OutputErrorNumber = 676
+					OutputErrorMessage = "CannotCalculate,TaxAmountIsGreaterThanTaxableAmt"
+					return false
+				
+			if (!AptxrwsNoLinkTaxSwitch)
+				AptxrwsTaxRate = TransactionTaxAmount / AptxrwsTranTxblAmt
+				
+				initialize CalculateTax
+				CalculateTax.Function 			= "R"
+				CalculateTax.TaxEntity			= PayablesCompany.AccountingEntity
+				CalculateTax.TaxCode			= TaxCode
+				CalculateTax.TaxableAmount		= AptxrwsTranTxblAmt
+				CalculateTax.TaxAmount			= TransactionTaxAmount - AptxrwsExclTaxAmt
+				LocalCalculateTax				= CalculateTax.ExecuteCalculateTax
+				AptxrwsTaxRate					= CalculateTax.OutputTaxRate
+			
+			
+			if (ErrorFound
+			or  AptxrwsNoLinkTaxSwitch)
+				return false
+			
+			AptxrwsRemainTax -= AptxrwsExclTaxAmt
+			
+			if (!MatchOrExpense.Expense)
+				AptxrwsItmDtlsExist = false
+				AptxrwsAocDtlsExist	= false
+				for each PayablesInvoiceDetailRel
+					AptxrwsItmDtlsExist = true
+					AptxrwsTotDistAmt = each.TotalDistributionAmount
+					if (each.TaxableUnitCost entered)
+						AptxrwsTotDistAmt = each.TaxableUnitCost * each.MatchedQuantity
+					invoke Update each
+						invoked.TaxType 	= CalculateTax.TaxTable.TaxTableOutput[1].AccrualFlag
+						invoked.TaxAmount	= AptxrwsTotDistAmt * AptxrwsTaxRate
+					AptxrwsRemainTax = AptxrwsRemainTax - (AptxrwsTotDistAmt * AptxrwsTaxRate)
+				
+				for each PayablesInvoiceAddOnChargeRel
+					AptxrwsAocDtlsExist = true
+					invoke Update each
+						invoked.TaxType 	= CalculateTax.TaxTable.TaxTableOutput[1].AccrualFlag
+						invoked.TaxAmount	= each.TotalDistributionAmount * AptxrwsTaxRate
+					AptxrwsRemainTax = AptxrwsRemainTax - each.TaxAmount
+				
+				if (AptxrwsRemainTax entered)
+					if (AptxrwsAocDtlsExist)
+						invoke Update first PayablesInvoiceAddOnChargeRel
+							invoked.TaxAmount = first PayablesInvoiceAddOnChargeRel.TaxAmount + AptxrwsRemainTax
+						AptxrwsRemainTax = blank
+					else
+						invoke Update first PayablesInvoiceDetailRel
+							invoked.TaxAmount = first PayablesInvoiceDetailRel.TaxAmount + AptxrwsRemainTax
+						AptxrwsRemainTax = blank
+			else
+				for each PayablesInvoiceDistributionRel
+					AptxrwsTranTotTxbl += each.TaxableAmount
+					AptxrwsApdTaxAmt	= each.TaxableAmount * AptxrwsTaxRate
+					AptxrwsTranTotTax  += AptxrwsApdTaxAmt
+					if (AccrualFlag != "A")
+						AptxrwsTranTotDist += AptxrwsApdTaxAmt
+						
+					initialize LocalCurrencyExchange
+					LocalCurrencyExchange.EnteredCurrencyAmount	= AptxrwsApdTaxAmt
+					LocalCurrencyExchange.EnteredCurrencyRate	= 1
+					FromCurrency 						= PayablesInvoice.InvoiceCurrency
+					LocalCurrencyExchange.ToCurrency	= PayablesCompany.Currency	
+					ExchangeDate						= PayablesInvoice.InvoiceDate
+					LocalCurrencyExchange.EnteredCurrencyRate	= PayablesInvoice.InvoiceAmount.FunctionalAmount.EnteredCurrencyRate
+					LocalTransactionAmount				= AptxrwsApdTaxAmt
+					if (AccrualFlag != "A")
+						AptxrwsBaseTotDist				= LocalCurrencyExchange.OutputCurrencyAmount
+					
+					AptxrwsOrigDistSeq = each.PayablesInvoiceDistribution
+					
+					invoke Create PayablesInvoiceDistribution
+						assign result to NewPayablesInvoiceDistribution
+						fill in fields from each
+						invoked.OriginalDistribution 	= each.PayablesInvoiceDistribution
+						invoked.TaxRate					= AptxrwsTaxRate
+						invoked.DistributionAmount.CurrencyAmount	= AptxrwsApdTaxAmt
+						invoked.DistributionAmount.ExchangeDate		= each.DistributionDate
+						invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyAmount	= LocalCurrencyExchange.OutputCurrencyAmount
+						invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyRate		= LocalCurrencyExchange.OutputCurrencyRate
+						invoked.TaxIndicator			= blank
+						invoked.TaxSequenceNumber		= 1
+						invoked.AccrualCode				= AccrualCode
+						if (!CalculateTax.TaxTable.TaxTableOutput[1].LandCostFlag)
+							invoked.DistributionAccount	= CalculateTax.TaxTable.TaxTableOutput[1].TaxInputAccount
+							if (CalculateTax.TaxTable.TaxTableOutput[1].TaxPoint = "P")
+								invoked.DistributionAccount	= CalculateTax.TaxTable.TaxTableOutput[1].TaxInputDueAccount
+						invoked.TaxPoint				= CalculateTax.TaxTable.TaxTableOutput[1].TaxPoint
+						invoked.TaxType					= AccrualFlag
+					
+					AptxrwsRemainTax -= AptxrwsApdTaxAmt
+				
+				if (AptxrwsRemainTax entered)
+					LocalTransactionAmount = AptxrwsRemainTax
+					LocalCurrencyExchange.EnteredCurrencyAmount = blank
+					LocalPayablesInvoiceDistribution	= NewPayablesInvoiceDistribution.PayablesInvoiceDistribution
+					invoke Update LinkedTaxDistributionsRel
+						invoked.DistributionAmount.CurrencyAmount 							= LinkedTaxDistributionsRel.DistributionAmount + AptxrwsRemainTax
+						invoked.DistributionAmount.FunctionalAmount.EnteredCurrencyAmount	= LocalCurrencyExchange.OutputCurrencyAmount
+					AptxrwsTranTotTax += AptxrwsRemainTax
+					if (CalculateTax.TaxTable.TaxTableOutput[1].AccrualFlag != "A")
+						AptxrwsBaseTotDist	+= LocalCurrencyExchange.OutputCurrencyAmount
+						AptxrwsTranTotDist 	+= AptxrwsRemainTax
+					AptxrwsRemainTax = blank
+			
+			return true
+			
+
+									
+	Local Fields	 
+		ErrorFound						is Boolean
+		LocalAmount1					is an InternationalAmount
+		LocalAmount2					is an InternationalAmount
+		CalculateTax
+		LocalCalculateTax				is Alpha size 1
+		LocalCurrencyExchange			is a CurrencyExchange
+		FromCurrency
+		LocalTransactionAmount			is a CurrencyAmount
+		ExchangeDate
+		NewPayablesInvoiceDistribution	is a PayablesInvoiceDistribution view
+		LocalPayablesInvoiceDistribution	is a PayablesInvoiceDistribution
+		AptxrwsRemainTax				is an InternationalAmount
+		AptxrwsNoLinkTaxSwitch			is Boolean
+		AptxrwsExclTaxAmt				is an InternationalAmount
+		AptxrwsTranTotTxbl				is an InternationalAmount
+		AptxrwsApdTaxAmt				is an InternationalAmount
+		AptxrwsTranTotTax				is an InternationalAmount
+		AptxrwsTranTotDist				is an InternationalAmount
+		AptxrwsBaseTotDist				is a CurrencyExchange
+		
+		
+		
+		
+		
+
+	Conditions	 
+
+
+
+
+	Relations	 
+        PayablesInvoiceDetailRel
+            one-to-many relation to PayablesInvoiceDetail
+            Field Mapping uses ByCompanyVendorPayablesInvoice
+                related.Company                 	= CalculateTaxAmount.PayablesCompany
+                related.Vendor                  	= Vendor
+                related.PayablesInvoice			 	= PayablesInvoice
+            Instance Selection
+                where (related.InvoiceLineTaxable	= false
+                and    related.TaxCode				= TaxCode)
+
+		PayablesInvoiceAddOnChargeRel
+            one-to-many relation to PayablesInvoiceAddOnCharge
+            Field Mapping uses symbolic key
+                related.Company                 	= CalculateTaxAmount.PayablesCompany
+                related.PayablesInvoice			 	= PayablesInvoice
+            Instance Selection
+                where (related.InvoiceLineTaxable	= false
+                and    related.TaxCode				= TaxCode)
+
+        PayablesInvoiceDistributionRel
+            one-to-many relation to PayablesInvoiceDistribution
+            Field Mapping uses symbolic key
+                related.Company                 	= CalculateTaxAmount.PayablesCompany
+                related.PayablesInvoice				= PayablesInvoice
+            Instance Selection
+                where (related.TaxIndicator		   != 1
+                and    related.TaxCode				= TaxCode)
+
+        LinkedTaxDistributionsRel
+            one-to-one relation to PayablesInvoiceDistribution
+            Field Mapping uses NewSet10
+				related.Company						= CalculateTaxAmount.PayablesCompany
+				related.Vendor						= Vendor
+				related.PayablesInvoice				= PayablesInvoice
+                related.OriginalDistribution    	= AptxrwsOrigDistSeq
+                related.TaxSequenceNumber			= 1
+                related.PayablesInvoiceDistribution	= LocalPayablesInvoiceDistribution
+		
+                

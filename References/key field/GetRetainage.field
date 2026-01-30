@@ -1,0 +1,176 @@
+GetRetainage is a Field				
+
+
+	Representation
+		Group Fields	
+			PurchaseOrder						is like PurchaseOrder
+			PurchaseOrderLine					is like PurchaseOrderLine
+			Contract							is like Contract
+			ContractLine						is like ContractLine
+			DetailsRetainagePercent				is a Percent
+
+	Transient Fields
+		RetainagePercent 						is a Percent 					
+		RetainPercentComplete					is a Percent				
+		RetainDueDate							is Date						
+
+	Local Fields
+		LocalRetainOverridePercent				is a Percent				
+		WorkAmount1								is like InternationalAmount
+		WorkAmount2								is like InternationalAmount
+
+	Context Fields
+		Company									is a MatchCompany
+		PayablesInvoice
+	            
+	Derived Fields	 
+		PerformGet	is a DerivedField			
+			type is Alpha 1
+
+			initialize RetainagePercent
+			initialize RetainPercentComplete
+			initialize RetainDueDate
+
+			if  (PayablesInvoice.InvoiceType.CreditMemo
+			and  PayablesInvoice.MatchInvoiceReferenceRel exists)
+				initialize WorkAmount1 
+				for each PayablesInvoice.MatchInvoiceReferenceRel.OriginalInvoice.RetainageDistributionsRel
+					if (each.DistributionType.Distribution)
+						WorkAmount1 += each.DistributionAmount.CurrencyAmount
+			    WorkAmount2 = PayablesInvoice.MatchInvoiceReferenceRel.OriginalInvoice.InvoiceAmount.CurrencyAmount
+			    RetainagePercent = WorkAmount1 / WorkAmount2
+			else				    
+			if  (PayablesInvoice.MatchProcessType.ServiceContract
+			or   PurchaseOrderRel.RetainagePercentCompleteTracking.Contract)
+			
+				if  (Contract not entered
+				and  PurchaseOrderLineRel exists)
+				    Contract 		= PurchaseOrderLineRel.Contract
+				    ContractLine 	= PurchaseOrderLineRel.ContractLine
+				    
+				if  (ContractLine not entered)
+					ContractLine = first ContractLineWithRetainageRel.ContractLine
+				
+				if  (ContractRel exists
+				and  ContractRel.RetainagePercentCompleteTracking entered
+				and  ContractLineRel.Retainage)
+	                                           
+					if  (ContractRel.RetainagePercentCompleteTracking.HeaderLevel)
+						RetainPercentComplete					= ContractRel.RetainagePercentComplete
+						LocalRetainOverridePercent				= ContractRel.RetainageOverridePercent
+					else
+					if  (ContractRel.RetainagePercentCompleteTracking.LineLevel)
+						RetainPercentComplete					= ContractLineRel.RetainagePercentComplete
+						LocalRetainOverridePercent				= ContractLineRel.RetainageOverridePercent
+		         
+					if  (ContractRel.ExpirationDate entered)
+						RetainDueDate							= ContractRel.ExpirationDate + ContractRel.RetainageDueDays as days
+					else
+						RetainDueDate							= PayablesInvoice.DueDate
+		
+					if  (LocalRetainOverridePercent entered)
+						RetainPercentComplete					= LocalRetainOverridePercent
+
+					if  (RetainPercentComplete < 100%)
+						if  (ContractRel.RetainagePercentCompleteTracking.HeaderLevel)
+							if  (RetainPercentComplete >=  ContractRel.RetainageUpToPercent)
+								RetainagePercent						= ContractRel.RetainagePercent2
+							else
+								RetainagePercent						= ContractRel.RetainagePercent1
+						else
+							if  (RetainPercentComplete >=  ContractLineRel.RetainageUpToPercent)
+								RetainagePercent						= ContractLineRel.RetainagePercent2
+							else
+								RetainagePercent						= ContractLineRel.RetainagePercent1
+
+			else
+				if  (PurchaseOrderLine not entered)
+					PurchaseOrderLine = first PurchaseOrderLineWithRetainageRel.PurchaseOrderLine
+				
+				if  (PurchaseOrderRel.RetainagePercentCompleteTracking entered
+				and  PurchaseOrderLineRel.Retainage entered)
+					if  (PurchaseOrderRel.RetainageDueDate entered)
+						RetainDueDate							= PurchaseOrderRel.RetainageDueDate
+					else
+						RetainDueDate							= PayablesInvoice.DueDate
+
+					if  (PurchaseOrderRel.RetainagePercentCompleteTracking.PurchaseOrderLevel)
+						RetainPercentComplete					= PurchaseOrderRel.RetainagePercentComplete
+						LocalRetainOverridePercent				= PurchaseOrderRel.RetainageOverridePercentComplete
+					else
+					if  (PurchaseOrderRel.RetainagePercentCompleteTracking.LineLevel)
+						RetainPercentComplete					= PurchaseOrderLineRel.RetainagePercentComplete
+						LocalRetainOverridePercent				= PurchaseOrderLineRel.RetainageOverridePercentComplete
+	      
+	
+					if  (LocalRetainOverridePercent entered)
+						RetainPercentComplete					= LocalRetainOverridePercent
+						
+					if  (RetainPercentComplete < 100%)
+						if  (PurchaseOrderRel.RetainagePercentCompleteTracking.PurchaseOrderLevel)
+							if  (RetainPercentComplete >=  PurchaseOrderRel.RetainageUpToPercentComplete)
+								RetainagePercent				= PurchaseOrderRel.RetainageSecondPercent
+							else
+								RetainagePercent				= PurchaseOrderRel.RetainageFirstPercent
+						else
+							if  (RetainPercentComplete >=  PurchaseOrderLineRel.RetainageUpToPercentComplete)
+								RetainagePercent				= PurchaseOrderLineRel.RetainageSecondPercent
+							else
+								RetainagePercent				= PurchaseOrderLineRel.RetainageFirstPercent
+
+			if  (DetailsRetainagePercent entered)
+				RetainagePercent							= DetailsRetainagePercent
+         
+	Relations
+		PurchasingCompanyRel
+            one-to-one relation to PurchasingCompany
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+							
+		PayablesCompanyRel
+            one-to-one relation to PayablesCompany
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+							
+        PurchaseOrderRel
+            one-to-many relation to PurchaseOrder
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+                related.PurchaseOrder               = PurchaseOrder
+
+        PurchaseOrderLineRel
+            one-to-one relation to PurchaseOrderLine
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+                related.PurchaseOrder               = PurchaseOrder
+                related.PurchaseOrderLine           = PurchaseOrderLine
+
+        PurchaseOrderLineWithRetainageRel
+            one-to-many relation to PurchaseOrderLine
+            Field Mapping uses symbolic key
+                related.Company                 	= Company
+                related.PurchaseOrder               = PurchaseOrder
+            Instance Selection
+            	where (related.Retainage entered)
+
+        ContractRel
+            one-to-one relation to Contract
+            Field Mapping uses symbolic key
+                related.ContractGroup				= PayablesCompanyRel.VendorGroup.ProcurementGroupRel.ProcurementGroup
+                related.Contract		            = Contract
+
+        ContractLineRel
+            one-to-one relation to ContractLine
+            Field Mapping uses symbolic key
+                related.ContractGroup				= PayablesCompanyRel.VendorGroup.ProcurementGroupRel.ProcurementGroup
+                related.Contract		            = Contract
+                related.ContractLine         		= ContractLine
+
+        ContractLineWithRetainageRel
+            one-to-many relation to ContractLine
+            Field Mapping uses symbolic key
+                related.ContractGroup				= PayablesCompanyRel.VendorGroup.ProcurementGroupRel.ProcurementGroup
+                related.Contract		            = Contract
+            Instance Selection
+            	where (related.Retainage entered)
+

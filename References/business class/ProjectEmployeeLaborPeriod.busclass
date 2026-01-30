@@ -1,0 +1,595 @@
+ProjectEmployeeLaborPeriod is a BusinessClass
+    owned by Projects
+    prefix is PELPD
+
+	Ontology
+		symbolic key is ProjectEmployeeLaborPeriod
+        		
+	Persistent Fields
+		DateRange
+		Status							is Numeric size 1
+			States
+				Entered					value is 1
+				Approved				value is 2
+				Processed				value is 3
+				Certified				value is 4
+				PendingApproval 		value is 5
+		JournalizeGroup
+		TotalActualPercent				is Percent size 6.3
+		TotalPlannedPercent				is Percent size 6.3
+		Distributed						is Boolean
+		Adjusted						is Boolean
+		NoTransactionsFound				is Boolean
+		LaborRedistributed				is Boolean
+		FullyDistributed				is Boolean
+		LaborDistributionEmailDate		is TimeStamp		
+
+	Transient Fields
+
+	Context Fields
+		FinanceEnterpriseGroup
+		
+	Local Fields
+
+ 	Derived Fields
+		AdjustmentPendingMF is a MessageField
+			restricted
+			"ADJUSTMENT_PENDING"
+			
+		LaborUndistributedMF is a MessageField
+			restricted
+			"LaborUndistributed;_NoTransactionsFound"
+
+		AdjustmentPendingMessage is a ConditionalField
+			type is Alpha size 25
+			if (Adjusted)
+				AdjustmentPendingMF
+			else
+				blank
+
+		LaborUndistributedMessage is a ConditionalField
+			type is Alpha size 50
+			if (NoTransactionsFound)
+				LaborUndistributedMF
+			else
+				blank
+
+		DerivedApproverActor is a DerivedField
+			type is Actor
+			restricted
+			return Employee.ProjectEmployee.Approver.agent(Actor).Actor
+
+		DerivedFromEmail is a DerivedField
+			type is Alpha up to 100
+			return actor.agent(Employee).EmployeeWorkEmailAddress
+
+		UpgradeIncompleteMF is a MessageField
+			restricted
+        	"Labor_DistributionUpgradeIsIncomplete;_PleaseRun_Create_Project_Employee_Labor_PeriodActionFromThe_Project_UtilitiesMenuBeforeContinuing"
+
+	Conditions
+		IsOpen
+			restricted
+			when (Status not entered
+			or    Status.Entered
+			or    Status.Approved
+			or    Status.PendingApproval)
+    	IsCurrentPeriod
+    		restricted
+    		when (current corporate date within DateRange)
+		NotExcluded
+			restricted
+			when (!Employee.ExcludeFromLabor)
+		ActualGreaterThan100
+			restricted
+			when (TotalActualPercent > 1)
+		ActualLessThan100
+			restricted
+			when (TotalActualPercent < 1
+			and   TotalActualPercent > 0)
+		OpenPeriod
+			restricted
+			when (ProjectSchedulePeriod.Status.Open)
+		IsBlueStatusTag
+			restricted
+			when (Status.Entered)
+		IsGreenStatusTag
+			restricted
+			when (Status.Approved
+			or    Status.Processed
+			or    Status.Certified)					
+		IsYellowStatusTag
+			restricted
+			when (Status.PendingApproval)
+		IsOrangeStatusTag
+			restricted			
+			when (Status not entered
+			or 	  Status.PendingApproval)
+		AdjustmentPendingTrue
+			restricted
+			when (AdjustmentPendingMessage entered)
+		AdjustedUpdate
+			when (!Adjusted = old Adjusted)
+		LaborCanBeAdjusted
+			when (JournalizeGroup entered)
+		LaborErrorsExist
+			restricted
+			when (ProjectAssignmentLaborErrorsRel exists)
+    	IsOkToApprove
+    		restricted
+    		when (Status.Entered
+    		and   TotalActualPercent entered
+    		and  (!ApprovalProcessRequired
+    		or    DerivedApproverActor not entered))
+    	ApprovalProcessRequired
+    		restricted
+    		when (Employee = actor.agent(Employee).Employee
+    		and   FinanceEnterpriseGroupRel.EnterpriseProjectStructure.LaborDistributionApproval
+    		and  (FinanceEnterpriseGroupRel.EnterpriseProjectStructure.DistributionApprovalGroup not entered
+    		or    Employee within FinanceEnterpriseGroupRel.EnterpriseProjectStructure.DistributionApprovalGroup))
+    	Approve100PercentLaborOnlyStructure
+    		restricted		
+			when (actor.context.FinanceEnterpriseGroup.EnterpriseProjectStructure.Approve100PercentLaborActualOnly)     		
+		HasNewAssignments
+			when (NewAssignmentRel exists)
+		HasEndingAssignments
+			when (EndingAssignmentRel exists)
+
+		OldFullyDistributed 
+			when (ActualUndistributedForPeriodRel not exists)
+
+	Relations
+		FinanceEnterpriseGroupRel
+			one-to-one relation to FinanceEnterpriseGroup
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= HROrganization.FinanceEnterpriseGroup
+
+		EmployeeRel
+			one-to-one relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization	= HROrganization
+				related.Employee		= Employee
+
+		ProjectAssignmentLaborRel
+			one-to-many relation to ProjectAssignmentLabor
+			Field Mapping uses ByEmployeeAndSchedulePeriod
+				related.FinanceEnterpriseGroup	= HROrganization.FinanceEnterpriseGroup
+				related.Employee				= Employee
+    			related.ProjectLaborSchedule	= ProjectLaborSchedule
+				related.LaborPeriod.Period		= ProjectSchedulePeriod
+
+		ProjectAssignmentLaborErrorsRel
+			one-to-many relation using ProjectAssignmentLaborRel
+			Instance Selection
+				where (related.ErrorMessage entered)
+
+		ProjectEffortPeriodRel
+			one-to-many relation to ProjectEffortPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= HROrganization.FinanceEnterpriseGroup
+				related.ProjectEffortSchedule	= ProjectLaborSchedule.ProjectEffortSchedule
+			Instance Selection
+				where (ProjectSchedulePeriod.DateRange.End within related.DateRange)
+
+    	GLTransactionDetailRel
+    		one-to-many relation to GLTransactionDetail
+    		Field Mapping uses ByResourceAndDate
+    			related.FinanceEnterpriseGroup	= HROrganization.FinanceEnterpriseGroup
+    			related.Resource				= Employee
+    		Instance Selection
+    			where (related.LaborDistribution.Unprocessed
+    			and    related.TransactionDate within DateRange
+    			and    related.System != "PS"
+    			and    related.IsPosted)
+
+		NewAssignmentRel
+			one-to-many relation to ProjectAssignment
+			Field Mapping uses ByEmployee
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Employee				= Employee
+			Instance Selection
+				where (related.ProjectDateRange.BeginDate > DateRange.Begin
+				and    related.ProjectDateRange.BeginDate <= DateRange.End)
+
+		EndingAssignmentRel
+			one-to-many relation to ProjectAssignment
+			Field Mapping uses ByEmployee
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Employee				= Employee
+			Instance Selection
+				where (related.ProjectDateRange.EndDate   < DateRange.End
+				and    related.ProjectDateRange.EndDate   >= DateRange.Begin)
+
+
+		ActualUndistributedForPeriodRel 
+			one-to-many relation using ProjectAssignmentLaborRel
+			Instance Selection
+				where (related.ActualPercent entered
+				and    related.TotalTransactionAmount not entered)
+				
+				
+	Sets
+		ByEmployeeAndDistributed
+			Sort Order
+				HROrganization
+				Employee
+				Distributed
+				ProjectLaborSchedule
+				ProjectSchedulePeriod
+
+		ByPeriodAndDistributed
+			Sort Order
+				HROrganization
+				ProjectLaborSchedule
+				ProjectSchedulePeriod
+				Distributed
+				Employee
+
+		ByPeriodAndStatus
+			Sort Order
+				HROrganization
+				ProjectLaborSchedule
+				ProjectSchedulePeriod
+				Status
+				Employee
+
+		ByEmployeeAndStatus
+			Sort Order
+				HROrganization
+				Employee
+				Status
+				ProjectLaborSchedule
+				ProjectSchedulePeriod
+
+	Field Rules
+		DateRange
+			DateRange = ProjectSchedulePeriod.DateRange
+		Distributed
+			if (Status.Processed
+			or  Status.Certified)
+				Distributed = true
+			else
+				Distributed = false
+				
+	Actions
+		Create is a Create Action
+			restricted
+		Update is an Update Action
+			restricted
+		Delete is a Delete Action
+			restricted
+		UpdateTotals is an Instance Action
+			restricted
+			Parameters
+				ActualDifference	is Percent size 6.3
+				PlannedDifference	is Percent size 6.3
+			Action Rules
+				TotalActualPercent	+= ActualDifference
+				TotalPlannedPercent	+= PlannedDifference
+
+		ApproveLabor is an Instance Action
+			restricted
+			Action Rules
+	    		constraint (TotalActualPercent <= 1)
+	    			"TotalActualPercentForPeriodCannotExceed100"
+				if (Approve100PercentLaborOnlyStructure)
+			    	constraint (TotalActualPercent = 1)
+			    		"TotalActualPercentForPeriodMustEqual100"
+				if (FinanceEnterpriseGroupRel.EnterpriseProjectStructure.LaborDistributionConfirmation entered)
+					confirmation required
+						"<FinanceEnterpriseGroupRel.EnterpriseProjectStructure.LaborDistributionConfirmation>"			
+				Status				= 2
+				NoTransactionsFound	= false
+				Distributed			= false
+				invoke SetStatus ProjectAssignmentLaborRel
+					invoked.PrmStatus = 2
+
+		UnapproveLabor is an Instance Action
+			restricted
+			Action Rules
+				Status				= 1
+				NoTransactionsFound	= false
+				Distributed			= false
+				invoke SetStatus ProjectAssignmentLaborRel
+					invoked.PrmStatus = 1
+
+		ChangeZeroLaborToProcessed is an Instance Action
+			restricted
+			Action Rules
+				if (GLTransactionDetailRel exists)
+					confirmation required
+						"GlobalLedgerTransactionsExistForPeriod;_SetToProcessedAnyway?"
+	    		constraint (TotalActualPercent = 0)
+	    			"TotalActualPercentForPeriodMustBe0"
+	    		Status		= 3
+	    		Adjusted	= false
+	    		Distributed	= true
+	    		FullyDistributed = true
+				invoke SetStatus ProjectAssignmentLaborRel
+					invoked.PrmStatus = 3
+				invoke DeleteCommitmentAfterDistributeLabor ProjectAssignmentLaborRel
+
+		ChangeZeroLaborToEntered is an Instance Action
+			restricted
+			Action Rules
+				Status				= 1
+				NoTransactionsFound	= false
+				Distributed			= false
+	    		FullyDistributed	= false
+				invoke SetStatus ProjectAssignmentLaborRel
+					invoked.PrmStatus = 1
+
+		PopulateActualPercent is an Instance Action
+			restricted
+			Local Fields
+				ActualDifference	is Percent size 6.3
+			Action Rules
+				confirmation required
+					"AnyPreviouslyEnteredActualPercentValuesWillBeReplaced.Continue?"
+				for each ProjectAssignmentLaborRel
+					ActualDifference += (each.PlannedPercent - each.ActualPercent)
+					invoke PopulateActual each
+				TotalActualPercent += ActualDifference	
+
+		CopyLabor is an Instance Action
+			Parameters
+				ToPeriod 				is a ProjectSchedulePeriod
+				ThroughPeriod			is a ProjectSchedulePeriod
+				CopyFinanceStructure	is Boolean
+				SetToApproved           is Boolean 
+				CopyPlannedToActual     is Boolean
+			Parameter Rules
+				ToPeriod
+					required
+					initial value is ProjectSchedulePeriod + 1
+				ThroughPeriod
+					default to ToPeriod
+					if (ThroughPeriod entered)
+						constraint (ThroughPeriod >= ToPeriod)
+							"ThroughPeriodCannotBeLessThanToPeriod"
+			Local Fields
+				LocalPeriod			is like ProjectSchedulePeriod
+			Action Rules
+				if (ThroughPeriod not entered)
+					ThroughPeriod = ToPeriod
+				LocalPeriod = ToPeriod
+				while (LocalPeriod <= ThroughPeriod)
+					invoke Copy ProjectAssignmentLaborRel				
+						invoked.ToPeriod 			 = LocalPeriod
+						invoked.CopyFinanceStructure = CopyFinanceStructure
+						invoked.SetToApproved        = SetToApproved
+						invoked.CopyPlannedToActual  = CopyPlannedToActual						
+					LocalPeriod += 1
+
+		ApproveAllLabor is a Set Action
+			restricted
+        	Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+        			default label is "FinanceEnterpriseGroup"
+        		EmployeeGroup				is an Employee group
+        		PrmProjectLaborSchedule		is a ProjectLaborSchedule
+        			default label is "LaborSchedule"
+        		PrmProjectSchedulePeriod	is a ProjectSchedulePeriod
+        			default label is "Period"
+        		Approve100PercentActualOnly	is Boolean
+        	Parameter Rules
+        		PrmFinanceEnterpriseGroup
+        			required
+	        		constraint (PrmFinanceEnterpriseGroup.LaborDistributionUpgradeComplete)
+    	    			"<UpgradeIncompleteMF>"
+				PrmProjectLaborSchedule
+					required
+				PrmProjectSchedulePeriod
+					required
+    				constraint (current corporate date >= PrmProjectSchedulePeriod.DateRange.End)
+    					"PeriodEndingDateMustBePriorToCurrentDate"
+        	Instance Selection
+        		where (HROrganization = PrmFinanceEnterpriseGroup.HROrganization
+        		and    ProjectLaborSchedule = PrmProjectLaborSchedule
+        		and    ProjectSchedulePeriod = PrmProjectSchedulePeriod
+        		and    IsOkToApprove
+        		and    TotalActualPercent <= 1
+        		and   !Employee.ExcludeFromLabor
+        		and   (EmployeeRel.Employee within EmployeeGroup
+        		or     EmployeeGroup not entered))
+			Action Rules
+				Instance Rules
+					if (Approve100PercentLaborOnlyStructure)	
+						if (TotalActualPercent = 1)
+							Status				= 2
+							NoTransactionsFound	= false
+							Distributed			= false
+							invoke SetStatus ProjectAssignmentLaborRel
+								invoked.PrmStatus = 2
+					else
+						if ((Approve100PercentActualOnly
+						and  TotalActualPercent = 1)
+						or  !Approve100PercentActualOnly)
+							Status				= 2
+							NoTransactionsFound	= false
+							Distributed			= false
+							invoke SetStatus ProjectAssignmentLaborRel
+								invoked.PrmStatus = 2
+
+		UnapproveAllLabor is a Set Action
+			restricted
+        	Parameters
+        		PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+        			default label is "FinanceEnterpriseGroup"
+        		EmployeeGroup				is an Employee group
+        		PrmProjectLaborSchedule		is a ProjectLaborSchedule
+        			default label is "LaborSchedule"
+        		PrmProjectSchedulePeriod	is a ProjectSchedulePeriod
+        			default label is "FromPeriod"
+        		PrmThroughPeriod			is a ProjectSchedulePeriod
+        			default label is "ThroughPeriod"
+        		PrmEmployee					is like Employee
+        	Parameter Rules
+        		PrmFinanceEnterpriseGroup
+        			required
+	        		constraint (PrmFinanceEnterpriseGroup.LaborDistributionUpgradeComplete)
+    	    			"<UpgradeIncompleteMF>"
+				PrmProjectLaborSchedule
+					required
+				PrmProjectSchedulePeriod
+					required
+				PrmThroughPeriod
+					default to PrmProjectSchedulePeriod
+					if (PrmThroughPeriod entered)
+						constraint (PrmThroughPeriod >= PrmProjectSchedulePeriod)
+							"ThroughPeriodMustBeAfterFromPeriod"
+        	Instance Selection
+        		where (HROrganization = PrmFinanceEnterpriseGroup.HROrganization
+        		and    ProjectLaborSchedule = PrmProjectLaborSchedule
+        		and    ProjectSchedulePeriod >= PrmProjectSchedulePeriod
+        		and    ProjectSchedulePeriod <= PrmThroughPeriod
+        		and    Status.Approved
+        		and   !Employee.ExcludeFromLabor        		
+        		and   (EmployeeRel.Employee within EmployeeGroup
+        		or     EmployeeGroup not entered)
+        		and   (Employee = PrmEmployee
+        		or     PrmEmployee not entered))
+			Action Rules
+				Instance Rules
+					Status				= 1
+					NoTransactionsFound	= false
+					Distributed			= false
+					invoke SetStatus ProjectAssignmentLaborRel
+						invoked.PrmStatus = 1
+
+		EmailIndividual is an Instance Action
+			valid when (!Distributed)
+			Parameters
+				FromEmail					   is EmailAddressField with multiple addresses
+				CCEmail						   is EmailAddressField with multiple addresses
+				PrmSubject					   is Alpha 100
+					default label is "Subject"
+				PrmComment					   is Text
+					default label is "Comment"		
+				PrmAttachment				   is an Attachment	
+					default label is "Attachment"
+			Parameter Rules
+				FromEmail 
+					required
+					initial value is DerivedFromEmail
+					default to DerivedFromEmail
+				PrmSubject
+					required
+					initial value is "Actual Labor Required"
+					default to "Actual Labor Required"
+				PrmComment
+					required
+			Action Rules
+				LaborDistributionEmailDate = current timestamp
+				send email
+					to Employee.EmployeeWorkEmailAddress
+					from FromEmail
+					cc CCEmail
+					subject "<PrmSubject>"
+					Contents
+							"Employee:<Employee>_<Employee.PresentationNameSnapshot>"
+							"<actor.context.FinanceEnterpriseGroup.ProjectLabel>LaborDistribution:<DateRange.Begin>_-_<DateRange.End>"
+							"Comment:<PrmComment>"
+					Attachments		
+						if (PrmAttachment entered)
+							attachment PrmAttachment.File
+								name is PrmAttachment.Title
+								mime type is PrmAttachment.MimeType
+			Exit Rules
+				invoke SetEmailDate Employee.ProjectEmployee
+					invoked.PrmEmailDate = LaborDistributionEmailDate
+
+		EmailAll is an Instance Action
+			valid when (!Distributed)
+			Parameters
+				FromEmail					   is EmailAddressField with multiple addresses
+				CCEmail						   is EmailAddressField with multiple addresses
+				PrmSubject					   is Alpha 100
+					default label is "Subject"
+				PrmComment					   is Text
+					default label is "Comment"		
+				PrmAttachment				   is an Attachment	
+					default label is "Attachment"
+			Parameter Rules
+				FromEmail 
+					required
+					initial value is DerivedFromEmail
+					default to DerivedFromEmail
+				PrmSubject
+					required
+					initial value is "Actual Labor Required"
+					default to "Actual Labor Required"
+				PrmComment
+					required
+			Action Rules
+				invoke SendLaborDistributionEmail
+					invoked.PrmHROrganization		 = HROrganization
+					invoked.PrmProjectLaborSchedule	 = ProjectLaborSchedule
+					invoked.PrmProjectSchedulePeriod = ProjectSchedulePeriod
+					invoked.FromEmail				 = FromEmail
+					invoked.CCEmail					 = CCEmail
+					invoked.PrmSubject				 = PrmSubject
+					invoked.PrmComment				 = PrmComment
+					invoked.PrmAttachment			 = PrmAttachment
+
+		SendLaborDistributionEmail is a Set Action
+			restricted
+			Parameters
+				PrmHROrganization 				is like HROrganization
+				PrmProjectLaborSchedule			is like ProjectLaborSchedule
+				PrmProjectSchedulePeriod		is like ProjectSchedulePeriod
+				FromEmail						is EmailAddressField with multiple addresses
+				CCEmail							is EmailAddressField with multiple addresses
+				PrmSubject						is Alpha 100
+					default label is "Subject"
+				PrmComment						is Text
+					default label is "Comment"		
+				PrmAttachment					is an Attachment	
+					default label is "Attachment"
+			Sort Order is ByPeriodAndStatus
+			Instance Selection
+				where (HROrganization		 = PrmHROrganization
+				and    ProjectLaborSchedule	 = PrmProjectLaborSchedule
+				and    ProjectSchedulePeriod = PrmProjectSchedulePeriod
+				and   !Status.Certified
+				and   !Status.Processed
+				and   !Status.Approved)
+			Action Rules
+				Instance Rules
+					LaborDistributionEmailDate = current timestamp
+					send email
+						to Employee.EmployeeWorkEmailAddress
+						from FromEmail
+						cc CCEmail
+						subject "<PrmSubject>"
+						Contents
+								"Employee:<Employee>_<Employee.PresentationNameSnapshot>"
+								"<actor.context.FinanceEnterpriseGroup.ProjectLabel>LaborDistribution:<DateRange.Begin>_-_<DateRange.End>"
+								"Comment:<PrmComment>"
+						Attachments		
+							if (PrmAttachment entered)
+								attachment PrmAttachment.File
+									name is PrmAttachment.Title
+									mime type is PrmAttachment.MimeType
+					invoke SetEmailDate Employee.ProjectEmployee
+						invoked.PrmEmailDate = LaborDistributionEmailDate
+
+		FixFullyDistributed is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and   (Status.Processed
+				or     Status.Certified)
+				and   !FullyDistributed
+				and    OldFullyDistributed)
+			Action Rules
+				Instance Rules
+					FullyDistributed = true
+
+

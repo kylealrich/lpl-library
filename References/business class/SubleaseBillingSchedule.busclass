@@ -1,0 +1,279 @@
+SubleaseBillingSchedule is a BusinessClass
+	owned by lm
+	prefix is SLBSH
+
+	Ontology
+		symbolic key is SubleaseBillingSchedule
+
+	Patterns
+		disable AuditIndex
+		implements Archivable
+
+	Persistent Fields
+		StraightLineAmount				is an InternationalAmount
+			precision is Sublease.CurrencyNumberOfDecimals
+		StraightLineOverride			is Boolean
+		LastPaymentNumber				is a PaymentNumber
+		LastInvoiceSequence				is Numeric size 3
+
+		ProcessLevel					is a ReceivableProcessLevel
+		TaxCode
+		ReceivableGeneralLedgerCode
+			default label is "ReceivableGlobalLedgerCode"
+		ReceivableDistributionCategory
+		TermsCode
+		SubleaseBillingInvoiceTemplate
+		SubleaseBillingInvoiceIDMTemplate is an IDMTemplate
+		
+	Transient Fields
+		Currency						is a FromCurrency
+			derive value from Sublease.Currency
+		StraightLineAmountOverride		is an InternationalAmount
+
+	Derived Fields
+		TotalPaymentAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum SubleaseBillingScheduleDetailRel.PaymentAmount)
+			
+		TotalNonExecPaymentAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum NonExecutoryCodePaymentRel.PaymentAmount)
+
+		NetUpfrontCashFlowAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (Sublease.InitialDirectCost.TransactionAmount + Sublease.IncentiveAmount.TransactionAmount)
+
+		TotalNonExecPaymentCount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (instance count of NonExecutoryCodePaymentRel)
+
+		TotalStraightLineAmount is a DerivedField
+			type is like InternationalAmount
+
+			return (TotalNonExecPaymentAmount / TotalNonExecPaymentCount)
+
+		TotalStraightLineIDCAmount is a DerivedField
+			type is like InternationalAmount
+				precision is Sublease.CurrencyNumberOfDecimals
+			default label is "StraightLineInitialDirectCostAmount"
+
+			return (Sublease.InitialDirectCost.TransactionAmount / TotalNonExecPaymentCount)
+			
+		TotalStraightLineIncentiveAmount is a DerivedField
+			type is like InternationalAmount
+				precision is Sublease.CurrencyNumberOfDecimals
+			default label is "StraightLineIncentiveAmount"
+
+			return (Sublease.IncentiveAmount.TransactionAmount / TotalNonExecPaymentCount)
+			
+		TotalStraightLineIDCIncentiveAmount is a DerivedField
+			type is like InternationalAmount
+				precision is Sublease.CurrencyNumberOfDecimals
+
+			return (TotalStraightLineIDCAmount + TotalStraightLineIncentiveAmount)
+		   			
+	Field Rules
+		StraightLineAmount
+			if (Sublease.Status.Released)
+				cannot be changed
+					"CannotChangeStraightLineAmountOnReleasedSublease"
+
+		ProcessLevel
+			initial value is CompanyAndCustomer.Company.SLBillingDefaultProcessLevel
+			default to CompanyAndCustomer.Company.SLBillingDefaultProcessLevel
+			required
+				"ReceivableProcessLevelRequired"
+		
+		TaxCode
+			default to CompanyAndCustomer.CompanyCustomerRel.TaxCode
+			
+		ReceivableGeneralLedgerCode
+			initial value is CompanyAndCustomer.CompanyCustomerRel.ReceivableGeneralLedgerCode
+			initial value is ProcessLevel.ReceivableGeneralLedgerCode
+			default to CompanyAndCustomer.CompanyCustomerRel.ReceivableGeneralLedgerCode
+			default to ProcessLevel.ReceivableGeneralLedgerCode
+			required
+				"ReceivableAccrualCodeRequired"
+		
+		TermsCode
+			default to CompanyAndCustomer.CompanyCustomerRel.TermsCode
+
+		SubleaseBillingInvoiceTemplate
+			initial value is CompanyAndCustomer.Company.SubleaseBillingInvoiceTemplate
+			default to CompanyAndCustomer.Company.SubleaseBillingInvoiceTemplate
+			
+		SubleaseBillingInvoiceIDMTemplate
+			initial value is CompanyAndCustomer.Company.SubleaseBillingInvoiceIDMTemplate
+				when CompanyAndCustomer.Company.UseIDM
+			if (CompanyAndCustomer.Company.UseIDM)
+				default to CompanyAndCustomer.Company.SubleaseBillingInvoiceIDMTemplate
+			else
+				initialize
+					
+	Relations
+		SubleaseBillingScheduleDetailRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company		= Company
+				related.Lease		= Lease
+				related.Sublease	= Sublease
+
+		NonExecutoryCodePaymentRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company		= Company
+				related.Lease		= Lease
+				related.Sublease	= Sublease
+			Instance Selection
+				where (related.SubleaseBillingScheduleDetail.ExecutoryCostCode not entered
+				and    related.SubleaseBillingScheduleDetail.PaymentNumber entered)
+
+		ExecutoryCodePaymentRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses symbolic key
+				related.Company		= Company
+				related.Lease		= Lease
+				related.Sublease	= Sublease
+			Instance Selection
+				where (related.SubleaseBillingScheduleDetail.ExecutoryCostCode entered
+				and    related.SubleaseBillingScheduleDetail.PaymentNumber entered)
+
+		SubleaseBillingScheduleDetailByInvoiceDateRel
+			one-to-many relation to SubleaseBillingScheduleDetail
+			Field Mapping uses ByInvoiceDate
+				related.Company						= Company
+				related.Lease						= Lease
+				related.Sublease					= Sublease
+				related.CompanyAndCustomer.Company	= CompanyAndCustomer.Company
+				related.CompanyAndCustomer.Customer	= CompanyAndCustomer.Customer
+				
+	Conditions
+		HasOnlyExecutoryCodePayments
+			restricted
+			when (ExecutoryCodePaymentRel exists
+			and  !NonExecutoryCodePaymentRel exists)
+		
+		HasSubleaseBillingInvoiceTemplate
+			restricted
+			when (SubleaseBillingInvoiceTemplate entered)
+		
+		HasInitialDirectCost
+			restricted
+			when (Sublease.InitialDirectCost.TransactionAmount entered)
+			
+		HasIncentives
+			restricted
+			when (Sublease.IncentiveAmount.TransactionAmount entered)
+			
+		HasIDCOrIncentives
+			restricted
+			when (Sublease.HasIDCOrIncentives)
+				
+	Actions
+		Create is a Create Action
+			restricted
+			Entrance Rules
+				constraint (Sublease.EitherUnreleasedOrReleased)
+					"CannotCreate;SubleaseStatusIs<Sublease.Status>"
+					
+			Action Rules
+				if (StraightLineAmountOverride = 0)
+					StraightLineOverride = false
+					StraightLineAmount = TotalStraightLineAmount
+				else
+					StraightLineOverride = true
+					StraightLineAmount = StraightLineAmountOverride
+
+		RestrictedCreate is a Create Action
+			restricted
+			bypass field rules
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+			restricted
+
+		Purge is a Purge Action
+			restricted
+			
+		StraightLineUpdate is an Update Action
+			restricted
+			bypass field rules
+			Action Rules
+				if (!StraightLineOverride)
+					StraightLineAmount = TotalStraightLineAmount
+					
+		RecurringBilling is an Instance Action
+			Parameters
+				Company								is a PayablesCompany
+				Lease
+				Sublease
+				PaymentDateRange					is a ProjectDateRange
+				ActionType							is Numeric 1
+					default label is "Action"
+					States
+						AddPayments			value is 1
+						UpdateAmounts		value is 2
+						DeletePayments		value is 3
+				FirstInvoiceDate					is Date
+				Frequency							is AlphaUpper size 1
+					States
+						Weekly				value is "W"
+						Monthly				value is "M"
+						Quarterly			value is "Q"
+						Yearly				value is "Y"
+						SemiAnnually			value is "S"
+							default label is "Semi-annually"
+				PaymentAmount						is an InternationalAmount
+				
+			Parameter Rules
+				Company
+					initial value is SubleaseBillingSchedule.Company
+					default to SubleaseBillingSchedule.Company
+					
+				Lease
+					initial value is SubleaseBillingSchedule.Lease
+					default to SubleaseBillingSchedule.Lease
+					
+				Sublease
+					initial value is SubleaseBillingSchedule.Sublease
+					default to SubleaseBillingSchedule.Sublease
+					
+				PaymentDateRange
+					required
+					constraint (PaymentDateRange.BeginDate >= Sublease.BeginDate)
+						"PaymentDateRangeMustBeAfterTheSubleaseBeginDate"
+					constraint (PaymentDateRange.EndDate <= Sublease.EndDate)
+						"PaymentDateRangeMustBeBeforeTheSubleaseEndDate"
+
+				ActionType
+					required
+
+				FirstInvoiceDate
+					if (ActionType.AddPayments)
+						required
+					constraint (FirstInvoiceDate within PaymentDateRange)
+						"FirstInvoiceDateMustBeWithinThePaymentDateRange"
+
+				Frequency
+					if (!ActionType.DeletePayments)
+						required
+
+				PaymentAmount
+					if (!ActionType.DeletePayments)
+						required
+
+			Action Rules
+				invoke RecurringBilling SubleaseBillingScheduleDetail
+					invoked.Company				= Company
+					invoked.Lease				= Lease
+					invoked.Sublease			= Sublease
+					invoked.PaymentDateRange	= PaymentDateRange
+					invoked.ActionType			= ActionType
+					invoked.FirstInvoiceDate	= FirstInvoiceDate
+					invoked.Frequency			= Frequency
+					invoked.PaymentAmount		= PaymentAmount

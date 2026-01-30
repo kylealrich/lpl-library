@@ -1,0 +1,468 @@
+ItemSerialNumber is a BusinessClass
+    owned by ic
+    prefix is SER
+    classic name is ITEMSERIAL
+
+    Ontology
+        symbolic key is ItemSerialNumber
+            classic set name is SERSET1
+            classic name is SERIAL
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+
+    Context Fields
+    	PurchaseOrderReceipt
+      	PurchaseOrderReceiptLine
+		InventoryTransaction
+		InventoryTransactionLine
+
+    Persistent Fields
+
+        InventoryLocation
+            classic name is LOCATION
+        Bin
+        LastReceiptDate   is Date
+            classic name is LAST-REC-DT
+        LastIssueDate     is Date
+            classic name is LAST-ISSUE-DT
+        Status            is Numeric size 1
+            States
+                OnHand    value is 0
+                Allocated value is 1
+                Intransit value is 2
+                Hold      value is 3
+                Issued    value is 9
+        KitItemSerial
+        ItemLocation
+
+    Local Fields
+		LocalRecallGroup	is AlphaUpper size 4
+		LocalRecallNotice	is a RecallNotice
+		LocalRecallProduct	is a RecallProduct
+		TotalOpenQuantity	is a Quantity
+		TotalExternalCost	is an InternationalCost
+		
+	Derived Fields
+		NumberOfCharacters is a DerivedField
+			type is Numeric size 3
+			restricted
+			return ItemSerialNumber size 
+    
+		DerivedCurrentCost	is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (Company.CostingMethod.AverageCosting)
+				return ItemLocation.DerivedItemAverageCost							
+			else
+			if (Company.CostingMethod.StandardCosting)
+				return ItemLocation.StandardCost	
+			else
+			if (TotalOpenQuantity entered)
+				for each InventoryCostHistoryRel
+					TotalOpenQuantity  +=  each.ReceivedQuantity - each.InspectionHoldQuantity - each.UsedQuantity
+					TotalExternalCost  +=  ((each.ReceivedQuantity - each.InspectionHoldQuantity - each.UsedQuantity)* each.UnitCost)	
+				return TotalExternalCost / TotalOpenQuantity
+			else
+				return 0
+
+		DerivedLocationStockUOM	is a DerivedField 
+			type is like UnitOfMeasure
+			return ItemLocation.ItemLocationStockUOM.UnitOfMeasure
+				
+    Conditions
+    	
+		PurchaseOrderTransactionDetailRelExists
+			restricted
+			when (PurchaseOrderTransactionDetailRel exists)
+	    
+        Issued
+        	restricted
+            when (Status.Issued)
+
+        HasKitItem
+            classic name is KITITEM
+            restricted
+            when (KitItemSerial.KitItem entered)
+
+        IsOnHandOrAllocatedOrOnHold
+            classic name is SERSET2
+            restricted
+            when (Status.OnHand
+            or    Status.Allocated
+            or    Status.Hold)
+
+        IsOnHand
+            classic name is SERSET3
+            restricted
+            when (Status.OnHand)
+            
+        HasRecipe
+			restricted
+			when (Item.Recipe)
+
+		IssuedInventoryTransactionLineDetailForReturnExists
+			restricted
+			when (IssuedInventoryTransactionLineDetailForReturnRel exists)
+
+		HasItemLocationStockUOM
+			when (ItemLocation.HasItemLocationStockUOM)
+
+    Relations
+    	PurchaseOrderTransactionDetailRel
+            one-to-many relation to PurchaseOrderTransactionDetail
+            Field Mapping uses BySerial
+                related.Serial                   = ItemSerialNumber
+                related.Company                  = Company
+                related.PurchaseOrderReceipt     = PurchaseOrderReceipt
+                related.PurchaseOrderTransactionDetail.LineNumber = PurchaseOrderReceiptLine
+                related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType = "PO"
+
+		IssuedInventoryTransactionLineDetailForReturnRel
+			one-to-many relation to InventoryTransactionLineDetail
+			Field Mapping uses Set2
+				related.Company										= Company
+            	related.InventoryLocation							= InventoryTransaction.OriginatingIssueLocation	
+			Instance Selection
+				where (related.InventoryTransaction					= InventoryTransaction.OriginatingIssueDocument
+				and	   related.Serial								= ItemSerialNumber
+				and	   related.InventoryTransactionLine.LineNumber 	= InventoryTransactionLine.LineNumber
+				and    related.Item									= Item)
+				
+ 		RecallProductSerialRel
+			one-to-one relation to RecallProductSerial
+   			Field Mapping uses symbolic key
+   				related.RecallGroup			= LocalRecallGroup
+   				related.RecallNotice		= LocalRecallNotice
+   				related.RecallProduct		= LocalRecallProduct
+   				related.RecallProductSerial	= ItemSerialNumber
+   				
+		RecallProductSerialRangeRel
+			one-to-many relation to RecallProductSerial
+   			Field Mapping uses symbolic key
+   				related.RecallGroup			= LocalRecallGroup
+   				related.RecallNotice		= LocalRecallNotice
+   				related.RecallProduct		= LocalRecallProduct
+   			Instance Selection
+   				where (related.ThruSerial		 	!= blank
+   				and    related.NumberOfCharacters 	 = NumberOfCharacters
+   				and    related.RecallProductSerial 	<= ItemSerialNumber
+   				and    related.ThruSerial          	>= ItemSerialNumber)
+    
+        InventoryCostHistoryRel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set3
+				related.Company 									= Company
+				related.InventoryLocation							= InventoryLocation
+				related.Item										= Item
+				related.ReceivedDate								= blank
+
+		ItemRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+				related.ItemGroup	= Company.ItemGroup
+				related.Item		= Item
+
+    Sets
+
+        Set2
+            indexed
+            Instance Selection
+                where (IsOnHandOrAllocatedOrOnHold)
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                ItemSerialNumber
+
+        Set3
+            indexed
+            Instance Selection
+                where (IsOnHand)
+            Sort Order
+                Company
+                InventoryLocation
+                Item
+                Bin
+                ItemSerialNumber
+
+                
+	Actions
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+			
+		RecallSerialNumberQuery is a Set Action
+			restricted
+			Parameters
+				PrmRecallGroup		is a RecallGroup
+				PrmRecallNotice		is a RecallNotice
+				PrmRecallProduct	is a RecallProduct
+				PrmItem				is an Item
+				PrmQueryPriority	is Numeric size 2
+					States
+		   				High			value is 1
+		   				Medium			value is 2
+		   				Low				value is 3
+				PrmQueryDueDate		is TimeStamp
+				PrmCreateTasks      is Boolean
+				
+			Sort Order
+				ItemSerialNumber.Item
+				ItemSerialNumber
+				Company
+				InventoryLocation
+			
+			Instance Selection
+				where (ItemSerialNumber.Item = PrmItem
+    			and	   Company.ItemGroup = PrmRecallGroup
+    			and    IsOnHandOrAllocatedOrOnHold)
+				
+			Action Rules
+				Instance Rules
+					LocalRecallGroup = PrmRecallGroup
+					LocalRecallNotice = PrmRecallNotice
+					LocalRecallProduct = PrmRecallProduct
+					
+					if (!PrmRecallProduct.HasEnteredSerialNumbers
+					or   RecallProductSerialRel exists
+					or   RecallProductSerialRangeRel exists)
+						invoke Create RecallProductTransaction
+							invoked.RecallGroup									= PrmRecallGroup
+							invoked.RecallNotice								= PrmRecallNotice
+							invoked.RecallProduct								= PrmRecallProduct
+							invoked.ActivityType								= 10 
+							invoked.InventoryLocationGroup.InventoryCompany		= Company
+							invoked.InventoryLocationGroup.InventoryLocation	= InventoryLocation
+							invoked.ItemSerialGroup.InventoryCompany			= Company
+							invoked.ItemSerialGroup.Location					= InventoryLocation
+							invoked.ItemSerialGroup.Item						= Item
+							invoked.ItemSerialGroup.ItemSerialNumber			= ItemSerialNumber
+							invoked.LocalPriority								= PrmQueryPriority
+							invoked.LocalDueDate								= PrmQueryDueDate
+							invoked.TransactionDate								= LastReceiptDate					
+							invoked.LocalCreateTasks                            = PrmCreateTasks
+							
+		UpdateStatusBinLocation is an Instance Action
+			restricted
+			Parameters
+				PrmInventoryLocation is a InventoryLocation
+				PrmBin 				 is a Bin
+				PrmStatus			 is Numeric size 1
+		            States
+		                OnHand    value is 0
+		                Allocated value is 1
+		                Intransit value is 2
+		                Hold      value is 3
+		                Issued    value is 9
+			
+			Action Rules
+				if (PrmInventoryLocation entered)
+					InventoryLocation = PrmInventoryLocation
+				
+				if (PrmBin entered)	
+					Bin				  = PrmBin
+				
+
+				Status			  		= PrmStatus
+				
+				if (PrmStatus.OnHand)
+					LastReceiptDate		= current corporate date
+					
+				if (PrmStatus.Issued)
+					LastIssueDate		= current corporate date
+					
+		FreezeSerialNumbers is a Set Action
+			restricted
+			completion message is "CreationOfSerialNumberFreezeRecordsIsComplete."
+			Parameters
+				PrmCompany				is an InventoryCompany
+				PrmSelectId				is a PhysicalInventorySelect
+				PrmBinGroup				is a BinGroup
+				PrmLocation				is an InventoryLocation
+				PrmItem					is an Item
+				PrmStockOnHandDetail	is a StockOnHandDetail
+				PrmItemLocation			is an ItemLocation
+								
+			Local Fields
+   				LocalCreateFreezeErrorMessage			is Alpha size 100
+				LocalItemLocation						is an ItemLocation
+								
+			Accumulators
+				AccumulatorFreezeCount
+								
+			Instance Selection
+				where (PrmCompany		= Company
+				and    PrmLocation		= InventoryLocation
+				and    PrmItem			= Item
+				and   (Status.OnHand
+				or     Status.Allocated
+				or     Status.Hold)
+				and   ((!PrmStockOnHandDetail.Bin			entered)
+				or     (PrmStockOnHandDetail.Bin			entered
+				and     PrmStockOnHandDetail.Bin			= Bin)))
+				
+			Sort Order
+				Company
+				InventoryLocation
+				Item
+				Bin
+				Status
+				
+			Action Rules
+				Empty Set Rules
+					if (PrmItem entered)
+						if (PrmSelectId.FreezeZeroStockOnHand)
+							LocalItemLocation				= PrmItemLocation
+							initialize LocalCreateFreezeErrorMessage
+							invoke Create PhysicalInventoryFreezeLineWork
+								resume on error
+									LocalCreateFreezeErrorMessage	= error message
+									display "OnErrorEmpty:<LocalCreateFreezeErrorMessage>" 
+								invoked.InventoryCompany						= PrmCompany
+								invoked.PhysicalInventorySelect					= PrmSelectId
+								invoked.InventoryLocation						= PrmLocation
+								invoked.BinGroup								= PrmBinGroup
+								initialize invoked.Bin	
+								invoked.Item									= PrmItem
+								if (HasItemLocationStockUOM)
+									invoked.UnitOfMeasure						= DerivedLocationStockUOM
+								else
+									invoked.UnitOfMeasure						= PrmItem.StockUOM
+								initialize invoked.EnteredUOM
+								initialize invoked.FreezeQuantity
+								initialize invoked.CountQuantity
+						        initialize invoked.UnitCost
+						        initialize invoked.SecondaryQuantity
+						        initialize invoked.SecondaryCountQuantity
+						        invoked.SecondaryUOM							= PrmItem.SecondaryUOM
+						        invoked.SecondaryUOMMultiplier					= PrmItem.SecondaryUOMConversion
+						        initialize invoked.InventoryReasonCode
+						        invoked.MovementClassX							= PrmItemLocation.MovementClass
+						        initialize invoked.CountEntered
+						        invoked.OperatorID								= actor
+						        initialize invoked.ItemLot
+						        initialize invoked.Sublot
+						        initialize invoked.ItemSerialNumber
+						        invoked.ItemLocation							= PrmItemLocation
+		
+				Item Set Rules
+					Exit Rules
+
+			 			if (AccumulatorFreezeCount		> 10)
+			 				commit transaction
+				 		
+				Instance Rules
+					initialize LocalCreateFreezeErrorMessage
+					invoke Create PhysicalInventoryFreezeLineWork
+						resume on error
+							LocalCreateFreezeErrorMessage	= error message 
+						invoked.InventoryCompany						= PrmCompany
+						invoked.PhysicalInventorySelect					= PrmSelectId
+						invoked.InventoryLocation						= InventoryLocation
+						invoked.BinGroup								= PrmBinGroup
+						invoked.Bin										= Bin
+						invoked.Item									= Item
+						invoked.UnitOfMeasure							= Item.StockUOM
+						initialize invoked.EnteredUOM
+						invoked.FreezeQuantity							= 1
+						initialize invoked.CountQuantity
+				        initialize invoked.UnitCost
+				        invoked.SecondaryQuantity						= PrmStockOnHandDetail.SecondaryQuantity
+				        initialize invoked.SecondaryCountQuantity
+				        invoked.SecondaryUOM							= Item.SecondaryUOM
+				        invoked.SecondaryUOMMultiplier					= Item.SecondaryUOMConversion
+				        initialize invoked.InventoryReasonCode
+				        invoked.MovementClassX							= ItemLocation.MovementClass
+				        initialize invoked.CountEntered
+				        invoked.OperatorID								= actor
+				        initialize invoked.ItemLot
+				        initialize invoked.Sublot
+				        invoked.ItemSerialNumber						= ItemSerialNumber
+				        invoked.ItemLocation							= ItemLocation
+
+				    if (!LocalCreateFreezeErrorMessage entered)
+						AccumulatorFreezeCount					+= 1
+		
+		SerialTransfer is an Instance Action
+			valid when (ItemLocation.BinTracked)
+			Local Fields
+				NewInventoryTransaction		is an InventoryTransaction view
+				NewInventoryTransactionLine is an InventoryTransactionLine view
+			Parameters
+				PrmInventoryLocation	is an InventoryLocation
+				PrmToBin				is a Bin
+			Parameter Rules
+				PrmInventoryLocation
+					force default to InventoryLocation
+				PrmToBin
+					required
+						"ToBinMustBeEntered"
+			Action Rules
+				invoke Unreleased.CreateBinTransfer InventoryTransaction
+					assign result to NewInventoryTransaction
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+			
+				invoke Unreleased.Create InventoryTransactionLine
+					assign result to NewInventoryTransactionLine
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+					invoked.InventoryTransaction						= NewInventoryTransaction.InventoryTransaction
+					invoked.TransactionSystemCode						= InventoryTransactionLine.TransactionSystemCode.InventoryControl
+					invoked.Item										= Item
+					invoked.Bin											= Bin
+					invoked.StockUOM									= Item.StockUOM
+					invoked.StockOnHandQuantity							= ItemLocation.StockOnHandQuantity
+					invoked.FromToCompanyLocationBin.FromToCompany		= Company
+					invoked.FromToCompanyLocationBin.FromToLocation		= InventoryLocation
+					invoked.FromToCompanyLocationBin.FromToBin			= PrmToBin
+					invoked.Quantity									= 1       
+					invoked.CurrentCost									= DerivedCurrentCost
+					invoked.TransientSerial								= ItemSerialNumber
+					invoked.TransientDetailTransfer						= true
+				
+				invoke QuickCreate InventoryTransactionLineDetail
+					invoked.Company										= Company
+					invoked.InventoryLocation							= InventoryLocation
+					invoked.InventoryTransaction						= NewInventoryTransaction.InventoryTransaction
+					invoked.InventoryTransactionLine					= NewInventoryTransactionLine.InventoryTransactionLine
+					invoked.TransactionSystemCode						= TransactionSystemCode.InventoryControl
+					invoked.Item										= Item
+					invoked.Bin											= PrmToBin
+					invoked.UnitOfMeasure								= Item.StockUOM
+					invoked.Quantity									= 1
+					invoked.Serial										= ItemSerialNumber
+					
+				invoke Unreleased.Transfer NewInventoryTransaction.InventoryTransaction
+				
+		ItemSerialNumberPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany								is an InventoryCompany
+				PrmIssuedSerialNumbersCutoffDate        is Date
+					default label is "CutoffDate"
+				PrmPurgeOption								is Numeric 1
+					default label is "ActionOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2	
+			Instance Selection
+				include deleted records
+				where(Company 						= PrmCompany
+				and LastIssueDate 					<= PrmIssuedSerialNumbersCutoffDate)
+			Action Rules
+				Instance Rules
+					if(PrmPurgeOption.PurgeRecords)
+						invoke Purge

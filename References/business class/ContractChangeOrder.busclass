@@ -1,0 +1,1076 @@
+ContractChangeOrder is a BusinessClass
+	owned by po
+	
+	prefix is CCO1
+	
+	Ontology
+		symbolic key is ContractChangeOrder	
+	
+	Patterns
+	
+	Persistent Fields
+		ChangeReason        is a Description
+		Description			is Text
+		Quantity            
+			precision is DerivedNumberOfDecimalsQuantity
+		BaseCost			is a ContractUnitCost
+			default label is "Amount"
+			precision is DerivedNumberOfDecimalsCost			
+		AllowanceOptions    is Numeric 1
+			States
+				NotAnAllowance 			value is 0
+				AllowanceChangeOnly 	value is 1
+				DrawDown 				value is 2
+				NewAllowance            value is 3
+		ForAllowance        is a ContractAllowance
+		Attachment			is an AlternateAttachment
+			default label is "Document"
+		CreateNewLine       is Boolean
+		Account             is a FinanceCodeBlock           
+		AllowanceAmount     is a ContractUnitCost
+			precision is DerivedNumberOfDecimalsCost			
+		AllowanceQuantity   is a Quantity
+			precision is DerivedNumberOfDecimalsQuantity
+		AllowanceDescription is a Description
+		LineDescription      is a Description
+		LineItemType         is Numeric size 1
+			default label is "ItemType"
+			States
+				Itemmast	value is 1
+				Service		value is 2
+				Special		value is 3
+		LineServiceCode      is Alpha size 1
+			default label is "ServiceCode"
+			States
+				NotServiceItem	value is blank
+				Amount			value is "A"
+				Quantity		value is "Q"		
+		LineUOM              is a UnitOfMeasure
+			default label is "UOM"
+		AllocateDrawDown     is Boolean
+				
+	Transient Fields
+		TransientAccountingEntity           is an AccountingEntity 
+		AllowancePercentOfMaxAmount         is a Percent
+
+	Local Fields
+		FromLineCreation                    is Boolean
+		LocalLineNumber                     is like ContractLine
+		LocalContractGroup                  is like ContractGroup
+		LocalContract                       is like Contract
+    	LocalPercent						is Percent size 6.3
+		LocalAttributeCtr   				is Numeric 2
+
+	Derived Fields
+	
+		CurrentVersion is a DerivedField
+			type is Numeric size 3
+			return first Contract.ContractVersionDescendingRel.ContractVersion
+		
+		CommittedLineAmount is a DerivedField
+			type is like ContractUnitCost
+			restricted
+			if (ContractLineRel.ServiceCode.Amount)
+				return BaseCost
+			else
+			if (ContractLineRel.ServiceCode.Quantity)
+				if (Quantity entered
+				and BaseCost entered) 
+					return (((Quantity + ContractLine.LifetimeMaximumQuantity) * (BaseCost + ContractLine.BaseCost)) - (ContractLine.LifetimeMaximumQuantity * ContractLine.BaseCost))
+				else
+				if (Quantity entered
+				and BaseCost !entered)
+					return (Quantity * ContractLine.BaseCost)
+				else
+				if (Quantity !entered
+				and BaseCost entered)
+					return (ContractLine.LifetimeMaximumQuantity * BaseCost)
+
+		CommittedAllowanceAmount is a DerivedField
+			type is like ContractUnitCost
+			restricted
+			if (ContractVersion.ChangeOrderCommitAllowance
+			or  ContractAllowanceRel.Committed)
+				if (AllowanceOptions.NewAllowance)
+					if (AllowanceQuantity entered)
+						return (AllowanceAmount * AllowanceQuantity)
+					else
+						return (AllowanceAmount)
+				else
+				if (AllowanceOptions.AllowanceChangeOnly)
+					if (AllowanceQuantity entered
+					and AllowanceAmount entered)
+						return (AllowanceAmount * AllowanceQuantity)
+					else
+					if (AllowanceQuantity entered
+					and AllowanceAmount !entered)
+						return (ContractAllowanceRel.Amount * AllowanceQuantity)
+					else
+					if (AllowanceQuantity !entered
+					and AllowanceAmount entered)
+						if (ContractAllowanceRel.Quantity > 0)
+							return (ContractAllowanceRel.Quantity * AllowanceAmount)
+						else 
+							return (AllowanceAmount)
+				else
+				if (AllowanceOptions.DrawDown)		
+					if (AllowanceQuantity entered
+					and AllowanceAmount entered)
+						return (AllowanceAmount * AllowanceQuantity * -1)
+					else
+					if (AllowanceQuantity entered
+					and AllowanceAmount !entered)
+						return (ContractAllowanceRel.Amount * AllowanceQuantity * -1)
+					else
+					if (AllowanceQuantity !entered
+					and AllowanceAmount entered)
+						return (ContractAllowanceRel.Quantity * AllowanceAmount * -1)
+		
+		TotalLineMaxAmounts is a DerivedField
+			type is like UnsignedInternationalAmount
+			
+			return sum OpenContractLinesRel.LifetimeMaximumAmount
+
+		DerivedNumberOfDecimalsCost is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ContractLine entered)
+				if (ContractLine.ItemType.Itemmast
+				or  ContractLine.ItemNumber exists)
+					ContractLine.ItemNumber.NumberOfDecimalsCost
+				else
+					ItemGroupRel.DefaultNumberOfDecimalsCost
+			else
+			if (!ContractLine entered)	
+				ItemGroupRel.DefaultNumberOfDecimalsCost
+			else
+				8
+
+		DerivedNumberOfDecimalsQuantity is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ContractLine.ItemType.Itemmast
+			or  ContractLine.ItemNumber exists)
+				ContractLine.ItemNumber.NumberOfDecimalsQuantity
+			else
+				4	
+
+	Conditions
+		NewLineDataEntered
+			restricted
+			when (LineItemType entered
+			and   LineDescription entered
+			and  (LineUOM entered
+			or   (LineUOM !entered
+			and   LineItemType = 2
+			and   Contract.ServicePurchaseType))
+			and  (LineServiceCode entered
+			or   (LineServiceCode !entered
+			and   LineItemType != 2)))
+
+		IsCurrentVersion
+			restricted
+			when (CurrentVersion = ContractVersion)
+		
+		ChangeOrderExists
+			restricted
+			when (ContractChangeOrder entered)
+	
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		
+		ContractLineEntered
+			restricted
+			when (ContractLine entered)
+			
+		QuantityService
+			restricted
+			when (ContractLineEntered
+			and   ContractLineRel.ServiceCode.Quantity)
+		
+		ContractHeaderCommitment
+			restricted
+			when (Contract.UseHeaderCommitments)
+		
+		CanCreateDrawDown
+			restricted
+			when (ContractVersion.CanUpdate
+			and   ContractLineEntered
+			and   ContractLine.HasAllowances)
+
+		CanUpdateLine
+			restricted
+			when (ContractVersion.CanUpdate
+			and   ContractLineEntered)
+		
+		CanCreateNewLine
+			restricted
+			when (ContractVersion.CanUpdate
+			and  !ContractLineEntered)
+		
+		CanCreateNewAllowanceAndLine
+			restricted
+			when (ContractVersion.CanUpdate
+			and  !ContractLineEntered)
+
+		CanUpdateAllowanceOnlyLine
+			restricted
+			when (ContractVersion.CanUpdate
+			and   ContractLineEntered
+			and   ContractLine.HasOpenAllowances)
+
+		CanUpdateAllowanceOnlyNoLine
+			restricted
+			when (ContractVersion.CanUpdate
+			and  !ForAllowance.ContractLineEntered
+			and   Contract.HasOpenHeaderOnlyAllowances)			
+
+		CanUpdate
+			restricted
+			when (ContractVersion.CanUpdate)
+
+		CanDelete
+			restricted
+			when (ContractVersion.CanUpdate)
+		
+		ChangeOnlyAllowance
+			restricted
+			when (AllowanceOptions = 1)
+			
+		MoveToFixedAllowance
+			restricted
+			when (AllowanceOptions = 2)
+
+		AllowanceEntered
+			restricted
+			when (ForAllowance entered)
+
+		AllowanceExists
+			restricted
+			when (ContractAllowanceRel exists)
+		
+		ChangeOrderRejected
+			restricted
+			when (ContractVersion.ChangeOrderStatus = 4) 
+
+		CanCreateContractLine
+			restricted
+			when (CreateNewLine
+			and   ContractLine !entered
+			and  (ContractVersion.ChangeOrderStatus = 1
+			or    ContractVersion.ChangeOrderStatus = 2))
+
+	Relations
+	
+		ItemGroupRel
+			one-to-one relation to ItemGroup
+			Field Mapping uses symbolic key
+				related.ItemGroup = ContractGroup
+	
+		UnreleasedPayablesInvoiceDetailRel
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses ByContractLine
+				related.Contract      = Contract
+				related.ContractLine  = ContractLine
+			Instance Selection
+				where (ContractGroup = related.PayablesInvoice.VendorGroup
+				and    related.Status = 0)
+
+		ContractLineRel
+			one-to-one relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ContractLine  = ContractLine	
+
+		ContractLineDistSpreadRel
+			one-to-many relation to ContractLineDistributionSpread
+			Field Mapping uses BySpreadDate
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ContractLine  = ContractLine
+		
+		ContractLineDistributionRel
+			one-to-many relation to ContractLineDistribution
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ContractLine  = ContractLine
+
+		LocalContractLineRel
+			one-to-one relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup = LocalContractGroup
+				related.Contract      = LocalContract
+				related.ContractLine  = LocalLineNumber	
+
+		OpenContractLinesRel
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+			Instance Selection
+				where (related.LineNotClosed)
+
+		DuplicateForLineChangeRel
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses symbolic key
+				related.ContractGroup 		= ContractGroup
+				related.Contract      		= Contract
+				related.ContractVersion     = ContractVersion
+				related.ContractLine  		= ContractLine
+				
+		DuplicateForAllowanceRel
+			one-to-many relation to ContractChangeOrder
+			Field Mapping uses ByAllowance
+				related.ContractGroup 		= ContractGroup
+				related.Contract      		= Contract
+				related.ForAllowance    	= ForAllowance
+				related.ContractLine  		= ContractLine
+				related.ContractVersion     = ContractVersion
+		
+		ContractAllowanceRel
+			one-to-many relation to ContractAllowance
+			Field Mapping uses ByAllowance
+				related.ContractGroup 		= ContractGroup
+				related.Contract      		= Contract
+				related.ContractAllowance	= ForAllowance
+
+	Sets
+	
+		ByAllowance
+			Sort Order
+				ContractGroup
+				Contract
+				ForAllowance
+				ContractLine
+				ContractVersion
+				ContractChangeOrder	
+			Instance Selection
+				where (AllowanceEntered)		
+
+	Rule Blocks
+
+		EditFullAccount	
+			
+			if (Contract.ServicePurchaseType     
+			and Contract.UseLineCommitments)
+				constraint (Account.ToAccountingEntity entered)
+					"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.AccountingEntityLabel>ForAccount"
+				constraint (Account.GeneralLedgerChartAccount entered)
+					"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.AccountLabel>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.AccountingUnitRequired)
+					constraint (Account.AccountingUnit entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.AccountingUnitLabel>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ProjectRequired
+				or  Account.GeneralLedgerChartAccount.RequireProject
+				or (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ValidationDimensionRequiresProject
+				and ContractGroup.BusinessGroup.FinanceEnterpriseGroup.StructureValidationDimension.Dimension3
+				and Account.FinanceDimension3 entered)
+				or (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ValidationDimensionRequiresProject
+				and ContractGroup.BusinessGroup.FinanceEnterpriseGroup.StructureValidationDimension.Dimension4
+				and Account.FinanceDimension4 entered))
+					constraint (Account.Project entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ProjectLabel>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension1Required)
+					constraint (Account.FinanceDimension1 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension1Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Required)
+					constraint (Account.FinanceDimension2 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension2Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension3Required)
+					constraint (Account.FinanceDimension3 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension3Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension4Required)
+					constraint (Account.FinanceDimension4 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension4Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension5Required)
+					constraint (Account.FinanceDimension5 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension5Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension6Required)
+					constraint (Account.FinanceDimension6 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension6Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension7Required)
+					constraint (Account.FinanceDimension7 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension7Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension8Required)
+					constraint (Account.FinanceDimension8 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension8Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension9Required)
+					constraint (Account.FinanceDimension9 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension9Label>ForAccount"
+				if (ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension10Required)
+					constraint (Account.FinanceDimension10 entered)
+						"MustEnter<ContractGroup.BusinessGroup.FinanceEnterpriseGroup.FinanceDimension10Label>ForAccount"
+
+		SendCreateEmail
+		
+			if (!ContractVersion.ChangeOrdersByRequester
+			and  ContractVersion.EnteredByRequester)
+				send email
+					to ContractVersion.ChangeOrderRequester.EmailAddress
+					from Contract.PrimaryContactRel.DerivedEmail
+					subject "ChangeOrderDetailsHaveBeenCreatedForContract<Contract.RepresentativeText>"
+					Contents
+						"ChangeOrderDetailsHaveBeenCreatedByTheContractAdministratorForContract<Contract.RepresentativeText>"	
+			else
+			if (!ContractVersion.ChangeOrdersBySupplier
+			and  ContractVersion.EnteredBySupplier)
+				send email
+					to ContractVersion.ChangeOrderSupplierContact.EmailAddress
+					from config.DefaultFromEmailAddress
+					subject "ChangeOrderDetailsHaveBeenCreatedForContract<Contract.RepresentativeText>"
+					Contents
+						"ChangeOrderDetailsHaveBeenCreatedByTheContractAdministratorForContract<Contract.RepresentativeText>"		
+
+	Field Rules
+	
+		TransientAccountingEntity
+			if (!Contract.UseHeaderCommitments)
+				TransientAccountingEntity = Account.ToAccountingEntity 
+			else
+			if (Contract.UseHeaderCommitments)
+				TransientAccountingEntity = Contract.CommitmentCompany 
+
+		Description
+			required
+			
+		AllowanceAmount
+			if (AllowanceOptions.DrawDown)
+			
+				constraint (AllowanceAmount >= 0)
+					"DrawnDownAmountCannotBeNegative"
+		
+		AllowanceQuantity
+			if (AllowanceOptions.DrawDown)
+			
+				constraint (AllowanceQuantity >= 0)
+					"DrawnDownQuantityCannotBeNegative"
+			
+			if (AllowanceOptions.NewAllowance
+			and ContractLine entered
+			and ContractLine.ServiceCode.Quantity)
+				constraint (AllowanceQuantity entered)
+					"MustEnterAnAllowanceQuantity"
+			
+		Account
+			if (Account entered)
+				include EditFullAccount
+				
+		LineDescription
+			default to Description
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+	Actions
+	
+		Create is a Create Action
+			restricted
+			
+			Action Rules
+			
+				constraint (DuplicateForAllowanceRel !exists)
+					"ChangeOrderDetailAlreadyExistsForThisAllowance;MustAdjustExistingDetail"
+
+				if (ForAllowance !entered)
+					constraint (DuplicateForLineChangeRel !exists)
+						"ChangeOrderDetailAlreadyExistsForThisLine;MustAdjustExistingDetail"
+				
+				include SendCreateEmail
+		
+		CreateNewContractLine is a Create Action
+			valid when (CanCreateNewLine)
+			default label is "CreateNewLine"
+			Field Rules
+			
+				LineItemType
+					default to LineItemType.Service
+			
+			Action Rules
+			
+				CreateNewLine = true
+				
+				if (Contract.UseLineCommitments
+				and !ContractVersion.ChangeOrdersBySupplier
+				and Contract.DefaultAccount !entered)
+					constraint (Account entered)
+						"MustEnterAnAccountIfCreatingAContractLineAndContractUsesLineCommitments"
+			
+				constraint (BaseCost > 0)
+					"AmountMustBeEnteredAndBeGreaterThanZeroIfCreatingNewLine"
+					
+				constraint (Quantity !< 0)
+					"QuantityMustBePositiveIfEnteredWhenCreatingNewLine"				  	
+
+				if (LineItemType = 2)
+					constraint (LineServiceCode entered)
+						"MustEnterAServiceCodeForAServiceItemType"
+				
+				if (LineServiceCode = "Q"
+				or  LineItemType = 1
+				or  LineItemType = 3)
+					constraint (LineUOM entered)
+						"MustEnterA_UOM"
+						
+				if (LineServiceCode = "A"
+				and !Contract.ServicePurchaseType)
+					constraint (LineUOM entered)
+						"MustEnterA_UOM"		
+
+				if (LineServiceCode = "A")
+					constraint (Quantity !entered)
+						"CannotEnterAQuantityForAnAmountService"
+				
+				include SendCreateEmail
+
+			Exit Rules
+			
+				if (NewLineDataEntered)
+					invoke CreateContractLine 
+
+		CreateNewAllowanceAndLine is a Create Action
+			valid when (CanCreateNewAllowanceAndLine)
+			
+			Field Rules
+				ForAllowance
+					required
+					
+				AllowanceAmount
+					required
+			
+				LineItemType
+					default to LineItemType.Service
+
+			Action Rules
+			
+				constraint (DuplicateForAllowanceRel !exists)
+					"ChangeOrderDetailAlreadyExistsForThisAllowance;MustAdjustExistingDetail"
+
+				constraint (ContractAllowanceRel !exists)
+					"AllowanceAlreadyUsedOnContract"
+
+				if (Contract.UseLineCommitments
+				and ContractVersion.ChangeOrderCommitAllowance
+				and !ContractVersion.ChangeOrdersBySupplier
+				and Contract.DefaultAccount !entered)
+					constraint (Account entered)
+						"MustEnterAnAccountIfCreatingACommittedAllowanceAndContractUsesLineCommitments"
+
+				constraint (AllowanceAmount > 0)
+					"AmountMustBeGreaterThanZeroIfCreatingNewAllowance"
+					
+				constraint (AllowanceQuantity >= 0)
+					"QuantityMustBeGreaterThanZeroIfCreatingNewLineAllowanceForQuantityService"							
+
+				if (LineItemType = 2)
+					constraint (LineServiceCode entered)
+						"MustEnterAServiceCodeForAServiceItemType"
+				
+				if (LineServiceCode = "Q"
+				or  LineItemType = 1
+				or  LineItemType = 3)
+					constraint (LineUOM entered)
+						"MustEnterAUOM"
+						
+				if (LineServiceCode = "A"
+				and !Contract.ServicePurchaseType)
+					constraint (LineUOM entered)
+						"MustEnterAUOM"		
+
+				include SendCreateEmail
+
+				AllowanceOptions = AllowanceOptions.NewAllowance
+				CreateNewLine    = true
+
+			Exit Rules
+			
+				if (NewLineDataEntered)
+					invoke CreateContractLine 				
+
+		CreateNewAllowanceNoLine is a Create Action
+			valid when (CanCreateNewAllowanceAndLine)
+			default label is "CreateNewAllowance"
+			Field Rules
+			
+				ForAllowance
+					required
+					
+				AllowanceAmount
+					required
+			
+			Action Rules
+			
+				constraint (DuplicateForAllowanceRel !exists)
+					"ChangeOrderDetailAlreadyExistsForThisAllowance;MustAdjustExistingDetail"
+
+				constraint (ContractAllowanceRel !exists)
+					"AllowanceAlreadyUsedOnContract"
+				
+				if (AllowanceAmount entered)
+					constraint (AllowancePercentOfMaxAmount !entered)
+						"CannotEnterBothAnAllowanceAmountAndAnAllowancePercent"
+				
+				if (AllowancePercentOfMaxAmount !entered)
+					constraint (AllowanceAmount > 0)
+						"AmountMustBeGreaterThanZeroIfCreatingNewAllowance"
+				
+				if (AllowancePercentOfMaxAmount entered)
+					AllowanceAmount = (AllowancePercentOfMaxAmount * Contract.MaximumAmount)
+
+				AllowanceOptions	= AllowanceOptions.NewAllowance
+
+				include SendCreateEmail
+
+		UpdateAllowanceOnlyNoLine is a Create Action
+			valid when (CanUpdateAllowanceOnlyNoLine)
+			default label is "UpdateAllowance"
+			Field Rules
+			
+				ForAllowance
+					required
+					constraint (ContractAllowanceRel exists)
+						"CannotUpdate;AllowanceNotAssociatedWithContract"
+					constraint (DuplicateForAllowanceRel !exists)
+						"ChangeOrderDetailAlreadyExistsForThisAllowance;MustAdjustExistingDetail"
+
+				AllowanceAmount
+					required
+						"AmountMustBeEnteredToUpdateAllowance"
+					constraint ((first ContractAllowanceRel.Amount + AllowanceAmount) !< 0)
+						"CannotReduceAllowanceAmountToLessThanZero"
+			
+				AllowanceQuantity
+					constraint ((first ContractAllowanceRel.Quantity + AllowanceQuantity) !< 0)
+						"CannotReduceAllowanceQuantityToLessThanZero"					
+			
+			Action Rules
+			
+				include SendCreateEmail
+				
+				AllowanceOptions = AllowanceOptions.AllowanceChangeOnly
+				
+		CreateHeaderDrawDown is a Create Action
+			valid when (CanUpdateAllowanceOnlyNoLine)
+			default label is "DrawDownHeaderAllowance"
+
+			Field Rules
+			
+				BaseCost
+					required
+						"MustEnterAnAmountToMoveToContractLineOrLines"
+					constraint (BaseCost !< 0)
+						"MustEnterAPositiveAmountToMoveToContractLineOrLines"
+										
+				ContractLine
+					required
+						"MustEnterAContractLineToDrawDownTo"
+
+				ForAllowance
+					required
+					constraint (ContractAllowanceRel exists)
+						"TheAllowanceToDrawDownFromMustBeAHeaderAllowance"		
+					constraint (DuplicateForAllowanceRel !exists)
+						"ChangeOrderDetailAlreadyExistsForThisAllowance;MustAdjustExistingDetail"
+				
+				AllowanceAmount
+					required
+						"MustEnterAnAmountToDrawDownFromTheAllowance"
+					constraint (AllowanceAmount !< 0)
+						"MustEnterAmountToDrawDownAsAPositiveAmount"	
+				
+			Action Rules
+			
+				constraint (first ContractAllowanceRel.Amount - AllowanceAmount >= 0)
+					"CannotDrawDownAllowanceAmountToLessThanZero"						
+					
+				AllowanceOptions = 2
+
+				include SendCreateEmail
+
+		Update is an Update Action
+			valid when (CanUpdate)
+			
+			Field Rules
+			
+				ForAllowance
+					if (AllowanceOptions.DrawDown)
+						required
+			
+			Action Rules
+			
+				if (AllowanceOptions.DrawDown)
+				
+					constraint (AllowanceAmount entered
+					or          AllowanceQuantity entered)
+						"IfDoingADrawDown,MustEnterADrawDownAmountOrQuantity"
+						
+					if (AllowanceAmount entered)
+						constraint (BaseCost entered) 
+							"MustEnterAnAmountToMoveToContractLineIfDoingADrawDown"
+						constraint (BaseCost !< 0)
+							"MustEnterAPositiveAmountToMoveToContractLineIfDoingADrawDown"
+					
+					if (AllowanceQuantity entered)
+						constraint (Quantity entered)
+							"MustEnterAQuantityToMoveToContractLineIfDoingADrawDownForQuantity"	
+						constraint (Quantity !< 0)
+							"MustEnterAPositiveAmountToMoveToContractLineIfDoingADrawDown"
+
+					constraint (first ContractAllowanceRel.Amount - AllowanceAmount >= 0)
+						"CannotDrawDownAllowanceAmountToLessThanZero"	
+
+				if (CreateNewLine
+				and !AllowanceOptions.NewAllowance)
+					constraint (BaseCost > 0)
+						"AmountMustBeEnteredAndBeGreaterThanZeroIfCreatingNewLine"
+
+					constraint (Quantity !< 0)
+						"QuantityMustBePositiveIfEnteredWhenCreatingNewLine"					
+
+				if (AllowanceOptions.NewAllowance)
+					constraint (AllowanceAmount > 0)
+						"AmountMustBeGreaterThanZeroIfCreatingNewAllowance"
+
+				if (Account entered)
+					include EditFullAccount
+
+				if (BaseCost !entered
+				and Quantity !entered
+				and AllowanceAmount !entered
+				and AllowanceQuantity !entered)
+					confirmation required
+						"NoAmountOrQuantityWasEntered;VerifyingThatThisDetailDoesNotNeedAnAmountOrQuantity"					
+
+				if (LineItemType = 2)
+					constraint (LineServiceCode entered)
+						"MustEnterAServiceCodeForAServiceItemType"
+				
+				if (LineServiceCode = "Q"
+				or  LineItemType = 1
+				or  LineItemType = 3)
+					constraint (LineUOM entered)
+						"MustEnterAUOM"
+						
+				if (LineServiceCode = "A"
+				and !Contract.ServicePurchaseType)
+					constraint (LineUOM entered)
+						"MustEnterAUOM"		
+
+				if (!FromLineCreation)
+					if (!ContractVersion.ChangeOrdersByRequester
+					and  ContractVersion.EnteredByRequester)
+						send email
+							to ContractVersion.ChangeOrderRequester.EmailAddress
+							from Contract.PrimaryContactRel.DerivedEmail
+							subject "ChangeOrderDetailsHaveBeenUpdatedForContract<Contract.RepresentativeText>"
+							Contents
+								"ChangeOrderDetailsHaveBeenUpdatedByTheContractAdministratorForContract<Contract.RepresentativeText>"	
+					else
+					if (!ContractVersion.ChangeOrdersBySupplier
+					and  ContractVersion.EnteredBySupplier)
+						send email
+							to ContractVersion.ChangeOrderSupplierContact.EmailAddress
+							from config.DefaultFromEmailAddress
+							subject "ChangeOrderDetailsHaveBeenUpdatedForContract<Contract.RepresentativeText>"
+							Contents
+								"ChangeOrderDetailsHaveBeenUpdatedByTheContractAdministratorForContract<Contract.RepresentativeText>"	
+
+			Exit Rules
+			
+				if (NewLineDataEntered
+				and ContractLine !entered)
+					invoke CreateContractLine 		
+			
+				if (CreateNewLine
+				and ContractLine entered)
+					if (BaseCost changed
+					or  Quantity changed)
+						invoke Update Draft ContractLineRel
+							invoked.BaseCost 				= BaseCost 
+							invoked.LifetimeMaximumQuantity = Quantity					 
+				
+		DeleteChangeOrder is an Instance Action
+			valid when (CanDelete)
+			default label is "Delete"
+			
+			Action Rules
+			
+				if (!ContractVersion.ChangeOrdersBySupplier
+				and ContractVersion.EnteredBySupplier
+				and !FromLineCreation)
+					confirmation required
+						"YouAreDeletingChangeOrderDetailsForAChangeOrderCreatedByASupplier;DoYouWishToContinue?"
+				
+				if (!FromLineCreation)
+					if (!ContractVersion.ChangeOrdersByRequester
+					and  ContractVersion.EnteredByRequester)
+						send email
+							to ContractVersion.ChangeOrderRequester.EmailAddress
+							from Contract.PrimaryContactRel.DerivedEmail
+							subject "ChangeOrderDetailsHaveBeenDeletedForContract<Contract.RepresentativeText>"
+							Contents
+								"ChangeOrderDetailsHaveBeenDeletedByTheContractAdministratorForContract<Contract.RepresentativeText>"	
+					else
+					if (!ContractVersion.ChangeOrdersBySupplier
+					and  ContractVersion.EnteredBySupplier)
+						send email
+							to ContractVersion.ChangeOrderSupplierContact.EmailAddress
+							from config.DefaultFromEmailAddress
+							subject "ChangeOrderDetailsHaveBeenDeletedForContract<Contract.RepresentativeText>"
+							Contents
+								"ChangeOrderDetailsHaveBeenDeletedByTheContractAdministratorForContract<Contract.RepresentativeText>"	
+						
+				invoke Delete
+				if (ContractLine entered
+				and CreateNewLine)
+					invoke Delete ContractLineRel	
+	
+		Delete is a Delete Action
+			restricted
+		
+		UpdateLines is an Instance Action
+			restricted
+			Action Rules
+			
+				if (Contract.ChangeOrderMaxAmountUpdate
+				and Contract.MaximumAmount > 0
+				and CommittedLineAmount != 0)
+					invoke FastUpdateWithoutEdits Contract
+						invoked.UpdateForChangeOrderCommit     = true
+						invoked.MaxAmountAdjustment            = CommittedLineAmount
+
+				if (ContractLine entered
+				and CreateNewLine = true
+				and BaseCost > 0
+				and Contract.CreateCommitments.LineSpread
+				and Contract.ChangeOrderMaxAmountUpdate)
+					for each ContractLineDistributionRel
+						invoke UpdateOrCreateSpreadFromChangeOrder each		
+							invoked.ChangeAmount = CommittedLineAmount
+				
+				if (((ContractLine entered
+				and CreateNewLine = false)
+				or  AllocateDrawDown)
+				and (AllowanceOptions = 0
+				or   AllowanceOptions = 2))
+					if (BaseCost < 0)
+						constraint (ContractLine.BaseCost + BaseCost >= 0)
+							"CannotReduceContractLineValueToLessThanZero"
+					
+						if (ContractLine.AmountTypeServiceItem)
+							constraint (ContractLine.BaseCost + BaseCost >= ContractLine.AmountOrdered)
+								"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"	
+						else
+						if (ContractLine.QuantityServiceItem)
+							constraint (ContractLine.BaseCost * ContractLine.LifetimeMaximumQuantity + CommittedLineAmount >= ContractLine.AmountOrdered)				
+								"CannotReduceContractLineValueToLessThanAmountInvoicedOrOrdered"
+					
+						if (Contract.CreateCommitments.LineSpread
+						and Contract.ChangeOrderMaxAmountUpdate)
+							for each ContractLineDistributionRel
+								LocalPercent = each.Percent
+								for each each.CurrentContractLineDistSpreadRel
+									if (current date >= each.SpreadDate)
+										constraint ((each.SpreadAmount + BaseCost * LocalPercent) >= each.UsedAmount)
+											"ForAssociatedSpread,CannotLowerSpreadAmountBelowTheUsedAmount"									
+									end for each
+									
+					if (Quantity < 0)
+						constraint (ContractLine.LifetimeMaximumQuantity + Quantity > 0)
+							"CannotReduceContractLineLifetimeMaximumQuantityToLessThanZero"  
+				
+					if (BaseCost entered
+					or  Quantity entered)
+						if (ContractLine entered)
+							invoke FastUpdateWithoutEdits ContractLine
+								invoked.UpdateBaseCostFromChangeOrder = true
+								invoked.BaseCostAdjustment            = BaseCost
+								invoked.QuantityAdjustment            = Quantity					
+						else
+						if (AllocateDrawDown)
+							for each OpenContractLinesRel
+								invoke FastUpdateWithoutEdits each
+									invoked.UpdateBaseCostFromChangeOrder = true
+									invoked.BaseCostAdjustment            = (BaseCost * (each.LifetimeMaximumAmount/TotalLineMaxAmounts))
+							
+					if (ContractLine entered)
+						if (ContractLine.BaseCost = 0
+						or (ContractLine.LifetimeMaximumQuantity = 0
+						and ContractLine.ServiceCode.Quantity))
+							invoke CloseLine ContractLine
+
+				if (AllowanceOptions = 1)
+					
+					invoke UpdateFromChangeOrder first ContractAllowanceRel
+						if (AllowanceAmount entered)
+							invoked.ParmAmount 		= AllowanceAmount
+
+						if (AllowanceQuantity entered)
+							invoked.ParmQuantity	= AllowanceQuantity
+				
+				if (AllowanceOptions = 2)
+					
+					invoke UpdateFromChangeOrder first ContractAllowanceRel
+						if (AllowanceAmount entered)
+							invoked.ParmAmount 		= (AllowanceAmount * -1)
+
+						if (AllowanceQuantity entered)
+							invoked.ParmQuantity	= (AllowanceQuantity * -1)
+					
+				if (AllowanceOptions = 3)
+					invoke CreateIndirect ContractAllowance
+						invoked.ContractGroup		= ContractGroup
+						invoked.Contract 			= Contract
+						invoked.ContractLine        = ContractLine
+						invoked.ContractAllowance	= ForAllowance
+						invoked.Description         = AllowanceDescription
+						invoked.Amount  			= AllowanceAmount           
+						invoked.Quantity            = AllowanceQuantity
+						if (ContractHeaderCommitment
+						or (ContractLine entered
+						and ContractLine.UseCommitments))  
+							invoked.Committed       = ContractVersion.ChangeOrderCommitAllowance
+							
+		CreateFromContractLine is an Instance Action
+			restricted
+			Parameters
+				ParmContractGroup               is like ContractGroup
+				ParmContract                    is like Contract
+				ParmContractLine                is like ContractLine
+				ParmContractVersion             is like ContractVersion
+				ParmBaseCost                    is a ContractUnitCost
+				ParmQuantity                    is a Quantity
+				ParmDescription                 is Text
+				ParmAttachment                  is an Attachment
+				ParmAccount                     is like FinanceCodeBlock
+				ParmChangeReason                is a Description
+				ParmCreateNewLine				is Boolean
+				ParmForAllowance                is like ContractAllowance
+				ParmAllowanceAmount             is a ContractUnitCost
+				ParmAllowanceQuantity           is a Quantity
+				ParmAllowanceOptions            is Numeric 1
+				ParmUOM                         is a CMUnitOfMeasureEdit
+				ParmLineDescription             is a Description
+				ParmServiceCode                 is Alpha size 1
+				ParmItemType                    is Numeric size 1
+
+			Action Rules
+			
+				invoke Create
+					invoked.ContractGroup 		= ParmContractGroup
+					invoked.Contract      		= ParmContract
+					invoked.ContractLine        = ParmContractLine
+					invoked.ContractVersion	    = ParmContractVersion
+					invoked.BaseCost            = ParmBaseCost
+					invoked.Quantity            = ParmQuantity
+					invoked.Description         = ParmDescription
+					invoked.Attachment          = ParmAttachment	
+					invoked.ChangeReason        = ParmChangeReason
+					invoked.CreateNewLine       = ParmCreateNewLine
+					invoked.ForAllowance        = ParmForAllowance
+					invoked.AllowanceOptions    = ParmAllowanceOptions
+					invoked.AllowanceAmount     = ParmAllowanceAmount
+					invoked.AllowanceQuantity   = ParmAllowanceQuantity
+					invoked.LineUOM             = ParmUOM
+					invoked.LineDescription     = ParmLineDescription
+					invoked.LineItemType        = ParmItemType
+					invoked.LineServiceCode     = ParmServiceCode
+					if (ParmAccount entered)
+						invoked.Account			= ParmAccount					
+
+		DeleteLineFromReject is an Instance Action
+			restricted
+			
+			Action Rules
+			
+				LocalLineNumber 	= ContractLine
+				LocalContract   	= Contract
+				LocalContractGroup	= ContractGroup
+				invoke CloseLine LocalContractLineRel
+
+		CreateContractLine is an Instance Action
+			restricted
+			
+			Local Fields
+				NewContractLine is a ContractLine view
+
+			Action Rules
+				
+				invoke Create ContractLine
+					assign result to NewContractLine
+					invoked.ContractGroup 			= ContractGroup
+					invoked.Contract      			= Contract
+					invoked.BaseCost      			= BaseCost
+					invoked.LifetimeMaximumQuantity	= Quantity
+					if (BaseCost = 0)
+						invoked.CostOption          = 3 
+					invoked.ItemType      			= LineItemType
+					invoked.ServiceCode   			= LineServiceCode
+					invoked.UOM           			= LineUOM
+					invoked.TransientAccount		= Account
+					invoked.ItemDescription     	= LineDescription
+					invoked.EffectiveDate           = current date
+								
+				invoke CreateFromContractLine
+					invoked.ParmContractGroup 		= ContractGroup
+					invoked.ParmContract      		= Contract
+					invoked.ParmContractLine        = NewContractLine.ContractLine
+					invoked.ParmContractVersion	    = ContractVersion
+					invoked.ParmBaseCost            = BaseCost
+					invoked.ParmQuantity            = Quantity
+					invoked.ParmDescription         = Description
+					invoked.ParmAttachment          = Attachment	
+					invoked.ParmChangeReason        = ChangeReason
+					invoked.ParmCreateNewLine       = CreateNewLine
+					invoked.ParmForAllowance        = ForAllowance
+					invoked.ParmAllowanceOptions    = AllowanceOptions
+					invoked.ParmAllowanceAmount     = AllowanceAmount
+					invoked.ParmAllowanceQuantity   = AllowanceQuantity
+					invoked.ParmUOM                 = LineUOM
+					invoked.ParmDescription         = LineDescription
+					invoked.ParmServiceCode         = LineServiceCode
+					invoked.ParmItemType            = LineItemType
+					if (Account entered)
+						invoked.ParmAccount			= Account	
+					
+				FromLineCreation = true
+				invoke Delete	
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop			
+				
+				

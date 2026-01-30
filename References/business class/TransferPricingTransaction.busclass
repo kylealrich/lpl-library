@@ -1,0 +1,733 @@
+TransferPricingTransaction is a BusinessClass
+	owned by transpricing
+	
+	prefix is TrBl
+	
+	Ontology
+		symbolic key is TransferPricingTransaction
+		
+	
+	Patterns
+	
+	Persistent Fields
+		TransactionNumber				is Numeric size 9
+		FromEntity						is an AccountingEntity
+		ToEntity						is an AccountingEntity
+		FromCompany						is a GeneralLedgerCompany
+		ToCompany						is a GeneralLedgerCompany
+		Currency						is a FromCurrency
+			default label is "RechargeCurrency"
+		TransactionAmount				is an CurrencyAmount	
+			precision is Currency.NumberOfDecimals 	
+		TargetTransactionAmount			is an InternationalAmount
+			default label is "BillingDocumentTotal"	
+			precision is TargetCurrency.NumberOfDecimals 		
+		TargetCurrency					is a ToCurrency
+			default label is "BillingDocumentCurrency"	
+		CurrencyTable
+			default label is "BillingDocumentCurrencyTable"
+		TargetCurrencyExchangeRate		is a CurrencyExchangeRate
+			default label is "BillingExchangeRate"
+		
+		ReceivablesRevenueAccount		is a FinanceCodeBlockFull
+		PayablesExpenseAccount			is a FinanceCodeBlockFull
+
+		AllocationSourceSystem		
+		AllocationControl
+		AllocationRun
+		Allocation
+		AllocationLine
+		ErrorMessage					is Alpha 150
+		
+		Status							is Numeric 1
+            States
+                Unprocessed			value is 0
+                Processed			value is 1
+                Failed				value is 2
+                Processing			value is 3
+                ReportOnly			value is 4
+                CombinedEntity		value is 5
+                
+       	ErrorType						is Numeric 1
+			States	
+				NoError						value is 0
+				NegativeAmount				value is 1
+				SourceToRechargeCurrency   	value is 2
+				
+	Context Fields
+		ContextTransferPricingBatchRun is a TransferPricingBatchRun
+		
+	Local Fields
+		LocalCurrencyExchange			is a CurrencyExchange
+		LocalValidateCurrency			is a CurrencyExchange
+		LocalInterfaceAll				is Boolean
+	
+	Transient Fields
+		ExchangeDate
+			derive value from TransferPricingRun.TransactionDate
+			
+		WarningFlag						is Boolean
+			derive value from DerivedWarningFlag
+
+
+	Derived Fields
+	
+		DerivedWarningFlag is a DerivedField
+			type is Boolean
+			restricted
+			LocalCurrencyExchange.ToCurrency = TargetCurrency
+			if (not IsRateUndefined
+			and not BillFromCurrencyWarningExists
+			and (ReceivableCompanyRel not exists or not FromCompanyWarningExists)
+			and (not ToCompanyExists or not ToCompanyWarningExists))
+
+				return true
+			else
+				return false
+			
+		NegativeAmountErrorMessage is a MessageField
+			"CannotProcessNegativeAmount"
+			
+		SourceToRechargeCurrencyErrorMessage is a MessageField
+			"CurrencyRelationshipOrRateDoesNotExistBetweenSourceCurrencyAndRechargeCurrency."
+	
+		RateWarningMessage is a MessageField
+			"CurrencyRateDoesNotExist"
+				
+		FromCompanySetupWarningMessage is a MessageField
+			"ReceivablesCompany<FromCompany>IsNotSetupForIntercompanyBilling"
+		
+		ToCompanySetupWarningMessage is a MessageField
+			"PayablesCompany<ToCompany>IsNotSetupForIntercompanyBilling"
+		
+		BillFromCurrencyWarningMessage is a MessageField
+			"BillingDocumentCurrency<TargetCurrency>MustBeReceivableCompanyFunctionalCurrency<FromCompany.Currency>"
+		
+		DerivedErrorMessage is a DerivedField
+			type is Alpha 150
+			if (not Status.CombinedEntity
+			and ReceivableCompanyRel not exists)
+				return "Receivables company is missing"
+			
+			if (ErrorMessage entered)
+				return ErrorMessage
+				
+			if (ErrorType = ErrorType.NegativeAmount)
+				return NegativeAmountErrorMessage
+				
+			if (ErrorType = ErrorType.SourceToRechargeCurrency)
+				return SourceToRechargeCurrencyErrorMessage
+				
+		ToCompanyNotExistErrorMessage is a MessageField
+			"PayablesCompanyIsMissing"
+						
+		DerivedCreatedICBDocumentID is a DerivedField
+			type is Numeric 12	
+			return IntercompanyBillingDocumentHeaderRel.IntercompanyBillingDocumentHeader			
+	
+		DerivedParentOrMergedEntity is a DerivedField
+			type is Alpha up to 15
+			if (HasChildren)
+				return "Parent"
+			else
+			if (HasParent)
+				return "Combined Entity"
+			else
+				return "None"
+		
+		DerivedCombinedEntityFlag is a DerivedField
+			type is Alpha size 12
+			if (HasParent
+			and Parent.ToEntity not = ToEntity)
+				return Parent.ToEntity
+			else
+				return "None"
+
+		RechargeTransactionText		is a MessageField
+			restricted
+			"Recharge_Transaction"
+
+		RechargeTransactionDescription is a MessageField
+			"<TransferPricing.Description>_-_<TransferPricingTransaction>"
+
+		RechargeTransactionDescriptionTitle is a MessageField
+			restricted
+			"Recharge_Transaction<RechargeTransactionDescription>"
+	
+		TransferPricingTransactionTitle		is a DerivedField
+			type is MessageField
+			if (TransferPricingTransaction exists)
+				return RechargeTransactionDescriptionTitle
+			else
+				return RechargeTransactionText 
+		
+		DerivedRechargeAmount is a DerivedField
+			type is Alpha 30
+			default label is "RechargeAmount"
+			return TransactionAmount + " " + Currency
+			
+		DerivedBillingDocumentTotal is a DerivedField
+			type is Alpha 30
+			default label is "BillingDocumentTotal"
+			return TargetTransactionAmount  + " " + TargetCurrency 
+	Field Rules
+		TargetTransactionAmount
+ 			force default to LocalCurrencyExchange.OutputCurrencyAmount
+ 		
+ 		TargetCurrencyExchangeRate	
+	 		force default to LocalCurrencyExchange.OutputCurrencyRate
+		
+		TargetCurrency
+			default to TransferPricing.BillingDocumentCurrency
+			
+		CurrencyTable
+			default to TransferPricing.BillingDocumentCurrencyTable
+			
+		ToCompany
+			if (not TransferPricing.AllEntities)
+				default to BillToTransferPricingEntitityRel.Company
+			default to BillToTransferPricingGlobalEntityRel.Company
+			
+	Conditions		
+		HasChildren
+			restricted
+			when (ChildrenRel exists)
+			
+		HasParent
+			restricted
+			when (Parent entered)
+			
+		ErrorExists
+			restricted
+			when (ErrorMessage entered or not ErrorType.NoError)
+			
+		ToCompanyExists
+			restricted
+			when (Status.CombinedEntity
+			or    PayablesCompanyRel exists)
+		
+		BatchErrorExists
+			restricted
+			when (TransferPricingRun.BatchRun entered
+			and	  ErrorMessage entered)
+		
+		BillFromCurrencyWarningExists
+			restricted
+			when  (not Status.CombinedEntity
+			and    not FromCompany = ToCompany
+			and    not TargetCurrency = FromCompany.Currency
+			and    (FromCompany.ReceivableCompanyRel.UseBillFromFunctionalCurrency.Yes
+			or     (FromCompany.ReceivableCompanyRel.UseBillFromFunctionalCurrency.UseIntercompanyBillingGroupValue
+			and     IntercompanyBillingGroupRel.UseBillFromFunctionalCurrency)))
+		
+		FromCompanyWarningExists
+			restricted
+			when (ReceivableCompanyRel exists
+			and   not FromCompany.IsAValidIntercompanyBillingCompany
+			and	  not BatchErrorExists
+			and   not Status.CombinedEntity)
+			
+		ToCompanyWarningExists
+			restricted
+			when (ToCompanyExists
+			and   not ToCompany.IsAValidIntercompanyBillingCompany
+			and	  not BatchErrorExists
+			and   not Status.CombinedEntity)
+			
+		IsValidForICB
+			restricted
+			when (not HasParent
+			and   Status.Unprocessed
+			and   not ErrorExists
+			and   DerivedWarningFlag
+			and   FromCompany != ToCompany
+			and	  TargetTransactionAmount > 0
+			and   TransferPricingRun.TransferPricing.Status.Active)
+			
+		IsRelationshipAndRateDefined
+			restricted
+			when (LocalCurrencyExchange.IsRelationshipAndRateDefined)
+			
+		IsBillingDocumentCreated
+			restricted
+			when (IntercompanyBillingDocumentHeaderRel exists
+			and   not Status.CombinedEntity)
+			
+		IsRateUndefined
+			restricted
+			when (TargetCurrencyExchangeRate not entered)
+		
+		IsUnprocessed
+			restricted
+			when (Status.Unprocessed)
+			
+	Sets
+		ByRechargeNameAscending
+    		indexed
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+				
+		ByReceivablesCompanyAscending
+			Sort Order
+    			FinanceEnterpriseGroup
+    			FromCompany
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+
+		ByFromEntityAscending
+			Sort Order
+    			FinanceEnterpriseGroup
+    			FromEntity
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+
+		ByPayablesCompanyAscending
+			Sort Order
+    			FinanceEnterpriseGroup
+    			ToCompany
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+
+		ByToEntityAscending
+			Sort Order
+    			FinanceEnterpriseGroup
+    			ToEntity
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+				
+		ByCreateStampDescending
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			create stamp descending
+    			TransferPricing
+				TransferPricingRun 
+				TransferPricingTransaction
+
+		ByStatusAscending
+			Sort Order
+    			FinanceEnterpriseGroup
+    			Status
+    			TransferPricing
+				TransferPricingRun
+				TransferPricingTransaction
+			
+	Relations
+		ChildrenRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.TransferPricing			= TransferPricing 
+				related.TransferPricingRun		= TransferPricingRun
+			Instance Selection
+				where (related.Parent = TransferPricingTransaction)	
+				
+
+
+
+
+
+
+
+		IntercompanyBillingGroupRel
+			one-to-one relation to IntercompanyBillingGroup
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup 	= FinanceEnterpriseGroup
+		
+		TransferPricingGlobalEntityRel
+			one-to-one relation to TransferPricingGlobalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.AccountingEntity				= ToEntity
+				
+		TransferPricingEntityRel
+			one-to-one relation to TransferPricingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.TransferPricing					= TransferPricing
+				related.AccountingEntity				= ToEntity
+				
+		ReceivableCompanyRel
+			one-to-one relation to ReceivableCompany
+			Field Mapping uses symbolic key
+				related.Company							= FromCompany
+				
+		PayablesCompanyRel
+			one-to-one relation to PayablesCompany
+			Field Mapping uses symbolic key
+				related.Company							= ToCompany
+				
+		BillToTransferPricingEntitityRel
+			one-to-one relation to TransferPricingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricing
+				related.AccountingEntity			= ToEntity
+		
+		BillToTransferPricingGlobalEntityRel
+			one-to-one relation to TransferPricingGlobalEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AccountingEntity			= ToEntity
+				
+		TransferPricingProcessedInSamePeriodTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+				related.TransferPricing					= TransferPricing 
+			Instance Selection
+				where (related.Status.Processed and related.AllocationRun.AllocationPeriod	= AllocationRun.AllocationPeriod
+				and related.FromCompany	= FromCompany and related.ToCompany	= ToCompany)
+				
+		TransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.TransferPricing			= TransferPricing 
+				related.TransferPricingRun		= TransferPricingRun
+				
+		AllocationLineSourceValueWithErrorRel
+			one-to-many relation to AllocationLineSourceValue
+			Field Mapping uses ByAllocationRun
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup 
+
+
+				related.AllocationRun					= TransferPricingRun.AllocationRun
+			Instance Selection
+				where ((related.FinanceAddress.AccountingEntity = FromCompany.AccountingEntity 
+				or related.Allocation = ToCompany.AccountingEntity)	
+				and related.ErrorMessage entered)
+				
+		IntercompanyBillingDocumentHeaderRel
+			one-to-many relation to IntercompanyBillingDocumentHeader
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup		= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.OriginatedFrom.TransferPricing
+				and    related.ReceivableEntity.Company	= FromCompany
+				and    related.PayableEntity.Company 	= ToCompany
+				and    related.OriginatingDocument 		= reference to TransferPricingRun)
+				
+		IntercompanyBillingTransactionRel
+			one-to-many relation to IntercompanyBillingTransaction
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup		= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.OriginatingTransaction	= reference to this instance)
+				
+		OtherUnprocessedTransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.TransferPricing			= TransferPricing 
+				related.TransferPricingRun		= TransferPricingRun
+			Instance Selection
+				where (not related.TransferPricingTransaction = TransferPricingTransaction
+				and    (related.Status.Unprocessed or related.Status.Processing))
+				
+	Actions
+		InternalUpdate is an Update Action
+			restricted
+			Action Rules
+				if (not Status.CombinedEntity)
+					if (ErrorType entered)
+						make transition to Failed
+					else
+						if (FromCompany = ToCompany)
+							make transition to ReportOnly
+
+		Delete is a Delete Action
+			restricted
+			Entrance Rules
+				initialize AllocationControl
+				initialize AllocationRun
+				initialize Allocation
+				initialize AllocationLine
+				
+		ResolveAccounts is an Instance Action
+			restricted
+			Parameters
+				PrmReceivablesRevenueAccount		is a FinanceCodeBlock
+				PrmPayablesExpenseAccount			is a FinanceCodeBlock
+			Parameter Rules
+				PrmReceivablesRevenueAccount
+					default PrmReceivablesRevenueAccount.ToAccountingEntity	to TransferPricingEntityRel.ReceivablesRevenueAccountOverride.ToAccountingEntity
+					default to TransferPricingEntityRel.ReceivablesRevenueAccountOverride
+						default individual fields
+					default to TransferPricing.ReceivablesRevenueAccountOverride
+						default individual fields
+					default to TransferPricingGlobalEntityRel.ReceivablesRevenueAccountOverride
+						default individual fields
+					default to TransferPricing.RechargeItem.FromReceivablePLAccount
+						default individual fields
+						
+				PrmPayablesExpenseAccount
+					default PrmPayablesExpenseAccount.ToAccountingEntity to TransferPricingEntityRel.PayablesExpenseAccountOverride.ToAccountingEntity
+					default to TransferPricingEntityRel.PayablesExpenseAccountOverride
+						default individual fields
+					default to TransferPricing.PayablesExpenseAccountOverride
+						default individual fields
+					default to TransferPricingGlobalEntityRel.PayablesExpenseAccountOverride
+						default individual fields
+					default to TransferPricing.RechargeItem.ToPayablePLAccount
+						default individual fields
+			Local Fields
+				LocalTransactionErrorMessage	is Alpha 150
+ 			Action Rules
+				invoke InternalUpdate
+					resume on error
+						LocalTransactionErrorMessage 		= error message
+					invoked.ReceivablesRevenueAccount		= PrmReceivablesRevenueAccount
+					invoked.PayablesExpenseAccount			= PrmPayablesExpenseAccount
+					
+				if (LocalTransactionErrorMessage entered)		
+					invoke SetFields
+						invoked.PrmReceivablesRevenueAccount	= PrmReceivablesRevenueAccount
+						invoked.PrmPayablesExpenseAccount		= PrmPayablesExpenseAccount
+						invoked.PrmErrorMessage					= LocalTransactionErrorMessage
+			
+				
+		SetTransactionAmount is an Instance Action
+			restricted
+			Parameters
+				PrmTransactionAmount				is an CurrencyAmount
+			Local Fields
+				LocalTransactionErrorMessage	is Alpha 150
+ 			Action Rules
+				invoke InternalUpdate
+					resume on error
+						LocalTransactionErrorMessage 		= error message
+					invoked.TransactionAmount				= PrmTransactionAmount
+					if (PrmTransactionAmount < 0)
+						invoked.ErrorType					= ErrorType.NegativeAmount
+					else
+						if (AllocationLineSourceValueWithErrorRel exists)
+							invoked.ErrorType				= ErrorType.SourceToRechargeCurrency
+					
+				if (LocalTransactionErrorMessage entered)		
+					invoke SetFields
+						invoked.PrmTransactionAmount			= PrmTransactionAmount
+						invoked.PrmErrorMessage					= LocalTransactionErrorMessage
+		
+		AddTransactionAmount is an Instance Action
+			restricted
+			Parameters
+				PrmTransactionAmount				is an CurrencyAmount
+			Local Fields
+				LocalTransactionErrorMessage	is Alpha 150
+ 			Action Rules
+				invoke InternalUpdate
+					resume on error
+						LocalTransactionErrorMessage 		= error message
+					invoked.TransactionAmount				+= PrmTransactionAmount
+					if (PrmTransactionAmount < 0)
+						invoked.ErrorType					= ErrorType.NegativeAmount
+					else
+						if (AllocationLineSourceValueWithErrorRel exists)
+							invoked.ErrorType				= ErrorType.SourceToRechargeCurrency
+					
+				if (LocalTransactionErrorMessage entered)		
+					invoke SetFields
+						invoked.PrmTransactionAmount			= TransactionAmount
+						invoked.PrmErrorMessage					= LocalTransactionErrorMessage
+						
+		SetFields is an Instance Action
+			restricted
+			Parameters
+				PrmReceivablesRevenueAccount	is a FinanceCodeBlock
+				PrmPayablesExpenseAccount		is a FinanceCodeBlock
+				PrmTransactionAmount			is an CurrencyAmount
+				PrmErrorMessage					is Alpha 150
+			Action Rules
+				ReceivablesRevenueAccount		= PrmReceivablesRevenueAccount
+				PayablesExpenseAccount			= PrmPayablesExpenseAccount
+				TransactionAmount				= PrmTransactionAmount
+				ErrorMessage 					= PrmErrorMessage
+				Status							= Status.Failed
+		
+		UpdateFields is an Instance Action
+			restricted
+			Parameters
+				PrmTransactionNumber			is Numeric size 9
+				PrmParentTransaction			is a TransferPricingTransaction
+				PrmSetChildStatus				is Boolean
+		    Action Rules
+		    	if (PrmTransactionNumber entered)
+		    		TransactionNumber			= PrmTransactionNumber
+		    	if (PrmParentTransaction entered)
+		    		Parent						= PrmParentTransaction
+		    	if (PrmSetChildStatus)
+		    		Status						= Status.CombinedEntity
+		    		initialize FromCompany
+		    		initialize ToCompany
+		    		
+		InterfaceAllTransactions is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+				PrmTransferPricing			is a TransferPricing
+				PrmTransferPricingRun		is a TransferPricingRun
+				
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and    TransferPricing			= PrmTransferPricing
+				and    TransferPricingRun		= PrmTransferPricingRun
+				and    IsValidForICB)
+				
+			Action Rules
+				Set Rules
+					Exit Rules
+						invoke SetRunToProcessed Completed PrmTransferPricingRun
+				Instance Rules
+					LocalInterfaceAll = true
+					invoke CreateBillingDocument
+					
+				
+	StateCycles
+		ICBProcessing is a StateCycle
+			state field is Status
+			
+			Unprocessed is a State
+				Create is a Create Action
+					restricted
+					Action Rules
+				
+				Update is an Update Action
+					valid when (not HasParent)
+					Local Fields
+						LocalTotalTransactionAmount		is an InternationalAmount
+					Action Rules
+						if (TargetCurrency changed
+						and BillFromCurrencyWarningExists)
+							constraint (TargetCurrency = FromCompany.Currency)
+								"<BillFromCurrencyWarningMessage>"
+						
+						if (ErrorType entered)
+							make transition to Failed
+						else
+							if (FromCompany = ToCompany)
+								make transition to ReportOnly
+		
+						if (ChildrenRel exists)	
+							if (TargetCurrency changed)				
+								for each ChildrenRel
+									invoke InternalUpdate each
+										invoked.TargetCurrency = TargetCurrency
+									LocalTotalTransactionAmount += each.TransactionAmount
+								TransactionAmount = LocalTotalTransactionAmount 							
+							
+								
+				RecalculateBillingTotal is an Instance Action
+					valid when (not HasParent)
+					Action Rules
+						invoke Unprocessed.Update
+				
+				CreateBillingDocument is an Instance Action
+					valid when (IsValidForICB)
+					default label is "InterfaceRechargeTransaction"
+					Local Fields
+						LocalIntercompanyBillingTransactionView		is an IntercompanyBillingTransaction view
+						LocalIntercompanyBillingTransaction			is an IntercompanyBillingTransaction
+						AsyncId										is a AsyncActionRequest
+						LocalFromCurrencyValidation					is a FromCurrency
+					Action Rules
+						constraint (FromCompany.IsAValidIntercompanyBillingCompany)
+							"ReceivablesCompanyIsNotSetupForIntercompanyBilling"
+
+
+
+
+
+
+						
+						constraint (ToCompany.IsAValidIntercompanyBillingCompany)
+							"PayablesCompanyIsNotSetupForIntercompanyBilling"
+
+						LocalFromCurrencyValidation		 	= Currency
+						Currency							= TargetCurrency
+						LocalValidateCurrency.ToCurrency 	= FromCompany.Currency
+						constraint (LocalValidateCurrency.IsRelationshipAndRateDefined)
+							"CurrencyRateDoesNotExistBetweenBillingDocumentCurrency<TargetCurrency>AndReceivableCompanyCurrency<FromCompany.Currency>InRateTable<CurrencyTable>"
+						
+						LocalValidateCurrency.ToCurrency 	= ToCompany.Currency
+						constraint (LocalValidateCurrency.IsRelationshipAndRateDefined)
+							"CurrencyRateDoesNotExistBetweenBillingDocumentCurrency<TargetCurrency>AndPayableCompanyCurrency<ToCompany.Currency>InRateTable<CurrencyTable>"
+						
+						Currency							= LocalFromCurrencyValidation
+						
+						if (BillFromCurrencyWarningExists)
+							constraint (TargetCurrency = FromCompany.Currency)
+								"<BillFromCurrencyWarningMessage>"
+						
+						if (TransferPricingProcessedInSamePeriodTransactionRel exists)
+							confirmation required
+								"BillingDocumentsAlreadyProcessedFor<FromCompany>-<TransferPricing.Description>ForPeriod<AllocationRun.AllocationPeriod>"
+						
+						invoke Create IntercompanyBillingTransaction
+							assign result to LocalIntercompanyBillingTransactionView
+							invoked.IntercompanyBillingGroup		= FromCompany.FinanceEnterpriseGroup
+							invoked.FromCompany						= FromCompany
+							invoked.ToCompany						= ToCompany
+							invoked.Description						= TransferPricing.Description
+							invoked.IntercompanyBillingRechargeItem	= TransferPricing.RechargeItem
+							invoked.OriginatingTransaction			= reference to this instance
+							invoked.OriginatingDocument				= reference to TransferPricingRun
+							invoked.TransactionAmount				= TargetTransactionAmount
+							invoked.TransactionCurrency				= TargetCurrency 
+							invoked.CurrencyTable					= CurrencyTable
+							invoked.Status							= IntercompanyBillingTransaction.Status.Released
+							invoked.TransactionDate					= TransferPricingRun.TransactionDate
+							invoked.PostingDate						= TransferPricingRun.PostingDate
+							invoked.ReceivablesRevenueAccount		= ReceivablesRevenueAccount
+							invoked.PayablesExpenseAccount			= PayablesExpenseAccount
+						
+						LocalIntercompanyBillingTransaction	= LocalIntercompanyBillingTransactionView.IntercompanyBillingTransaction
+							
+						make transition to Processing	
+						
+					Exit Rules
+						invoke ProcessIntoBillingDocuments  LocalIntercompanyBillingTransaction
+							assign async action request id to AsyncId
+		                    invoked.PrmIntercompanyBillingGroup = FinanceEnterpriseGroup
+		                    invoked.PrmOriginatingDocument      = reference to TransferPricingRun
+		                    
+						invoke Processing.SetProcessed in background
+							run after AsyncId
+				
+			Processed is a State	
+				SetRunToProcessed is an Instance Action
+					restricted
+					Action Rules
+						invoke SetRunToProcessed Completed TransferPricingRun	
+						
+				SetUnprocessed is an Instance Action
+					restricted
+					Action Rules
+						make transition to Unprocessed
+					Exit Rules
+						invoke Delete IntercompanyBillingTransactionRel
+						
+						if (TransferPricingRun.Status.Processed)
+							invoke Processed.SetRunToUnprocessed TransferPricingRun
+						
+			
+			Failed is a State	
+			
+			Processing is a State	
+				SetProcessed is an Instance Action
+		 			restricted
+		 			Action Rules
+		 				make transition to Processed
+		 			Exit Rules
+		 				if (not LocalInterfaceAll
+		 				and OtherUnprocessedTransferPricingTransactionRel not exist)
+		 					invoke Processed.SetRunToProcessed
+		 				
+		 	ReportOnly is a State

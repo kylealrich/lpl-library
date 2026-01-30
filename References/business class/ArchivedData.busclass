@@ -1,0 +1,897 @@
+ArchivedData is a BusinessClass
+    owned by la
+    prefix is ARCD
+    
+    Ontology
+    	symbolic key is ArchivedData
+    
+    Patterns
+    	disable Auditing
+		disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+		RecordCount				 			is Numeric size 9              
+		RecordCountCheckSum 				is a PurgeCheckSumResultsArray 
+			default label is "CheckSum"
+		CreatedInArchive 					is Numeric size 9              
+		CreatedCheckSum 					is a PurgeCheckSumResultsArray 
+			default label is "CreatedInArchiveCheckSum"	
+		UpdatedInArchive 					is Numeric size 9   		   
+		UpdatedCheckSum 					is a PurgeCheckSumResultsArray 
+		RestoredCount 						is Numeric size 9 			   
+		RestoredCheckSum 					is a PurgeCheckSumResultsArray 
+			default label is "RestoredFromArchiveCheckSum"
+		PurgedFromArchive 					is Numeric size 9			   
+		PurgedFromArchiveCheckSum 			is a PurgeCheckSumResultsArray 
+		PurgeActionResultUniqueID 			is UniqueID
+		PurgeActionResultBusClassUniqueID	is UniqueID
+		JSONData 							is JSONObject
+			enable alternate document location
+		SentToArchive						is Numeric size 1 
+			States
+    			False 		value is 0
+    			True 		value is 1
+    			Error		value is 2
+    			Disable		value is 3
+		ArchivedTime						is TimeStamp
+		ErrorMessage						is Text
+		ParentBusinessClass					is a BusinessClass
+			default label is "PrimaryBusinessClass"
+		LastRestoredStamp					is TimeStamp 
+		AsyncActionGroup					is UniqueID
+		AsyncActionRequest					is UniqueID 
+			protected
+			default label is untranslatable
+		ProcessScheduleID					is UniqueID
+			protected
+			default label is untranslatable
+
+	Field Rules
+		ParentBusinessClass
+			default to ArchivedData.PurgedBusinessClass
+			
+		AsyncActionGroup
+			default to PurgeActionResultRel.AsyncActionGroup
+			
+		AsyncActionRequest
+			default to current async action request id
+
+	Conditions
+		HasLocalDocument
+			default label is untranslatable
+			when (IsStoredLocally and JSONData entered)
+			
+		HasDocument
+			default label is untranslatable
+			when (HasLocalDocument or IsStoredRemotely)
+			
+		HasError
+			default label is untranslatable
+			when (ErrorMessage entered)	
+		
+		CanEnable
+			default label is untranslatable
+			when (SentToArchive.Disable and EligibleForArchive)
+			
+		UploadDocumentToS3Eligible
+			default label is untranslatable	
+			restricted	
+			when (SentToArchive.True or SentToArchive.Disable)	
+			
+		IsUnderScoreBusinessClass
+			default label is untranslatable
+			when (ArchivedData.PurgedBusinessClass[1:2] = "S_" or ArchivedData.PurgedBusinessClass[1:2] = "U_")	
+			
+		RaiseRedAlert
+			default label is untranslatable
+			when (SentToArchive.Error or (LastRestoredStamp entered and HasError))
+		
+		RaiseBlueAlert
+			default label is untranslatable
+			when (not SentToArchive.Error and LastRestoredStamp entered and not HasError)
+			
+		ActionGroupActiveExcludingFailures
+			default label is untranslatable
+			when (AsyncActionGroup entered and AsyncActionGroupActiveExcludingFailuresRel exists)
+			
+		ActionRequestActiveExcludingFailures
+			default label is untranslatable
+			when (AsyncActionRequest entered and SourceAsyncActionRequestRel exists and (SourceAsyncActionRequestRel.PendingSchedulingCurrent or SourceAsyncActionRequestRel.NonFinishedNotInErrorTriggersExist))
+			
+	Derived Fields
+		DocumentS3DownloadUrl is a NativeField
+            type is Text
+            default label is "DocumentUrl"
+
+		S3ObjectKey is a NativeField
+			type is Text
+			default label is "S\3ObjectKey"
+
+		UploadBatchSize is a NativeField
+			type is Numeric size 8
+			restricted
+
+		RemainingUploadEligible is a DerivedField
+			type is Numeric size 10
+			return instance count of UploadEligibleReportDocument
+			
+		UpperCaseDataArea is a DerivedField
+			type is DataAreaName
+			restricted
+			return parentcontext.dataarea  
+	
+		IsStoredRemotely is a DerivedField
+			type is Boolean
+			default label is "StoredRemotely"
+			return (!IsStoredLocally)
+
+		IsStoredLocally is a NativeField
+			type is Boolean
+			default label is "StoredLocally"
+
+		UploadDelayTimestamp is a NativeField
+			type is TimeStamp
+
+		UploadToS3Enabled is a NativeField
+			type is Boolean
+			default label is "UploadToS\3Enabled"
+			
+		DecodedJSONData is a NativeField
+			type is JSONObject
+			default label is "JSONData"
+			
+		EligibleForArchive is a NativeField
+			type is Boolean
+			restricted
+						
+		PrimaryBusinessClassName is a DerivedField 
+			type is LPLName
+			restricted
+			if (ParentBusinessClass entered)
+				return ParentBusinessClass
+			return ArchivedData.PurgedBusinessClass
+			
+		ValidatedBusClass is a NativeField 
+			type is LPLName
+			restricted
+			default label is untranslatable
+			
+		ArchiveErrorMessage is a MessageField
+			restricted
+			"DataNotFullyArchived"
+			
+		RestoreErrorMessage is a MessageField
+			restricted
+			"ErrorRestoringData"
+			
+		RedAlertMessage is a DerivedField
+    		type is MessageField
+    		
+    		if (SentToArchive.Error)
+    			return ArchiveErrorMessage
+    			
+			if (LastRestoredStamp entered and HasError)
+    			return RestoreErrorMessage
+    		 	
+    		return blank
+    		
+    	RecordCountConsistent is a DerivedField
+    		type is Boolean
+			default label is untranslatable
+			if (SentToArchive.True)
+				if (RecordCount = (CreatedInArchive - RestoredCount - PurgedFromArchive)) 
+					return true
+				return false
+			
+			if (SentToArchive.Disable)
+				return true
+			
+			return false
+			
+		AsyncDelayValue is a DerivedField
+			type is Numeric size 3
+			default label is untranslatable
+			restricted
+			
+			if (config(framework).ArchiveSweepSkipType = blank or config(framework).ArchiveSweepSkipType = "ACTIONREQUEST" or config(framework).ArchiveSweepSkipType = "ACTIONGROUP")
+				AsyncDelayValue = config(framework).ArchiveSweepEnableDelay
+				
+				if (AsyncDelayValue = 0)
+					AsyncDelayValue = 5
+			else
+				AsyncDelayValue = 0 
+				
+			return AsyncDelayValue
+			
+		
+	Local Fields
+		LocalAsyncActionRequest is an AsyncActionRequest
+		LocBusClass 			is a BusinessClass 
+		I 						is Numeric 2
+		J 						is Numeric 2
+		SpecialChar
+		AddCheckSum 			is Boolean
+		
+	Rule Blocks
+		SetCheckSum
+
+			I = 1
+			while I <= sizeofarray {ParamCheckSumField} and I <= sizeofarray {CheckSumField}
+				if (not {ParamCheckSumField}.CheckSumField[I].Name entered)
+					end while
+				
+				J = 1
+				
+				while J <= sizeofarray {CheckSumField} 
+					if ({CheckSumField}.CheckSumField[J].Name = blank or {CheckSumField}.CheckSumField[J].Name = {ParamCheckSumField}.CheckSumField[I].Name)
+						{CheckSumField}.CheckSumField[J].Name = {ParamCheckSumField}.CheckSumField[I].Name
+						
+						if (AddCheckSum)
+							{CheckSumField}.CheckSumField[J].CheckSumValue += {ParamCheckSumField}.CheckSumField[I].CheckSumValue
+						else
+							{CheckSumField}.CheckSumField[J].CheckSumValue -= {ParamCheckSumField}.CheckSumField[I].CheckSumValue
+							
+						end while
+					J += 1
+	
+				I += 1
+
+	Create Rules
+		if (not EligibleForArchive)
+			SentToArchive = SentToArchive.Disable
+
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				if (SentToArchive.True or SentToArchive.Disable) 
+					invoke EndWorkUpdateAsyncRequest
+				else
+					invoke EndWorkUpdateArchiveAsyncRequest
+					
+
+
+
+
+				
+		Delete is a Delete Action
+			restricted
+		
+		SetSentToArchive is an Instance Action
+			valid when (not SentToArchive.True)
+			restricted
+			
+
+			Parameters
+				ParamCreatedInArchive 		is Numeric size 12
+					default label is "CreatedInArchive"
+				ParamCreatedCheckSum 		is a PurgeCheckSumResultsArray
+					default label is "CreatdInArchiveCheckSum"	
+				ParamUpdatedInArchive 		is Numeric size 12 
+					default label is "UpdatedInArchive"
+				ParamUpdatedCheckSum  		is a PurgeCheckSumResultsArray
+					default label is "UpdatedInArchiveCheckSum"	
+				ParamSkipAsyncUpdate 		is Boolean
+					default label is untranslatable:"SkipAsyncUpdate"
+				ParamErrorMessage is Text
+					default label is "ErrorMessage"
+				
+			Action Rules
+				SentToArchive = SentToArchive.True
+				ErrorMessage  = ParamErrorMessage
+				ArchivedTime = system current timestamp
+				
+				CreatedInArchive += ParamCreatedInArchive
+				UpdatedInArchive += ParamUpdatedInArchive
+				AddCheckSum = true
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamCreatedCheckSum
+					replace CheckSumField with CreatedCheckSum
+					
+				include SetCheckSum
+					replace ParamCheckSumField with ParamUpdatedCheckSum
+					replace CheckSumField with UpdatedCheckSum
+					
+
+				include SetCheckSum
+					replace ParamCheckSumField with ParamUpdatedCheckSum
+					replace CheckSumField with RecordCountCheckSum
+					
+
+				if (PurgeActionResultBusClassRel exists)
+					invoke UpdateArchivedValues PurgeActionResultBusClassRel
+						invoked.ParamCreatedInArchive = ParamCreatedInArchive
+						invoked.ParamCreatedCheckSum = ParamCreatedCheckSum
+						invoked.ParamUpdatedInArchive = ParamUpdatedInArchive
+						invoked.ParamUpdatedCheckSum = ParamUpdatedCheckSum
+				
+				if (not IsUnderScoreBusinessClass)
+					if (not ArchivedBusinessClassRel exists)
+						invoke Create ArchivedBusinessClassRel
+							invoked.ArchivedBusinessClass = ArchivedData.PurgedBusinessClass
+							
+					invoke UpdateArchivedValues ArchivedBusinessClassRel
+						invoked.ParamCreatedInArchive = ParamCreatedInArchive
+						invoked.ParamCreatedCheckSum = ParamCreatedCheckSum
+						invoked.ParamUpdatedInArchive = ParamUpdatedInArchive
+						invoked.ParamUpdatedCheckSum = ParamUpdatedCheckSum
+						
+			Exit Rules
+				if (not ParamSkipAsyncUpdate)
+					invoke EndWorkUpdateAsyncRequest
+				
+		SetArchiveError is an Instance Action
+			valid when (not SentToArchive.True)
+			restricted
+			
+			Parameters
+				ParamErrorMessage is Text
+					default label is "ErrorMessage"
+				
+			Action Rules
+				SentToArchive = SentToArchive.Error
+				ErrorMessage  = ParamErrorMessage
+		
+		SetRestoreError is an Instance Action
+			valid when (not LastRestoredStamp entered)
+			restricted
+			
+			Parameters
+				ParamErrorMessage 		is Text
+					default label is "ErrorMessage"
+				
+			Action Rules
+				LastRestoredStamp = system current timestamp  
+				
+				if (ErrorMessage entered)
+					ErrorMessage = ErrorMessage + SpecialChar.NewLine + ParamErrorMessage
+				else
+					ErrorMessage  = ParamErrorMessage
+				
+		SetDisabled is an Instance Action
+			restricted
+			valid when (SentToArchive.False)
+				
+			Action Rules
+				SentToArchive = SentToArchive.Disable
+				
+		EnabledAllDisabled is a Set Action
+			default label is "EnabledAllEligibleDisabledRecords"
+			disable checkpoint
+			
+			Parameters
+				ParamBusClass is a BusinessClass
+					default label is "BusinessClass"
+			
+			Local Fields
+				LocArchivedData is an ArchivedData
+			
+			Parameter Rules
+				ParamBusClass
+					if (ParamBusClass entered)
+						LocBusClass = ParamBusClass 
+						LocBusClass = ValidatedBusClass
+						
+						if (LocBusClass != ParamBusClass)
+							constraint (LocBusClass != blank and LocBusClass != "UserField_Storage")
+								"InvalidBusinessClassSelectionForEnabledAllDisabledAction"
+	
+							confirmation required
+								"SelectedBusinessClassIsAncillary,<LocBusClass>WillBeUsedAndAncillaryBusinessClassesAutomaticallyIncluded.Continue?"
+							ParamBusClass = LocBusClass
+			
+			Sort Order is BySentParentBusinessClass
+			
+			Instance Selection
+				where (SentToArchive.Disable and EligibleForArchive and (ParentBusinessClass = ParamBusClass or ParamBusClass = blank))
+			
+			Action Rules
+				Set Rules
+					Exit Rules
+						
+						if (LocArchivedData entered)
+							invoke EndWorkUpdateArchiveAsyncRequest LocArchivedData 
+						
+				Instance Rules
+					if (CanEnable) 
+						SentToArchive = SentToArchive.False
+						LocArchivedData = ArchivedData
+			
+		DownloadDocumentToDatabase is an Instance Action
+			valid when (IsStoredRemotely)
+
+			Exit Rules
+				invoke Create AmazonS3ObjectReference
+					invoked.BusinessObjectReference = reference to this instance
+					invoked.S3ObjectKey = S3ObjectKey
+
+		UploadDocumentToS3 is an Instance Action
+			default label is "UploadDocumentToS\3"
+			valid when (UploadDocumentToS3Eligible)
+			restricted
+
+		UploadEligibleToS3 is a Set Action
+			default label is "UploadEligibleToS\3"
+			disable checkpoint
+			
+			Sort Order is BySentUpdateStamp
+			
+			Instance Selection
+				where ((SentToArchive.True or SentToArchive.Disable)
+				and update stamp < UploadDelayTimestamp
+				and IsStoredLocally)
+
+			Local Fields
+				Count                is Numeric size 8
+					value is 0
+
+				LocalUploadBatchSize is Numeric size 8
+					value is UploadBatchSize
+
+				TransferredSize is Numeric size 15
+					value is 0
+
+				TotalTransferredSize is Numeric size 25
+					value is 0
+
+				EndedEarly is Boolean
+					value is false
+
+				StartTime is TimeStamp
+
+				LatestStampReached is TimeStamp
+
+			Action Rules
+				Empty Set Rules
+					if (!AlternateStorageConfigRel exists)
+						invoke Create AlternateStorageConfig
+							invoked.AlternateStorageConfig.BusinessClass = "ArchivedData"
+							invoked.AlternateStorageConfig.BusinessField = "JSONData"
+							invoked.StorageTarget = AlternateStorageConfig.StorageTarget.S3
+							
+					if (UploadEligibleReportDocument exists)
+						invoke EndWorkUpdateAsyncRequest
+
+				Set Rules
+					Entrance Rules
+						StartTime = current timestamp
+
+						if (!AlternateStorageConfigRel exists)
+							invoke Create AlternateStorageConfig
+								invoked.AlternateStorageConfig.BusinessClass = "ArchivedData"
+								invoked.AlternateStorageConfig.BusinessField = "JSONData"
+								invoked.StorageTarget = AlternateStorageConfig.StorageTarget.S3
+
+					Exit Rules
+						if (not EndedEarly)
+							LatestStampReached = UploadDelayTimestamp
+
+						if (UploadToS3Enabled)
+							invoke Update AlternateStorageConfigRel
+								invoked.LastRun = LatestStampReached
+
+						invoke SubmitUploadMetrics
+							invoked.TransferredSize  = TotalTransferredSize
+							invoked.TransferredCount = Count
+							invoked.StartTime        = StartTime
+							invoked.EndTime          = current timestamp
+
+						if (UploadEligibleReportDocument exists)
+							invoke EndWorkUpdateAsyncRequest
+				
+				Instance Rules
+					if (not UploadToS3Enabled)
+						end set action instance loop
+						
+					if (UploadBatchSize > 0
+					and Count >= UploadBatchSize)
+						EndedEarly = true
+						end set action instance loop
+
+					LatestStampReached = update stamp
+					TransferredSize = JSONData size
+
+					invoke UploadDocumentToS3
+						resume on error
+							initialize TransferredSize
+
+					TotalTransferredSize += TransferredSize
+
+					increment Count
+
+		SubmitUploadMetrics is an Instance Action 
+			restricted
+			Parameters
+				TransferredSize  is Numeric size 25
+				TransferredCount is Numeric size 8
+				StartTime        is TimeStamp
+				EndTime          is TimeStamp
+
+		EndWorkUpdateAsyncRequest is an Instance Action 
+			restricted
+			manual update
+
+			
+		EndWorkUpdateArchiveAsyncRequest is an Instance Action 
+			restricted
+			manual update
+
+		
+
+		UpdateAsyncRequest is an Instance Action
+			restricted
+
+			Action Rules
+				LocalAsyncActionRequest = first AutoDisableAsyncActionRequestUploadRel.AsyncActionRequest
+				
+				if (not LocalAsyncActionRequest exists)
+					LocalAsyncActionRequest = first AsyncActionRequestRel.AsyncActionRequest
+
+				if (LocalAsyncActionRequest exists)
+					invoke SetPendingScheduling LocalAsyncActionRequest
+						invoked.ParamPendingScheduling = true
+						
+		UpdateArchiveAsyncRequest is an Instance Action
+			Local Fields
+				LocTime is TimeStamp
+				LocMode is AlphaUpper size 20
+				LocalID	is UniqueID
+				LocalOtherArchData is an ArchivedData
+
+			Action Rules
+				LocMode = config(framework).ArchiveSweepMode
+				
+				if (LocMode = blank or LocMode = "BYACTIONREQUEST")
+					if (ProcessScheduleID != blank) 
+						if (ProcessAsyncActionRequestRel.PendingScheduling)
+				    		LocalID = ProcessScheduleID
+				   	else 
+				   		LocalOtherArchData = first OtherScheduledForActionRequestRel.ArchivedData
+				   		
+				   		if (LocalOtherArchData.ProcessAsyncActionRequestRel.PendingScheduling)
+				   			LocalID = LocalOtherArchData.ProcessScheduleID
+				
+					if (LocalID = blank)
+						invoke Archive ArchiveExecutor in background
+							run after AsyncActionRequest 
+							assign async action request id to ProcessScheduleID
+							invoked.ArchiveMode = 1 
+							invoked.AsyncID = AsyncActionRequest
+					else
+						if (ProcessScheduleID != LocalID)
+							ProcessScheduleID = LocalID 
+					
+				else 
+				if (LocMode = "BYACTIONGROUP")
+					if (ProcessScheduleID != blank) 
+						if (ProcessAsyncActionRequestRel.PendingScheduling)
+				    		LocalID = ProcessScheduleID
+				   	else 
+				   		LocalOtherArchData = first OtherScheduledForActionGroupRel.ArchivedData 
+				   		
+				   		if (LocalOtherArchData.ProcessAsyncActionRequestRel.PendingScheduling)
+				   			LocalID = LocalOtherArchData.ProcessScheduleID
+					
+					if (LocalID = blank)
+						invoke Archive ArchiveExecutor in background
+							run outside of action background group
+							run after action background group AsyncActionGroup 
+							assign async action request id to ProcessScheduleID
+							invoked.ArchiveMode = 2 
+							invoked.AsyncID = AsyncActionGroup
+					else
+						if (ProcessScheduleID != LocalID)
+							ProcessScheduleID = LocalID
+				else
+					LocalAsyncActionRequest = first ArchiveAutoDisableAsyncActionRequestRel.AsyncActionRequest
+					
+
+
+					if (LocalAsyncActionRequest exists)
+						if (AsyncDelayValue > 0) 
+							LocTime = system current timestamp + AsyncDelayValue 
+							invoke SetPendingSchedulingTrueDelayed LocalAsyncActionRequest
+								invoked.ParamTimeToExec = LocTime
+						else 
+							invoke SetPendingScheduling LocalAsyncActionRequest
+								invoked.ParamPendingScheduling = true
+
+		UpdatePurgeValues is an Instance Action
+			restricted
+			default label is untranslatable
+			
+
+			Parameters
+				ParamPurgedCount				is Numeric size 12
+					default label is "RecordCount"
+				ParamPurgedCheckSum 			is a PurgeCheckSumResultsArray
+					default label is "CheckSum"
+					
+			Action Rules
+				RecordCount += ParamPurgedCount
+				AddCheckSum = true
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamPurgedCheckSum
+					replace CheckSumField with RecordCountCheckSum
+					
+		RestoredFromCommand is an Instance Action
+			restricted
+			Parameters
+				ParamLastRestoredStamp is TimeStamp
+					default label is untranslatable:"<LastRestoredStamp label>"
+				
+			Parameter Rules	
+				ParamLastRestoredStamp
+					required
+					
+					if (not SentToArchive.True)
+						confirmation required
+							"RecordDataHasNotBeenSentToArchive.AreYouSureYouWantToReset?"
+					
+					if (ParamLastRestoredStamp < create stamp)
+						confirmation required
+							"AreYouSureYouWantToResetThisRecordThatWasCreatedAfterTheRestoredStamp?" 
+			
+			Action Rules
+				LastRestoredStamp = ParamLastRestoredStamp
+				initialize RecordCount
+				initialize RecordCountCheckSum 
+				initialize CreatedInArchive
+				initialize CreatedCheckSum	
+				initialize UpdatedInArchive 
+				initialize UpdatedCheckSum 
+				initialize RestoredCount
+				initialize RestoredCheckSum
+				initialize PurgedFromArchive
+				initialize PurgedFromArchiveCheckSum
+				
+				if (PurgeActionResultBusClassRel exists)
+					invoke RestoredFromCommand PurgeActionResultBusClassRel
+						invoked.ParamLastRestoredStamp = ParamLastRestoredStamp
+		
+		RestoredFromCommandReset is a Set Action
+			restricted
+			default label is untranslatable
+			
+			Parameters
+				ParamBusinessClass 		is a BusinessClass
+				ParamLastRestoredStamp 	is TimeStamp
+					default label is untranslatable:"<LastRestoredStamp label>"
+
+			Parameter Rules
+				ParamBusinessClass
+					required
+					
+				ParamLastRestoredStamp
+					required
+			
+			Instance Selection
+				where (SentToArchive.True and ParentBusinessClass = ParamBusinessClass and create stamp < ParamLastRestoredStamp)
+			
+			Sort Order is BySentParentBusinessClass
+			
+			Action Rules
+				Instance Rules
+					invoke RestoredFromCommand
+						invoked.ParamLastRestoredStamp = ParamLastRestoredStamp
+						
+		UpdateRestoredValues is an Instance Action
+			restricted
+			default label is untranslatable
+			
+
+			Parameters
+				ParamRestoredCount				is Numeric size 12
+					default label is "RestoredCount"
+				ParamRestoredCheckSum 			is a PurgeCheckSumResultsArray
+					default label is "CheckSum"
+				ParamDeletedCount				is Numeric size 12
+					default label is "DeletedCount"
+				ParamDeletedCheckSum 			is a PurgeCheckSumResultsArray
+					default label is "DeletedCheckSum"
+				ParamErrorMessage is Text
+					default label is "ErrorMessage"
+					
+			Action Rules
+				RestoredCount += ParamRestoredCount
+				RecordCount -= ParamRestoredCount
+				LastRestoredStamp = system current timestamp  
+				ErrorMessage = ParamErrorMessage
+				AddCheckSum = true
+				
+				include SetCheckSum
+					replace ParamCheckSumField with ParamRestoredCheckSum
+					replace CheckSumField with RestoredCheckSum
+					
+				AddCheckSum = false		
+					
+				include SetCheckSum
+					replace ParamCheckSumField with ParamRestoredCheckSum
+					replace CheckSumField with RecordCountCheckSum
+						
+				if (not IsUnderScoreBusinessClass)
+					if (not ArchivedBusinessClassRel exists)
+						invoke Create ArchivedBusinessClassRel
+							invoked.ArchivedBusinessClass = ArchivedData.PurgedBusinessClass
+							
+					invoke UpdateRestoredValues ArchivedBusinessClassRel
+						invoked.ParamRestoredFromArchive = ParamRestoredCount
+						invoked.ParamRestoredCheckSum = ParamRestoredCheckSum
+						invoked.ParamLastRestoredStamp = LastRestoredStamp
+						invoked.ParamDeletedFromArchive = ParamDeletedCount
+						invoked.ParamDeletedCheckSum = ParamDeletedCheckSum
+						
+						if (SentToArchive.True)
+							invoked.ParamSentToArchive = true
+						else 
+							invoked.ParamSentToArchive = false
+						
+				if (PurgeActionResultBusClassRel exists)
+					invoke UpdateRestoredValues PurgeActionResultBusClassRel
+						invoked.ParamRestoredCount = ParamRestoredCount
+						invoked.ParamRestoredCheckSum = ParamRestoredCheckSum
+						invoked.ParamLastRestoredStamp = LastRestoredStamp
+			
+	Relations
+		PurgeActionResultRel
+    		one-to-one relation to PurgeActionResult
+			Field Mapping uses ByUniqueID
+				related.UniqueID = PurgeActionResultUniqueID
+
+		PurgeActionResultBusClassRel
+    		one-to-one relation to PurgeActionResultBusClass
+			Field Mapping uses ByUniqueID
+				related.UniqueID = PurgeActionResultBusClassUniqueID
+				
+		UploadEligibleReportDocument
+			one-to-many relation to ArchivedData
+			Field Mapping uses BySentUpdateStamp
+			Instance Selection
+			    where ((related.SentToArchive = SentToArchive.True or related.SentToArchive = SentToArchive.Disable)
+			    and IsStoredLocally)
+				
+		AsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "ArchivedData"
+				related.AsyncAction = "UploadEligibleToS3"
+				
+		AutoDisableAsyncActionRequestUploadRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "ArchivedData"
+				related.AsyncAction = "UploadEligibleToS3"
+			Instance Selection
+				where (related.SystemRequest.AutoDisable)
+				
+		ArchiveAutoDisableAsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "ArchiveExecutor"
+				related.AsyncAction = "Archive"
+			Instance Selection
+				where (related.SystemRequest.AutoDisable)
+				
+		AsyncActionGroupActiveExcludingFailuresRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest 
+			Field Mapping uses ByActionGroup
+				related.ActionGroup = AsyncActionGroup
+				related.InactiveInGroup = false
+			Instance Selection
+				where (related.ActionGroupActiveExcludingFailures = true)
+				
+		SourceAsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-one relation to AsyncActionRequest 
+			Field Mapping uses symbolic key
+				related.AsyncActionRequest = AsyncActionRequest
+				
+		OtherScheduledForActionGroupRel
+			default label is untranslatable
+			one-to-many relation to ArchivedData 
+			Field Mapping uses ByAsyncActionGroup
+				related.AsyncActionGroup = AsyncActionGroup
+				related.SentToArchive = 0 
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.ProcessScheduleID != blank)
+				
+		OtherScheduledForActionRequestRel
+			default label is untranslatable
+			one-to-many relation to ArchivedData 
+			Field Mapping uses ByAsyncActionRequest
+				related.AsyncActionRequest = AsyncActionRequest
+				related.SentToArchive = 0 
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.ProcessScheduleID != blank)
+				
+		ProcessAsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-one relation to AsyncActionRequest 
+			Field Mapping uses symbolic key
+				related.AsyncActionRequest = ProcessScheduleID		
+
+		AlternateStorageConfigRel
+			one-to-one relation to AlternateStorageConfig
+			Field Mapping uses symbolic key
+				related.AlternateStorageConfig.BusinessClass = "ArchivedData"
+				related.AlternateStorageConfig.BusinessField = "JSONData"
+				
+		ArchivedBusinessClassRel
+			one-to-one relation to ArchivedBusinessClass
+			Field Mapping uses symbolic key
+				related.ArchivedBusinessClass = ArchivedData.PurgedBusinessClass
+				
+	Sets
+		ByPurgeActionResultUniqueID
+			indexed
+			Sort Order
+				PurgeActionResultUniqueID
+				SentToArchive
+				ArchivedData
+				
+		ByPurgeActionResultBusClassUniqueID
+			indexed
+			Sort Order
+				PurgeActionResultBusClassUniqueID
+				SentToArchive
+				ArchivedData
+				
+		ByUpdateStamp
+			indexed
+			Sort Order
+				update stamp
+				ArchivedData
+				
+		BySentUpdateStamp 
+			indexed
+			Sort Order
+				SentToArchive
+				update stamp descending
+				ArchivedData
+				
+		BySentParentBusinessClass
+			indexed
+			Sort Order
+				SentToArchive
+				ParentBusinessClass
+				ArchivedData
+				
+		ByPurgedClassSentCreateStamp
+			indexed
+			Sort Order
+				ArchivedData.PurgedBusinessClass
+				SentToArchive
+				create stamp
+				ArchivedData.Sequence
+		 
+		ByAsyncActionGroup 
+			indexed
+			Sort Order
+				AsyncActionGroup
+				SentToArchive
+				PurgeActionResultUniqueID
+				PurgeActionResultBusClassUniqueID
+				UniqueID
+				
+		ByAsyncActionRequest 
+			indexed
+			Sort Order
+				AsyncActionRequest
+				SentToArchive
+				update stamp
+				UniqueID
+			
+				

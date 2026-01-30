@@ -1,0 +1,1371 @@
+IntercompanyBillingSettlementDetail is a BusinessClass
+	owned by intercobilling
+	prefix is ICBSD
+	sql name is "ICBSettlementDetail"
+
+	Ontology
+		symbolic key is IntercompanyBillingSettlementDetail
+
+	Persistent Fields
+		IntercompanyBillingDocumentHeader
+		PayableEntity
+		ReceivableEntity
+		DocumentAmount				is a InternationalAmount
+		DocumentCurrency			is a Currency
+		PaymentDate					is an ExchangeDate
+		PaymentAmount				is an InternationalAmount  
+		DocumentPaymentAmount		is an InternationalAmount  
+		PaymentExchangeRate			is a CurrencyExchangeRate
+		CashLedgerSourceRecord
+		CashLedgerPayablesPayment                              
+			context of IntercompanyBillingSettlementHeader.PayablesCashCode
+		PayGroup					is like PayGroup
+
+	Field Rules
+		DocumentAmount
+			default to IntercompanyBillingDocumentHeader.DerivedUnsettledAmount
+			
+		DocumentCurrency
+			default to IntercompanyBillingDocumentHeader.DocumentCurrency
+
+		PaymentDate
+			default to IntercompanyBillingSettlementHeader.PaymentDate
+
+		PayGroup
+			default to IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.PayGroup
+
+	Local Fields
+		CurrencyWork						is a CurrencyExchange
+		LocalCurrency						is like Currency
+		LocalPayGroup						is like PayGroup
+		LocalInvoiceDetail 					is like PaymentSeq 
+		LocalInvoiceType 					is like ReceivableInvoiceType 
+		LocalRemainingToBePaidAmount		is an InternationalAmount
+		LocalDocumentPaymentAmount			is an InternationalAmount
+		LocalPayablesInvoicePaymentAmount	is an InternationalAmount
+		LocalSelectedAmount					is an InternationalAmount
+		CreatedReceivablePaymentRemittance	is a ReceivablePaymentRemittance view 
+		CreatedLine 						is an IntercompanyBillingSettlementDetailLine view 
+		LocalDescription					is a Description 
+		LocalInvoiceLine					is a Sequence 
+		LocalVoidSequence					is a VoidSequence 
+		LocalLastPayablesInvoice			is like PayablesInvoice
+		CurrencyDateWork					is a ReceivableExchange
+
+	Transient Fields
+		DetailCurrency				is a FromCurrency
+			derive value from IntercompanyBillingDocumentHeader.DocumentCurrency
+		PaymentCurrency				is a ToCurrency
+			derive value from IntercompanyBillingSettlementHeader.SettlementCurrency
+		PayablesCurrencyTable		is a CurrencyTable
+			derive value from IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+		TransientDocumentHeaderForContext		is a DocumentHeaderForContext 
+			derive value from IntercompanyBillingDocumentHeader
+		TransientSettlementIDForContext			is a SettlementIDForContext 
+			derive value from IntercompanyBillingSettlementHeader.SettlementID
+		TransientFundDistributionSetState		is a FundDistributionSetState 
+			derive value from DerivedFundDistributionSetState
+		TransientReceivableFundDistributionStatus			is Numeric size 1 
+			States
+				OutOfBalance					value is 1
+				ReadyForProcessing 				value is 2
+				Processed						value is 3
+			derive value from DerivedReceivableFundDistributionStatus
+		TransientPayablesFundDistributionStatus			is Numeric size 1 
+			States
+				OutOfBalance					value is 1
+				ReadyForProcessing 				value is 2
+				Processed						value is 3
+			derive value from DerivedPayablesFundDistributionStatus
+		
+
+	Rule Blocks
+
+		CreateDetailedRemittanceRecordsForFundApply 
+
+			invoke Create ReceivablePaymentRemittance
+				invoked.Company						= ReceivableEntity.Company
+				invoked.ReceivablePaymentHeader		= IntercompanyBillingSettlementHeader.ReceivablePaymentHeader
+				invoked.ReceivablePayment			= PrmPayment
+				if (ReceivableEntity.ReceivableInvoiceType = "M")
+					if (DocumentPaymentAmount >= 0)
+						invoked.ReceivableInvoiceType = "I"
+					else
+						invoked.ReceivableInvoiceType = "C"
+				else
+					invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+				invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+				if (DocumentPaymentAmount >= 0)
+					invoked.AppldAmt					= DocumentPaymentAmount
+				else
+					invoked.AppldAmt					= DocumentPaymentAmount * -1
+
+			for each ReceivableICBSettlementDetailLineRel
+				invoke Create ReceivablePaymentRemittance
+					assign result to CreatedReceivablePaymentRemittance
+					invoked.Company						= ReceivableEntity.Company
+					invoked.InvoiceCompany				= ReceivableEntity.Company
+					invoked.ReceivablePaymentHeader		= IntercompanyBillingSettlementHeader.ReceivablePaymentHeader
+					invoked.ReceivablePayment			= PrmPayment
+					if (ReceivableEntity.ReceivableInvoiceType = "M")
+						invoked.ReceivableInvoiceType		= each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+					else
+						invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+					invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+					invoked.InvoiceDetail				= each.InvoiceLine
+					invoked.AppldAmt					= each.SelectedAmount
+
+				for each each.ICBReceivableApplyDistribution set
+					invoke Create RemittanceApplyDistribution
+						invoked.Company								= ReceivableEntity.Company
+						invoked.ReceivablePaymentHeader				= IntercompanyBillingSettlementHeader.ReceivablePaymentHeader
+						invoked.ReceivablePayment					= PrmPayment
+						invoked.ReceivablePaymentRemittance			= CreatedReceivablePaymentRemittance.ReceivablePaymentRemittance
+						invoked.OriginalLastDistributionSequence	= each.OriginalLastDistributionSequence
+						invoked.OriginalReceivableGLDistribution	= each.OriginalReceivableGLDistribution
+						invoked.InvoiceCompany						= ReceivableEntity.Company
+						invoked.ReceivableInvoiceType				= CreatedReceivablePaymentRemittance.ReceivableInvoiceType
+						invoked.ReceivableInvoice					= ReceivableEntity.ReceivableInvoice
+						invoked.InvoiceDetail						= CreatedReceivablePaymentRemittance.InvoiceDetail
+						invoked.ApplyFundDistributionAccount		= each.ApplyFundDistributionAccount
+						invoked.DistributionAmount.CurrencyAmount 	= each.DistributionAmount.CurrencyAmount
+						invoked.DistributionAmount.ExchangeDate		= each.DistributionAmount.ExchangeDate
+						invoked.OriginalCurrency					= each.OriginalCurrency
+						invoked.Customer							= ReceivableEntity.Customer
+
+		ApplySelectedPayablesToCheckForFundApply
+			LocalDocumentPaymentAmount = DocumentPaymentAmount
+			for each OpenPayablesInvoicePaymentRel
+				LocalInvoiceLine 						= each.PayablesInvoicePayment.PaymentSequence
+				LocalVoidSequence						= each.PayablesInvoicePayment.VoidSequence
+				if (LocalPayablesICBSettlementDetailForThisLineRel exists)
+					LocalSelectedAmount 				= LocalPayablesICBSettlementDetailForThisLineRel.SelectedAmount
+				else
+					LocalSelectedAmount					= 0
+
+				if (LocalSelectedAmount != 0)
+					if (ReceivableEntity.ReceivableInvoiceType.Invoice   
+					or ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.Invoice)
+						if (LocalSelectedAmount < each.PaymentAmount.CurrencyAmount)
+							LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+							invoke Update each.PayablesInvoicePayment
+								invoked.PaymentAmount.CurrencyAmount	= LocalSelectedAmount
+								invoked.TransientBypassUpdateEdit		= true
+								
+							invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+								invoked.PrmCashLedgerSourceRecord		= "CHK"
+								invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+								invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+								
+							include CarryOverPayablesFundApplyDistributions
+
+							LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalSelectedAmount
+							invoke Create PayablesInvoicePayment
+								invoked.Company							= PayableEntity.Company
+								invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+								invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+								
+							LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalSelectedAmount
+						else
+							LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+							invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+								invoked.PrmCashLedgerSourceRecord		= "CHK"
+								invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+								invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+		
+							include CarryOverPayablesFundApplyDistributions
+
+							LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+					else  
+						if (LocalSelectedAmount > each.PaymentAmount.CurrencyAmount)							
+							LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+							invoke Update each.PayablesInvoicePayment
+								invoked.PaymentAmount.CurrencyAmount	= LocalSelectedAmount
+								invoked.TransientBypassUpdateEdit		= true
+								
+							invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+								invoked.PrmCashLedgerSourceRecord		= "CHK"
+								invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+								invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+								
+							include CarryOverPayablesFundApplyDistributions
+
+							LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalSelectedAmount
+							invoke Create PayablesInvoicePayment
+								invoked.Company							= PayableEntity.Company
+								invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+								invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+								
+							LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalSelectedAmount
+						else
+							LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+							invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+								invoked.PrmCashLedgerSourceRecord		= "CHK"
+								invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+								invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+		
+							include CarryOverPayablesFundApplyDistributions
+
+							LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+
+					if (LocalDocumentPaymentAmount = 0)
+						end for each
+
+		CarryOverPayablesFundApplyDistributions 
+			LocalInvoiceLine 	= each.PayablesInvoicePayment.PaymentSequence
+			LocalVoidSequence	= each.PayablesInvoicePayment.VoidSequence
+			for each LocalPayablesICBSettlementDetailForThisLineRel.ICBPayablesApplyDistribution set
+				invoke Create PayablesFundApplyDistribution
+					invoked.Company									= PayableEntity.Company
+					invoked.PayablesInvoice 						= PayableEntity.PayablesInvoice
+					invoked.PayablesInvoicePayment.PaymentSequence	= LocalInvoiceLine
+					invoked.PayablesInvoicePayment.VoidSequence		= LocalVoidSequence
+					invoked.OriginalPayablesInvoiceDistribution		= each.OriginalPayablesInvoiceDistribution
+					invoked.DistributionAccount						= each.ApplyFundDistributionAccount
+					invoked.OriginalCurrency						= each.OriginalCurrency
+					invoked.DistributionAmount.CurrencyAmount 		= each.DistributionAmount.CurrencyAmount
+					invoked.DistributionAmount.ExchangeDate			= each.DistributionAmount.ExchangeDate
+
+
+	Derived Fields
+		DerivedTotalByCurrency is a DerivedField
+			type is like InternationalAmount
+			return (sum DetailsByCurrencyRel.DocumentAmount)
+
+		DerivedTotalByPayGroupCurrency is a DerivedField  
+			type is like InternationalAmount
+			return (sum DetailsByPayGroupCurrencyRel.DocumentPaymentAmount)
+
+		DerivedTotalOfOtherPayments is a DerivedField
+			type is like InternationalAmount
+			return (sum OtherSettlementDetailsRel.PaymentAmount)
+
+		DerivedFundDistributionSetState is a DerivedField 
+			type is AlphaUpper size 2
+			if (AllowSelectDistributionSet)
+				if (HeaderUnreleased)
+					return "NS"
+				else
+					return "CS"
+			else
+				return ""
+
+		DerivedReceivableFundDistributionStatus is a DerivedField 
+			type is Numeric size 1
+			if (AllowSelectDistributionSet)
+				if (!HeaderUnreleased)
+					return 3
+				else
+					if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+						if (sum ReceivableICBSettlementDetailLineRel.SelectedAmount != (DocumentPaymentAmount * -1))
+							return 1
+					else
+						if (sum ReceivableICBSettlementDetailLineRel.SelectedAmount != DocumentPaymentAmount)
+							return 1
+					if (any ReceivableICBSettlementDetailLineRel.DerivedDistributionSetState != 2)
+						return 1
+					else
+						return 2
+			else
+				return 0
+
+		DerivedPayableDifference is a DerivedField 
+			type is like InternationalAmount
+			if (AllowSelectDistributionSet)
+				return (DocumentPaymentAmount - sum PayablesICBSettlementDetailLineRel.SelectedAmount)
+			else
+				return 0
+
+		DerivedReceivableDifference is a DerivedField 
+			type is like InternationalAmount
+			if (AllowSelectDistributionSet)
+				if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+					return ((DocumentPaymentAmount * -1) - sum ReceivableICBSettlementDetailLineRel.SelectedAmount)
+				else
+					return (DocumentPaymentAmount - sum ReceivableICBSettlementDetailLineRel.SelectedAmount)
+			else
+				return 0
+
+		DerivedSignedReceivableDifference is a DerivedField 
+			type is like InternationalAmount
+			if (AllowSelectDistributionSet)
+				if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+					return DerivedReceivableDifference * -1
+				else
+					return DerivedReceivableDifference
+			else
+				return 0
+
+		DerivedPayablesFundDistributionStatus is a DerivedField 
+			type is Numeric size 1
+			if (AllowSelectDistributionSet)
+				if (!HeaderUnreleased)
+					return 3
+				else
+					if (sum PayablesICBSettlementDetailLineRel.SelectedAmount != DocumentPaymentAmount)
+						return 1
+					else
+					if (any PayablesICBSettlementDetailLineRel.DerivedPayablesDistributionSetState != 2)
+						return 1
+					else
+						return 2
+			else
+				return 0
+
+		DerivedFundDistributionStatus is a DerivedField 
+			type is Numeric size 1
+			if (!HeaderUnreleased)
+				return 3
+			else
+			if (DerivedReceivableFundDistributionStatus = 2
+			and DerivedPayablesFundDistributionStatus	= 2)
+				return 2
+			else
+				return 1
+
+		DerivedFundDistributionStatusText is a DerivedField 
+			type is Alpha size 12
+			if (DerivedFundDistributionStatus = 1)
+				return "Incomplete"
+			else
+				return "Complete"
+		
+		DerivedPayableDistributionSetSumOfLines is a DerivedField 
+			type is like InternationalAmount	
+			return sum PayablesICBSettlementDetailLineRel.SelectedAmount
+
+		DerivedReceivableDistributionSetSumOfLines is a DerivedField 
+			type is like InternationalAmount	
+			return sum ReceivableICBSettlementDetailLineRel.SelectedAmount
+
+		DerivedSignedReceivableDistributionSetSumOfLines is a DerivedField 
+			type is like InternationalAmount	
+			if (IntercompanyBillingDocumentHeader.NetDueAmount < 0)
+				return DerivedReceivableDistributionSetSumOfLines * -1
+			else
+				return DerivedReceivableDistributionSetSumOfLines
+
+		DerivedDistributionSetSelectionTitle is a LabelField 
+			"DistributionSetSelection_forSettlement<IntercompanyBillingSettlementHeader.SettlementID>"
+
+		DerivedAvailableHeaderPaymentToAllocate is a DerivedField
+			type is like InternationalAmount
+			return (IntercompanyBillingSettlementHeader.PaymentAmount - DerivedTotalOfOtherPayments)
+
+		DerivedDocumentAmountInSettlementCurrency is a DerivedField
+			type is like InternationalAmount
+			if (CurrencyDifferentFromHeader)
+				initialize CurrencyDateWork
+				CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+				CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+				CurrencyDateWork.ExchangeDate							= PaymentDate
+				CurrencyDateWork.FromCurrency							= DocumentCurrency
+				CurrencyDateWork.TransactionAmount						= DocumentAmount
+				CurrencyDateWork.BaseAmount.ToCurrency					= PaymentCurrency
+				return CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+			else
+				return DocumentAmount
+				
+	Conditions
+		HeaderUnreleased
+			when (IntercompanyBillingSettlementHeader.Status.Unreleased)
+			
+		CurrencyDifferentFromHeader
+			when (DocumentCurrency != IntercompanyBillingSettlementHeader.SettlementCurrency)
+
+		OtherDetailsHaveDifferentCurrency
+			when (DetailMultiCurrencyRel exists)
+
+		OtherDetailsHaveDifferentPayGroup
+			when (DetailMultiPayGroupRel exists)
+
+		HasMultiplePayablesPayments
+			when (IntercompanyBillingSettlementHeader.DisplayMultiplePaymentMsg)
+			
+		HasPayablesPayment
+			when (CashLedgerPayablesPayment entered)
+			
+		DocumentHasCashBasisWithholdings
+			when (IntercompanyBillingDocumentHeader.HasCashBasisWithholdingLines)
+
+		DocumentHasWithholdings		
+			when (IntercompanyBillingDocumentHeader.HasWithholdingAmountLines)
+
+		NotReversed		
+			when (!IntercompanyBillingSettlementHeader.Status.Reversed)
+
+		HasInvoiceNotReleased
+			when (!IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.Status.Released
+			or    !IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.Status.Released)
+
+		HasNoPayment
+			when (DocumentPaymentAmount not entered)
+			
+		IsFullPayment
+			when (DocumentPaymentAmount != 0
+			and   DocumentAmount = DocumentPaymentAmount)
+			
+		IsPartialPayment
+			when (DocumentPaymentAmount != 0
+			and   DocumentAmount != DocumentPaymentAmount)
+
+		AllowSelectDistributionSet 
+			when (ReceivableEntity.Company.SelectFundDistributionSet
+			and   ReceivableEntity.Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FundAccounting)
+
+		AllowProrateAndSelectAll 
+			when (AllowSelectDistributionSet
+			and   HeaderUnreleased
+			and   DerivedFundDistributionStatus != 2)
+
+		AllowMatchPayableDistributionsToSelectedReceivables 
+			when (AllowProrateAndSelectAll
+			and   IntercompanyBillingGroup.CreateDetailedLineItems
+			and   SelectedReceivableDistributionsRel exists)
+
+		PayablesPaymentNotProcessed
+			when (CashLedgerPayablesPayment entered
+			and  !CashLedgerPayablesPayment.Status.PaymentCycleProcessed)
+
+		CashLedgerPayablesPaymentCbtransRelIsOpen	
+			when (CashLedgerPayablesPayment.CbtransRel.IsOpen)	
+
+	Relations
+
+		OpenPayablesInvoicePaymentRel		
+			one-to-many relation to PayablesInvoicePayment
+			Field Mapping uses ByCompanyVendor
+				related.Company				= IntercompanyBillingDocumentHeader.PayableEntity.Company
+				related.Vendor				= IntercompanyBillingDocumentHeader.PayableEntity.Vendor
+				related.PayablesInvoice 	= IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice	
+			Instance Selection
+				where (related.CancelSequence						= blank				
+				and    related.PayablesInvoicePayment.VoidSequence	= blank				
+				and	   related.Status								< 2) 
+
+		DetailMultiCurrencyRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+			Instance Selection
+				where (related.DocumentCurrency != DocumentCurrency) 								                
+											                					
+		DetailMultiPayGroupRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+			Instance Selection
+				where (related.PayGroup != PayGroup) 								                
+											                					
+		DetailsByCurrencyRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses ByCurrency
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+				related.DocumentCurrency					= LocalCurrency
+
+		DetailsByPayGroupCurrencyRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses ByPayGroupCurrency
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+				related.PayGroup							= LocalPayGroup
+				related.DocumentCurrency					= LocalCurrency
+
+		LocalReceivablePaymentRemittanceForThisInvoiceDetailRel 
+			one-to-many relation to ReceivablePaymentRemittance
+			Field Mapping uses ByInvoice
+				related.InvoiceCompany							= IntercompanyBillingDocumentHeader.ReceivableEntity.Company
+				related.ReceivableInvoiceType					= LocalInvoiceType
+				related.ReceivableInvoice						= IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+				related.InvoiceDetail							= LocalInvoiceDetail
+			Instance Selection
+				where (related.Status.Unapplied
+				or	   related.Status.ApplicationNotPerfomed)
+
+		SelectedReceivableDistributionsRel is an ICBReceivableApplyDistribution set 
+
+		SelectedReceivableDistributionsLocalDescriptionRel is an ICBReceivableApplyDistribution set 
+			Instance Selection
+				where (related.Description 	= LocalDescription)
+
+		LocalDescriptionReceivableGLDistributionRel 
+			one-to-many relation to ReceivableGLDistribution
+			Field Mapping uses ByReceivableInvoice
+				related.ReceivableCompanyDataGroup.TransactionCompany	 = IntercompanyBillingDocumentHeader.ReceivableEntity.Company
+				related.BatchNumber										 = IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice.BatchNumber
+				related.TransType										 = IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoiceType
+				related.Invoice											 = IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+			Instance Selection
+				where (related.Description							 	= LocalDescription
+				and    related.AccumulationType.Detail
+				and    related.DistributionSource.AccountsReceivable
+				and	   related.DistributionAmount.CurrencyAmount entered)
+
+		OtherUnreleasedDetailsForThisDocument 
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses ByBillingDocument
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.HeaderUnreleased)
+
+		ReceivableICBSettlementDetailLineRel 
+			one-to-many relation to IntercompanyBillingSettlementDetailLine
+			Field Mapping uses ByReceivableInvoiceLine
+				related.IntercompanyBillingGroup							= IntercompanyBillingGroup
+                related.IntercompanyBillingSettlementHeader.SettlementID	= IntercompanyBillingSettlementHeader.SettlementID
+                related.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+
+		PayablesICBSettlementDetailLineRel 
+			one-to-many relation to IntercompanyBillingSettlementDetailLine
+			Field Mapping uses ByPayablesInvoiceLine
+				related.IntercompanyBillingGroup							= IntercompanyBillingGroup
+                related.IntercompanyBillingSettlementHeader.SettlementID	= IntercompanyBillingSettlementHeader.SettlementID
+                related.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+
+		LocalPayablesICBSettlementDetailForThisLineRel 
+			one-to-one relation to IntercompanyBillingSettlementDetailLine
+			Field Mapping uses ByPayablesInvoiceLine
+				related.IntercompanyBillingGroup							= IntercompanyBillingGroup
+                related.IntercompanyBillingSettlementHeader.SettlementID	= IntercompanyBillingSettlementHeader.SettlementID
+                related.IntercompanyBillingDocumentHeader					= IntercompanyBillingDocumentHeader
+				related.InvoiceLine											= LocalInvoiceLine
+				related.VoidSequence										= LocalVoidSequence
+
+		PayablesInvoiceByCompanyVendorInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByCompanyVendorInvoice
+				related.Company        = IntercompanyBillingDocumentHeader.PayableEntity.Company
+				related.Vendor         = IntercompanyBillingDocumentHeader.PayableEntity.Vendor
+				related.Invoice        = IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoice
+
+		OtherSettlementDetailsRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+			Instance Selection
+				where (related.UniqueID != UniqueID) 								                
+
+	Sets
+		ByBillingDocument
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingDocumentHeader
+				IntercompanyBillingSettlementHeader.SettlementID		
+
+		ByCurrency
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingSettlementHeader
+				DocumentCurrency
+				IntercompanyBillingDocumentHeader
+
+		ByPayGroupCurrency
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingSettlementHeader
+				PayGroup
+				DocumentCurrency
+				IntercompanyBillingDocumentHeader
+
+		ByInvoiceDate
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingSettlementHeader
+				IntercompanyBillingDocumentHeader.InvoiceDate
+				IntercompanyBillingDocumentHeader
+
+	Actions
+        AddDocument is a Create Action
+        	restricted
+			Entrance Rules
+				if (PayableEntity not entered		
+				or  ReceivableEntity not entered)
+					PayableEntity		= IntercompanyBillingDocumentHeader.PayableEntity
+					ReceivableEntity	= IntercompanyBillingDocumentHeader.ReceivableEntity
+
+				LocalLastPayablesInvoice = first PayablesInvoiceByCompanyVendorInvoiceRel.PayablesInvoice 
+				for each PayablesInvoiceByCompanyVendorInvoiceRel
+					if (each.PayablesInvoice > LocalLastPayablesInvoice)
+						LocalLastPayablesInvoice = each.PayablesInvoice
+				if (LocalLastPayablesInvoice != IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice)
+					PayableEntity.PayablesInvoice = LocalLastPayablesInvoice
+					invoke FastUpdate IntercompanyBillingDocumentHeader
+						invoked.PayableEntity.PayablesInvoice = LocalLastPayablesInvoice
+
+        	Exit Rules
+				if (AllowSelectDistributionSet) 
+					constraint (OtherUnreleasedDetailsForThisDocument not exists)
+						"Intercompany_\Billing_\Settlement_\Header<first OtherUnreleasedDetailsForThisDocument.IntercompanyBillingSettlementHeader.SettlementID>MustBeReleasedOrDeletedBefore_\Billing_\Document<first OtherUnreleasedDetailsForThisDocument.IntercompanyBillingDocumentHeader>CanBeAddedToThisSettlement"
+				if (DocumentCurrency = IntercompanyBillingSettlementHeader.SettlementCurrency)
+					if (ReceivableEntity.ReceivableInvoiceType.CreditMemo)
+						PaymentAmount = DocumentAmount
+					else
+						if (DerivedAvailableHeaderPaymentToAllocate > 0)
+							if (DerivedAvailableHeaderPaymentToAllocate >= DocumentAmount)
+								PaymentAmount = DocumentAmount
+							else
+								PaymentAmount = DerivedAvailableHeaderPaymentToAllocate
+						else
+							PaymentAmount = 0
+					DocumentPaymentAmount = PaymentAmount
+					PaymentExchangeRate	= 1
+				else
+					initialize CurrencyDateWork
+					CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+					CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+					CurrencyDateWork.ExchangeDate							= PaymentDate
+					CurrencyDateWork.FromCurrency							= DocumentCurrency
+					CurrencyDateWork.TransactionAmount						= DocumentAmount
+					CurrencyDateWork.BaseAmount.ToCurrency					= PaymentCurrency
+					PaymentAmount											= CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+					PaymentExchangeRate										= CurrencyDateWork.BaseAmount.OutputCurrencyRate
+					if (ReceivableEntity.ReceivableInvoiceType.CreditMemo)
+						DocumentPaymentAmount = DocumentAmount
+					else
+						if (DerivedAvailableHeaderPaymentToAllocate > 0)
+							if (DerivedAvailableHeaderPaymentToAllocate < PaymentAmount)
+								PaymentAmount = DerivedAvailableHeaderPaymentToAllocate
+
+								initialize CurrencyDateWork
+								CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+								CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+								CurrencyDateWork.ExchangeDate							= PaymentDate
+								CurrencyDateWork.FromCurrency							= PaymentCurrency
+								CurrencyDateWork.TransactionAmount						= PaymentAmount
+								CurrencyDateWork.BaseAmount.ToCurrency					= DocumentCurrency
+								DocumentPaymentAmount									= CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+							else
+								DocumentPaymentAmount = DocumentAmount
+						else
+							PaymentAmount = 0
+							DocumentPaymentAmount = 0
+        		
+        	
+		Update is an Update Action
+			valid when (HeaderUnreleased)
+			Action Rules
+				if (ReceivableEntity.ReceivableInvoiceType.CreditMemo)
+					constraint (PaymentAmount <= 0)
+						"PaymentAmountForCreditMemoMustBeNegative"
+						
+					constraint (PaymentAmount >= DerivedDocumentAmountInSettlementCurrency)
+						"PaymentAmountForCreditMemoCannotBeLessThanTheDocumentUnsettledAmount"
+				else
+					constraint (PaymentAmount >= 0)
+						"PaymentAmountForInvoiceMustBePositive"
+						
+					constraint (PaymentAmount <= DerivedDocumentAmountInSettlementCurrency)
+						"PaymentAmountCannotBeGreaterThanTheDocumentUnsettledAmount"
+
+			Exit Rules
+				if (PaymentAmount changed)
+					initialize CurrencyDateWork
+					CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+					CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+					CurrencyDateWork.ExchangeDate							= PaymentDate
+					CurrencyDateWork.FromCurrency							= PaymentCurrency
+					CurrencyDateWork.TransactionAmount						= PaymentAmount
+					CurrencyDateWork.BaseAmount.ToCurrency					= DocumentCurrency
+					DocumentPaymentAmount									= CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+		
+
+        RemoveInvoice is a Purge Action
+        	valid when (HeaderUnreleased)
+
+		MatchPayableDistributionsToSelectedReceivables is an Instance Action 
+			default label is "MatchSelectedReceivableDistributions"
+			valid when (AllowMatchPayableDistributionsToSelectedReceivables)
+			Local Fields
+				LocalTotalSelectedAmountRemaining	is like InternationalAmount
+				LocalAmountRemaining				is like InternationalAmount
+				LocalDistributionOpenAmount			is like InternationalAmount
+				LocalSelectedAmount					is like InternationalAmount
+				LocalMatchSuccessful				is Boolean
+			Action Rules
+				invoke Delete PayablesICBSettlementDetailLineRel
+				LocalMatchSuccessful = true
+
+				if (instance count of PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel != 1)
+					LocalMatchSuccessful = false
+				
+				if (!SelectedReceivableDistributionsRel exists)
+					LocalMatchSuccessful = false
+
+				if (LocalMatchSuccessful)
+
+					LocalTotalSelectedAmountRemaining 	= sum SelectedReceivableDistributionsRel.DistributionAmount.CurrencyAmount
+					LocalTotalSelectedAmountRemaining  *= -1
+					
+					invoke Create IntercompanyBillingSettlementDetailLine
+						assign result to CreatedLine
+						invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+						invoked.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+						invoked.IntercompanyBillingSettlementDetail	= IntercompanyBillingSettlementDetail
+						invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+						invoked.Type								= "P"
+						invoked.InvoiceLine							= first PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel.PayablesInvoicePayment.PaymentSequence
+						invoked.VoidSequence						= first PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel.PayablesInvoicePayment.VoidSequence
+						invoked.SelectedAmount						= LocalTotalSelectedAmountRemaining
+
+					for each distinct Description in SelectedReceivableDistributionsRel
+
+						LocalDescription 		= each.Description
+						LocalAmountRemaining 	= sum SelectedReceivableDistributionsLocalDescriptionRel.DistributionAmount.CurrencyAmount
+						LocalAmountRemaining   *= -1
+						
+						for each IntercompanyBillingDocumentHeader.PayableEntity.PayablesInvoice.first PayablesInvoicePaymentRel.ICBProrateDistributionsRel
+							if (each.Description = LocalDescription)
+								
+								LocalDistributionOpenAmount = each.DistributionAmount.CurrencyAmount - each.FundAppliedAmount
+								
+								if (each.AdjustedDistribution)
+									LocalMatchSuccessful = false
+
+								if (each.DistributionAmount.CurrencyAmount > 0)
+									if (LocalAmountRemaining < LocalDistributionOpenAmount)
+										LocalSelectedAmount 	  			 = LocalAmountRemaining
+										LocalTotalSelectedAmountRemaining   -= LocalAmountRemaining
+										LocalAmountRemaining 	  			 = 0
+									else
+										LocalSelectedAmount 	  			 = LocalDistributionOpenAmount
+										LocalAmountRemaining     			-= LocalDistributionOpenAmount
+										LocalTotalSelectedAmountRemaining 	-= LocalDistributionOpenAmount
+								else
+									if (LocalAmountRemaining > LocalDistributionOpenAmount)
+										LocalSelectedAmount 	  			 = LocalAmountRemaining
+										LocalTotalSelectedAmountRemaining   -= LocalAmountRemaining
+										LocalAmountRemaining 	  			 = 0
+									else
+										LocalSelectedAmount 	  			 = LocalDistributionOpenAmount
+										LocalAmountRemaining     			-= LocalDistributionOpenAmount
+										LocalTotalSelectedAmountRemaining 	-= LocalDistributionOpenAmount
+										
+								if (LocalSelectedAmount != 0)
+									invoke Create ICBPayablesApplyDistribution set
+										invoked.IntercompanyBillingSettlementDetailLine = CreatedLine.IntercompanyBillingSettlementDetailLine
+										invoked.IntercompanyBillingDocumentHeader		= IntercompanyBillingDocumentHeader
+										invoked.InvoiceLine								= first PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel.PayablesInvoicePayment.PaymentSequence
+										invoked.VoidSequence							= first PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel.PayablesInvoicePayment.VoidSequence
+										invoked.PayableEntity							= PayableEntity
+										invoked.ApplyFundDistributionAccount			= each.GLFinanceCodeBlock
+										invoked.DistributionAmount.CurrencyAmount 		= LocalSelectedAmount
+										invoked.DistributionAmount.ExchangeDate			= each.DistributionAmount.ExchangeDate
+										invoked.OriginalCurrency						= each.InvoiceCurrency
+										invoked.OriginalPayablesInvoiceDistribution		= each.PayablesInvoiceDistribution
+						
+						if (LocalAmountRemaining != 0)
+							LocalMatchSuccessful = false
+
+						if (LocalTotalSelectedAmountRemaining = 0)
+							end for each
+
+					if (LocalTotalSelectedAmountRemaining != 0)
+						LocalMatchSuccessful = false
+					
+				constraint (LocalMatchSuccessful)
+					"Distribution_MatchWasNotSuccessful.EitherProrateDistributionsOrSelectDistributionsManually."
+		
+		SelectInvoiceDetailForSettlementApply is an Instance Action 
+			default label is "SelectLinesAndProrateDistributions"
+			valid when (AllowProrateAndSelectAll)
+			Local Fields
+				LocalAppliedAmount					is like InternationalAmount
+				LocalUnappliedAmount 				is like InternationalAmount
+				LocalSumPendingRemitAmount			is like InternationalAmount
+				LocalSkipProrationForAR				is Boolean
+				LocalNumberOfLinesToSkipProration	is Numeric 9
+			Action Rules
+
+				if (DerivedReceivableFundDistributionStatus != 2)
+					invoke Delete ReceivableICBSettlementDetailLineRel
+
+					LocalUnappliedAmount = IntercompanyBillingDocumentHeader.DerivedUnsettledAmount
+					
+					constraint (LocalUnappliedAmount != 0)
+						"InvoiceHasNoOpenAmount"
+					
+					if (IntercompanyBillingDocumentHeader.NetDueAmount > 0)
+						constraint (DocumentPaymentAmount <= LocalUnappliedAmount)
+							"Settlement_\AmountCannotBeGreaterThanThe_\Unsettled_\AmountOfThe_\Billing_\Document"
+					else
+						constraint (DocumentPaymentAmount >= LocalUnappliedAmount)
+							"Settlement_\AmountCannotBeGreaterThanThe_\Unsettled_\AmountOfThe_\Billing_\Document"
+
+					LocalNumberOfLinesToSkipProration = config.IntercompanyBillingSettlementDetailSkipProrate
+					if (LocalNumberOfLinesToSkipProration = 0)
+						LocalNumberOfLinesToSkipProration = 10
+
+					if (instance count of ReceivableEntity.ReceivableInvoice.OpenReceivableInvoiceDetailRel >= LocalNumberOfLinesToSkipProration
+					or  instance count of ReceivableEntity.ReceivableInvoice.ProrateDistributionsRel >= LocalNumberOfLinesToSkipProration)
+						LocalSkipProrationForAR = true
+
+					LocalUnappliedAmount = DocumentPaymentAmount
+					if (LocalUnappliedAmount < 0)
+						LocalUnappliedAmount *= -1
+
+					for each ReceivableEntity.ReceivableInvoice.OpenReceivableInvoiceDetailRel
+						
+						LocalInvoiceDetail 			= each.ReceivableInvoiceDetail.PaymentSeq
+						LocalInvoiceType			= each.ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+						LocalSumPendingRemitAmount 	= sum LocalReceivablePaymentRemittanceForThisInvoiceDetailRel.AppldAmt
+						
+						if (each.OpenAmount - LocalSumPendingRemitAmount > 0)
+							if (each.OpenAmount - LocalSumPendingRemitAmount <= LocalUnappliedAmount)
+								LocalAppliedAmount = each.OpenAmount - LocalSumPendingRemitAmount
+							else
+								LocalAppliedAmount = LocalUnappliedAmount
+
+							LocalUnappliedAmount -= LocalAppliedAmount
+
+							invoke Create IntercompanyBillingSettlementDetailLine
+								assign result to CreatedLine
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+								invoked.IntercompanyBillingSettlementDetail	= IntercompanyBillingSettlementDetail
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.Type								= "R"
+								invoked.InvoiceLine							= each.ReceivableInvoiceDetail.PaymentSeq
+								invoked.SelectedAmount						= LocalAppliedAmount
+
+							if (LocalSkipProrationForAR)
+								invoke SettlementSelectOpenDistributions CreatedLine.IntercompanyBillingSettlementDetailLine
+							else
+								invoke ProrateAndSelectAllForSettlementDetail each
+							
+							if (LocalUnappliedAmount = 0)
+								end for each
+
+				if (DerivedPayablesFundDistributionStatus != 2)
+					invoke Delete PayablesICBSettlementDetailLineRel
+
+					LocalUnappliedAmount = IntercompanyBillingDocumentHeader.DerivedUnsettledAmount
+					
+					constraint (LocalUnappliedAmount != 0)
+						"InvoiceHasNoOpenAmount"
+					
+					if (IntercompanyBillingDocumentHeader.NetDueAmount > 0)
+						constraint (DocumentPaymentAmount <= LocalUnappliedAmount)
+							"Settlement_\AmountCannotBeGreaterThanThe_\Unsettled_\AmountOfThe_\Billing_\Document"
+					else
+						constraint (DocumentPaymentAmount >= LocalUnappliedAmount)
+							"Settlement_\AmountCannotBeGreaterThanThe_\Unsettled_\AmountOfThe_\Billing_\Document"
+
+					LocalUnappliedAmount = DocumentPaymentAmount
+
+					for each PayableEntity.PayablesInvoice.OpenPayablesInvoicePaymentRel
+						
+						if (each.PaymentAmount.CurrencyAmount > 0)
+							if (each.PaymentAmount.CurrencyAmount <= LocalUnappliedAmount)
+								LocalAppliedAmount = each.PaymentAmount.CurrencyAmount
+							else
+								LocalAppliedAmount = LocalUnappliedAmount
+						else
+							if (each.PaymentAmount.CurrencyAmount >= LocalUnappliedAmount)
+								LocalAppliedAmount = each.PaymentAmount.CurrencyAmount
+							else
+								LocalAppliedAmount = LocalUnappliedAmount
+
+						LocalUnappliedAmount -= LocalAppliedAmount
+
+						invoke Create IntercompanyBillingSettlementDetailLine
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingSettlementHeader	= IntercompanyBillingSettlementHeader
+							invoked.IntercompanyBillingSettlementDetail	= IntercompanyBillingSettlementDetail
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.Type								= "P"
+							invoked.InvoiceLine							= each.PayablesInvoicePayment.PaymentSequence
+							invoked.VoidSequence						= each.PayablesInvoicePayment.VoidSequence
+							invoked.SelectedAmount						= LocalAppliedAmount
+
+						invoke ProrateAndSelectAllForSettlementDetail each
+						
+						if (LocalUnappliedAmount = 0)
+							end for each
+
+
+		AllocateHeaderPayment is a Set Action
+			restricted
+
+			Parameters
+				PrmIntercompanyBillingGroup				is a IntercompanyBillingGroup
+				PrmIntercompanyBillingSettlementHeader	is a IntercompanyBillingSettlementHeader
+
+			Local Fields
+				LocalHeaderPaymentAmount			is an InternationalAmount
+				LocalHeaderPaymentCurrency			is a Currency
+				LocalAvailablePaymentToAllocate		is an InternationalAmount
+
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingSettlementHeader
+				IntercompanyBillingDocumentHeader.ReceivableEntity.ReceivableInvoiceType  
+				IntercompanyBillingDocumentHeader.InvoiceDate
+				IntercompanyBillingDocumentHeader
+
+			Instance Selection
+				where (IntercompanyBillingGroup				= PrmIntercompanyBillingGroup
+				and    IntercompanyBillingSettlementHeader	= PrmIntercompanyBillingSettlementHeader)
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						LocalHeaderPaymentAmount		= IntercompanyBillingSettlementHeader.PaymentAmount
+						LocalHeaderPaymentCurrency		= IntercompanyBillingSettlementHeader.SettlementCurrency
+						LocalAvailablePaymentToAllocate	= IntercompanyBillingSettlementHeader.PaymentAmount
+									
+				Instance Rules
+					DocumentPaymentAmount = DocumentAmount
+
+					if (DocumentCurrency = LocalHeaderPaymentCurrency)
+						if (ReceivableEntity.ReceivableInvoiceType.CreditMemo)
+							PaymentAmount = DocumentAmount
+							LocalAvailablePaymentToAllocate = LocalAvailablePaymentToAllocate + (PaymentAmount * -1)
+						else
+							if (LocalAvailablePaymentToAllocate > 0)
+								if (LocalAvailablePaymentToAllocate >= DocumentAmount)
+									PaymentAmount = DocumentAmount
+									LocalAvailablePaymentToAllocate = (LocalAvailablePaymentToAllocate - PaymentAmount)
+								else
+									PaymentAmount = LocalAvailablePaymentToAllocate
+									DocumentPaymentAmount = PaymentAmount
+									LocalAvailablePaymentToAllocate = 0
+							else
+								PaymentAmount = 0
+								DocumentPaymentAmount = 0
+					else
+						initialize CurrencyDateWork
+						CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+						CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+						CurrencyDateWork.ExchangeDate							= PaymentDate
+						CurrencyDateWork.FromCurrency							= DocumentCurrency
+						CurrencyDateWork.TransactionAmount						= DocumentAmount
+						CurrencyDateWork.BaseAmount.ToCurrency					= PaymentCurrency
+						PaymentAmount											= CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+						PaymentExchangeRate										= CurrencyDateWork.BaseAmount.OutputCurrencyRate
+						
+						if (ReceivableEntity.ReceivableInvoiceType.CreditMemo)
+							LocalAvailablePaymentToAllocate = LocalAvailablePaymentToAllocate + (PaymentAmount * -1)
+						else
+							if (LocalAvailablePaymentToAllocate > 0)
+								if (LocalAvailablePaymentToAllocate < PaymentAmount)
+									PaymentAmount = LocalAvailablePaymentToAllocate
+									LocalAvailablePaymentToAllocate = 0
+
+									initialize CurrencyDateWork
+									CurrencyDateWork.CurrencyTable							= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+									CurrencyDateWork.FinanceEnterpriseGroup					= IntercompanyBillingGroup
+									CurrencyDateWork.ExchangeDate							= PaymentDate
+									CurrencyDateWork.FromCurrency							= PaymentCurrency
+									CurrencyDateWork.TransactionAmount						= PaymentAmount
+									CurrencyDateWork.BaseAmount.ToCurrency					= DocumentCurrency
+									DocumentPaymentAmount									= CurrencyDateWork.BaseAmount.OutputCurrencyAmount
+								else
+									DocumentPaymentAmount = DocumentAmount
+									LocalAvailablePaymentToAllocate = (LocalAvailablePaymentToAllocate - PaymentAmount)
+							else
+								PaymentAmount = 0
+								DocumentPaymentAmount = 0
+
+
+		ReleaseDetails is an Instance Action
+			restricted
+			Parameters
+				PrmPayment			is Numeric 6
+
+			Action Rules
+
+				if (AllowSelectDistributionSet) 
+					include CreateDetailedRemittanceRecordsForFundApply
+				else	
+					invoke Create ReceivablePaymentRemittance
+						invoked.Company						= ReceivableEntity.Company
+						invoked.ReceivablePaymentHeader		= IntercompanyBillingSettlementHeader.ReceivablePaymentHeader
+						invoked.ReceivablePayment			= PrmPayment
+						if (ReceivableEntity.ReceivableInvoiceType = "M") 
+							if (PaymentAmount >= 0)
+								invoked.ReceivableInvoiceType = "I" 
+							else
+								invoked.ReceivableInvoiceType = "C" 
+						else
+							invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+						invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+						if (PaymentAmount >= 0)  
+							invoked.AppldAmt					= PaymentAmount
+						else
+							invoked.AppldAmt					= PaymentAmount * -1						
+
+				if (AllowSelectDistributionSet)
+					include ApplySelectedPayablesToCheckForFundApply
+				else
+					LocalDocumentPaymentAmount = DocumentPaymentAmount
+					for each OpenPayablesInvoicePaymentRel
+						if (ReceivableEntity.ReceivableInvoiceType.Invoice   
+						or ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.Invoice)
+							if (LocalDocumentPaymentAmount < each.PaymentAmount.CurrencyAmount)
+								LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+								invoke Update each.PayablesInvoicePayment
+									invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+									invoked.TransientBypassUpdateEdit		= true
+									
+								invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+									invoked.PrmCashLedgerSourceRecord		= "CHK"
+									invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+									invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+									
+								LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+								invoke Create PayablesInvoicePayment
+									invoked.Company							= PayableEntity.Company
+									invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+									invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+									
+								LocalDocumentPaymentAmount = 0
+							else
+								LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+								invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+									invoked.PrmCashLedgerSourceRecord		= "CHK"
+									invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+									invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+			
+								LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+						else  
+							if (LocalDocumentPaymentAmount > each.PaymentAmount.CurrencyAmount)							
+								LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+								invoke Update each.PayablesInvoicePayment
+									invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+									invoked.TransientBypassUpdateEdit		= true
+									
+								invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+									invoked.PrmCashLedgerSourceRecord		= "CHK"
+									invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+									invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+									
+								LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+								invoke Create PayablesInvoicePayment
+									invoked.Company							= PayableEntity.Company
+									invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+									invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+									
+								LocalDocumentPaymentAmount = 0
+							else
+								LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+								invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+									invoked.PrmCashLedgerSourceRecord		= "CHK"
+									invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+									invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+			
+								LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+
+						if (LocalDocumentPaymentAmount = 0)
+							end for each
+
+			Exit Rules
+				invoke UpdateFromSettlement IntercompanyBillingDocumentHeader
+						invoked.PrmJournalizeGroup					= IntercompanyBillingSettlementHeader.TransientJournalizeGroup
+						invoked.PrmSettlementAmount					= DocumentPaymentAmount
+
+
+
+
+
+
+
+		ReleaseMultiCurrencyDetails is a Set Action
+			restricted
+			Parameters
+				PrmIntercompanyBillingGroup				is AlphaUpper size 4
+				PrmIntercompanyBillingSettlementHeader	is a IntercompanyBillingSettlementHeader
+				PrmReceivableCompany					is a ReceivableCompany
+				PrmReceivablePaymentHeader				is a ReceivablePaymentHeader
+				PrmReceivablePayment					is a ReceivablePayment
+
+			Local Fields
+				LocalPaymentTotal					is an InternationalAmount
+				LocalCashCode						is a CashCode
+				LocalCashLedgerSourceRecord			is a CashLedgerSourceRecord
+				LocalCashLedgerPayablesPayment		is a CashLedgerPayablesPayment
+
+			Sort Order
+				IntercompanyBillingGroup
+				IntercompanyBillingSettlementHeader
+				PayGroup
+				DocumentCurrency
+
+			Instance Selection
+				where (IntercompanyBillingGroup				= PrmIntercompanyBillingGroup
+				and    IntercompanyBillingSettlementHeader	= PrmIntercompanyBillingSettlementHeader)
+
+			Action Rules
+				Set Rules
+					Exit Rules
+						invoke OpenBatchUnreleased.Release PrmReceivablePaymentHeader
+						
+
+				PayGroup Set Rules
+					Entrance Rules
+						LocalPayGroup = PayGroup
+				
+				DocumentCurrency Set Rules
+					Entrance Rules
+						LocalPayGroup = PayGroup
+						LocalCurrency = DocumentCurrency
+						initialize LocalPaymentTotal
+						initialize LocalCashLedgerPayablesPayment
+						
+
+						CashLedgerSourceRecord	= "CHK"
+						invoke Create CashLedgerPayablesPayment
+							assign result to LocalCashLedgerPayablesPayment
+							invoked.VendorGroup										= IntercompanyBillingSettlementHeader.IntercompanyBillingSettlementHeader.PayablesCompany.VendorGroup
+							invoked.PayGroup										= LocalPayGroup
+							invoked.PaidVendor										= PayableEntity.Vendor
+							invoked.CashCode										= IntercompanyBillingSettlementHeader.IntercompanyBillingSettlementHeader.PayablesCashCode
+							invoked.CashLedgerPayablesPayment.BankTransactionCode	= IntercompanyBillingSettlementHeader.IntercompanyBillingSettlementHeader.PayablesBankTransactionCode
+							invoked.TransactionNumber								= IntercompanyBillingSettlementHeader.IntercompanyBillingSettlementHeader.SettlementID
+
+
+							invoked.PaymentDate										= IntercompanyBillingSettlementHeader.PaymentDate
+							invoked.PaymentAmount									= DerivedTotalByPayGroupCurrency 
+							invoked.BasePaymentAmount.ToCurrency					= IntercompanyBillingSettlementHeader.IntercompanyBillingSettlementHeader.PayablesCompany.Currency
+							invoked.BasePaymentAmount.EnteredCurrencyAmount			= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyAmount
+							invoked.BasePaymentAmount.EnteredCurrencyRate			= PaymentExchangeRate
+							invoked.PayablesCompanyProcessLevel.PayablesProcessLevel = PayableEntity.ProcessLevel
+			  				invoked.PayablesCompanyProcessLevel.PayablesCompany		= PayableEntity.Company
+					        invoked.RemitToCode                 					= PayableEntity.PayablesInvoice.RemitToCode 
+					        invoked.PayCurrency                 					= LocalCurrency
+							invoked.CurrencyTable									= IntercompanyBillingSettlementHeader.PayableCurrencyInfo.CurrencyTable
+							invoked.CheckType										= "M"	
+							invoked.Status											= 0		
+							invoked.FromICBBypassEdit								= true  
+
+					Exit Rules
+						invoke Unreleased.Release CashLedgerPayablesPayment
+				
+				Instance Rules
+					LocalPaymentTotal += DocumentAmount
+
+					if (AllowSelectDistributionSet) 
+						invoke Create ReceivablePaymentRemittance
+							invoked.Company						= ReceivableEntity.Company
+							invoked.ReceivablePaymentHeader		= PrmReceivablePaymentHeader
+							invoked.ReceivablePayment			= PrmReceivablePayment
+							if (ReceivableEntity.ReceivableInvoiceType = "M")
+								if (DocumentPaymentAmount >= 0)
+									invoked.ReceivableInvoiceType = "I"
+								else
+									invoked.ReceivableInvoiceType = "C"
+							else
+								invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+							invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+							if (DocumentPaymentAmount >= 0)
+								invoked.AppldAmt					= DocumentPaymentAmount
+							else
+								invoked.AppldAmt					= DocumentPaymentAmount * -1
+
+						for each ReceivableICBSettlementDetailLineRel
+							invoke Create ReceivablePaymentRemittance
+								assign result to CreatedReceivablePaymentRemittance
+								invoked.Company						= ReceivableEntity.Company
+								invoked.InvoiceCompany				= ReceivableEntity.Company
+								invoked.ReceivablePaymentHeader		= PrmReceivablePaymentHeader
+								invoked.ReceivablePayment			= PrmReceivablePayment
+								if (ReceivableEntity.ReceivableInvoiceType = "M")
+									invoked.ReceivableInvoiceType		= each.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType
+								else
+									invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+								invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+								invoked.InvoiceDetail				= each.InvoiceLine
+								invoked.AppldAmt					= each.SelectedAmount
+
+							for each each.ICBReceivableApplyDistribution set
+								invoke Create RemittanceApplyDistribution
+									invoked.Company								= ReceivableEntity.Company
+									invoked.ReceivablePaymentHeader				= PrmReceivablePaymentHeader
+									invoked.ReceivablePayment					= PrmReceivablePayment
+									invoked.ReceivablePaymentRemittance			= CreatedReceivablePaymentRemittance.ReceivablePaymentRemittance
+									invoked.OriginalLastDistributionSequence	= each.OriginalLastDistributionSequence
+									invoked.OriginalReceivableGLDistribution	= each.OriginalReceivableGLDistribution
+									invoked.InvoiceCompany						= ReceivableEntity.Company
+									invoked.ReceivableInvoiceType				= CreatedReceivablePaymentRemittance.ReceivableInvoiceType
+									invoked.ReceivableInvoice					= ReceivableEntity.ReceivableInvoice
+									invoked.InvoiceDetail						= CreatedReceivablePaymentRemittance.InvoiceDetail
+									invoked.ApplyFundDistributionAccount		= each.ApplyFundDistributionAccount
+									invoked.DistributionAmount.CurrencyAmount 	= each.DistributionAmount.CurrencyAmount
+									invoked.DistributionAmount.ExchangeDate		= each.DistributionAmount.ExchangeDate
+									invoked.OriginalCurrency					= each.OriginalCurrency
+									invoked.Customer							= ReceivableEntity.Customer
+					else	
+						invoke Create ReceivablePaymentRemittance
+							invoked.Company						= ReceivableEntity.Company
+							invoked.ReceivablePaymentHeader		= PrmReceivablePaymentHeader
+							invoked.ReceivablePayment			= PrmReceivablePayment
+							if (ReceivableEntity.ReceivableInvoiceType = "M") 
+								if (PaymentAmount >= 0)
+									invoked.ReceivableInvoiceType = "I" 
+								else
+									invoked.ReceivableInvoiceType = "C" 
+							else
+								invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+							invoked.ReceivableInvoice			= ReceivableEntity.ReceivableInvoice
+							if (PaymentAmount >= 0)  
+								invoked.AppldAmt					= PaymentAmount
+							else
+								invoked.AppldAmt					= PaymentAmount * -1						
+
+					if (AllowSelectDistributionSet) 
+						LocalDocumentPaymentAmount = DocumentPaymentAmount
+						for each OpenPayablesInvoicePaymentRel
+							LocalInvoiceLine 						= each.PayablesInvoicePayment.PaymentSequence
+							LocalVoidSequence						= each.PayablesInvoicePayment.VoidSequence
+							if (LocalPayablesICBSettlementDetailForThisLineRel exists)
+								LocalSelectedAmount 				= LocalPayablesICBSettlementDetailForThisLineRel.SelectedAmount
+							else
+								LocalSelectedAmount					= 0
+
+							if (LocalSelectedAmount != 0)
+								if (ReceivableEntity.ReceivableInvoiceType.Invoice   
+								or ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.Invoice)
+									if (LocalSelectedAmount < each.PaymentAmount.CurrencyAmount)
+										LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+										invoke Update each.PayablesInvoicePayment
+											invoked.PaymentAmount.CurrencyAmount	= LocalSelectedAmount
+											invoked.TransientBypassUpdateEdit		= true
+											
+										invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+											invoked.PrmCashLedgerSourceRecord		= "CHK"
+											invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+											invoked.PrmCashLedgerPayablesPayment	= LocalCashLedgerPayablesPayment
+											
+										include CarryOverPayablesFundApplyDistributions
+
+										LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalSelectedAmount
+										invoke Create PayablesInvoicePayment
+											invoked.Company							= PayableEntity.Company
+											invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+											invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+											
+										LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalSelectedAmount
+									else
+										LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+										invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+											invoked.PrmCashLedgerSourceRecord		= "CHK"
+											invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+											invoked.PrmCashLedgerPayablesPayment	= LocalCashLedgerPayablesPayment
+					
+										include CarryOverPayablesFundApplyDistributions
+
+										LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+								else  
+									if (LocalSelectedAmount > each.PaymentAmount.CurrencyAmount)							
+										LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+										invoke Update each.PayablesInvoicePayment
+											invoked.PaymentAmount.CurrencyAmount	= LocalSelectedAmount
+											invoked.TransientBypassUpdateEdit		= true
+											
+										invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+											invoked.PrmCashLedgerSourceRecord		= "CHK"
+											invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+											invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+											
+										include CarryOverPayablesFundApplyDistributions
+
+										LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalSelectedAmount
+										invoke Create PayablesInvoicePayment
+											invoked.Company							= PayableEntity.Company
+											invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+											invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+											
+										LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalSelectedAmount
+									else
+										LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+										invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+											invoked.PrmCashLedgerSourceRecord		= "CHK"
+											invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+											invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+					
+										include CarryOverPayablesFundApplyDistributions
+
+										LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+										
+								if (LocalDocumentPaymentAmount = 0)
+									end for each
+					else 
+						LocalDocumentPaymentAmount = DocumentPaymentAmount
+						for each OpenPayablesInvoicePaymentRel
+							if (ReceivableEntity.ReceivableInvoiceType.Invoice   
+							or ReceivableEntity.ReceivableInvoice.AlternateReceivableInvoiceType.Invoice)
+								if (LocalDocumentPaymentAmount < each.PaymentAmount.CurrencyAmount)
+									LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+									invoke Update each.PayablesInvoicePayment
+										invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+										invoked.TransientBypassUpdateEdit		= true
+										
+									invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+										invoked.PrmCashLedgerSourceRecord		= "CHK"
+										invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+										invoked.PrmCashLedgerPayablesPayment	= LocalCashLedgerPayablesPayment
+										
+									LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+									invoke Create PayablesInvoicePayment
+										invoked.Company							= PayableEntity.Company
+										invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+										invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+										
+									LocalDocumentPaymentAmount = 0
+								else
+									LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+									invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+										invoked.PrmCashLedgerSourceRecord		= "CHK"
+										invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+										invoked.PrmCashLedgerPayablesPayment	= LocalCashLedgerPayablesPayment
+				
+									LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+							else  
+								if (LocalDocumentPaymentAmount > each.PaymentAmount.CurrencyAmount)							
+									LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+									invoke Update each.PayablesInvoicePayment
+										invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+										invoked.TransientBypassUpdateEdit		= true
+										
+									invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+										invoked.PrmCashLedgerSourceRecord		= "CHK"
+										invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+										invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+										
+									LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+									invoke Create PayablesInvoicePayment
+										invoked.Company							= PayableEntity.Company
+										invoked.PayablesInvoice 				= PayableEntity.PayablesInvoice
+										invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+										
+									LocalDocumentPaymentAmount = 0
+								else
+									LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+									invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+										invoked.PrmCashLedgerSourceRecord		= "CHK"
+										invoked.PrmCashCode						= IntercompanyBillingSettlementHeader.PayablesCashCode
+										invoked.PrmCashLedgerPayablesPayment	= IntercompanyBillingSettlementHeader.CashLedgerPayablesPayment
+
+									LocalDocumentPaymentAmount = LocalDocumentPaymentAmount - LocalPayablesInvoicePaymentAmount
+									
+							if (LocalDocumentPaymentAmount = 0)
+								end for each
+
+					invoke UpdateFromSettlement IntercompanyBillingDocumentHeader
+						invoked.PrmJournalizeGroup					= IntercompanyBillingSettlementHeader.TransientJournalizeGroup
+						invoked.PrmSettlementAmount 				= DocumentPaymentAmount
+
+
+
+
+
+
+					CashLedgerSourceRecord	  = "CHK"	
+					CashLedgerPayablesPayment = LocalCashLedgerPayablesPayment
+					
+					

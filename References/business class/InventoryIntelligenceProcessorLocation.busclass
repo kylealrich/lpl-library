@@ -1,0 +1,318 @@
+InventoryIntelligenceProcessorLocation is a BusinessClass
+	owned by InventoryIntelligence
+	sql name is IIProcessorLocation
+	prefix is IIPL
+	
+	Ontology
+		part of InventoryIntelligenceProcessor
+			relative key is Sequence
+		
+	
+	Patterns
+	
+	Persistent Fields
+		Company		is an InventoryCompany
+			delete ignored
+		Location	is an InventoryLocation
+			delete ignored
+		Access		is an AccessType
+		
+	Local Fields
+		LocalCompany 	is like InventoryCompany
+		LocalLocation 	is like InventoryLocation
+		LocalAccess		is like AccessType
+	
+	Field Rules
+		Company
+			required
+				"CompanyIsRequired"
+				
+		Access
+			required
+				"MustSpecifyAccessRight"
+			constraint (Access != InventoryIntelligenceProcessor.DefaultAccess)
+				"CannotBeSameAsDefaultAccess"
+		
+		Sequence
+			autosequence
+				minimize contention
+				
+			
+	Conditions
+		IsCompanyRule							
+			restricted
+			when (Company entered
+			and Location not entered)
+			
+		IsLocationRule							
+			restricted
+			when (Company entered
+			and Location entered)
+
+	Derived Fields
+			
+		ReplicationRunMsg is a MessageField
+			restricted
+			"PleaseRunII\_FSM\_InternalReplicationSet"
+	
+	Relations
+		SimilarConfigAnotherSequenceRel
+			one-to-many relation to InventoryIntelligenceProcessorLocation
+			Field Mapping uses ByCompanyLocation
+				related.HROrganization = HROrganization
+				related.InventoryIntelligenceProcessor = InventoryIntelligenceProcessor
+				related.Company = Company
+				related.Location = Location
+			Instance Selection
+				where (related.Sequence != Sequence)
+				
+		IIProcessorAccessRightsForCompanyRel										
+			one-to-many relation to InventoryIntelligenceProcessorAccessRights
+			Field Mapping uses ByCompany
+				related.HROrganization 												= HROrganization
+				related.InventoryIntelligenceProcessor 								= InventoryIntelligenceProcessor
+				related.InventoryIntelligenceProcessorAccessRights.InventoryCompany = LocalCompany
+				
+				
+		IIProcessorAccessRightsForLocationRel										
+			one-to-one relation to InventoryIntelligenceProcessorAccessRights
+			Field Mapping uses symbolic key
+				related.HROrganization 													= HROrganization
+				related.InventoryIntelligenceProcessor 									= InventoryIntelligenceProcessor
+				related.InventoryIntelligenceProcessorAccessRights.InventoryCompany 	= LocalCompany
+				related.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation = LocalLocation
+				
+		IIHLocationsForCompanyRel							
+			one-to-many relation to IIHInventoryLocation
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		InventoryIntelligenceProcessorCompanyRel				
+			one-to-one relation to InventoryIntelligenceProcessorLocation
+			Field Mapping uses ByCompanyLocation
+				related.HROrganization 					= HROrganization
+				related.InventoryIntelligenceProcessor 	= InventoryIntelligenceProcessor
+				related.Company 						= LocalCompany
+				related.Location					   	= blank
+
+		IIHInventoryLocationsRel							
+			one-to-one relation to IIHInventoryLocation
+			Field Mapping uses symbolic key
+				related.Company					= LocalCompany
+				related.IIHInventoryLocation	= LocalLocation
+
+	
+	Sets
+		ByCompanyLocation
+			bypass no duplicates validation
+			Sort Order
+				HROrganization
+				InventoryIntelligenceProcessor
+				Company
+				Location
+				
+		ByCompany
+			bypass no duplicates validation
+			Sort Order
+				HROrganization
+				InventoryIntelligenceProcessor
+				Company
+				
+	Actions
+		Create is an Action
+			Exit Rules
+				constraint (SimilarConfigAnotherSequenceRel not exists)
+					"AccessRightsAlreadyExistsForCompany<Company>,Location<Location>"
+				invoke CreateRule
+					invoked.PrmCompany  = Company
+					invoked.PrmLocation = Location
+					invoked.PrmAccess   = Access
+				invoke Process ComputeCumulativeGraph in background
+					invoked.FinanceEnterpriseGroup 				= actor.context.FinanceEnterpriseGroup
+					invoked.PrmHROrganization				  	= HROrganization
+					invoked.PrmInventoryIntelligenceProcessor 	= InventoryIntelligenceProcessor
+					invoked.TimeOutInMinutes   					= 20
+		
+		Update is an Action
+			Entrance Rules
+				constraint (SimilarConfigAnotherSequenceRel not exists)
+					"AccessRightsAlreadyExistsForCompany<Company>,Location<Location>"
+				initialize LocalCompany
+				initialize LocalLocation
+				initialize LocalAccess
+				LocalCompany 	= old Company
+				LocalLocation 	= old Location
+				LocalAccess 	= old Access
+			Exit Rules
+				invoke DeleteRule
+					invoked.PrmCompany 	= LocalCompany
+					invoked.PrmLocation = LocalLocation
+					invoked.PrmAccess   = LocalAccess
+				invoke CreateRule
+					invoked.PrmCompany  = Company
+					invoked.PrmLocation = Location
+					invoked.PrmAccess   = Access
+				invoke Process ComputeCumulativeGraph in background
+					invoked.FinanceEnterpriseGroup 				= actor.context.FinanceEnterpriseGroup
+					invoked.PrmHROrganization				  	= HROrganization
+					invoked.PrmInventoryIntelligenceProcessor 	= InventoryIntelligenceProcessor
+					invoked.TimeOutInMinutes   					= 20
+		
+		Delete is an Action
+			Entrance Rules
+				initialize LocalCompany
+				initialize LocalLocation
+				LocalCompany 	= old Company
+				LocalLocation 	= old Location
+				LocalAccess     = old Access
+			Exit Rules
+				invoke DeleteRule
+					invoked.PrmCompany 	= LocalCompany
+					invoked.PrmLocation = LocalLocation
+					invoked.PrmAccess   = LocalAccess
+				invoke Process ComputeCumulativeGraph in background
+					invoked.FinanceEnterpriseGroup 				= actor.context.FinanceEnterpriseGroup
+					invoked.PrmHROrganization				  	= HROrganization
+					invoked.PrmInventoryIntelligenceProcessor 	= InventoryIntelligenceProcessor
+					invoked.TimeOutInMinutes   					= 20
+
+		DeleteRule is an Instance Action
+			Parameters
+				PrmCompany	is like InventoryCompany
+				PrmLocation	is like InventoryLocation
+				PrmAccess	is like AccessType
+			Action Rules
+				LocalCompany 	= PrmCompany
+				LocalLocation 	= PrmLocation
+				LocalAccess	  	= PrmAccess
+				if (PrmCompany entered 
+				and PrmLocation not entered)
+					if (PrmAccess.None)
+						for each IIHLocationsForCompanyRel
+							LocalLocation 	= each.IIHInventoryLocation
+							if (IIProcessorAccessRightsForLocationRel not exists 
+							and (InventoryIntelligenceProcessor.DefaultAccess.View or
+									InventoryIntelligenceProcessor.DefaultAccess.Edit))
+								invoke Create InventoryIntelligenceProcessorAccessRights
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= LocalCompany
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= InventoryIntelligenceProcessor.DefaultAccess
+									invoked.RuleLevel															= 1
+
+					else
+						for each IIProcessorAccessRightsForCompanyRel
+							if (each.RuleLevel.Company)
+								if (InventoryIntelligenceProcessor.DefaultAccess.View or
+									InventoryIntelligenceProcessor.DefaultAccess.Edit)
+										invoke Update each
+											invoked.Access 			= InventoryIntelligenceProcessor.DefaultAccess
+											invoked.RuleLevel		= 1
+								else
+									invoke Purge each
+
+				if (PrmCompany entered 
+				and PrmLocation entered)
+					if (LocalAccess.None)
+						if (InventoryIntelligenceProcessorCompanyRel exists)
+							if (InventoryIntelligenceProcessorCompanyRel.Access.View
+							or InventoryIntelligenceProcessorCompanyRel.Access.Edit)
+								invoke Update IIProcessorAccessRightsForLocationRel
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= LocalCompany
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= InventoryIntelligenceProcessorCompanyRel.Access
+									invoked.RuleLevel															= 2
+						else
+							if (InventoryIntelligenceProcessor.DefaultAccess.View
+							or InventoryIntelligenceProcessor.DefaultAccess.Edit)
+								invoke Update IIProcessorAccessRightsForLocationRel
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= LocalCompany
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= InventoryIntelligenceProcessor.DefaultAccess
+									invoked.RuleLevel															= 1
+					else
+						if (InventoryIntelligenceProcessorCompanyRel exists)
+							if (InventoryIntelligenceProcessorCompanyRel.Access.View
+							or InventoryIntelligenceProcessorCompanyRel.Access.Edit)
+								invoke Update IIProcessorAccessRightsForLocationRel
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= LocalCompany
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= InventoryIntelligenceProcessorCompanyRel.Access
+									invoked.RuleLevel															= 2
+							else
+								invoke Purge IIProcessorAccessRightsForLocationRel
+						else
+							if (InventoryIntelligenceProcessor.DefaultAccess.View
+							or InventoryIntelligenceProcessor.DefaultAccess.Edit)
+								invoke Update IIProcessorAccessRightsForLocationRel
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= LocalCompany
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= InventoryIntelligenceProcessor.DefaultAccess
+									invoked.RuleLevel															= 1
+							else
+								invoke Purge IIProcessorAccessRightsForLocationRel
+
+
+		CreateRule is an Instance Action
+			Parameters
+				PrmCompany	is like InventoryCompany
+				PrmLocation	is like InventoryLocation
+				PrmAccess	is like AccessType
+			Action Rules
+				LocalCompany 	= PrmCompany
+				LocalLocation 	= PrmLocation
+				LocalAccess 	= PrmAccess
+				if (PrmCompany entered 
+				and PrmLocation not entered)
+					constraint (IIHLocationsForCompanyRel exists)
+						"IIHInventoryLocationDoesNotExist;<ReplicationRunMsg>"
+					if (LocalAccess.None)
+						if (IIProcessorAccessRightsForCompanyRel exists)
+							for each IIProcessorAccessRightsForCompanyRel
+								if (each.RuleLevel.Processor)
+									invoke Purge each
+					else
+						for each IIHLocationsForCompanyRel
+							LocalLocation 	= each.IIHInventoryLocation
+							if (IIProcessorAccessRightsForLocationRel exists)
+								if (IIProcessorAccessRightsForLocationRel.RuleLevel.Processor)
+									invoke Update IIProcessorAccessRightsForLocationRel
+										invoked.HROrganization 														= HROrganization
+										invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+										invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= Company
+										invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+										invoked.Access 																= LocalAccess
+										invoked.RuleLevel															= 2
+							else
+								invoke Create InventoryIntelligenceProcessorAccessRights
+									invoked.HROrganization 														= HROrganization
+									invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+									invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= Company
+									invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= LocalLocation
+									invoked.Access 																= LocalAccess
+									invoked.RuleLevel															= 2
+
+				if (PrmCompany entered 
+				and PrmLocation entered)
+					constraint (IIHInventoryLocationsRel exists)
+						"IIHInventoryLocationDoesNotExist;<ReplicationRunMsg>"
+					if (LocalAccess.None)
+						if (IIProcessorAccessRightsForLocationRel exists)
+							invoke Purge IIProcessorAccessRightsForLocationRel
+					else
+						invoke Update IIProcessorAccessRightsForLocationRel
+							invoked.HROrganization 														= HROrganization
+							invoked.InventoryIntelligenceProcessor 										= InventoryIntelligenceProcessor
+							invoked.InventoryIntelligenceProcessorAccessRights.InventoryCompany 		= Company
+							invoked.InventoryIntelligenceProcessorAccessRights.IIHInventoryLocation 	= Location
+							invoked.Access 																= LocalAccess
+							invoked.RuleLevel															= 3

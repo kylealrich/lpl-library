@@ -1,0 +1,303 @@
+ContractDistributionAggregation is a BusinessClass
+	owned by po
+	prefix is CDA1
+	sql name is CMDistributionAggregation
+
+	Ontology
+		symbolic key is ContractDistributionAggregation
+
+	Patterns
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp		
+
+	Persistent Fields
+		SummaryAccount                      	is a FinanceCodeBlock
+			default label is "Account"
+		SummaryAmount                       	is an InternationalAmount
+			default label is "Amount"
+		Status                                  is Numeric 1
+			States 
+				Pending 						value is 0
+				Approved                        value is 1
+				Rejected                        value is 2
+				RejectedOther                   value is 3
+				Disapproved                     value is 4
+				DisapprovedOther                value is 5
+				ApprovalNotRequired				value is 7
+				Created							value is 8
+
+	Transient Fields 
+		InputAmount                         is an InternationalAmount
+		BypassLedgerEdits
+
+	Local Fields
+		LocalFunctionalAmount				is a CurrencyAmount
+		LocalReportCurrencyExchangeGroup	is a ReportCurrencyExchangeGroup
+	
+	Derived Fields 
+
+		OriginalMessage									is a MessageField
+			"AggregatedDistributions"
+
+		UnreleasedMessage                             	is a MessageField  
+			"AggregatedDistributions-ContractHasBeenUnreleased;DistributionsMayNotMatch"
+
+		ChangedMessage 									is a MessageField 
+			"AggregatedDistributions-DistributionsMayHaveChanged;WillBeRecalculatedWhenContractIsReleased"
+		
+		DerivedAggregatedDistributionsTitle            	is a DerivedField
+			type is Alpha size 120
+			if (Contract.ContractStatus.Draft
+			or (Contract.ContractStatus.Amendment
+			and Contract.ContractUsesMatrixApprovalsForAmendment)
+			or (Contract.ContractStatus.Addendum
+			and Contract.ContractUsesMatrixApprovalsForAddendum))
+				return ChangedMessage 
+			else
+				return OriginalMessage		
+
+		ApprovalTitle		is a StringField
+			type is Alpha 200
+			restricted
+			" Contract: "
+			Contract 
+			" Group: "
+			ContractGroup 
+			" | Distribution - "
+			SummaryAccount
+			" for Amt "
+
+
+		DerivedApprovalTitle is a DerivedField
+			type is Alpha 200
+			return ApprovalTitle + " " + SummaryAmount
+	
+	Relations
+
+		OtherNonApprovedDistributionAggregationRel 
+			one-to-many relation to ContractDistributionAggregation
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection 
+				where (related.UniqueID != UniqueID
+				and    related.Status != 1)
+
+		OtherPendingDistributionAggregationRel 
+			one-to-many relation to ContractDistributionAggregation
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection 
+				where (related.UniqueID != UniqueID
+				and    related.Status = 0)			
+
+		OtherCreatedDistributionAggregationRel
+			one-to-many relation to ContractDistributionAggregation
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and    related.Status = 8)
+
+		OtherDistributionAggregationRel
+			one-to-many relation to ContractDistributionAggregation
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+
+		ContractLineDistributionRel 
+			one-to-many relation to ContractLineDistribution
+			Field Mapping uses symbolic key 
+				related.ContractGroup  = ContractGroup 
+				related.Contract       = Contract 
+			Instance Selection 
+				where (related.ContractDistributionAggregation = ContractDistributionAggregation)	
+
+		ResponsibilityMatrixRel
+			one-to-many relation to ResponsibilityMatrix
+			Field Mapping uses ByPriorityAndDimensionCount
+				related.FinanceEnterpriseGroup		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+			Instance Selection
+                where (related.Active)		
+
+		ApprovalProcessorRel 
+			one-to-one relation to ApprovalProcessor 
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup							= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.ApprovalProcessor.ApprovalType                  = "CM"
+				related.ApprovalProcessor.SystemCode                    = "PO"
+				related.ApprovalProcessor.ApprovalTransactionForm       = ApprovalTransactionForm.ContractManagement
+				related.ApprovalProcessor.TransactionHeader1     		= ContractGroup      
+				related.ApprovalProcessor.TransactionHeader2            = Contract 
+				related.ApprovalProcessor.TransactionHeader3            = blank 
+				related.ApprovalProcessor.TransactionHeader4            = blank 
+				related.ApprovalProcessor.TransactionLine1              = blank 
+				related.ApprovalProcessor.TransactionLine2              = blank 
+				related.ApprovalProcessor.Transaction    		        = ContractDistributionAggregation
+
+		AccountingEntityRel
+			one-to-one relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		   = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.AccountingEntity			   = SummaryAccount.ToAccountingEntity
+
+	Conditions 
+
+		CanPerformManualAction 
+			restricted 
+			when (Status = 0)
+	
+	Sets 
+		BySummaryAccount 
+			Sort Order 
+				ContractGroup  
+				Contract 
+				SummaryAccount 
+				ContractDistributionAggregation
+
+	Field Rules
+
+	Actions 
+
+		Create is a Create Action 
+			restricted 
+			Entrance Rules
+				BypassLedgerEdits = true
+			Action Rules 
+				Status = 8
+
+		Update is an Update Action 
+			restricted 
+			Entrance Rules
+				BypassLedgerEdits = true
+
+		Purge is a Purge Action 
+			restricted 
+
+		CalculateAggregationUpdate is an Update Action 
+			restricted 
+			Entrance Rules
+				BypassLedgerEdits = true
+			Action Rules 
+				SummaryAmount += InputAmount
+
+		ManualFromContract is an Instance Action 
+			restricted
+			Parameters 
+				Action	is Numeric 3
+					States 
+						Approve           value is 1	
+						Reject            value is 2
+						Disapprove        value is 3
+
+			Action Rules 
+
+
+				if (Action = 1)
+					Status = 1
+				else 
+				if (Action = 2)
+					Status = 3 
+				else 
+				if (Action = 3)
+					Status = 5
+				
+				invoke CancelPAService ApprovalProcessorRel 
+
+		
+		ApprovalNotRequired is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 7
+
+			Exit Rules 
+				if (OtherCreatedDistributionAggregationRel !exists)
+					invoke CheckMatrixAggregations ReadyToActivate Contract 
+
+		Approve is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 1
+			
+			Exit Rules 
+
+				if (OtherCreatedDistributionAggregationRel !exists)
+					invoke CheckMatrixAggregations ReadyToActivate Contract
+
+		Reject is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 2 
+				if (OtherDistributionAggregationRel exists)
+					for each OtherDistributionAggregationRel
+						invoke Update each 
+							invoked.Status = 3 
+						invoke CancelPAService each.ApprovalProcessorRel
+				invoke RejectActivation ReadyToActivate Contract  
+				invoke FastUpdate Contract 
+					invoked.InMatrixApprovalProcess = false
+					invoked.FromMatrixApproval      = true 
+					invoked.PreviousState 			= 11 
+
+		Disapprove is an Instance Action 
+			restricted 
+			Action Rules 
+
+				Status = 4
+				if (OtherDistributionAggregationRel exists)
+					for each OtherDistributionAggregationRel
+						invoke Update each 
+							invoked.Status = 5 
+						invoke CancelPAService each.ApprovalProcessorRel
+				if (Contract.AddendumExists)
+					invoke DisapproveAddendum ReadyToActivate Contract 
+				else 
+				if (Contract.AmendmentExists)
+					invoke DisapproveAmendment ReadyToActivate Contract 
+				else 
+					invoke Disapprove ReadyToActivate Contract 
+				invoke FastUpdate Contract 
+					invoked.InMatrixApprovalProcess = false
+					invoked.FromMatrixApproval      = true 
+					invoked.PreviousState 			= 11 
+		
+		SubmitForApproval is an Instance Action 
+			restricted 
+			Action Rules 
+				if (AccountingEntityRel.FunctionalCurrency != Contract.CurrencyCode)
+					LocalReportCurrencyExchangeGroup.CurrencyTable			  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CurrencyTable
+					LocalReportCurrencyExchangeGroup.FinanceEnterpriseGroup	  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+					LocalReportCurrencyExchangeGroup.BaseAmount.ToCurrency	  = AccountingEntityRel.FunctionalCurrency
+					LocalReportCurrencyExchangeGroup.ExchangeDate			  = current corporate date 
+					LocalReportCurrencyExchangeGroup.TransactionAmount		  = SummaryAmount
+					LocalReportCurrencyExchangeGroup.FromCurrency			  = Contract.CurrencyCode
+					LocalFunctionalAmount									  = LocalReportCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+				else
+					LocalFunctionalAmount									  = SummaryAmount
+
+				invoke SubmitForMatrixApproval first ResponsibilityMatrixRel
+					invoked.PrmFinanceEnterpriseGroup 		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+					invoked.PrmApprovalType					= "CM"
+					invoked.PrmSystemCode					= "PO"
+					invoked.PrmApprovalTransactionForm		= ApprovalTransactionForm.ContractManagement
+					invoked.PrmTransactionHeader1			= ContractGroup 
+					invoked.PrmTransactionHeader2			= Contract 
+					invoked.PrmTransactionHeader3			= blank 
+					invoked.PrmTransactionHeader4			= blank
+					invoked.PrmTransactionLine1				= blank
+					invoked.PrmTransactionLine2				= blank
+					invoked.PrmTransaction					= ContractDistributionAggregation
+					invoked.PrmFinanceCodeBlock				= SummaryAccount
+					invoked.PrmApprovalTitle				= DerivedApprovalTitle 
+					invoked.PrmApprovalAmount				= LocalFunctionalAmount 
+
+
+

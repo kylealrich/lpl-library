@@ -1,0 +1,345 @@
+ApprovalCodeResource is a BusinessClass
+    owned by sharedfinance
+    prefix is ACDRE
+
+    Ontology
+    	symbolic key is ApprovalCodeResource
+
+	Patterns
+		implements Resequence on ApprovalLevel
+			new sequence field is NewApprovalLevel
+			set is ByApprovalLevel
+
+    Persistent Fields
+    	ApprovalLevel						is a DisplayOrder
+		Approver							is a FinanceResource
+		MaxApprovalAmount					is a CurrencyAmount
+			default label is "MaximumApprovalAmount"
+		ApprovalTeam						is a FinanceTeam
+		EscalationDays						is Numeric 3
+		EscalationHours						is Decimal 5.2
+		EscalateTo							is Numeric 1
+			States
+				NextApprovalLevel		value is 1
+				SpecificApprovalLevel	value is 2
+		EscalationApprovalLevel				is a ApprovalCodeResource
+
+	Transient Fields
+		NewApprovalLevel	is a DisplayOrder
+
+	Local Fields
+		LocalApprover is Alpha 50
+		LocalApproverList	is Alpha 250
+		LocalFirstApproverAssigned	  	is Boolean
+	
+	Derived Fields
+		DerivedDescription is a DerivedField
+			type is Alpha 230
+
+			if (Approver entered)
+				return Approver.PreferredSimplePresentationName
+			else
+			if (ApprovalTeam entered)
+				return ApprovalTeam.Description
+			else
+				return ""
+
+		DerivedApprovalLevelPlusOne is a DerivedField
+			type is Numeric 8
+
+			return ApprovalLevel + 1
+
+		DerivedNextApprovalLevel is a DerivedField
+			type is Alpha 3
+			restricted
+			default label is "NextApprovalLevel"
+			if (LastApprovalLevel)
+				return "N/A"
+			else
+				return DerivedApprovalLevelPlusOne
+
+		DerivedNextApprovalLevelApprover is a DerivedField
+			type is Alpha size 230
+
+			return first NextApprovalLevelRel.Approver.PreferredSimplePresentationName
+			
+		DerivedNextApprovalLevelTeam is a DerivedField
+			type is Alpha 100
+
+			return first NextApprovalLevelRel.ApprovalTeam.Description
+			
+		
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMemberRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+			return LocalApproverList
+		
+		FinanceResourceActor is a DerivedField						
+			type is Alpha 50
+			LocalApprover = first ActorRel.Actor
+			return LocalApprover	
+			
+		InvalidNextLevelEscalationMessage is a MessageField
+			restricted
+			"Invalid:EscalatingToNextLevelWhenNoNextLevelExists"
+			
+		InvalidSpecificLevelEscalationMessage is a MessageField
+			restricted
+			"Invalid:EscalatingToSpecificLevelWhereTheLevelIsNotGreaterThanTheCurrentLevel"
+
+	Context Fields
+		ClosePeriod
+		ClosePeriodTask
+
+	Conditions
+		EscalationApprovalLevelApproverEntered
+			restricted
+			when (EscalationApprovalLevel.Approver entered)
+		EscalationApprovalLevelApprovalTeamEntered
+			restricted
+			when (EscalationApprovalLevel.ApprovalTeam entered)
+		ShowEscalationApprovalLevel
+			restricted
+			when (EscalationDays > 0
+			and	  EscalateTo.SpecificApprovalLevel)
+		LastApprovalLevel
+			restricted
+			when (!ApprovalLevelRel exists
+			or	  ApprovalLevel = last ApprovalLevelRel.ApprovalLevel)
+		IsTeam
+			restricted
+			when (ApprovalTeam entered)
+		IsResource
+			restricted
+			when (Approver entered)
+		IsCurrentApprovalLevelOnTask
+			
+			when (ClosePeriodTask in context
+			and   ClosePeriodTask.ApprovalLevel = ApprovalLevel)
+		IsCurrentApprovalLevelOnOneTime
+
+			when (ClosePeriodTask in context
+			and   ClosePeriodTask.OneTimeTaskApprovalInfo.ApprovalLevel = ApprovalLevel)
+		ResourceIsCurrentApproverOnTask
+			restricted
+			when (IsCurrentApprovalLevelOnTask
+			and   !IsTeam)
+		ResourceIsCurrentApproverOnOneTime
+			restricted
+			when (IsCurrentApprovalLevelOnOneTime
+			and   !IsTeam)
+		TeamIsCurrentApproverOnTask
+			restricted
+			when (IsCurrentApprovalLevelOnTask
+			and   IsTeam)
+		TeamIsCurrentApproverOnOneTime
+			restricted
+			when (IsCurrentApprovalLevelOnOneTime
+			and   IsTeam)
+		TeamHasNoMembers
+			restricted
+			when (IsTeam
+			and   ApprovalTeam.HasNoMembers)
+		NextApprovalLevelExists
+			restricted
+			when (first NextApprovalLevelRel exists)
+		NextApprovalLevelApproverEntered
+			restricted
+			when (first NextApprovalLevelRel.Approver entered)
+		NextApprovalLevelApprovalTeamEntered
+			restricted
+			when (first NextApprovalLevelRel.ApprovalTeam entered)
+		EscalateToNextLevel
+			restricted
+			when (EscalateTo.NextApprovalLevel)
+		InvalidNextLevelEscalation
+			restricted
+			when (EscalateTo.NextApprovalLevel
+			and   !NextApprovalLevelExists)
+		InvalidSpecificLevelEscalation
+			restricted
+			when (EscalateTo.SpecificApprovalLevel
+			and   EscalationApprovalLevel.ApprovalLevel <= ApprovalLevel)
+		InvalidEscalation
+			restricted
+			when (InvalidNextLevelEscalation
+			or    InvalidSpecificLevelEscalation)
+		ApproverResourceInactive
+			restricted
+			when (Approver entered
+			and   !Approver.Active)
+		ApproverTeamMemberInactive
+			restricted
+			when (IsTeam
+			and   ApprovalTeam.HasInactiveMembers)
+
+	Relations
+		ActorRel is an Actor set												
+			Instance Selection
+				where (related.Actor = Approver.Employee.agent(Actor).Actor)
+				
+		DuplicateApproverRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and	   related.Approver = Approver)
+
+		DuplicateApprovalTeamRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and	   related.ApprovalTeam = ApprovalTeam)
+
+		ThisApprovalLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses symbolic key 
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+			Instance Selection
+				where (related.UniqueID = UniqueID)
+
+		ApprovalLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel	
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+
+		NextApprovalLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= DerivedApprovalLevelPlusOne
+
+		FinanceTeamMemberRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.FinanceTeam				= ApprovalTeam
+				
+	Field Rules
+		Approver
+        	constraint (!DuplicateApproverRel exists)
+    			"Approver<Approver.PreferredSimplePresentationName>AlreadyDefinedForThisApprovalCode"
+			constraint (!ApprovalTeam entered)
+				"EnterEitherAnApproverOrAnApprovalTeam"
+			if (ApprovalTeam not entered)
+				required
+					"MustEnterEitherAnApproverOrAnApprovalTeam"
+
+		ApprovalTeam
+        	constraint (!DuplicateApprovalTeamRel exists)
+    			"ApprovalTeam<ApprovalTeam.Description>AlreadyDefinedForThisApprovalCode"
+    		constraint (!TeamHasNoMembers)
+    			"ApprovalTeam<ApprovalTeam.Description>HasNoMembers"
+    		constraint (!ApproverTeamMemberInactive)
+    			"TeamHasMemberThatIsInactive"
+
+		MaxApprovalAmount
+			if (ApprovalCode.ApprovalCodeUsesMaximumAmounts
+			and !ApprovalCode.UsingFirstAndLastApprovers)
+				required
+
+		EscalationDays
+			if (EscalationDays entered)
+				constraint (EscalationDays >= 0)
+					"CannotEnterNegativeEscalationDays"
+
+		EscalationHours
+			constraint (NextApprovalLevelRel exists)
+				"CannotSetEscalation;ThereAreNoLevelsDefinedBelowThisOne"
+				
+			constraint (EscalationHours >= 0)
+				"CannotEnterNegativeEscalationHours"
+
+		EscalateTo
+			if (EscalationHours entered)
+				default to 1
+
+			constraint (EscalationHours entered)
+				"CannotSetAnEscalateToWithoutEnteringEscalationHours"
+				
+			if (EscalateTo.NextApprovalLevel)
+				constraint (NextApprovalLevelRel exists)
+					"CannotSetToNextApproval;NoNextApprovalLevelExists"
+
+		ApprovalLevel
+			autosequence using ByApprovalLevel
+
+		EscalationApprovalLevel
+			if (EscalateTo.SpecificApprovalLevel)
+				required
+					"EscalationApprovalLevelIsRequiredWhenEscalatingToASpecificApprovalLevel"
+				constraint (EscalationApprovalLevel.ApprovalLevel > ApprovalLevel)
+					"EscalationApprovalLevel<EscalationApprovalLevel.ApprovalLevel>MustBeGreaterThanCurrentApprovalLevel<ApprovalLevel>"
+
+	Attach Rules
+
+	Sets
+		ByApprovalLevel
+			duplicates
+			Sort Order
+ 				FinanceEnterpriseGroup
+ 				ApprovalCode
+ 				ApprovalLevel
+ 				
+ 		ByApprover
+ 			Sort Order
+ 				FinanceEnterpriseGroup
+ 				ApprovalCode
+ 				Approver
+ 			Instance Selection
+ 				where (IsResource)
+ 				
+ 		ByApprovalTeam
+ 			Sort Order
+ 				FinanceEnterpriseGroup
+ 				ApprovalCode
+ 				ApprovalTeam
+ 			Instance Selection
+ 				where (IsTeam)
+
+		ByAmount
+			Sort Order
+ 				FinanceEnterpriseGroup
+ 				ApprovalCode
+ 				MaxApprovalAmount
+ 				ApprovalCodeResource
+			
+	Actions
+		Create is a Create Action
+
+
+			Exit Rules
+				invoke UpdateApprovalLevel first ApprovalLevelRel
+					invoked.NewApprovalLevel = 1
+		
+		Update is an Update Action
+			Action Rules
+				if (EscalateTo changed
+				and (EscalateTo not entered
+				or   EscalateTo.NextApprovalLevel))
+					EscalationApprovalLevel = 0	
+		
+		Delete is a Delete Action
+
+
+			Exit Rules
+				invoke UpdateApprovalLevel first ApprovalLevelRel
+					invoked.NewApprovalLevel = 1
+
+		UpdateApprovalLevel is an Update Action
+			restricted

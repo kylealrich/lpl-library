@@ -1,0 +1,199 @@
+ReportDistributionGroup is a BusinessClass
+    owned by report
+    prefix is DiGrN
+    default label is "ReportDistributionGroup"
+
+    Ontology
+    	symbolic key is ReportDistributionGroup
+
+	Patterns
+        disable AsOfDateProcessing
+        disable EffectiveDated
+        disable Auditing
+
+    Persistent Fields
+    	Description is Alpha 50
+    
+	Derived Fields
+		BurstOnlyReportDistribution is a DerivedField
+			type is Boolean
+			
+			if (not ReportDistributionProfilesExist)
+				return false
+			
+			for each ReportDistributionGroupMember set
+				if (not each.ReportDistributionProfile.BurstByActor)
+					return false
+			
+			return true
+			
+		HasBurstReportDistribution is a DerivedField
+			type is Boolean
+			default label is "BurstReportDistributionExists"
+			
+			if (not ReportDistributionProfilesExist)
+				return false
+			
+			for each ReportDistributionGroupMember set
+				if (each.ReportDistributionProfile.BurstByActor)
+					return true
+			
+			return false
+		
+		HasDynamicActorReportDistribution is a DerivedField
+			type is Boolean
+			default label is "DynamicActorReportDistributionExists"
+			
+			if (not ReportDistributionProfilesExist)
+				return false
+			
+			for each ReportDistributionGroupMember set
+				if (each.ReportDistributionProfile.AllowDynamicActorSet)
+					return true
+			
+			return false
+			
+		DynamicActorsOnlyProfiles is a DerivedField
+			type is Boolean
+			default label is "OnlyDynamicActorsOnlyProfiles"
+			
+			if (not ReportDistributionProfilesExist)
+				return false
+			
+			for each ReportDistributionGroupMember set
+				if (not each.ReportDistributionProfile.AllowDynamicActorSet)
+					return false
+			
+			return true
+	
+	Context Fields
+		ReportDistributionProfile
+		
+	Conditions
+		ReportDistributionProfilesExist
+			when (ReportDistributionGroupMember set exists)
+
+	Relations
+		AllReportDistributionProfilesRel
+			one-to-many relation to ReportDistributionProfile
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReportDistributionProfile entered)
+				
+		ReportDistributionGroupMemberRel
+			one-to-one relation to ReportDistributionGroupMember
+			Field Mapping uses ByDistributionProfileDistributionGroup
+				related.ReportDistributionProfile = ReportDistributionProfile
+				related.ReportDistributionGroup = ReportDistributionGroup
+
+	Rule Blocks
+		DistributionCheck
+			constraint (not BurstOnlyReportDistribution)
+            	"ReportDistributionGroupContainsOnlyBurstProfilesWhichCannotBeDistributedInThisManner"
+            
+            if (HasBurstReportDistribution)
+				confirmation required
+					"ReportDistributionGroupContainsBurstProfilesWhichWillBeSkipped.Continue?"
+					
+		DynamicCheck
+			if (DynamicActorsOnlyProfiles)
+				required
+                	"AtLeastOneActorValueIsRequired"
+			else
+			if (DynamicDistributionActors entered and not HasDynamicActorReportDistribution)
+				confirmation required
+					"NoMemberReportDistributionGroupProfilesThatAcceptDynamicActorsFound.Continue?" 
+				initialize DynamicDistributionActors   	
+			
+	Actions
+	
+        Create is a Create Action
+        Update is an Update Action
+        
+        Delete is a Delete Action
+  			Action Rules
+	  			confirmation required
+	  				"DeletingAReportDistributionGroupWillCauseAnyJobsWithParametersThatReferenceItToFailWhenExecuted.AreYouSureYouWantToDelete?"
+
+		AddProfileToDistributionGroup is an Instance Action
+		
+			Parameters
+				ReportDistributionProfile
+				
+			Parameter Rules
+				ReportDistributionProfile
+					required
+					if (ReportDistributionGroupMember set exists)
+						if (ReportDistributionProfile.BurstByActor)
+							if (not BurstOnlyReportDistribution and not HasBurstReportDistribution) 
+								confirmation required
+									"ReportDistributionGroupContainsNonBurstProfiles.AreYouSureYouWantToMixWithABurstProfile?"
+						else
+							if (BurstOnlyReportDistribution) 
+								confirmation required
+									"ReportDistributionGroupCurrentlyContainsOnlyBurstProfiles.AreYouSureYouWantToMixWithANonBurstProfile?"
+						
+
+			Action Rules
+				invoke AddProfileToDistributionGroup ReportDistributionGroupMember
+					fill in fields from this instance
+					invoked.ReportDistributionProfile = ReportDistributionProfile 
+	            
+        DistributeViaNavigation is an Instance Action
+            restricted
+            run in background
+            Parameters
+	            UniqueID is UniqueID   
+                BusinessNavigation     
+                BusinessView           
+                ReportDistributionGroup  
+                DynamicDistributionActors
+                
+            Parameter Rules
+                ReportDistributionGroup
+                    required
+                    
+               		include DistributionCheck
+               	
+               	DynamicDistributionActors
+                	include DynamicCheck
+
+        DistributeBinaryDocument is an Instance Action
+            restricted
+
+            Parameters
+                Report is BinaryDocument
+                ReportName is Alpha size 80
+                ReportDistributionGroup 
+                DynamicDistributionActors
+            
+            Parameter Rules
+                ReportDistributionGroup
+                    required
+                    
+                    include DistributionCheck
+				
+                ReportName
+                    required
+                    
+                DynamicDistributionActors
+                	include DynamicCheck
+
+
+        DistributeReportDocument is an Instance Action
+            restricted
+
+            Parameters
+                ReportDocument
+                DynamicDistributionActors
+                DoNotAddCurrentActor is Boolean
+                IgnoreDuplicates is Boolean 
+                GatherBurstActorOnly is Boolean 
+
+            Parameter Rules
+                ReportDocument
+                	if (not BurstOnlyReportDistribution and not GatherBurstActorOnly)
+                    	required
+                
+                DynamicDistributionActors
+                	include DynamicCheck

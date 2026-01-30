@@ -1,0 +1,235 @@
+RecallNoticeReference is a BusinessClass
+    owned by recall
+    prefix is RMRNR
+
+	Ontology
+    	symbolic key is RecallNoticeReference
+    
+    Persistent Fields
+    	IdentifierId			is AlphaUpper size 30	
+    	Link 					is a URL				
+    	Attachment										
+    	ReferenceDate			is Date
+    	Description 			is Alpha size 250
+    	UseAsWorkingId			is Boolean
+    	ReferenceType			is Numeric size 2
+    		States
+		    	Duplicate			value is 1
+		    	Linked				value is 2
+    			NRAC                value is 3
+    			UpdatedOriginal     value is 4
+    	DisplayLinkOnTask		is Boolean
+   		DisplayAttachmentOnTask is Boolean
+   		CreatedBySupplier       is Boolean
+   	
+   	Derived Fields
+   		NumericIdentifierId is a DerivedField
+   			type is Numeric size 8
+   			restricted
+   			return IdentifierId
+   			
+   	Field Rules
+   		ReferenceDate
+   			initial value is current corporate date
+   			default to current corporate date
+   		
+   		Description
+    		if (IdentifierId entered)
+   				required
+   			default to Link
+    		default to Attachment.Title
+    	
+    	UseAsWorkingId
+    		constraint (IdentifierId entered)
+    			"MustEnterAnIdentifierIdToUseAsTheWorkingId"
+    		if (HasAnotherWorkingIdRel exists)
+				confirmation required
+					"Warning;ExistingWorkingIdOf<first HasAnotherWorkingIdRel.IdentifierId>WillBeChangedTo<IdentifierId>.WouldYouLikeToContinue?"
+				invoke Update HasAnotherWorkingIdRel
+					invoked.UseAsWorkingId = false
+				invoke FastUpdate RecallNotice
+					invoked.PrmWorkingId = IdentifierId
+			else
+				invoke FastUpdate RecallNotice
+					invoked.PrmWorkingId = IdentifierId
+   	
+   		DisplayLinkOnTask
+   			constraint (Link entered)
+   				"MustEnterALinkToDisplayOnTheTaskDetails"
+			if (HasAnotherDisplayLinkRel exists)
+				confirmation required
+					"OnlyOneLinkCanBeDisplayedOnTheTaskDetails.WouldYouLikeToChangeIt?"
+				invoke Update HasAnotherDisplayLinkRel
+					invoked.DisplayLinkOnTask = false
+					
+		DisplayAttachmentOnTask
+			constraint (Attachment entered)
+   				"MustEnterAnAttachmentToDisplayOnTheTaskDetails"
+   			if (HasAnotherDisplayAttachmentRel exists)
+				confirmation required
+					"OnlyOneAttachmentCanBeDisplayedOnTheTaskDetails.WouldYouLikeToChangeIt?"
+				invoke Update HasAnotherDisplayAttachmentRel
+					invoked.DisplayAttachmentOnTask = false
+									
+   	Conditions
+   		IsUpdatable
+   			restricted
+   			when (!RecallNotice.HistoricalRecallNotice
+			and	  !DuplicateReference
+			and   !LinkedReference
+			and   ((IsASupplier
+			and    CreatedBySupplier)
+			or    (!IsASupplier)))
+
+		IsASupplier
+			restricted
+			when (actor.agent(SupplierSourceId).Supplier exists)
+
+		HasLink
+			restricted
+   			when (Link entered)
+   			
+   		HasAttachment
+   			restricted
+   			when (Attachment entered)
+   			
+   		DuplicateReference
+   			restricted
+   			when (ReferenceType.Duplicate)
+   		
+   		LinkedReference
+   			restricted
+   			when (ReferenceType.Linked)
+   		
+   		DuplicateOrLinkedRecallNotice
+   			restricted
+   			when (DuplicateReference
+   			or	  LinkedReference)
+
+		IsUpdatedNotice 
+			restricted 
+			when (ToNoticeByWorkingIdRel exists)
+   			
+   	Relations
+   		HasAnotherWorkingIdRel
+  			one-to-many relation to RecallNoticeReference
+  			Field Mapping uses ByUseAsWorkingId
+  				related.RecallGroup		= RecallGroup
+  				related.RecallNotice 	= RecallNotice
+  				related.UseAsWorkingId	= true
+  			Instance Selection
+  				where (related.RecallNoticeReference != RecallNoticeReference)
+  		
+  		HasAnotherDisplayLinkRel
+  			one-to-many relation to RecallNoticeReference
+  			Field Mapping uses symbolic key
+  				related.RecallGroup	 = RecallGroup
+  				related.RecallNotice = RecallNotice
+  			Instance Selection
+  				where (related.DisplayLinkOnTask
+  				and	   related.RecallNoticeReference != RecallNoticeReference)
+  				
+  		HasAnotherDisplayAttachmentRel
+  			one-to-many relation to RecallNoticeReference
+  			Field Mapping uses symbolic key
+  				related.RecallGroup	 = RecallGroup
+  				related.RecallNotice = RecallNotice
+  			Instance Selection
+  				where (related.DisplayAttachmentOnTask
+  				and	   related.RecallNoticeReference != RecallNoticeReference)
+  				
+  		ReferencedRecallNoticeRel
+  			one-to-one relation to RecallNotice
+  			Field Mapping uses symbolic key
+  				related.RecallGroup	 = RecallGroup
+  				related.RecallNotice = IdentifierId
+  		
+  		LinkedNoticeReferenceRel
+  			one-to-many relation to RecallNoticeReference
+  			Field Mapping uses ByIdentifierId
+  				related.RecallGroup	 = RecallGroup
+  				related.RecallNotice = NumericIdentifierId
+  				related.IdentifierId = RecallNotice
+  			Instance Selection
+  				where (related.ReferenceType.Linked)
+
+		ToNoticeByWorkingIdRel 
+			one-to-many relation to RecallNotice 
+			Field Mapping uses ByWorkingId
+				related.RecallGroup		= RecallGroup 
+				related.WorkingId       = IdentifierId
+			Instance Selection 
+				where (related.UniqueID != RecallNotice.UniqueID)
+  													
+   	Sets
+   		ByUseAsWorkingId
+			duplicates
+			indexed
+			Sort Order
+  				RecallGroup
+  				RecallNotice
+  				UseAsWorkingId
+  				RecallNoticeReference
+  		
+  		ByIdentifierId
+			indexed
+			Sort Order
+  				RecallGroup
+  				RecallNotice
+  				IdentifierId
+  				RecallNoticeReference
+							
+    Actions
+    	Create is a Create Action
+			valid when (!RecallNotice.HistoricalRecallNotice)
+			allow anonymous access
+			Action Rules
+				constraint (IdentifierId entered
+   				or			Link entered
+   				or			Attachment entered)
+   					"MustEnterAnIdentifierId,Link,OrAttachment"
+				if (IsASupplier)
+					CreatedBySupplier = true
+   						
+    	ItemProposalCreate is a Create Action
+			valid when (!RecallNotice.HistoricalRecallNotice)
+			default label is "Create"
+			Action Rules
+				constraint (Attachment entered)
+   					"MustEnterAnAttachment"
+   				CreatedBySupplier = true
+
+		Update is an Update Action
+			valid when (IsUpdatable)
+			allow anonymous access
+			Action Rules
+				constraint (IdentifierId entered
+   				or			Link entered
+   				or			Attachment entered)
+   					"MustEnterAnIdentifierId,Link,OrAttachment"
+   				
+   			Exit Rules
+   				if (UseAsWorkingId changed
+				and !UseAsWorkingId
+				and !HasAnotherWorkingIdRel exists)
+					invoke FastUpdate RecallNotice
+						invoked.PrmWorkingId = RecallNotice
+   		
+   		Unlink is an Instance Action
+			valid when (LinkedReference)
+			Action Rules
+				if (ReferenceType.Linked)
+					invoke Delete LinkedNoticeReferenceRel
+			
+			Exit Rules
+				invoke Delete
+								
+		Delete is a Delete Action
+			valid when (IsUpdatable)
+			Exit Rules
+				if (UseAsWorkingId)
+					invoke FastUpdate RecallNotice
+						invoked.PrmWorkingId = RecallNotice
+		
+		Purge is a Purge Action
+			restricted

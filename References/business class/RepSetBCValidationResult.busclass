@@ -1,0 +1,138 @@
+RepSetBCValidationResult is a BusinessClass
+	prefix is RSVR
+	owned by la
+	default label is "ReplicationSetBusinessClassValidationResult"
+
+	
+	Patterns
+        disable Auditing
+        disable EffectiveDated
+        disable AsOfDateProcessing
+        implements UniqueID
+        implements UpdateStamp
+        
+    Ontology
+		symbolic key is RepSetBCValidationResult
+	
+	Persistent Fields
+		ValidationEndTime		is TimeStamp
+		LastRefreshStamp        is TimeStamp
+			default label is "AsOfReplicationTime"
+		ValidationStartDate		is Date
+		CheckSumResults    		is a CheckSumResultsArray
+	
+	Conditions
+		Mismatched
+			default label is untranslatable
+			when (CheckSumResults.Mismatched or MisMatchRel exists)
+		
+		HasWarnings
+			default label is untranslatable
+			when (CheckSumResults.Mismatched or MisMatchWarningRel exists)
+		
+		RaiseGreenAlert
+			default label is untranslatable
+			when (not Mismatched and not HasWarnings)
+			
+		HasAnyUidRecords
+			restricted
+			default label is untranslatable
+			when (UIDBasedMimMatchRel exists)	
+			
+		RecordTouchValid
+			default label is untranslatable:"IncludeInNextReplicationIsValid"
+			restricted
+			when ((RepSetBC.BusinessClass.HasUpdateStamp and (not RepSetBC.EnableIndicator or RepSetBC.CreateOnly))
+			or   (RepSetBC.CanChooseIndicator and RepSetBC.DefaultIndicatorField entered))
+				
+	Actions
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+			 
+		Delete is a Delete Action
+			confirmation required
+			
+		TouchAllRecords is an Instance Action
+			default label is "IncludeAllMismatchesInNextReplication"
+			valid when (RecordTouchValid)
+			completion message is "IncludeAllMismatchesInNextReplicationSubmittedToTheBackground,CheckMyActionsForStatus."
+			
+			Action Rules
+				invoke TouchAllRecords RepSetBCVRRecordMismatch in background
+					invoked.ParamRepSet = ReplicationSet
+					invoked.ParamRepSetBC = RepSetBC
+					invoked.ParamRepSetBCValResult = RepSetBCValidationResult
+		
+		PurgeOldValidationResults is a Set Action
+			disable checkpoint
+			Parameters
+				ThruDate 			is Date
+				PurgeOffsetDays 	is Numeric size 3
+				
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate		
+					
+
+
+			Parameter Rules
+				ThruDate   
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThroughFinishDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThroughFinishDateAndOffset"
+
+			Instance Selection
+				where (RepSetBCValidationResult < LocalThruDate)
+
+			Sort Order is ByValidationTime
+									
+			Action Rules
+				Instance Rules
+					invoke Delete
+					
+	Relations
+		UIDBasedMimMatchRel
+	  		one-to-many relation to RepSetBCVRRecordMismatch
+			Field Mapping uses symbolic key
+				related.ReplicationSet				= ReplicationSet
+				related.RepSetBC					= RepSetBC 
+				related.RepSetBCValidationResult	= RepSetBCValidationResult
+			Instance Selection
+				where (related.RecordUniqueID entered)
+				
+		MisMatchRel
+	  		one-to-many relation to RepSetBCVRRecordMismatch
+			Field Mapping uses ByResultType
+				related.ReplicationSet				= ReplicationSet
+				related.RepSetBC					= RepSetBC 
+				related.RepSetBCValidationResult	= RepSetBCValidationResult
+				related.Type						= 0	
+		
+		MisMatchWarningRel
+	  		one-to-many relation to RepSetBCVRRecordMismatch
+			Field Mapping uses ByResultType
+				related.ReplicationSet				= ReplicationSet
+				related.RepSetBC					= RepSetBC 
+				related.RepSetBCValidationResult	= RepSetBCValidationResult
+				related.Type						= 1	
+
+	Sets
+		ByValidationTime
+    		indexed
+    		Sort Order
+    			RepSetBCValidationResult
+    			ReplicationSet
+    			RepSetBC
+							

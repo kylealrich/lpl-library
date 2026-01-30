@@ -1,0 +1,175 @@
+GeneralLedgerCloseYear is a BusinessClass
+	default label is "GlobalLedgerCloseYear"
+	owned by GeneralLedger
+	representative text is "<GeneralLedgerCloseYear>"
+	
+	prefix is GLCYr
+	
+	Ontology
+		symbolic key is GeneralLedgerCloseYear
+		
+	Patterns
+	
+	Persistent Fields
+	
+	Transient Fields
+		GlCloseYearDisplay	is Alpha 4
+			derive value from DerivedGlCloseYearDisplay
+		
+	Local Fields
+		YearDiff		is Numeric 6
+		LocalYear		is Numeric 4
+
+		LocalAccountingEntity				is a AccountingEntity
+
+		
+	Derived Fields
+		DerivedGlCloseYearDisplay is a DerivedField
+			type is Alpha 4
+			restricted
+			return GeneralLedgerCloseYear
+		DerivedStartYear is a DerivedField
+			type is Year
+			restricted
+			LocalYear = GeneralLedgerCloseYear
+			LocalYear -= 1
+			return LocalYear
+			
+		DerivedEndYear is a DerivedField
+			type is Year
+			restricted
+			LocalYear = GeneralLedgerCloseYear
+			LocalYear += 1
+			return LocalYear
+			
+		DerivedStartDate is a DerivedField
+			type is Date
+			restricted
+			if (DatesForPreviousYearRel exists)
+				return (last DatesForPreviousYearRel.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date + 1)
+			if (GeneralLedgerClosePeriod set exists)
+				return DerivedCurrentYearStartDate
+			DerivedStartDate = "20120101"
+			YearDiff         = (DerivedStartDate year - DerivedStartYear)
+			DerivedStartDate -= YearDiff as years
+			
+		DerivedEndDate is a DerivedField
+			type is Date
+			restricted
+			if (DatesForNextYearRel exists)
+				return (first DatesForNextYearRel.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date - 1)			
+			DerivedEndDate = "20121231"
+			YearDiff       = (DerivedEndDate year - DerivedEndYear)
+			DerivedEndDate -= YearDiff as years	
+
+		DerivedNumberOfPeriods is a DerivedField
+			type is Numeric 3
+			restricted
+			return (instance count of GeneralLedgerCloseYearPeriodsRel)
+
+		DerivedCurrentYearStartDate is a DerivedField
+			type is Date
+			restricted
+			DerivedCurrentYearStartDate = last GeneralLedgerClosePeriod set.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date
+			DerivedCurrentYearStartDate -= 1 year
+			DerivedCurrentYearStartDate += 1
+
+
+		DerivedCloseYearEndDate is a DerivedField
+			type is Date
+			restricted
+			if (DatesForCloseYearRel exists)
+				return (last DatesForCloseYearRel.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date)
+			DerivedCloseYearEndDate = "20121231"
+			YearDiff       = (DerivedCloseYearEndDate year - DerivedEndYear)
+			DerivedCloseYearEndDate -= YearDiff as years	
+
+			
+	Field Rules
+	
+	Conditions
+		NoPeriodsDefined
+			when (!GeneralLedgerClosePeriod set exists)
+	
+	Relations
+		GeneralLedgerCloseYearPeriodsRel is a GeneralLedgerClosePeriod set
+		
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.PeriodType = 5)
+				
+		DatesForPreviousYearRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDateForYear
+				related.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration = GeneralLedgerCloseConfiguration
+				related.GeneralLedgerCloseYear			= DerivedStartYear
+			
+		DatesForNextYearRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDateForYear
+				related.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration = GeneralLedgerCloseConfiguration
+				related.GeneralLedgerCloseYear  		= (GeneralLedgerCloseYear + 1)
+						
+		GeneralLedgerCalendarHelperListRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.EligibleForClosePeriod
+				and    related.ClosePeriodDoesNotExist)	
+
+
+		DatesForCloseYearRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDateForYear
+				related.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration = GeneralLedgerCloseConfiguration
+				related.GeneralLedgerCloseYear  		= GeneralLedgerCloseYear
+				
+		NotFinalClosedEntityLedgerPeriodRel
+			one-to-many relation to EntityLedgerPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		    = FinanceEnterpriseGroup
+				related.AccountingEntity 				= LocalAccountingEntity
+				related.GeneralLedgerClosePeriod 		= any GeneralLedgerCloseYearPeriodsRel.GeneralLedgerClosePeriod
+			Instance Selection
+				where (!related.PeriodStatus.Final)
+
+
+	Actions
+		Create is an Action
+			Exit Rules
+				invoke UpdateRebuildInfo GeneralLedgerCloseConfiguration
+					invoked.PrmYearCreated = GeneralLedgerCloseYear
+										
+		Update is an Action
+		
+		Delete is an Action
+		
+		DefaultPeriodNames is an Instance Action
+			default label is "RebuildPeriodNames"
+			Action Rules
+				invoke MoveToDifferentYear GeneralLedgerClosePeriod set
+					invoked.PrmCloseYear				= GeneralLedgerCloseYear
+					invoked.PrmAssignDefaultPeriodName	= true
+					
+
+		CheckAllEntityPeriodsFinalClosed is an Instance Action
+			restricted
+			Parameters
+				PrmAccountingEntity				is an AccountingEntity
+				PrmPurgeGLRecordsResult 		is a PurgeGLRecordsResult
+				PrmPurgeGLRecordsResultDetail	is a PurgeGLRecordsResultDetail
+					default label is "PurgeGLRecordsResultDetail"
+			Action Rules
+				LocalAccountingEntity			=	PrmAccountingEntity	
+				if(NotFinalClosedEntityLedgerPeriodRel exist)
+					invoke Update PrmPurgeGLRecordsResultDetail.PurgeGLRecordsResultDetail
+						invoked.Status 	= 1
+						invoked.Remarks = "AllPeriodsAreNotFinalClosed"
+

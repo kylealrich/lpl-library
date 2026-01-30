@@ -1,0 +1,492 @@
+Role is a BusinessClass
+    owned by security
+    prefix is ROL
+    stored in environment
+	framework type is Security 
+	
+	Ontology
+		symbolic key is Role
+
+	Patterns
+		implements CRUD
+        implements SecurityCache
+        disable AuditIndex
+        implements AuditLogEntryActions
+
+	Persistent Fields
+		Description                     is a LSDescription
+		IsProxyable                     is Boolean
+			default label is "Proxyable"
+		ConfigurableFeatures
+		
+	Field Groups
+        InterfaceFields
+			Role
+			Description
+
+    Transient Fields
+        DataAreaConfigurableFeatures is a ConfigurableFeatures
+            derive value from ConfigurableFeaturesCalculated
+            protected
+
+	Derived Fields
+		SecRoleMasterBOD is a NativeField	
+			type is Text
+			default label is "SecurityRoleMasterBOD"
+			
+		SecRoleMasterBODXml is a DerivedField
+			type is XMLDocument
+			default label is "SecRoleMasterBODXml"
+			return SecRoleMasterBOD
+		
+		IsSecIFSUserProvEnabled is a NativeField
+			type is Boolean
+			default label is"SecurityIFSUserProvisioningEnabled"
+			
+		IsExcludedFromBODSync is a NativeField
+			type is Boolean
+			default label is "ExcludedFromBODSync"
+			
+		UppercaseRole is a NativeField
+			type is Alpha size 80
+			restricted
+
+    	InaccessibleReports is a DerivedField
+    		type is Text
+    		if (ReportSecurityRel.Status.Active)
+    		    return ReportSecurityRel.Configuration
+            return blank
+
+
+    	NoInaccessibleReportsMF is a MessageField
+    		"This_RoleDoesNotRestrictAccessTo_DeliveredReports"
+
+    	InaccessibleReportsMF is a MessageField
+    		"This_RoleRestrictsAccessToThese_DeliveredReports:"
+    		
+		LogicalId is a NativeField
+			type is Alpha size up to 250
+
+    	FeaturesUpdateMsgMF is a DerivedField
+    	    type is Text
+    	    if (DataAreaHasOverride)
+    		    return OverrideFeaturesUpdateMsgMF
+            return BaseFeaturesUpdateMsgMF
+
+    	OverrideFeaturesUpdateMsgMF is a MessageField
+    		"UpdatedFeaturesForThisDataAreaOnly"
+
+    	BaseFeaturesUpdateMsgMF is a MessageField
+    		"UpdatedBaseFeatures"
+
+        ConfigurableFeaturesCalculated is a DerivedField
+            type is Text
+            restricted
+            if (DataAreaHasOverride)
+                return DataAreaOverrideRel.ConfigurableFeatures
+            return ConfigurableFeatures
+
+
+			
+	Conditions
+
+
+
+
+		IsConfigurableFeaturesEnabled
+			default label is "ConfigurableFeaturesEnabled"
+			when (config.configurablefeaturesenabled = "true")
+
+        IsAIAssistedRichTextEnabled
+            default label is "AIAssistedRichTextEnabled"
+            when (IsConfigurableFeaturesEnabled
+            and   config.AIEnabled = "true")
+
+        ShowDrillAroundEnabled
+            default label is "EnableDrillAround"
+            when (IsConfigurableFeaturesEnabled
+            and   config.DrillAroundEnabled = "true")
+
+		ShowArchiveFeatureEnabled
+			default label is "ShowArchiveFeatureEnabled"
+            when (IsConfigurableFeaturesEnabled
+            and   ConfigurableFeatures.ShowArchiveFeatureEnabled)
+
+        HasReportSecurity
+            default label is "ReportSecurityExists"
+            when (ReportSecurityRel exists)
+
+        DataAreaHasOverride
+            when (DataAreaOverrideRel exists)
+
+        HasOtherOverrides
+            when (OtherDataAreaRel exists)
+	Sets
+		ByIsProxyable
+			indexed
+			duplicates
+			Sort Order
+				IsProxyable
+					
+		RoleNameSet
+			indexed
+			no duplicates
+			Sort Order
+				Role				
+				
+ 	Relations
+ 		ActorRel	is an Actor set	
+ 		
+  		ActorRoleRel is an ActorRole set	
+			Instance Selection
+				where (related.ActorRole.Role = Role)
+                      
+		ConfigurableFeaturesEnabledRel
+			one-to-many relation to ConfigurationParameter
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ConfigurationParameter.ConfigurationID = "config"
+				and    related.ConfigurationParameter.Name = "configurablefeaturesenabled"
+				and    related.Value = "true")
+           
+        ConfigurationParameterRel is a ConfigurationParameter set
+        
+        AllRoles
+        	one-to-many relation to Role
+        	Field Mapping uses symbolic key
+        
+        ProxyRoleRel
+			one-to-many relation to ProxyRole
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ActorRole.Role = Role)
+
+        ReportSecurityRel
+			one-to-one relation to ReportSecurity
+			Field Mapping uses ByRole
+			    related.ReportSecurity.Role = Role
+
+        DataAreaOverrideRel
+			one-to-one relation to RoleDataArea
+			Field Mapping uses symbolic key
+			    related.Role = Role
+			    related.RoleDataArea = parentcontext.dataarea
+
+        OtherDataAreaRel
+			one-to-many relation to RoleDataArea
+			Field Mapping uses symbolic key
+			    related.Role = Role
+
+            Instance Selection
+                where (related.RoleDataArea != parentcontext.dataarea)
+
+                				
+	Field Rules
+
+		IsProxyable
+			default to false			
+	
+	Actions
+
+        Create is an Action
+        	restricted
+        	Action Rules
+        		constraint (!com.lawson.rdtech.type.Field.equalStrings(UppercaseRole, "CLOUDADMIN"))
+    				"CannotCreateCloudAdminRole"
+			Exit Rules
+				if (IsSecIFSUserProvEnabled and not IsExcludedFromBODSync)
+					if (config.imsuserbod = true)
+						send ion bod
+							bod is SecRoleMasterBODXml
+							bod type is "Sync.SecurityRoleMaster"
+					else
+						invoke Create IONOutboxQueue
+							invoked.BodXML = SecRoleMasterBOD
+							invoked.BodType = "Sync.SecurityRoleMaster"
+							invoked.FromLogicalId = LogicalId
+						
+				invoke FireConfigurableFeatureChangeEvent	
+					invoked.Type = 1
+			    		
+        CreateRole is a Create Action
+        	Action Rules
+    			constraint (!com.lawson.rdtech.type.Field.endsWith(Role, "_ST"))
+    				"CannotCreateAStandardTemplateRole"
+    			constraint (!com.lawson.rdtech.type.Field.equalStrings(UppercaseRole, "CLOUDADMIN"))
+    				"CannotCreateCloudAdminRole"
+			Exit Rules
+				if (IsSecIFSUserProvEnabled and not IsExcludedFromBODSync)
+					if (config.imsuserbod = true)
+						send ion bod
+							bod is SecRoleMasterBODXml
+							bod type is "Sync.SecurityRoleMaster"
+					else
+						invoke Create IONOutboxQueue
+							invoked.BodXML = SecRoleMasterBOD
+							invoked.BodType = "Sync.SecurityRoleMaster"
+							invoked.FromLogicalId = LogicalId
+					
+				invoke FireConfigurableFeatureChangeEvent 
+					invoked.Type = 1
+					
+        Update is an Update Action
+        	Entrance Rules				 
+				if ((IsProxyable changed) and ProxyRoleRel exists)
+					confirmation required
+						"ProxyRoleExists.AreYouSureYouWantToUpdate?"
+			Exit Rules
+    			if (IsSecIFSUserProvEnabled
+    			and InterfaceFields changed
+    			and not IsExcludedFromBODSync)
+					if (config.imsuserbod = true)
+						send ion bod
+							bod is SecRoleMasterBODXml
+							bod type is "Sync.SecurityRoleMaster"
+					else
+						invoke Create IONOutboxQueue
+	        				invoked.BodXML = SecRoleMasterBOD
+							invoked.BodType = "Sync.SecurityRoleMaster"
+							invoked.FromLogicalId = LogicalId						
+				
+				if (ConfigurableFeatures changed) 
+					invoke FireConfigurableFeatureChangeEvent
+						invoked.Type = 2
+						
+				if ((ProxyRoleRel  exists) and !IsProxyable) 
+					invoke Delete ProxyRoleRel
+				
+        Delete is an Action
+        	Entrance Rules				 
+				if (ProxyRoleRel exists)
+					confirmation required
+						"ProxyRoleExists.AreYouSureYouWantToDelete?"
+	        Exit Rules
+	        	if (IsSecIFSUserProvEnabled and not IsExcludedFromBODSync)
+					if (config.imsuserbod = true)
+						send ion bod
+							bod is SecRoleMasterBODXml
+							bod type is "Sync.SecurityRoleMaster"
+					else	        	
+						invoke Create IONOutboxQueue
+							invoked.BodXML = SecRoleMasterBOD
+							invoked.BodType = "Sync.SecurityRoleMaster"
+							invoked.FromLogicalId = LogicalId
+											
+				invoke FireConfigurableFeatureChangeEvent 
+					invoked.Type = 3
+				
+        Copy is an Action
+        	Parameters
+        		NewRole is Alpha size 80
+        	Parameter Rules
+        		NewRole
+        			constraint (!com.lawson.rdtech.type.Field.endsWith(NewRole, "_ST"))
+        				"CannotCreateAStandardTemplateRole"
+        	Action Rules
+        		invoke Create Role
+        			invoked.Role = NewRole
+        			fill in fields from this instance 
+        			
+
+        			
+		AssignRoleToActor is an Instance Action
+			Parameters
+				Actor
+				Role
+			Parameter Rules
+				Role
+					required
+				Actor
+					required
+			Action Rules
+					invoke AssignExistingRoleToActor ActorRole
+						invoked.Actor = Actor
+						invoked.ActorRole.Role = Role
+
+						
+		FireConfigurableFeatureChangeEvent is an Instance Action 
+			restricted
+			default label is untranslatable
+			
+			Parameters
+				Type is Numeric size 1
+					default label is untranslatable
+					States
+		    			Create 		value is 1
+		    			Update 		value is 2
+		    			Delete 		value is 3
+				ActorId is an Actor	
+
+
+		ResetConfigurableFeatures is a Set Action
+			valid when (IsConfigurableFeaturesEnabled)
+			run in foreground
+			Parameters
+				SingleRole				is an Role
+				RunForAllRoles			is Boolean
+				SyncSecurityFeatures	is Boolean	
+				ResetUIFeatures			is Boolean			
+			Parameter Rules
+				SingleRole
+					if (RunForAllRoles not entered)
+						required
+							"SpecifyARoleIfNotRunningForAllRoles"
+					else
+						cannot be entered
+							"SelectARoleOrRunForAllRoles"
+
+				SyncSecurityFeatures
+					if (ResetUIFeatures not entered)
+						required
+							"MustSetSystemDefaultsOrExtensibilityFeatures"
+
+				ResetUIFeatures
+					if (SyncSecurityFeatures not entered)
+						required
+							"MustSetSystemDefaultsOrExtensibilityFeatures"
+
+			Local Fields
+				LastRole is a Role							
+
+			Instance Selection
+				where (SingleRole not entered
+				or     SingleRole = Role)
+				
+			Action Rules
+				Instance Rules
+					if ((SingleRole entered
+					and Role = SingleRole)		
+					or  SingleRole not entered)
+						if (SyncSecurityFeatures)
+							LastRole = Role
+
+							for each RoleSecurityClass set
+								if (each.RoleSecurityClass.SecurityClass = "GlobalUIConfigAccess_ST")
+									Role.ConfigurableFeatures.ConfigurationEnabled = true
+								if (each.RoleSecurityClass.SecurityClass = "SecurityConfigAccess_ST")
+									Role.ConfigurableFeatures.SecurityConfigurationEnabled = true
+								if (each.RoleSecurityClass.SecurityClass = "PersonalizationAccess_ST")
+									Role.ConfigurableFeatures.PersonalizationEnabled = true
+								if (each.RoleSecurityClass.SecurityClass = "LimitedListPersonalization_ST")
+									Role.ConfigurableFeatures.LimitedListPersonalizationEnabled = true
+								if (each.RoleSecurityClass.SecurityClass = "LimitedFormPersonalization_ST")
+									Role.ConfigurableFeatures.LimitedFormPersonalizationEnabled = true
+								if (each.RoleSecurityClass.SecurityClass = "DataMenuAccess_ST")
+									Role.ConfigurableFeatures.DataMenuEnabled = true
+						if (ResetUIFeatures)
+							LastRole = Role
+
+							Role.ConfigurableFeatures.ExportToCSVEnabled = true
+							Role.ConfigurableFeatures.ExportToCSVMultithreadingEnabled = false
+							Role.ConfigurableFeatures.ExportToPDFEnabled = true
+							Role.ConfigurableFeatures.CreateReportEnabled = true
+							Role.ConfigurableFeatures.CreateFolderEnabled = true
+							Role.ConfigurableFeatures.CreateWatchAndAlertEnabled = true
+							Role.ConfigurableFeatures.AsOfDateEnabled = true
+							Role.ConfigurableFeatures.ShowUserActionsOnInbasketListEnabled = true
+							Role.ConfigurableFeatures.ShowAllScheduleActionsEnabled = true
+							Role.ConfigurableFeatures.SharingReportsAndFoldersEnabled = true
+							Role.ConfigurableFeatures.SpreadSheetDesignerEnabled = true
+							Role.ConfigurableFeatures.SpreasheetDesignerUpdateEnabled = true
+							Role.ConfigurableFeatures.UserContextMenuEnabled = false
+							Role.ConfigurableFeatures.HideMenuPrintFiles = false
+							Role.ConfigurableFeatures.HideMenuNotifications = false
+							Role.ConfigurableFeatures.HideMenuInbasket = false
+							Role.ConfigurableFeatures.HideMenuJobs = false
+							Role.ConfigurableFeatures.HideMenuReports = false
+							Role.ConfigurableFeatures.HideMenuActions = false
+							Role.ConfigurableFeatures.HideMenuSearch = false
+							Role.ConfigurableFeatures.ShowDeletedRecords = false
+							Role.ConfigurableFeatures.ShowArchive = false
+							Role.ConfigurableFeatures.SavedSearchesEnabled = false
+							Role.ConfigurableFeatures.HideDeliveredReports = false
+							Role.ConfigurableFeatures.HideSearchFieldOptions = false
+							Role.ConfigurableFeatures.AIAssistedRichTextEnabled = false
+							Role.ConfigurableFeatures.DrillAroundEnabled = false
+							Role.ConfigurableFeatures.ChangePreferredApplicationStartPageEnabled = false
+							Role.ConfigurableFeatures.LandingPagePersonalizationEnabled = false
+							if (!SyncSecurityFeatures)	
+								Role.ConfigurableFeatures.ConfigurationEnabled = false
+								Role.ConfigurableFeatures.DataMenuEnabled = false								
+								Role.ConfigurableFeatures.LimitedFormPersonalizationEnabled = false
+								Role.ConfigurableFeatures.LimitedListPersonalizationEnabled = false
+								Role.ConfigurableFeatures.PersonalizationEnabled = false
+								Role.ConfigurableFeatures.SecurityConfigurationEnabled = false
+
+                        for each RoleDataArea set
+                            invoke Update each
+                                invoked.ConfigurableFeatures = Role.ConfigurableFeatures
+
+				Set Rules
+					
+					Exit Rules
+						if (LastRole exists) 
+							invoke FireConfigurableFeatureChangeEvent LastRole
+								invoked.Type = 2
+		
+	    SendBODForAllRoles is a Set Action
+			valid when (IsSecIFSUserProvEnabled)
+	
+		AddSecurityClassToRole is an Instance Action
+		    default label is "Assign"
+			Parameters
+				ParamSecurityClass is a SecurityClass
+					default label is "SecurityClass"
+
+			Action Rules
+					invoke Create RoleSecurityClass
+						invoked.Role = Role
+						invoked.DataArea = parentcontext.dataarea 
+						invoked.SecurityClass = ParamSecurityClass
+
+        AddFeatureOverride is an Instance Action
+            restricted
+            valid when (!DataAreaHasOverride)
+            completion message is "OverrideFor_Data_AreaCreated"
+            Parameters
+                CopyFeaturesPrm is Boolean
+                    default label is "CopyFeatures"
+
+            Parameter Rules
+
+            Action Rules
+                invoke Create RoleDataArea
+                    invoked.Role = Role
+                    invoked.RoleDataArea = parentcontext.dataarea
+                    if (CopyFeaturesPrm)
+                        invoked.ConfigurableFeatures = ConfigurableFeatures
+
+        RemoveFeatureOverride is an Instance Action
+            restricted
+            completion message is "OverrideForThis_Data_AreaRemoved"
+            valid when (DataAreaHasOverride)
+            confirmation required
+                "RemoveTheOverrideForThis_Data_Area?"
+
+            Action Rules
+                invoke Delete DataAreaOverrideRel
+
+        UpdateConfigurableFeatures is an Instance Action
+            completion message is "<FeaturesUpdateMsgMF>"
+
+            Parameters
+                ConfigurableFeaturesParam is a ConfigurableFeatures
+                    default label is "ConfigurableFeatures"
+
+            Parameter Rules
+                ConfigurableFeaturesParam
+                    initial value is DataAreaConfigurableFeatures
+
+            Action Rules
+                if (DataAreaHasOverride)
+                    invoke Update DataAreaOverrideRel.RoleDataArea
+                        invoked.ConfigurableFeatures = ConfigurableFeaturesParam
+
+                if (!DataAreaHasOverride)
+                        ConfigurableFeatures = ConfigurableFeaturesParam
+
+            Exit Rules
+                invoke FireConfigurableFeatureChangeEvent
+                    invoked.Type = 2
+
+

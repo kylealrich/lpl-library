@@ -1,0 +1,343 @@
+MobileSupplyChainInventoryTransactionLine is a BusinessClass
+    owned by mscm
+    prefix is MSITL
+    sql name is "MSCMITransactionLine"
+
+    Ontology
+        symbolic key is MobileSupplyChainInventoryTransactionLine
+
+    Persistent Fields
+        Item
+        Quantity
+        TransactionUOM                  is a UnitOfMeasure
+        FromToCompanyLocationBin
+        ErrorMessage                is a Text
+        MobileSupplyChainUpload         is like MobileSupplyChainUpload
+        ItemGTIN
+
+    Local Fields
+        LocalLineDetailQuantity                                 is a Quantity
+        LocalLineAvailableSOH                                   is a Quantity
+        LocalLineQuantity                                       is a Quantity
+        LocalError                                              is Boolean
+        LocalDetailSOH                                          is like Quantity
+        UOMCalculation
+        MultipleBins                                            is Boolean
+        UseLastIssueCost                                        is Boolean  
+		InventoryTransactionLineView                            is a InventoryTransactionLine view
+        LocalLine                                               is Numeric 6
+        LocalItem                                               is like Item
+
+    Rule Blocks
+
+        TransactionUOMConversionToStockUOM
+            initialize UOMCalculation
+            UOMCalculation.InputUOM         = TransactionUOM
+            UOMCalculation.InputToUOM       = Item.StockUOM
+            UOMCalculation.InputQuantity    = Quantity
+            UOMCalculation.Method           = UOMCalculation.Method.ConvertToAlternate
+
+    Derived Fields
+        DerivedInsufficientSOHMessage is a MessageField
+            "InsufficientStockOnHandQuantity"
+
+        DerivedNoStockOnHandDetailMessage is a MessageField
+            "StockOnHandDetailDoesNotExist"
+        
+        DerivedMustEnterCostMessage is a MessageField
+            "CannotDefaultUnitCost;MustEnterUnitCost"
+        
+        HasDetailErrorMessage is a MessageField
+            "HasDetailError"
+
+        OutOfBalanceErrorMessage is a MessageField
+            "TransactionLine<LocalLine>Item<LocalItem>HasQuantityOutOfBalance"
+        
+        DerivedErrorMessage is a DerivedField
+            type is Text
+            if (ErrorMessage entered)
+                return ErrorMessage
+            else 
+            if(HasError)
+                return HasDetailErrorMessage
+
+    Conditions
+        MultiUOMTracked
+            when(ItemLocationRel.DerivedMultipleUOM > 1)
+
+        IsLotAtReceipt
+            when(ItemLocationRel.LotTracked.LotRequiredAtReceipt)
+
+        IsBinTracked
+            when(ItemLocationRel.BinTracked)
+
+        IsLotAtIssue
+            when(ItemLocationRel.LotTracked.LotRequiredAtIssue)
+
+        IsSerialAtReceipt
+            when(ItemLocationRel.SerialTracked.SerialRequiredAtReceipt)
+
+        IsSerialAtIssue
+            when(ItemLocationRel.SerialTracked.SerialRequiredAtIssue)
+
+        IsLotTracked
+            when (IsLotAtReceipt or IsLotAtIssue)
+
+        IsSerialTracked
+            when (IsSerialAtReceipt or IsSerialAtIssue)
+
+        IsUDITracked
+            when (ItemLocationRel.UDITracked.UDIRequiredAtReceipt or ItemLocationRel.UDITracked.UDIRequiredAtIssue)
+
+        IsDetailTrackedItem
+            when(IsBinTracked 
+            or   IsLotAtReceipt 
+            or   IsLotAtIssue 
+            or   IsSerialAtReceipt 
+            or   IsSerialAtIssue)
+
+        IsDecreaseStock
+            when (MobileSupplyChainInventoryTransaction.IsInventoryTransfer
+            or  (MobileSupplyChainInventoryTransaction.IsInventoryAdjustments and  Quantity < 0)
+            or  (MobileSupplyChainInventoryTransaction.IsInventoryIssues and Quantity > 0))
+
+        HasSufficientDetailSOH
+			when (LocalLineDetailQuantity 	    <= LocalDetailSOH
+			and  (LocalLineDetailQuantity * -1) <= LocalDetailSOH)
+
+        HasSufficientLineSOH
+            when (LocalLineQuantity 	  <= LocalLineAvailableSOH
+			and  (LocalLineQuantity * -1) <= LocalLineAvailableSOH)
+
+        HasError
+            when(ErrorMessage entered
+            or MobileSupplyChainInventoryTransactionLineDetailErrorsRel exists)
+            
+        IsNoLastIssueCost
+            when (MobileSupplyChainInventoryTransaction.InventoryDocumentType.InventoryIssue and ItemLocationRel.LastIssueCost < 1.00000000)
+
+        HasInventoryIssueHardErrorRecallNotice
+            restricted
+            when (MobileSupplyChainInventoryTransaction.IsInventoryIssues and Item.InventoryIssueRecallNotice.HardError)
+
+        HasInventoryIssueWarningRecallNotice
+            restricted
+            when (MobileSupplyChainInventoryTransaction.IsInventoryIssues and Item.InventoryIssueRecallNotice.Warning)
+
+        DisplayLotDetails 
+            restricted
+            when (ItemLocationRel.IsAWarehouseLocationItem
+            and IsLotTracked
+            and not IsUDITracked)
+
+    Relations
+        MobileSupplyChainInventoryTransactionLineDetailRel is a MobileSupplyChainInventoryTransactionLineDetail set
+
+        MobileSupplyChainInventoryTransactionLineDetailErrorsRel
+            one-to-many relation to MobileSupplyChainInventoryTransactionLineDetail
+            Field Mapping uses symbolic key
+                related.Company                                                     = Company
+                related.InventoryLocation                                           = InventoryLocation
+                related.MobileSupplyChainInventoryTransaction                       = MobileSupplyChainInventoryTransaction
+                related.MobileSupplyChainInventoryTransactionLine                   = MobileSupplyChainInventoryTransactionLine
+            Instance Selection
+                where(related.ErrorMessage entered)
+        
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.Item              = Item   
+
+        StockOnHandDetailByStockUomRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                             = Company
+                related.InventoryLocation                   = InventoryLocation
+                related.Item                                = Item
+            Instance Selection
+                where(related.StockOnHandDetail.UnitOfMeasure     = Item.StockUOM)
+
+        ItemTransactionUomRel
+            one-to-one relation to ItemUOM
+            Field Mapping uses symbolic key
+                related.ItemGroup               = Company.ItemGroup
+                related.Item                    = Item
+                related.UnitOfMeasure           = TransactionUOM
+        
+        InventoryTransactionIntransitRecLineRel
+            one-to-one relation to InventoryTransactionLine
+            Field Mapping uses symbolic key
+                related.Company                                     = Company
+                related.InventoryLocation                           = InventoryLocation
+                related.InventoryTransaction                        = MobileSupplyChainInventoryTransaction.OriginatingIntransitRec
+                related.TransactionSystemCode                       = TransactionSystemCode.InventoryControl
+                related.InventoryTransactionLine.WarehouseShipment  = blank
+                related.InventoryTransactionLine.LineNumber         = MobileSupplyChainInventoryTransactionLine
+                related.InventoryTransactionLine.ComponentSequence  = blank
+        
+        InventoryTransactionIntransitRecLineDetailsRel
+            one-to-many relation to InventoryTransactionLineDetail
+            Field Mapping uses symbolic key
+                related.Company                                     = Company
+                related.InventoryLocation                           = InventoryLocation
+                related.InventoryTransaction                        = MobileSupplyChainInventoryTransaction.OriginatingIntransitRec
+                related.TransactionSystemCode                       = TransactionSystemCode.InventoryControl
+                related.InventoryTransactionLine.WarehouseShipment  = blank
+                related.InventoryTransactionLine.LineNumber         = MobileSupplyChainInventoryTransactionLine
+                related.InventoryTransactionLine.ComponentSequence  = blank
+
+        InventoryTransactionLineRel
+            one-to-one relation to InventoryTransactionLine
+            Field Mapping uses symbolic key
+                related.Company                                     = Company
+                related.InventoryLocation                           = InventoryLocation
+                related.InventoryTransaction                        = MobileSupplyChainInventoryTransaction.InventoryTransaction
+                related.TransactionSystemCode                       = TransactionSystemCode.InventoryControl
+                related.InventoryTransactionLine.WarehouseShipment  = blank
+                related.InventoryTransactionLine.LineNumber         = MobileSupplyChainInventoryTransactionLine
+                related.InventoryTransactionLine.ComponentSequence  = blank
+    Actions
+
+        Delete is a Delete Action
+        Create is a Create Action
+            Local Fields
+                LocalBypassCost     is Boolean
+
+            Action Rules
+            
+                if (MobileSupplyChainInventoryTransaction.IsReceivingTransfer)
+                    invoke Update InventoryTransactionIntransitRecLineRel
+                        resume on error
+                            ErrorMessage            = error message
+                        invoked.Quantity                            = Quantity
+                        invoked.TransientPreciseUnitCost            = InventoryTransactionIntransitRecLineRel.DerivedUnitCost
+                else
+                if(MobileSupplyChainInventoryTransaction.ErrorMessage not entered)
+                    if (ItemLocationRel.BinTracked)
+                        MultipleBins = true
+
+                    if (MobileSupplyChainInventoryTransaction.IsInventoryIssues 
+                    and Quantity < 0
+                    and not ItemLocationRel.NoCharge)  
+                        UseLastIssueCost  = true   
+
+                    invoke Unreleased.Create InventoryTransactionLine  
+                        resume on error
+                            LocalError      = true
+                            ErrorMessage    = error message
+                        assign result to InventoryTransactionLineView  
+                        invoked.InventoryTransaction                   =      MobileSupplyChainInventoryTransaction.InventoryTransaction 
+                        invoked.Company                                =      Company
+                        invoked.InventoryLocation                      =      InventoryLocation
+                        invoked.Item                                   =      Item
+                        invoked.MultipleBins                           =      MultipleBins
+                        invoked.Quantity                               =      Quantity
+                        invoked.TransactionUOM                         =      TransactionUOM
+                        invoked.FromToCompanyLocationBin               =      FromToCompanyLocationBin
+                        invoked.UseLastIssueCost                       =      UseLastIssueCost
+                        invoked.TransientBypassUnitCost                =      true
+                        invoked.ItemGTIN                               =      ItemGTIN
+
+                    if (InventoryTransactionLineView.InventoryTransactionLine.UnitCost not entered
+                    and InventoryTransactionLineView.InventoryTransactionLine.IsIncreaseStock)
+                        ErrorMessage    = DerivedMustEnterCostMessage
+
+        ProcessTransaction is a Set Action
+            Parameters
+                PrmMobileSupplyChainUpload      is like MobileSupplyChainUpload
+
+            Instance Selection
+                where (MobileSupplyChainUpload              = PrmMobileSupplyChainUpload
+                and    MobileSupplyChainInventoryTransaction.ErrorMessage not entered)
+
+            Sort Order
+                Company
+                InventoryLocation
+                MobileSupplyChainInventoryTransaction
+                MobileSupplyChainInventoryTransactionLine
+
+            Local Fields
+                HasReleaseError         is Boolean
+                ReleaseErrorMessage     is Text
+                ErrorOccured            is Boolean
+                
+            Action Rules
+
+                MobileSupplyChainInventoryTransaction Set Rules
+
+                    Entrance Rules
+                        initialize ErrorOccured
+                        
+                        for each MobileSupplyChainInventoryTransaction.InventoryTransactionBinTrackedIntransitLinesRel
+                            LocalLine = each.InventoryTransactionLine.LineNumber
+                            LocalItem = each.Item
+                            if (each.InventoryTransactionLineDetailsReceivingCompletedRel not exists)
+                                invoke Update MobileSupplyChainInventoryTransaction
+                                    invoked.ErrorMessage            = OutOfBalanceErrorMessage
+                                ErrorOccured    = true
+                                end for each
+
+                    Exit Rules
+                        initialize HasReleaseError
+                        initialize ReleaseErrorMessage
+
+                        if (not ErrorOccured)
+                            if(MobileSupplyChainInventoryTransaction.IsReceivingTransfer)
+                                if (MobileSupplyChainInventoryTransaction.IsRelease)
+                                    invoke ReleaseReceiving MobileSupplyChainInventoryTransaction.OriginatingIntransitRec
+                                        resume on error
+                                            HasReleaseError         = true
+                                            ReleaseErrorMessage     = error message
+                            else
+                                invoke Release MobileSupplyChainInventoryTransaction.InventoryTransaction
+                                    resume on error
+                                        HasReleaseError         = true
+                                        ReleaseErrorMessage     = error message
+
+                            if (HasReleaseError)
+                                invoke Update MobileSupplyChainInventoryTransaction
+                                    invoked.ErrorMessage        = ReleaseErrorMessage
+
+                Instance Rules
+                    if (ErrorMessage entered)
+                        ErrorOccured    = true
+                    else                                                                                
+                    if(IsDecreaseStock)                    
+                        if (MobileSupplyChainInventoryTransactionLineDetailRel exists)              
+                            for each MobileSupplyChainInventoryTransactionLineDetailRel
+
+                                if (each.ErrorMessage entered)                                   
+                                    ErrorOccured    = true
+                                else
+                                    LocalLineDetailQuantity             = each.Quantity
+                                    LocalDetailSOH                      = each.DerivedStockOnHand
+
+                                    if (LocalDetailSOH not entered)                                 
+                                        invoke Update MobileSupplyChainInventoryTransactionLineDetailRel
+                                            invoked.ErrorMessage        = DerivedNoStockOnHandDetailMessage
+                                        ErrorOccured    = true
+                                    else                                                            
+                                    if (not HasSufficientDetailSOH)                                 
+                                        invoke Update MobileSupplyChainInventoryTransactionLineDetailRel
+                                            invoked.ErrorMessage        = DerivedInsufficientSOHMessage
+                                        ErrorOccured    = true
+                        else      
+                            include TransactionUOMConversionToStockUOM        
+                            
+                            LocalLineQuantity               = UOMCalculation.OutputQuantity                                                          
+                        
+                            if(ItemLocationRel.DerivedMultipleUOM > 1 and not ItemTransactionUomRel.TrackedIn)
+                                LocalLineAvailableSOH       = StockOnHandDetailByStockUomRel.StockOnHandQuantity
+                            else
+                                LocalLineAvailableSOH           = ItemLocationRel.StockOnHandQuantity
+
+                            if (not HasSufficientLineSOH)                                           
+                                ErrorOccured    = true
+                                ErrorMessage    = DerivedInsufficientSOHMessage
+
+        DeleteReceivingLineDetails  is an Instance Action
+            Entrance Rules
+            Action Rules
+                invoke Delete InventoryTransactionIntransitRecLineDetailsRel

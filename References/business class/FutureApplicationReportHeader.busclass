@@ -1,0 +1,156 @@
+FutureApplicationReportHeader is a BusinessClass
+	owned by ar
+	
+	prefix is FuApH
+	
+	Ontology
+		symbolic key is FutureApplicationReportHeader
+	
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+	
+	Persistent Fields
+		RunTime							is TimeStamp
+		Status 							is Numeric 1
+			States
+				InProcess				value is 0
+				Complete	            value is 1
+				NoRecordsToProcess		value is 2
+		Company							is a ReceivableCompany
+		GeneralLedgerEndDate			is Date
+			default label is "GlobalLedgerEndDate"
+		ARCode							is a ReceivableGeneralLedgerCode
+		ApplicationStatus				is Numeric size 1
+			States
+				ApplicationPosted		value is 0
+				ApplicationNotPosted	value is 1
+				All						value is 2
+	
+	Local Fields
+		LocalActor						is Actor
+	
+	Derived Fields
+		DerivedRunDate is a DerivedField		
+			type is Date
+			restricted
+			return RunTime date
+	
+	Field Rules
+		FinanceEnterpriseGroup
+			initial value is actor.context.FinanceEnterpriseGroup
+			required
+		
+		Company
+			required
+				"CompanyIsRequired"
+		
+		GeneralLedgerEndDate
+			required
+				"Global_\Ledger_\End_\DateIsRequired"
+				
+		ApplicationStatus
+			initial value is 0
+			default to 0
+			
+		RunTime
+			default to current timestamp
+	
+	Conditions
+		FutureApplicationDetailRecordExists
+			when (FutureApplicationReportDetailRel exists)
+			
+	Relations
+		FutureApplicationReportDetailRel
+			one-to-many relation to FutureApplicationReportDetail
+			Field Mapping uses Set1
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.Company								= Company
+			Instance Selection
+				where (related.FutureApplicationReportHeader	= FutureApplicationReportHeader)
+	
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				FutureApplicationReportHeader
+		
+	Actions
+		PerformFutureApplicationReport is a Create Action
+			completion message is "FutureApplicationReportSubmitted"
+			Exit Rules
+				invoke FutureApplicationReportHeader ReceivableInvoiceDetail 
+					invoked.PrmFinanceEnterpriseGroup			= FinanceEnterpriseGroup
+					invoked.PrmCompany							= Company
+					invoked.PrmGeneralLedgerEndDate				= GeneralLedgerEndDate
+					invoked.PrmARCode							= ARCode
+
+					invoked.PrmFutureApplicationReportHeader	= FutureApplicationReportHeader
+					
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+
+			
+		UpdateStatus is an Instance Action
+			restricted
+			Parameters
+				PrmStatus	is Boolean
+				
+			Action Rules
+				if (PrmStatus)
+					Status = 1
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "FutureApplicationReportHasCompleted"
+						priority is medium
+						detail is "ResultsCanBeSeenInFutureApplicationReportResults"
+				else
+					Status = 2
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "FutureApplicationReportHasNoRecordsToProcess"
+						priority is medium
+
+		DeleteAllResults is a Set Action		
+			default label is "DeleteAllResults"
+			confirmation required
+				"DeletingFutureApplicationReportResultsWillPreventAccessToAnyListViewsAssociatedWithTheResultSet"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where (Company.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and	   DerivedRunDate <= PrmCutoffDate)
+			
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoFutureApplicationReportResultRecordsFoundToDelete"
+						priority is medium
+				
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "FutureApplicationReportResultsHaveBeenDeletedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Delete

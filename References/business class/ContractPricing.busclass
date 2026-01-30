@@ -1,0 +1,340 @@
+ContractPricing is a BusinessClass
+	owned by po
+	prefix is CNPR
+	Ontology
+		symbolic key is ContractPricing
+
+	Patterns
+		implements StaticJava
+
+	Persistent Fields
+		PricingBasePercent		is Percent size 6.3
+		PricingMarkupDiscount	is a PricingMarkupOrDiscount
+			default label is "Markup_orDiscount"
+		PriceBreakAmount1		is Numeric size 13
+		PriceBreakPercent1		is Percent size 6.3
+		PriceBreakAmount2		is Numeric size 13
+		PriceBreakPercent2		is Percent size 6.3
+		PriceBreakAmount3		is Numeric size 13
+		PriceBreakPercent3		is Percent size 6.3
+		PriceBreakAmount4		is Numeric size 13
+		PriceBreakPercent4		is Percent size 6.3
+		PriceBreakAmount5		is Numeric size 13
+		PriceBreakPercent5		is Percent size 6.3
+		AmountOrdered			is an InternationalAmount
+
+	Local Fields
+		ClearForStanding is Boolean
+
+	Conditions
+		MarkupDiscount
+			restricted
+			when ((PricingMarkupDiscount.Markup)
+			or	  (PricingMarkupDiscount.Discount))
+		PercentLessThan100
+			restricted
+			when ((PriceBreakPercent1 < 1)
+			and	  (PriceBreakPercent2 < 1)
+			and	  (PriceBreakPercent3 < 1)
+			and	  (PriceBreakPercent4 < 1)
+			and	  (PriceBreakPercent5 < 1))
+		Break2Thru5EqualZero
+			restricted
+			when ((PriceBreakAmount2 = 0)
+			and	  (PriceBreakAmount3 = 0)
+			and	  (PriceBreakAmount4 = 0)
+			and	  (PriceBreakAmount5 = 0))
+		Break3Thru5EqualZero
+			restricted
+			when ((PriceBreakAmount3 = 0)
+			and	  (PriceBreakAmount4 = 0)
+			and	  (PriceBreakAmount5 = 0))
+		Break4Thru5EqualZero
+			restricted
+			when ((PriceBreakAmount4 = 0)
+			and	  (PriceBreakAmount5 = 0))
+		MarkupExists
+			restricted
+			when (MarkupPricingRel exists)
+		DiscountExists
+			restricted
+			when (DiscountPricingRel exists)
+		PriceBreaksEntered
+			restricted
+			when (PriceBreakAmount1 entered or PriceBreakPercent1 entered)
+		MarkupLinePriceBreaksExist
+			restricted
+			when (ContractLineMarkupPricingRel exists)
+		DiscountLinePriceBreaksExist
+			restricted
+			when (ContractLineDiscountPricingRel exists)
+		CreateAllowed
+			restricted
+			when (!Contract.StandingOrService
+			and   !Contract.CommitmentsClosed
+			and   !Contract.ContractStatus.Closed)
+		CurrentPricingExists
+			restricted
+			when (CurrentPricingRel exists)
+
+	Sets
+		ByDateDescend
+			indexed
+			Sort Order
+				ContractGroup
+				Contract
+				ContractPricing descending
+
+	Relations
+		MarkupPricingRel
+			one-to-many relation to ContractPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where (related.PricingMarkupDiscount.Markup
+				and    related.ContractPricing != ContractPricing)
+
+		DiscountPricingRel
+			one-to-many relation to ContractPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where (related.PricingMarkupDiscount.Discount
+				and    related.ContractPricing != ContractPricing)
+
+		ContractLineMarkupPricingRel
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where ((related.PriceBreak.QuantityPercentPrice[1].UnitPercent > 0
+				and    related.PriceBreak.QuantityPercentPrice[1].UnitPercent >= PricingBasePercent)
+				or	   (related.ConsignmentPriceBreak.QuantityPercentPrice[1].UnitPercent > 0
+				and    related.ConsignmentPriceBreak.QuantityPercentPrice[1].UnitPercent >= PricingBasePercent))
+
+		ContractLineDiscountPricingRel
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where ((related.PriceBreak.QuantityPercentPrice[1].UnitPercent > 0
+				and    related.PriceBreak.QuantityPercentPrice[1].UnitPercent <= PricingBasePercent)
+				or	   (related.ConsignmentPriceBreak.QuantityPercentPrice[1].UnitPercent > 0
+				and    related.ConsignmentPriceBreak.QuantityPercentPrice[1].UnitPercent <= PricingBasePercent))
+
+		CurrentPricingRel
+			one-to-many relation to ContractPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+			Instance Selection
+				where (ContractPricing = Contract.EffectiveDate)
+
+	Field Rules
+		PricingBasePercent
+			if (PricingBasePercent > 0
+			or  PriceBreakPercent1 > 0)
+				constraint (MarkupDiscount)
+					"PricingMarkupOrDiscountMustBeMarkupOrDiscount"
+			if (PricingBasePercent changed)
+				if (PricingMarkupDiscount.Markup)
+					constraint (!MarkupLinePriceBreaksExist)
+						"ContractLinesExistWithMarkupPriceBreaksGreaterThanOrEqualToContractPricingBasePercent"
+				else
+					if (PricingMarkupDiscount.Discount)
+						constraint (!DiscountLinePriceBreaksExist)
+							"ContractLinesExistWithDiscountPriceBreaksLessThanOrEqualToContractPricingBasePercent"
+
+		PriceBreakAmount1
+			if (PriceBreakAmount1 > 0)
+				constraint (PriceBreakPercent1 > 0)
+					"CannotEnterBreakAmountWithoutBreakPercent"
+			if (PriceBreakAmount1 = 0)
+				constraint (Break2Thru5EqualZero)
+					"CannotSkipBreakLevels"
+			if ((PriceBreakAmount1 > 0)
+			and (Contract.MaximumAmount > 0))
+				constraint (PriceBreakAmount1 <= Contract.MaximumAmount)
+					"PriceBreakAmount1CannotBeGreaterThanMaximumAmount"
+
+		PriceBreakPercent1
+			if (PriceBreakPercent1 > 0)
+				constraint (MarkupDiscount)
+					"PricingMarkupOrDiscountMustBeMarkupOrDiscount"
+			if (PriceBreakPercent1 > 0)
+				constraint (PriceBreakAmount1 > 0)
+					"CannotEnterBreakPercentWithoutBreakAmount"
+
+		PriceBreakAmount2
+			if (PriceBreakAmount2 > 0)
+				constraint (PriceBreakPercent2 > 0)
+					"CannotEnterBreakAmountWithoutBreakPercent"
+			if (PriceBreakAmount2 = 0)
+				constraint (Break3Thru5EqualZero)
+					"CannotSkipBreakLevels"
+			if (PriceBreakAmount2 != 0)
+				constraint (PriceBreakAmount2 > PriceBreakAmount1)
+					"BreakAmountsMustBeInAscendingOrder"
+			if ((PriceBreakAmount2 > 0)
+			and (Contract.MaximumAmount > 0))
+				constraint (PriceBreakAmount2 <= Contract.MaximumAmount)
+					"PriceBreakAmount2CannotBeGreaterThanMaximumAmount"
+
+		PriceBreakPercent2
+			if (PriceBreakPercent2 > 0)
+				constraint (PriceBreakAmount2 > 0)
+					"CannotEnterBreakPercentWithoutBreakAmount"
+
+		PriceBreakAmount3
+			if (PriceBreakAmount3 > 0)
+				constraint (PriceBreakPercent3 > 0)
+					"CannotEnterBreakAmountWithoutBreakPercent"
+			if (PriceBreakAmount3 = 0)
+				constraint (Break4Thru5EqualZero)
+					"CannotSkipBreakLevels"
+			if (PriceBreakAmount3 != 0)
+				constraint (PriceBreakAmount3 > PriceBreakAmount2)
+					"BreakAmountsMustBeInAscendingOrder"
+			if ((PriceBreakAmount3 > 0)
+			and (Contract.MaximumAmount > 0))
+				constraint (PriceBreakAmount3 <= Contract.MaximumAmount)
+					"PriceBreakAmount3CannotBeGreaterThanMaximumAmount"
+
+		PriceBreakPercent3
+			if (PriceBreakPercent3 > 0)
+				constraint (PriceBreakAmount3 > 0)
+					"CannotEnterBreakPercentWithoutBreakAmount"
+
+		PriceBreakAmount4
+			if (PriceBreakAmount4 > 0)
+				constraint (PriceBreakPercent4 > 0)
+					"CannotEnterBreakAmountWithoutBreakPercent"
+			if (PriceBreakAmount4 = 0)
+				constraint (PriceBreakAmount5 = 0)
+					"CannotSkipBreakLevels"
+			if (PriceBreakAmount4 != 0)
+				constraint (PriceBreakAmount4 > PriceBreakAmount3)
+					"BreakAmountsMustBeInAscendingOrder"
+			if ((PriceBreakAmount4 > 0)
+			and (Contract.MaximumAmount > 0))
+				constraint (PriceBreakAmount4 <= Contract.MaximumAmount)
+					"PriceBreakAmount4CannotBeGreaterThanMaximumAmount"
+
+		PriceBreakPercent4
+			if (PriceBreakPercent4 > 0)
+				constraint (PriceBreakAmount4 > 0)
+					"CannotEnterBreakPercentWithoutBreakAmount"
+		PriceBreakAmount5
+			if (PriceBreakAmount5 > 0)
+				constraint (PriceBreakPercent5 > 0)
+					"CannotEnterBreakAmountWithoutBreakPercent"
+			if (PriceBreakAmount5 != 0)
+				constraint (PriceBreakAmount5 > PriceBreakAmount4)
+					"BreakAmountsMustBeInAscendingOrder"
+			if ((PriceBreakAmount5 > 0)
+			and (Contract.MaximumAmount > 0))
+				constraint (PriceBreakAmount5 <= Contract.MaximumAmount)
+					"PriceBreakAmount5CannotBeGreaterThanContractMaximumAmount"
+
+		PriceBreakPercent5
+			if (PriceBreakPercent5 > 0)
+				constraint (PriceBreakAmount5 > 0)
+					"CannotEnterBreakPercentWithoutBreakAmount"
+
+		PricingMarkupDiscount
+
+			if (PricingMarkupDiscount.Discount)
+				constraint (PercentLessThan100)
+					"CannotEnterDiscountsGreaterThan99.999%"
+
+			if (PricingMarkupDiscount.Markup)
+				if (PriceBreakPercent1 > 0)
+					constraint (PriceBreakPercent1 < PricingBasePercent )
+						"EachHigherPriceBreakMustIndicateASmallerMarkup"
+				if (PriceBreakPercent2 > 0)
+					constraint (PriceBreakPercent2 < PriceBreakPercent1 )
+						"EachHigherPriceBreakMustIndicateASmallerMarkup"
+				if (PriceBreakPercent3 > 0)
+					constraint (PriceBreakPercent3 < PriceBreakPercent2 )
+						"EachHigherPriceBreakMustIndicateASmallerMarkup"
+				if (PriceBreakPercent4 > 0)
+					constraint (PriceBreakPercent4 < PriceBreakPercent3 )
+						"EachHigherPriceBreakMustIndicateASmallerMarkup"
+				if (PriceBreakPercent5 > 0)
+					constraint (PriceBreakPercent5 < PriceBreakPercent4 )
+						"EachHigherPriceBreakMustIndicateASmallerMarkup"
+
+			if (PricingMarkupDiscount.Discount)
+				if (PriceBreakPercent1 > 0)
+					constraint (PriceBreakPercent1 > PricingBasePercent )
+						"EachHigherPriceBreakMustIndicateAGreaterDiscount"
+				if (PriceBreakPercent2 > 0)
+					constraint (PriceBreakPercent2 > PriceBreakPercent1 )
+						"EachHigherPriceBreakMustIndicateAGreaterDiscount"
+				if (PriceBreakPercent3 > 0)
+					constraint (PriceBreakPercent3 > PriceBreakPercent2 )
+						"EachHigherPriceBreakMustIndicateAGreaterDiscount"
+				if (PriceBreakPercent4 > 0)
+					constraint (PriceBreakPercent4 > PriceBreakPercent3 )
+						"EachHigherPriceBreakMustIndicateAGreaterDiscount"
+				if (PriceBreakPercent5 > 0)
+					constraint (PriceBreakPercent5 > PriceBreakPercent4 )
+						"EachHigherPriceBreakMustIndicateAGreaterDiscount"
+
+			if (Contract.HasBeenActivated)
+				cannot be changed
+					"CannotChangeMarkupDiscountFlagWhenContractHasBeenActivated"
+
+	Create Rules
+		constraint (!Contract.ContractLinePriceBreaksRel exists)
+			"CannotCreatePricingRecord;PriceBreaksExistForLine<Contract.ContractLinePriceBreak>"
+
+	Actions
+		Create is a Create Action
+			valid when (CreateAllowed)
+			Field Rules
+				ContractPricing
+					if (!Contract.HeaderPricingExists)
+						default to Contract.EffectiveDate
+
+			Action Rules
+
+		Update is an Update Action
+			valid when (Contract.CommitmentsNotClosedContractNotClosed)
+			Action Rules
+
+		UpdateAmountOrdered is an Update Action
+			restricted
+			bypass field rules
+
+		UpdateContractPricing is an Instance Action
+			restricted
+			Parameters
+ 				PricingBasePercentParam		is Percent size 6.3
+				PricingMarkupDiscountParam	is AlphaUpper size 1
+				ClearForStanding			is Boolean
+
+			Action Rules
+				PricingBasePercent		= PricingBasePercentParam
+				PricingMarkupDiscount	= PricingMarkupDiscountParam
+				if (ClearForStanding)
+					initialize PriceBreakAmount1
+					initialize PriceBreakPercent1
+					initialize PriceBreakAmount2
+					initialize PriceBreakPercent2
+					initialize PriceBreakAmount3
+					initialize PriceBreakPercent3
+					initialize PriceBreakAmount4
+					initialize PriceBreakPercent4
+					initialize PriceBreakAmount5
+					initialize PriceBreakPercent5
+
+		Delete is a Delete Action
+			valid when (Contract.CommitmentsNotClosedContractNotClosed)
+
+		Purge is a Purge Action
+			restricted

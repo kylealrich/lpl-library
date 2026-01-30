@@ -1,0 +1,142 @@
+BudgetRebuildBTGT is a BusinessClass
+	owned by GeneralLedger
+	prefix is BUDRB 
+   
+    Ontology
+    	symbolic key is BudgetRebuildBTGT
+
+    Patterns
+ 		disable Auditing 
+ 		disable EffectiveDated
+
+    Persistent Fields
+		FinanceEnterpriseGroup
+		Timestamp				is TimeStamp
+		BusinessClassName		is Alpha 100
+		EditContext				is Alpha 256		
+		IsBatch					is Boolean
+		BudgetEditMode
+		ActionCode
+		BudgetEditTotalsProcessing
+		BudgetEditCallBack
+		
+    Transient Fields
+		
+	Local Fields
+		LocalFEG				is like FinanceEnterpriseGroup
+		
+	Derived Fields
+
+	Conditions
+		IsReady
+			when (BusinessClassName entered)
+
+	Sets
+		ByFEG
+			Sort Order
+				FinanceEnterpriseGroup
+				BusinessClassName
+				Timestamp descending
+				BudgetRebuildBTGT.DocumentID
+				
+		ByDocument
+			Sort Order
+				BudgetRebuildBTGT.DocumentID
+
+
+	Field Rules
+					
+	Relations
+		AvailableTemplatesRel	
+			one-to-many relation to BudgetTemplate 
+			Field Mapping uses ByStatus
+				related.FinanceEnterpriseGroup		= LocalFEG
+			Instance Selection
+				where (related.Status  				!= 3) 
+
+		ProcessingTemplatesRel
+			one-to-many relation to BudgetTemplate
+			Field Mapping uses ByStatus
+				related.FinanceEnterpriseGroup				= LocalFEG
+			Instance Selection
+				where (related.Status						= 1  
+				or related.Status							= 4) 
+	
+		RebuildsRel
+			one-to-many relation to BudgetRebuildBTGT
+			Field Mapping uses ByFEG
+				related.FinanceEnterpriseGroup				= LocalFEG
+			Instance Selection
+				where (related.BusinessClassName			!= 	blank)
+		
+	Attach Rules
+		
+	Rule Blocks
+
+    Actions
+	
+    	Create is a Create Action
+    		restricted
+
+
+    		
+		Update is an Action
+			restricted
+
+
+
+		Delete is a Delete Action
+			restricted
+
+		Purge is a Delete Action
+			restricted
+			
+		DoRebuilds is a Set Action 
+
+			confirmation required
+				"ThisActionShouldOnlyRunAfterTemplatesHaveFailedWhileProcessingAndAreSubsequentlySetToReadyOrNotReady"
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			
+			Instance Selection
+				where (FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup)
+
+			Sort Order
+				FinanceEnterpriseGroup
+			
+			Action Rules
+				Set Rules
+					Entrance Rules
+						LocalFEG 			= PrmFinanceEnterpriseGroup
+
+
+						constraint (AvailableTemplatesRel exists)
+							"NoAvailableTemplateForBusinessClass<BusinessClassName>WithUniqueID<BudgetRebuildBTGT.DocumentID>"
+						if (ProcessingTemplatesRel not exists)
+							invoke ProcessRebuildBTGTInstances first RebuildsRel in background 
+								invoked.PrmFinanceEnterpriseGroup	= LocalFEG
+						
+		ProcessRebuildBTGTInstances	is an Instance Action
+			restricted
+			run in background
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Action Rules
+				LocalFEG 											= PrmFinanceEnterpriseGroup
+
+				for each RebuildsRel
+					if (each.BusinessClassName entered)
+
+						invoke ReleaseCallback first AvailableTemplatesRel.BudgetTemplate in foreground
+							invoked.PrmBusinessClassName			= each.BusinessClassName
+							invoked.PrmBusinessObjectKey			= each.BudgetRebuildBTGT.DocumentID	
+							invoked.PrmIsBatch						= true	
+							invoked.PrmActionCode					= each.ActionCode
+							invoked.PrmBudgetEditMode				= each.BudgetEditMode
+							invoked.PrmBudgetEditTotalsProcessing	= each.BudgetEditTotalsProcessing										
+							invoked.PrmBudgetEditCallBack			= each.BudgetEditCallBack			
+				invoke ProcessBatchEdits BudgetEditBatch										
+					invoked.FEG										= LocalFEG 
+	

@@ -1,0 +1,547 @@
+ReceivablesJobResult is a BusinessClass
+	owned by ar
+
+	prefix is ARJob
+
+	Ontology
+		symbolic key is ReceivablesJobResult
+
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		JobType						is Numeric 2
+			States
+				TransactionStatusUpdate		value is 1
+				ApplicationReversalCreation value is 2
+				CustomerBalanceConversion   value is 3
+		RunTime							is TimeStamp
+		Status							is Numeric 1
+			States
+				InProcess					value is 0
+				Complete					value is 1
+				Incomplete					value is 2
+		PrmCompany					is a ReceivableCompany
+			default label is "Company"
+		PrmCompanyGroup					is a GeneralLedgerCompanyGroup
+			default label is "CompanyGroup"
+		BackgroundGroupAsyncId			is an AsyncActionRequest
+			delete ignored
+		PrmCustomerGroup		is a CustomerGroup
+		PrmDetailOption			is AlphaUpper size 1
+			States
+				No  value is "N"
+				Yes value is "Y"
+		PrmUpdate				is AlphaUpper size 1
+			States
+				ReportOnly		value is "R"
+				UpdateAndReport	value is "U"
+					default label is "Update and Report"
+		PrmChangesOnly			is AlphaUpper size 1
+			States
+				No  value is "N"
+				Yes value is "Y"
+		CustomerRange
+		NumberOfThreads			is Numeric 3
+		ReportDistributionGroup
+		UpdateRecords			is AlphaUpper size 1
+			States
+				No	value is "N"
+				Yes	value is "Y"
+		RecordsExist			is Boolean
+		PreviousResult			is Boolean
+		ReversalResult			is BinaryDocument
+
+	Local Fields
+		BackgroundGroup					is AlphaUpper up to 60
+		BackgroundGroup1                is AlphaUpper up to 60
+		BackgroundGroup2                is AlphaUpper up to 60
+		BackgroundGroup3                is AlphaUpper up to 60
+		CompanyTotals                   is AlphaUpper up to 60
+		BackgroundGroup4                is AlphaUpper up to 60 
+		LocalActor						is Actor
+		LocalRunGroup					is Numeric 3
+		LocalRunGroup1                  is Numeric 3
+		LocalRunGroup2                  is Numeric 3 
+		LocalRunGroup3                  is Numeric 3
+		LocalRunGroup4                  is Numeric 3
+		LocalRunGroup5                  is Numeric 3
+		
+	Derived Fields
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+
+		InProcessMessage is a MessageField
+			restricted
+			"InProcess"
+		
+		CustomerBalanceConversionMessage is a MessageField
+			restricted
+			"CustomerBalanceConversionComplete"
+		
+		CompleteMessage is a DerivedField
+			type is Alpha 150
+			restricted
+			if (JobType.TransactionStatusUpdate)
+				return "TransactionStatusUpdateComplete"
+			else 
+			if (JobType.CustomerBalanceConversion)
+				return CustomerBalanceConversionMessage
+			else
+			if (JobType.ApplicationReversalCreation)
+				return "Application reversal creation submitted successfully"
+
+		RepresentativeTextCompany 		is a StringField
+			type is Text
+			restricted
+			default label is "ApplicationReversalResult"
+			"Application Reversal Result - " ReceivablesJobResult " for Company " PrmCompany.RepresentativeText
+
+		RepresentativeTextCompanyGroup 	is a StringField
+			type is Text
+			restricted
+			default label is "ApplicationReversalResult"
+			"Application Reversal Result - " ReceivablesJobResult " for CompanyGroup " PrmCompanyGroup.RepresentativeText
+
+		DerivedFormTitle				is a DerivedField
+			type is MessageField
+			restricted
+			if PrmCompany entered
+				return RepresentativeTextCompany
+			else
+				return RepresentativeTextCompanyGroup
+
+		DerivedRunDate is a DerivedField
+			type is Date
+			restricted
+			return RunTime date
+
+	Field Rules
+		PrmCompany
+			if (JobType != 3)
+				if (PrmCompanyGroup not entered)
+					required
+						"CompanyOrGlobalLedgerCompanyGroupRequired"
+
+		PrmCompanyGroup
+			if (JobType != 3)
+				if (PrmCompany entered)
+					cannot be entered
+						"CannotEnterGlobalLedgerCompanyGroupIfCompanyEntered"
+
+		RunTime
+			default to current timestamp
+		
+		PrmCustomerGroup
+			if (JobType.CustomerBalanceConversion)
+				required
+		PrmDetailOption
+			initial value is "N"
+			default to "N"
+		PrmUpdate
+			initial value is "R"
+			default to "R"
+		PrmChangesOnly
+			if(JobType.CustomerBalanceConversion)
+				if(PrmDetailOption.No)
+					constraint (PrmChangesOnly.No)
+						"DifferencesOnlyCannotBe_\Yes;DetailPrintIs_\No"
+				required
+		CustomerRange
+			if (JobType.CustomerBalanceConversion)
+				if(PrmChangesOnly.Yes)
+					constraint (CustomerRange not entered)	
+						"DifferencesOnlyCannotBe_\Yes;CustomerRangeEntered"
+		NumberOfThreads
+			initial value is 1
+			default to 1
+
+		UpdateRecords
+			initial value is "N"
+			default to "N"
+
+	Conditions
+		IsValidForActorContext
+			restricted
+			when (FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+		
+		IsValid
+			restricted
+			when(PrmDetailOption.Yes
+			or CustomerRange entered)
+
+		ReversedApplicationsExistForPreview
+			restricted
+			when (ReversedApplicationsRel exists
+			and UpdateRecords.No)
+
+		ReversedApplicationsExist
+			restricted
+			when (ReversedApplicationsRel exists
+			and UpdateRecords.Yes)
+
+		ApplicationsWithErrors
+			restricted
+			when (ReceivablesJobErrorResultRecordsRel exists)
+
+		NoApplicationsError
+			restricted
+			when (ReceivablesJobErrorResultWithNoApplicationRel exists)
+
+	Relations
+
+		CompanyCustomerRel
+			one-to-many relation to CompanyCustomer
+			Field Mapping uses ByCustomerGroup
+				related.CustomerGroup  = PrmCustomerGroup
+			Instance Selection                   
+				where(related.BalanceConversionResult = ReceivablesJobResult)
+		
+		ReceivableCompanyRel
+			one-to-many relation to ReceivableCompany
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.CustomerGroupField.CustomerGroup	 = PrmCustomerGroup
+				and related.BalanceConversionResult = ReceivablesJobResult)
+			
+		ReversedApplicationsRel
+			one-to-many relation to ReceivableApplication
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablesJobResult			= ReceivablesJobResult
+				and related.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = FinanceEnterpriseGroup)
+
+		ReceivablesJobErrorResultRecordsRel
+			one-to-many relation to ReceivablesJobErrorResult
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablesJobResult			= ReceivablesJobResult
+				and related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and related.ReceivableApplication entered
+				and related.ErrorMessage entered)
+
+		ReceivablesJobErrorResultWithNoApplicationRel
+			one-to-many relation to ReceivablesJobErrorResult
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablesJobResult			= ReceivablesJobResult
+				and related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				and related.ReceivableApplication not entered
+				and related.ErrorMessage entered)
+
+		ReceivablesJobErrorResultRel
+			one-to-many relation to ReceivablesJobErrorResult
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ReceivablesJobResult			= ReceivablesJobResult
+				and related.ErrorMessage entered)
+
+		ReceivablesJobPreviousResultRel
+			one-to-many relation to ReceivablesJobResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.PreviousResult)
+
+	Sets
+		ByRunTime
+			Sort Order
+				RunTime descending
+				ReceivablesJobResult
+				FinanceEnterpriseGroup
+
+		ByCompany
+			Sort Order
+				PrmCompany
+				ReceivablesJobResult
+				FinanceEnterpriseGroup
+
+	Actions
+
+		Create is a Create Action
+			restricted
+			
+		FastUpdate is an Instance Action
+			restricted
+			Parameters
+				PrmRecordsExist is Boolean
+			Action Rules
+				RecordsExist = PrmRecordsExist
+
+		Delete is a Delete Action
+			valid when (!JobType.ApplicationReversalCreation)
+
+		DeleteReversalResults is a Delete Action
+			default label is "Delete"
+			valid when (JobType.ApplicationReversalCreation)
+			Entrance Rules
+				invoke Delete ReceivablesJobErrorResultRecordsRel
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge ReceivablesJobErrorResultRecordsRel
+
+		UpdateStatusOnResult is an Instance Action
+			restricted
+			Parameters
+				PrmRecordsExists			is Boolean
+			Action Rules
+				Status = 1
+				if (JobType = 2)
+					PrmRecordsExists = RecordsExist
+					if (UpdateRecords = "N")
+						PreviousResult = true
+					if (!PrmRecordsExists)
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "<CompleteMessage>"
+							priority is high
+							detail is "NoRecordsFoundToProcess"
+					else
+						if (ReceivablesJobErrorResultRel exists)
+							Status = 2
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "<CompleteMessage>"
+							priority is high
+							detail is "ResultsCanBeSeenInApplicationReversalCreationResults"
+				else
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "<CompleteMessage>"
+						priority is high
+						detail is "ResultsCanBeSeenInReceivablesJobResult"
+
+		PerformTransactionStatusUpdate is a Create Action
+			completion message is "PerformTransactionStatusUpdateSubmitted"
+			Entrance Rules
+				JobType = 1
+			Exit Rules
+				display "=========TransactionStatusUpdate============"
+
+				BackgroundGroup = "TransactionStatusUpdate" + ReceivablesJobResult
+				invoke TransactionStatusUpdate ReceivableInvoiceDetail in background group(BackgroundGroup)
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmCompany						= PrmCompany
+				invoke TransactionStatusUpdate ReceivablePayment in background 
+					run after background group(BackgroundGroup)
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmCompany						= PrmCompany
+				
+				invoke UpdateStatusOnResult in background
+					run after background group(BackgroundGroup)
+
+		
+		DistributeResults is an Instance Action
+			run in background
+			restricted
+			Action Rules
+				invoke DistributeBinaryDocument ReportDistributionGroup
+					invoked.Report					= PDFReport as pdf in landscape font offset is -3
+					invoked.ReportName				= "CustomerBalanceConversionReport"
+					invoked.ReportDistributionGroup = ReportDistributionGroup
+
+		GenerateDocument is an Instance Action
+			default label is untranslatable
+			restricted
+			Action Rules
+				generate document ApplicationReversalResult as pdf in portrait font offset is -2
+					set using action StoreDocument
+
+		StoreDocument is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				Report is BinaryDocument
+			Action Rules
+				ReversalResult = Report
+
+		CustomerBalanceConversion is a Create Action
+			completion message is "CustomerBalanceConversion"
+			Entrance Rules
+				JobType = 3
+			Exit Rules
+				invoke InitializeBalance ReceivableCompany in background 
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmCustomerGroup      = PrmCustomerGroup
+				
+				while (LocalRunGroup3 < NumberOfThreads)
+					BackgroundGroup3 = "InitializeBalance" + ReceivablesJobResult
+					invoke InitializeBalance CompanyCustomer in background group(BackgroundGroup3)
+						run after BackgroundGroupAsyncId
+						invoked.PrmCustomerGroup					= PrmCustomerGroup
+						invoked.PrmRunGroup                         = LocalRunGroup3
+						invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+						invoked.PrmCustomerRange                    = CustomerRange
+						invoked.PrmUpdate						    = PrmUpdate
+					increment LocalRunGroup3
+				
+				if (PrmUpdate.UpdateAndReport)
+					
+					invoke InitializeCurrentAndDraftBalance  NationalAccountBalance in background group(BackgroundGroup3)
+						run after BackgroundGroupAsyncId
+						invoked.PrmCustomerGroup          = PrmCustomerGroup
+						invoked.PrmCustomerRange		  = CustomerRange
+					
+					while (LocalRunGroup5 < NumberOfThreads)
+						BackgroundGroup4 = "InitializeBalanceCustomer" + ReceivablesJobResult
+						invoke InitializeBalance  Customer in background group(BackgroundGroup4)
+							run after background group(BackgroundGroup3)
+							invoked.PrmCustomerGroup       = PrmCustomerGroup
+							invoked.PrmCustomerRange	   = CustomerRange
+							invoked.PrmRunGroup            = LocalRunGroup5
+							invoked.PrmNbrOfRunGroups      = NumberOfThreads
+						increment LocalRunGroup5
+					while (LocalRunGroup < NumberOfThreads)
+						BackgroundGroup = "InvoiceAmountTotal" + ReceivablesJobResult
+						invoke InvoiceAmountTotal ReceivableInvoiceDetail in background group(BackgroundGroup)
+							run after background group(BackgroundGroup4)
+							invoked.PrmCustomerGroup					= PrmCustomerGroup
+							invoked.PrmCustomerRange                    = CustomerRange
+							invoked.PrmUpdate						    = PrmUpdate
+							invoked.PrmResult                           = ReceivablesJobResult
+							invoked.PrmRunGroup                         = LocalRunGroup
+							invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+						increment LocalRunGroup
+				else
+					while (LocalRunGroup < NumberOfThreads)
+						BackgroundGroup = "InvoiceAmountTotal" + ReceivablesJobResult
+						invoke InvoiceAmountTotal ReceivableInvoiceDetail in background group(BackgroundGroup)
+							run after background group(BackgroundGroup3)
+							invoked.PrmCustomerGroup					= PrmCustomerGroup
+							invoked.PrmCustomerRange                    = CustomerRange
+							invoked.PrmUpdate						    = PrmUpdate
+							invoked.PrmResult                           = ReceivablesJobResult
+							invoked.PrmRunGroup                         = LocalRunGroup
+							invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+						increment LocalRunGroup
+					
+					
+				while (LocalRunGroup1 < NumberOfThreads)
+					BackgroundGroup1 = "PaymentAmountTotal" + ReceivablesJobResult
+					invoke PaymentAmountTotal ReceivablePayment in background group(BackgroundGroup1)
+						run after background group(BackgroundGroup) 
+						invoked.PrmCustomerGroup					= PrmCustomerGroup
+						invoked.PrmCustomerRange                    = CustomerRange
+						invoked.PrmUpdate						    = PrmUpdate
+						invoked.PrmResult                           = ReceivablesJobResult
+						invoked.PrmRunGroup                         = LocalRunGroup1
+						invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+					increment LocalRunGroup1
+				
+				while (LocalRunGroup2 < NumberOfThreads)
+					BackgroundGroup2 = "DraftTotal" + ReceivablesJobResult
+					invoke DraftTotal CustomerDraft  in background group(BackgroundGroup2)
+						run after background group(BackgroundGroup1) 
+						invoked.PrmCustomerGroup					= PrmCustomerGroup
+						invoked.PrmCustomerRange                    = CustomerRange
+						invoked.PrmUpdate						    = PrmUpdate
+						invoked.PrmResult                           = ReceivablesJobResult
+						invoked.PrmRunGroup                         = LocalRunGroup2
+						invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+					increment LocalRunGroup2
+					
+				while (LocalRunGroup4 < NumberOfThreads)
+					CompanyTotals = "ComapnyTotals" + ReceivablesJobResult
+					invoke ComapnyTotals CompanyCustomer  in background group(CompanyTotals)
+						run after background group(BackgroundGroup2) 
+						invoked.PrmCustomerGroup					= PrmCustomerGroup
+						invoked.PrmCustomerRange                    = CustomerRange
+						invoked.PrmResult                           = ReceivablesJobResult
+						invoked.PrmRunGroup                         = LocalRunGroup4
+						invoked.PrmNbrOfRunGroups                   = NumberOfThreads
+						invoked.PrmChangesOnly                      = PrmChangesOnly
+					increment LocalRunGroup4
+				
+				invoke UpdateStatusOnResult in background
+					run after  background group(CompanyTotals)
+					assign async action request id to BackgroundGroupAsyncId
+				
+				if (ReportDistributionGroup entered)
+					invoke DistributeResults in background
+						run after BackgroundGroupAsyncId
+
+
+
+		ApplicationReversalCreation is a Create Action	
+			completion message is "ApplicationReversalSubmitted"
+			Entrance Rules
+				JobType = 2
+
+			Exit Rules
+				invoke ReversePayment ReceivablePaymentApplyReverseDetail in background
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmCompany						= PrmCompany
+					invoked.PrmReceivablesJobResult			= ReceivablesJobResult
+					invoked.PrmIsCreate						= true
+					invoked.PrmUpdateRecords				= UpdateRecords
+				invoke ReverseInvoice ReceivableInvoiceApplyReverseDetail in background
+					run after BackgroundGroupAsyncId
+					assign async action request id to BackgroundGroupAsyncId
+					invoked.PrmFinanceEnterpriseGroup		= FinanceEnterpriseGroup
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmCompany						= PrmCompany
+					invoked.PrmReceivablesJobResult			= ReceivablesJobResult
+					invoked.PrmIsCreate						= true
+					invoked.PrmUpdateRecords				= UpdateRecords
+
+				invoke UpdateStatusOnResult in background
+					run after BackgroundGroupAsyncId
+					assign async action request id to BackgroundGroupAsyncId
+
+				invoke GenerateDocument in background
+					run after BackgroundGroupAsyncId
+					assign async action request id to BackgroundGroupAsyncId
+
+		PurgeAllReversalResults is a Set Action
+			default label is "PurgeAllResults"
+			confirmation required
+				"PurgingApplicationReversalCreationResultsWillPreventAccessToAnyListViewsAssociatedWithTheResultSet"
+
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where	(FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+				and		JobType					= 2
+				and 	DerivedRunDate 			<= PrmCutoffDate)
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoApplicationReversalCreationResultsRecordsFoundToDelete"
+						priority is medium
+
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "ApplicationReversalCreationResultsHaveBeenDeletedThrough<PrmCutoffDate>"
+							priority is medium
+
+				Instance Rules
+					invoke Purge

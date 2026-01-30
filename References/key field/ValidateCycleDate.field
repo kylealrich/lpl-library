@@ -1,0 +1,194 @@
+ValidateCycleDate is a Field
+
+    Representation
+        Group Fields
+            EditFranchiseCompany			is a FranchiseCompany
+            EditShipTo						is a CustomerShipTo
+            EditFranchiseCustomer			is like Customer
+            EditFranchiseContract			is a FranchiseContract	
+            EditSalesType					is a SalesType
+            EditFrequency                   is AlphaUpper size 1
+	            States
+	                Weekly    			value is "W"
+	                Monthly   			value is "M"
+	                Quarterly 			value is "Q"
+	                Yearly    			value is "Y"
+            EditFranchiseCalendar			is a FranchiseCalendar
+            EditDate						is Date
+            EditNextCycleDate				is Date
+            EditYear						is Year
+            EditFunctionCode       			is AlphaUpper size 1
+      			States
+      				ValidateDate		value is I	
+      				NextCycleDate		value is N  
+      				FirstCycleDate    	value is F  
+			EditAdjustmentNumber			is Numeric 3
+			
+
+
+				
+ 	Local Fields
+ 		LocalCounter					is Numeric 2
+ 		LocalFirstCycleDate				is Date
+ 		LocalPreviousCycle				is Numeric 2
+ 		LocalPreviousCycleDate			is Numeric 2
+		LocalCycle						is Numeric 2
+ 		LocalNextCycle					is Numeric 2
+ 		LocalNextCycleDate				is Date 	
+ 		LocalNextNextCycleDate			is Date		
+ 		LocalIsCurrentYearTransaction	is Boolean
+       	LocalYear						is Year
+       	LocalFrequency					is a Frequency
+
+	Transient Fields
+    	ErrorMessage							is Alpha 100
+
+	Conditions
+
+
+		IsValidCycleDate
+			when (ValidCycleDate = true)
+		
+
+	   	        
+    Derived Fields	
+    	
+    	ValidCycleDate is a DerivedField
+    		type is Boolean  
+    		if (EditFunctionCode.ValidateDate
+    		or EditFunctionCode.NextCycleDate)  	
+				LocalCounter 	= 1 
+				LocalYear 		= EditFranchiseCompany.CurrentYear	
+				for each FranchiseCalendarDatesRel  
+			    	while (LocalCounter <= 53)
+			    		if (each.Dates.Date[LocalCounter] = EditDate)
+			    			LocalIsCurrentYearTransaction = true
+			    		else
+			    			if (LocalCounter = 53
+			    			or each.Dates.Date[LocalCounter+1] not entered)
+								ErrorMessage = 101
+			    				LocalCounter = 54
+			    			else
+				    			LocalCounter += 1	
+    			if (!EditSalesType.Aggregatesales) 	
+					for each FranchiseContractChargeRel
+				 		constraint (EditDate >= each.BeginDate)
+	    					"ChargeDateCannotBePriorToChargeDateRange"
+				 		constraint (EditDate <= each.EndDate) 
+	    					"ChargeDateCannotFallAfterChargeDateRange"				 		 	    					
+				 		LocalCounter = 1
+			    		while (LocalCounter <= 53)
+			    			if (FranchiseCalendarDatesRel.Dates.Date[LocalCounter] = EditDate)
+			    				LocalCycle = LocalCounter
+								if (FranchiseCalendarDatesRel.Dates.Date[LocalCounter+1] entered)
+									LocalNextCycle = LocalCounter + 1
+									LocalNextCycleDate = (FranchiseCalendarDatesRel.Dates.Date[LocalCounter+1])	
+								else	
+									LocalYear = EditYear + 1
+									LocalNextCycle = 1
+									LocalNextCycleDate = FranchiseCalendarDatesRel.Dates.Date[1]
+			    				if (LocalCounter > 1)
+			    					LocalPreviousCycle = LocalCounter - 1
+			    					LocalPreviousCycleDate = FranchiseCalendarDatesRel.Dates.Date[LocalCounter-1] 
+			    				else 
+			    					LocalYear = EditYear - 1
+			    					LocalPreviousCycleDate = FranchiseCalendarDatesRel.Dates.Date[FranchiseCalendarDatesRel.NumberOfCycles] 
+			    				return true
+								if (EditFunctionCode.NextCycleDate)
+									if ((LocalNextCycleDate < each.BeginDate
+									or 	LocalNextCycleDate > each.EndDate)
+									or (each.ChargeType.NoteBased
+									and each.RemainingPayments = 0))
+										initialize LocalNextCycleDate
+										initialize LocalNextCycle		
+				    			end for each
+			    				LocalCounter = 54
+			    			else 
+			    				if (LocalCounter = 53
+			    				or FranchiseCalendarDatesRel.Dates.Date[LocalCounter] not entered)
+									ErrorMessage = 101
+									return 101
+			    					LocalCounter += 54	
+			    				else
+				    				LocalCounter += 1				    				
+					
+			
+			
+			
+			if (EditFunctionCode.FirstCycleDate)
+				for each ContractCalendarDatesRel
+			 		LocalCounter = 1
+		    		while (LocalCounter <= 53)					
+	    				if (each.Dates.Date[LocalCounter] >= FranchiseContractRel.ContractDate)
+	        				LocalFirstCycleDate = each.Dates.Date[LocalCounter]					
+							LocalCounter = 54
+						else 
+							if (each.Dates.Date[LocalCounter+1] entered)	
+		    					LocalCounter += 1	
+    						else
+    							LocalCounter = 54
+			constraint (ErrorNumber = blank)
+				"<OutputErrorMessage>"
+
+
+		ErrorNumber is a DerivedField
+			type is Numeric 3
+			initialize ErrorNumber
+			if (EditDate < FranchiseContractChargeRel.BeginDate
+			or EditDate > FranchiseContractChargeRel.EndDate)
+				ErrorMessage = 100
+				return 100
+
+
+
+		OutputErrorMessage is a DerivedField	  
+			type is MessageField
+			if (ErrorNumber = 100)
+				return Msg100
+			if (ErrorNumber = 101)
+				return Msg101   
+			else 
+				return blank	
+				  
+				       					
+		Msg100 is a MessageField
+			"DateOutsideFranchiseContractDateRange"
+		Msg101 is a MessageField
+			"<EditDate>IsNotACurrentYearDate"
+
+
+	Field Rules
+		EditFunctionCode
+			default to EditFunctionCode.ValidateDate
+
+						
+	Relations
+		FranchiseContractRel
+			one-to-many relation to FranchiseContract
+			Field Mapping uses symbolic key
+                related.Company				= EditFranchiseCompany
+                related.Customer			= EditFranchiseCustomer
+                related.CustomerShipTo		= EditShipTo
+                			
+		FranchiseContractChargeRel
+			one-to-many relation to FranchiseContractCharge
+			Field Mapping uses ByFranchiseContractCharge	
+                related.Company				= EditFranchiseCompany
+                related.Customer			= EditFranchiseCustomer
+                related.CustomerShipTo		= EditShipTo
+                related.FranchiseContract	= EditFranchiseContract
+
+		FranchiseCalendarDatesRel
+			one-to-many relation to FranchiseCalendarDates
+			Field Mapping uses CalendarDatesByYear
+				related.Company								= EditFranchiseCompany
+				related.FranchiseCalendar					= EditFranchiseCalendar
+				related.FranchiseCalendarDates.Year			= LocalYear
+				related.FranchiseCalendarDates.Frequency	= LocalFrequency	
+		
+		ContractCalendarDatesRel
+			one-to-many relation to FranchiseCalendarDates
+			Field Mapping uses CalendarDatesByYear
+				related.Company								= EditFranchiseCompany
+				related.FranchiseCalendar					= EditFranchiseCalendar
+		

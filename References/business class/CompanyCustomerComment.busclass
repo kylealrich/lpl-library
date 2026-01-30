@@ -1,0 +1,532 @@
+CompanyCustomerComment is a BusinessClass
+	owned by ar
+	prefix is CMT
+	classic name is ARCOMMENT
+
+	Ontology
+		symbolic key is CompanyCustomerComment
+			classic set name is CMTSET1
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		implements Archivable
+
+	Persistent Fields
+
+		CommentType							is AlphaUpper size 1
+			classic name is CMMT-TYPE
+			States
+				OrderEntryComment	value is "O"
+				CustomerComment		value is "C"
+				TransactionComment	value is "T"
+		Comment								is Text
+		TransactionType						is a TransType
+			classic name is TRANS-TYPE
+		Transaction							is an Invoice
+			classic name is INVOICE
+		BeginDate							is Date
+			classic name is BEG-DATE
+		EndDate								is Date
+		PrintCode							is AlphaUpper size 1
+			States
+				BothDisplayAndPrint		value is "B"
+				Display					value is "D"
+				Print					value is "P"
+				OrderEntryForms			value is "R"
+		CurrentDate							is TimeStamp
+			classic name is SYS-DATE
+		CommentText
+		OriginatingInterfaceRun				is like ReceivablesInterfaceResult
+
+
+	Local Fields
+		LocalGeneralLedgerCompanyGroup				is a GeneralLedgerCompanyGroup
+		LocalMajClass								is a CustomerMajorClass
+		LocalMinClass								is a CustomerMinorClass
+		LocalCreditAnalyst							is a CreditAnalyst
+		LocalSalesRepresentative					is a SalesRepresentative
+		LocalActor									is Actor
+
+
+	Transient Fields	
+		TransientPrintCode				is AlphaUpper size 1
+			default label is "PrintCode"
+			States
+				BothDisplayAndPrint		value is "B"
+				Display					value is "D"
+				Print					value is "P"
+			derive value from PrintCode
+
+	Field Rules
+		CommentType
+			required
+			default to "C"
+
+		Comment
+			required
+
+		BeginDate
+			cannot be changed
+			default to current corporate date
+
+		EndDate
+			default to BeginDate + 14 days
+			constraint (EndDate >= BeginDate)
+				"EndDateCannotPrecedeBeginDate"
+
+		PrintCode
+			if (PrintCode.OrderEntryForms)
+				constraint (!CommentType.TransactionComment)
+					"CannotUsePrintCodeOfOrderEntryForTransactionComment"
+				constraint (CommentType.OrderEntryComment)
+					"CommentTypeMustBeOrderEntryCommentIfPrintCodeIsOrderEntry"
+			if (CommentType.CustomerComment)
+				default to "D"
+			else
+			if (CommentType.OrderEntryComment)
+				default to "R"
+			else
+				default to PreviousCommentRel.PrintCode
+			default to "B"
+
+			if (TransientPrintCode entered)
+				PrintCode = TransientPrintCode
+
+		CurrentDate
+			default to current corporate date
+
+
+	Derived Fields
+
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforCustomerComment"
+
+		ContextMessageText is a MessageField
+			restricted
+			"CommentsForCustomer<Customer>OfCompany<Company>"
+
+		PreviousSequence is a DerivedField
+			type is Numeric 4
+			restricted
+			return CompanyCustomerComment - 1
+
+
+	SubType IsCustomerComment Field Rules
+		Customer
+			required
+		TransactionType
+			cannot be entered
+				"TransactionTypeCannotBeEnteredForCustomerComments"
+		Transaction
+			cannot be entered
+				"TransactionCannotBeEnteredForCustomerComments"
+
+
+	SubType IsTransactionComment Field Rules
+		Customer
+			if (TransactionType.NonArPayment)
+				cannot be entered
+					"CustomerCanNotBeEnteredForNonARPaymentComment"
+			else
+			if	(!ReceivablePaymentRel.IsUnassigned)
+				required
+
+		TransactionType
+			required
+				"TransactionTypeRequiredForTransactionComments"
+
+		Transaction
+			required
+				"TransactionRequiredForTransactionComments"
+
+			if (IsTransactionTypePayment)
+				constraint (ReceivablePaymentRel exists)
+					"PaymentDoesNotExist"
+			else
+				constraint (ReceivableInvoiceRel exists)
+					"InvoiceDoesNotExist"
+
+				constraint (!ReceivableInvoiceRel.UnreleasedARToAPApplicationSelectRel exists)
+					"ARToAPSelectRecordExists;CannotEnterComments"
+
+
+	SubType IsOrderComment Field Rules
+		TransactionType
+			cannot be entered
+				"TransactionTypeCannotBeEnteredForOrderEntryComments"
+		Transaction
+			cannot be entered
+				"TransactionCannotBeEnteredForOrderEntryComments"
+
+	Conditions
+
+		IsTransactionComment
+			classic name is CMTSET2
+			restricted
+			when (CommentType.TransactionComment)
+
+		IsCustomerComment
+			classic name is CMTSET3
+			restricted
+			when (CommentType.CustomerComment)
+
+		IsCustomerPrintComment
+			classic name is CMTSET4
+			restricted
+			when (CommentType.CustomerComment
+			and   PrintCode.BothDisplayAndPrint)
+
+		IsOrderComment
+			classic name is CMTSET5
+			restricted
+			when (CommentType.OrderEntryComment)
+
+		IsTransactionTypePayment
+			restricted
+			when (TransactionType.NonArPayment
+			or	TransactionType.CustomerPayment
+			or	TransactionType.BillOfExchangePayment)
+
+		IsTransactionTypeInvoice
+			restricted
+			when (TransactionType.CreditMemo
+			or	TransactionType.DebitMemo
+			or	TransactionType.Invoice
+			or	TransactionType.MixedSignLines)
+
+		RecordExists
+			restricted
+			when (CompanyCustomerComment exists)
+
+
+	Relations
+
+		CompanyCustomerRel
+			classic name is ARCUSTOMER
+			one-to-one relation to CompanyCustomer
+			Field Mapping uses symbolic key
+				related.Company  				= Company
+				related.Customer 				= Customer
+
+		ReceivableInvoiceRel
+			classic name is AROIHDR
+			one-to-one relation to ReceivableInvoice
+			Field Mapping uses Set4
+				related.Company			   	= Company
+				related.Customer			  	= Customer
+				related.ReceivableInvoiceType 	= TransactionType
+				related.ReceivableInvoice	 	= Transaction
+
+		ReceivablePaymentRel
+			one-to-many relation to ReceivablePayment
+			Field Mapping uses Set10
+				related.Company			   	= Company
+				related.Customer			  	= Customer
+				related.TypeOfPayment 			= TransactionType
+				related.PaymentNumber	 		= Transaction
+
+		CustomerRel
+			classic name is CUSTDESC
+			one-to-one relation to Customer
+			Field Mapping uses symbolic key
+				related.CustomerGroup 			= Company.CustomerGroupField.CustomerGroup
+				related.Customer	  			= Customer
+
+		PreviousCommentRel
+			one-to-one relation to CompanyCustomerComment
+			Field Mapping uses symbolic key
+				related.Company  				= Company
+				related.Customer 				= Customer
+				related.CompanyCustomerComment	= PreviousSequence
+
+		CompanyCustomerCommentAttachmentRel
+			one-to-many relation to CompanyCustomerCommentAttachment
+			delete cascades
+			Field Mapping uses symbolic key
+				related.Company  				= Company
+				related.Customer 				= Customer
+				related.CompanyCustomerComment	= CompanyCustomerComment
+
+		GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		GeneralLedgerCompanyGroupRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= LocalGeneralLedgerCompanyGroup
+				related.Company						= Company
+
+		CustomerMajorClassRel
+			one-to-one relation to CustomerMajorClass
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.CustomerMajorClass 		 = LocalMajClass
+
+		CustomerMinorClassRel
+			one-to-one relation to CustomerMinorClass
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.CustomerMajorClass 		 = LocalMajClass 
+				related.CustomerMinorClass 		 = LocalMinClass
+
+		ReceivableCreditAnalystRel
+			one-to-many relation to CreditAnalyst
+			Field Mapping uses symbolic key
+				related.Company	 		= Company
+				related.CreditAnalyst	= LocalCreditAnalyst
+
+		ReceivableSalesRepresentativeRel
+			one-to-many relation to SalesRepresentative
+			Field Mapping uses symbolic key
+				related.Company	 = Company
+				related.SalesRepresentative = LocalSalesRepresentative
+		
+		GeneralLedgerCompanyGroupMembersRel
+            one-to-many relation to GeneralLedgerCompanyGroupMember
+            Field Mapping uses Set2
+                related.GeneralLedgerCompanyGroup = LocalGeneralLedgerCompanyGroup
+
+	Sets
+
+		Set2
+			indexed
+			Instance Selection
+				where (IsTransactionComment)
+			Sort Order
+				Company
+				Customer
+				CommentType
+				TransactionType
+				Transaction
+				BeginDate
+				CompanyCustomerComment
+
+		Set3
+			indexed
+			Instance Selection
+				where (IsCustomerComment)
+			Sort Order
+				Company
+				Customer
+				CurrentDate descending
+				CompanyCustomerComment
+
+		Set4
+			indexed
+			Instance Selection
+				where (IsCustomerPrintComment)
+			Sort Order
+				Company
+				Customer
+				CurrentDate descending
+				CompanyCustomerComment
+
+		Set5
+			indexed
+			Instance Selection
+				where (IsOrderComment)
+			Sort Order
+				Company
+				Customer
+				CommentType
+				TransactionType
+				Transaction
+				CompanyCustomerComment
+				
+		ByInterfaceRun
+			Sort Order
+				OriginatingInterfaceRun
+				Company
+				Customer
+				CompanyCustomerComment
+
+	Actions
+		Create is a Create Action
+
+		RestrictedCreate is a Create Action
+			restricted
+			bypass field rules
+
+		CreateCustomerComment is a Create Action
+			Entrance Rules
+				CommentType = "C"
+
+		CreateTransactionComment is a Create Action
+			Entrance Rules
+				CommentType = "T"
+
+		CreateNonARPaymentComment is a Create Action
+			Entrance Rules
+				CommentType = "T"
+				TransactionType = "N"
+
+		CreateARPaymentComment is a Create Action
+			Entrance Rules
+				CommentType = "T"
+				TransactionType = "P"
+
+		CreateOrderEntryComment is a Create Action
+			Entrance Rules
+				CommentType = "O"
+
+
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge CompanyCustomerCommentAttachmentRel
+
+
+		CompanyCustomerCommentRecordsPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is a ReceivableCompany
+				PrmCompanyGroup				is a GeneralLedgerCompanyGroup
+				PrmCustomer 				is a Customer
+				PrmCommentDate				is Date
+				TranCommentDate				is Date
+				PrmCommentType				is AlphaUpper size 1
+					States
+						CustomerOrOrderComment value is "C"
+							default label is "Customer\/\OrderComments"
+						TransactionComment	   value is "T"
+							default label is "TransactionComments"
+						Both				   value is "B"
+				PrmMajClass					is a CustomerMajorClass
+				PrmMinClass		 			is a CustomerMinorClass
+				PrmCreditAnlyst				is a CreditAnalyst
+				PrmSalesman					is a SalesRepresentative
+
+			Parameter Rules
+				PrmCompany
+					if (PrmCompanyGroup entered)
+						cannot be entered
+							"CannotEnterCompanyIfCompanyGroupEntered"
+
+					constraint (PrmCompany.FinanceEnterpriseGroup.PurgeCutOffDate entered)
+		            	"PurgeCutOffDateMustBeSetFor_Finance_Enterprise_Group<PrmCompany.FinanceEnterpriseGroup>"
+
+				PrmCompanyGroup
+					if (PrmCompany entered)
+						cannot be entered
+							"CannotEnterCompanyGroupIfCompanyEntered"
+					if (PrmCompanyGroup entered)
+						constraint (PrmCustomer not entered or PrmMajClass not entered or PrmCreditAnlyst not entered or PrmSalesman not entered)
+							"CannotEnterCustomerSelectionsWhenCompanyGroupEntered"
+					if (PrmCompany not entered and PrmCompanyGroup not entered)
+						required
+							"CompanyOrCompanyGroupIsRequired"
+					LocalGeneralLedgerCompanyGroup = PrmCompanyGroup
+
+					constraint (GeneralLedgerCompanyGroupMembersRel exists)
+						"CompanyGroup<PrmCompanyGroup>ContainsNoCompanies"
+					
+					constraint (first GeneralLedgerCompanyGroupMembersRel.Company.FinanceEnterpriseGroup.PurgeCutOffDate entered)
+						"PurgeCutOffDateMustBeSetFor_Finance_Enterprise_Group<first GeneralLedgerCompanyGroupMembersRel.Company.FinanceEnterpriseGroup>"
+
+				PrmCustomer
+					if (PrmCustomer entered)
+						constraint (PrmMajClass not entered or PrmCreditAnlyst not entered or PrmSalesman not entered)
+							"CustomerEntered-DoNotEnterAnalyst,MajClassOrSalesrep"
+
+				PrmMajClass
+					if (PrmMinClass entered)
+						required
+							"MajorClassRequired;MinorClassEntered"
+						LocalMajClass = PrmMajClass
+						constraint (CustomerMajorClassRel exists)
+							"MajorClass<PrmMajClass>DoesNotExist"
+
+				PrmMinClass
+					if (PrmMinClass entered)
+						LocalMinClass = PrmMinClass
+						constraint (CustomerMajorClassRel exists)
+							"MajorClass<PrmMajClass>DoesNotExist"
+
+				PrmCreditAnlyst
+					if (PrmCreditAnlyst entered)
+						LocalCreditAnalyst = PrmCreditAnlyst
+						constraint (ReceivableCreditAnalystRel exists)
+							"CreditAnalystDoesNotExist"
+				PrmSalesman 
+					if (PrmSalesman entered)
+						LocalSalesRepresentative = PrmSalesman
+						constraint (ReceivableSalesRepresentativeRel exists)
+							"SalesRepDoesNotExist"
+				
+				PrmCommentDate
+
+
+					initial value is actor.context.FinanceEnterpriseGroup.PurgeCutOffDate
+					default to actor.context.FinanceEnterpriseGroup.PurgeCutOffDate
+
+				TranCommentDate
+
+
+					initial value is actor.context.FinanceEnterpriseGroup.PurgeCutOffDate
+					default to actor.context.FinanceEnterpriseGroup.PurgeCutOffDate
+
+				PrmCommentType
+					required
+					
+			Local Fields
+				RecordCount			  is Numeric 10 
+
+
+			Instance Selection 
+				include deleted records
+				where ((PrmCompany not entered or Company = PrmCompany)
+				and   (PrmCompanyGroup not entered or GeneralLedgerCompanyGroupRel exists)
+				and   (PrmCustomer not entered or Customer = PrmCustomer)
+				and   (((CommentType.OrderEntryComment or CommentType.CustomerComment) and (EndDate <= PrmCommentDate) and (PrmCommentType.CustomerOrOrderComment or PrmCommentType.Both))
+				or	((CommentType.TransactionComment and EndDate <= TranCommentDate)  and (PrmCommentType.TransactionComment or PrmCommentType.Both)))) 
+
+
+
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoCommentsRecordsFoundToPurge"
+						priority is high
+						detail is "CommentsPurged=<RecordCount>"
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "CompanyCustomerCommentsPurgeHasCompleted"
+							priority is high
+							detail is "CommentsPurged=<RecordCount>"
+
+				Instance Rules
+					if (PrmCreditAnlyst entered
+					or  PrmMajClass entered
+					or  PrmSalesman entered)
+						if (PrmCreditAnlyst = CompanyCustomerRel.CreditAnalyst
+						or  PrmMajClass = CompanyCustomerRel.CustomerMajorClass
+						or  PrmSalesman = CompanyCustomerRel.SalesRepresentative)
+							increment RecordCount
+							invoke Purge 
+					else
+						increment RecordCount
+						invoke Purge
+
+		UpdateTransactionNumber is an Instance Action   
+			restricted
+			Parameters
+				PrmTransaction is like Invoice
+			Action Rules
+				Transaction = PrmTransaction
+

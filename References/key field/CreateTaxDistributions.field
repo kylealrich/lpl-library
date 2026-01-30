@@ -1,0 +1,383 @@
+CreateTaxDistributions is a Field
+
+	Representation
+
+
+
+		Group Fields
+	        TaxTable							is a TaxTableField		
+	        ApinwsXX							is a TaxTableField		
+			Description							is Alpha size 30
+			DistributionReference				is AlphaUpper size 10
+			PostingOption
+			AssetTemplate
+			Asset
+			TaxIndicator
+	        OriginalDistribution                is a DistributionSequence
+			FinanceStructure					is a FinanceCodeBlock
+			AddOnCharge
+			AddOnChargeFinanceStructure			is a FinanceCodeBlock
+			DistributionAmount					is an InternationalAmount	
+
+			RecoverablePercent					is a TaxRateValue
+			RecoverableAmount					is an InternationalAmount
+			UnrecoverableAmount					is an InternationalAmount
+
+			ProrateIndicator					is Boolean
+			ApinwsViewScreen					is Boolean
+			ApwsTaxSeqNbr						is a DistributionSequence
+			ApinwsUseTaxDistSw					is Boolean
+			ApinwsProcessNlandSw				is Boolean
+			ApwsCreateReleased					is Boolean
+
+	        AssetFlag                           is AlphaUpper size 1
+	            States
+	                Asset         value is "A"
+	                RepairAsset   value is "R"
+	                AssetOrRepair value is "Y"
+
+			ApinwsApdDistCompanyI1				is Numeric size 4 
+			ApinwsSaveApdAccrCode				is like PayablesAccrualCode
+			DistributionFinanceStructure		is a FinanceCodeBlock
+			ApinwsViewScrLineChg				is Boolean
+			CreateSingleTaxDst					is Boolean
+
+			ApwsApdUntAmount					is an InternationalAmount
+	        ApwsApdLineType						is AlphaUpper size 1
+	            States
+	                Goods   value is "G"
+	                Service value is "S"
+			ApwsApdIcnCode						is an ICNCode
+			ApwsApdSuplmntaryQty				is a Quantity
+			ApwsApdWeight						is a StockWeight
+			ApwsTaxUsageCd						is a TaxUsageCode
+
+			ApwsTaxIndicator					is AlphaUpper size 1
+				States
+					TaxIsUnknown				value is blank
+					LineIsExempt				value is "E"
+					DistributionToBeLinkedT		value is "T"
+					DistributionToBeLinked2		value is "2"
+			Historical							is Boolean
+			FromInterface						is Boolean			
+			JurisdictionTable									
+
+	Transient Fields
+		OutputErrorNumber							is Numeric size 3
+		OutputErrorMessage							is Alpha size 100
+		OutputTotalTransactionTaxAmount				is an InternationalAmount
+		OutputTotalTransactionDistributionAmount	is an InternationalAmount
+		OutputTotalBaseDistributionAmount			is an InternationalAmount
+		LocalAmount1								is like InternalAmount
+		LocalAmount2								is like InternalAmount
+		LocalAmount3								is like InternalAmount
+
+	Context Fields
+		PayablesInvoice
+
+	Derived Fields	 
+		PerformCreateTaxDistributions	is a DerivedField
+			type is Boolean
+			initialize OutputErrorNumber
+			initialize OutputErrorMessage
+			
+			if (!ProrateIndicator)			
+				if (!ApinwsViewScreen)
+					initialize ApwsTaxSeqNbr
+
+			if (PayablesInvoice.TaxAmount	entered)
+				ApinwsTTaxAmt =	PayablesInvoice.TaxAmount		
+			else
+				if (PayablesInvoice.ApinwsTTaxAmt entered)		
+					ApinwsTTaxAmt =	PayablesInvoice.ApinwsTTaxAmt	
+				else											
+					if (DistributionAmount entered)				
+						ApinwsTTaxAmt = DistributionAmount		
+
+			if (PayablesInvoice.TaxEntityUsesThirdPartyTax		
+			and PayablesInvoice.DerivedTaxMethodInvOrAcc.Invoiced
+			and PayablesInvoice.MatchProcessType.Expense)
+				initialize LocalTaxTableTotal
+				I9 = 1
+				while (I9 <=8)		
+					LocalTaxTableTotal += TaxTable.TaxTableOutput[I9].TaxAmount
+					increment I9
+				if (LocalTaxTableTotal != PayablesInvoice.TaxAmount)
+					TaxTable.TaxTableOutput[1].TaxAmount += (PayablesInvoice.TaxAmount - LocalTaxTableTotal)	
+
+			I9 = 1
+			while (TaxTable.TaxTableOutput[I9].TaxCode entered		
+			and	   I9 <= 8)
+				if (ApinwsUseTaxDistSw)		
+					if (!ApinwsProcessNlandSw)
+						if (ApinwsXX.TaxTableOutput[I9].LandCostFlag)			
+							LocalCreateDistribution = true		
+						else
+							LocalCreateDistribution = false		
+					else													
+						if (!TaxTable.TaxTableOutput[I9].LandCostFlag)		
+							if (TaxTable.TaxTableOutput[I9].PostOption = "I")
+								ApwsCompany = PayablesInvoice.Company
+								LocalCreateDistribution = true
+							else																
+								ApwsCompany = ApinwsApdDistCompanyI1		
+								ApinwsXX.TaxTableOutput[I9] = TaxTable.TaxTableOutput[I9]
+								LocalCreateDistribution = true
+						else										
+							LocalCreateDistribution = true	
+							
+				
+				if  (PayablesInvoice.DoDetailTaxProcessing						
+				and  TaxTable.TaxTableOutput[I9].TaxAmount 		not entered		
+				and  TaxTable.TaxTableOutput[I9].InTaxAmount	not entered		
+				and  TaxTable.TaxTableOutput[I9].TaxRate		not entered)	
+					LocalCreateDistribution		= false							
+					
+				if (LocalCreateDistribution)		
+					invoke Create PayablesInvoiceDistribution				
+						invoked.Company					= PayablesInvoice.Company
+						invoked.PayablesInvoice 		= PayablesInvoice
+						invoked.TaxAccountingEntity		= PayablesInvoice.Company.AccountingEntity	
+						invoked.TransientCreatedFrom		= 3	
+						invoked.ProcessLevel			= PayablesInvoice.ProcessLevel	
+						if (Historical)
+							invoked.Status		= 9
+						else
+						if (ApwsCreateReleased)							
+							invoked.Status		= 1
+						else
+							invoked.Status		= 0
+						if (ApwsCompany != PayablesInvoice.Company		
+						and ApinwsSaveApdAccrCode entered)
+							invoked.AccrualCode		= ApinwsSaveApdAccrCode
+						else
+							if (TaxTable.TaxTableOutput[I9].AccrualFlag = "A"		
+							and TaxTable.TaxTableOutput[I9].AccrualCode entered)
+								invoked.AccrualCode = TaxTable.TaxTableOutput[I9].AccrualCode
+							else
+								invoked.AccrualCode = PayablesInvoice.AccrualCode
+								
+						if (AddOnCharge entered							
+						and TaxTable.TaxTableOutput[I9].LandCostFlag)
+							invoked.DistributionAccount	= AddOnChargeFinanceStructure	
+						else									
+							if (TaxTable.TaxTableOutput[I9].AllowAccountChange		
+							and ApinwsViewScrLineChg
+							and DistributionFinanceStructure entered)
+								invoked.GLFinanceCodeBlock	= DistributionFinanceStructure
+							else
+								invoked.BypassActiveCodeBlockEdit	= true	
+								if (TaxTable.TaxTableOutput[I9].TaxPoint = "P")		
+									invoked.DistributionAccount	= TaxTable.TaxTableOutput[I9].TaxInputDueAccount
+									invoked.GLFinanceCodeBlock	= TaxTable.TaxTableOutput[I9].TaxInputDueAccount
+								else
+									if (TaxTable.TaxTableOutput[I9].AccrualFlag = "A")
+										invoked.DistributionAccount	= TaxTable.TaxTableOutput[I9].TaxInputAccount
+										invoked.GLFinanceCodeBlock	= TaxTable.TaxTableOutput[I9].TaxInputAccount
+									else
+										if (TaxTable.TaxTableOutput[I9].TaxPoint = "I"
+										or  TaxTable.TaxTableOutput[I9].TaxPoint = "G")
+											invoked.DistributionAccount	= TaxTable.TaxTableOutput[I9].TaxInputAccount
+											invoked.GLFinanceCodeBlock	= TaxTable.TaxTableOutput[I9].TaxInputAccount
+										else
+											invoked.DistributionAccount	= TaxTable.TaxTableOutput[I9].TaxInputDueAccount
+											invoked.GLFinanceCodeBlock	= TaxTable.TaxTableOutput[I9].TaxInputDueAccount
+											
+
+						if (CreateSingleTaxDst)				
+							if (PayablesInvoice.TaxableAmount entered)				
+								invoked.TaxableAmount 	= PayablesInvoice.TaxableAmount
+							else
+								invoked.TaxableAmount 	= PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxableAmount
+							if (PayablesInvoice.TaxAmount entered)					
+								LocalAmount 			= PayablesInvoice.TaxAmount	
+							else
+								if (PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount entered)		
+									LocalAmount = PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount	
+
+							if (LocalAmount not entered)
+								LocalAmount = TaxTable.TaxTableOutput[1].TaxAmount
+
+						else	
+							invoked.LocalBypassMemberEdit	= true		
+							invoked.TaxableAmount 	= TaxTable.TaxTableOutput[I9].TaxableAmount							
+							ApwsTemp = I9 +1				
+							if (ApwsTemp > 8										
+							or (TaxTable.TaxTableOutput[I9].TaxAmount not entered	
+							and TaxTable.TaxTableOutput[I9].InTaxAmount entered)
+							or (TaxTable.TaxTableOutput[I9].TaxAmount entered		
+							and TaxTable.TaxTableOutput[I9].InTaxAmount entered		
+							and TaxTable.TaxTableOutput[I9].TaxAmount != TaxTable.TaxTableOutput[I9].InTaxAmount))	
+								if (((PayablesInvoice.CalculateTax.OutputTotalTaxAmount >= PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount
+								and   PayablesInvoice.CalculateTax.OutputTotalTaxAmount - PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount <= .01)
+								or   (PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount <= PayablesInvoice.CalculateTax.OutputTotalTaxAmount
+								and  PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount - PayablesInvoice.CalculateTax.OutputTotalTaxAmount <= .01))
+								and ((PayablesInvoice.CalculateTax.OutputTotalTaxAmount >= PayablesInvoice.CalculateTax.TaxAmount
+								and  PayablesInvoice.CalculateTax.OutputTotalTaxAmount - PayablesInvoice.CalculateTax.TaxAmount <= .01)
+								or  (PayablesInvoice.CalculateTax.TaxAmount >= PayablesInvoice.CalculateTax.OutputTotalTaxAmount
+								and  PayablesInvoice.CalculateTax.TaxAmount - PayablesInvoice.CalculateTax.OutputTotalTaxAmount <= .01)))
+									LocalAmount = TaxTable.TaxTableOutput[I9].TaxAmount		
+								else	
+									if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I"				
+									and PayablesInvoice.TransTaxTableInvoicedAmount entered)	
+										LocalAmount	= ((PayablesInvoice.CalculateTax.TaxAmount / PayablesInvoice.TransTaxTableInvoicedAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+									else
+									if (TaxTable.TaxTableOutput[I9].AccrualFlag = "A")			
+										LocalAmount	= TaxTable.TaxTableOutput[I9].TaxAmount		
+									else
+									if (PayablesInvoice.CalculateTax.TaxAmount != PayablesInvoice.CalculateTax.OutputTotalTaxAmount)	
+										LocalAmount = ((PayablesInvoice.CalculateTax.OutputTotalTaxAmount / PayablesInvoice.CalculateTax.TaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+									else
+										LocalAmount = ((PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount / PayablesInvoice.CalculateTax.OutputTotalTaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+								if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+									ApinwsTTaxAmt -= LocalAmount										
+							else	
+								if ((TaxTable.TaxTableOutput[I9].TaxAmount 		 		entered	
+								and  TaxTable.TaxTableOutput[I9].InTaxAmount 		not entered)
+								and (TaxTable.TaxTableOutput[ApwsTemp].TaxAmount 		entered		
+								and  TaxTable.TaxTableOutput[ApwsTemp].InTaxAmount 	not entered))	
+									if (PayablesInvoice.CalculateTax.TaxAmount = PayablesInvoice.CalculateTax.OutputTotalTaxAmount)	
+										LocalAmount = TaxTable.TaxTableOutput[I9].TaxAmount
+									else
+										LocalAmount = ((PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount / PayablesInvoice.CalculateTax.OutputTotalTaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+									if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+										ApinwsTTaxAmt -= LocalAmount									
+								else
+									if  (TaxTable.TaxTableOutput[I9].TaxAmount 		not entered		
+									and  TaxTable.TaxTableOutput[I9].InTaxAmount 	not entered		
+									and  TaxTable.TaxTableOutput[I9].TaxRate		= 0)			
+										LocalAmount = TaxTable.TaxTableOutput[I9].TaxAmount			
+										if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+											ApinwsTTaxAmt -= LocalAmount		
+									else	
+										if  (TaxTable.TaxTableOutput[I9].TaxAmount 		 		entered			
+										and  TaxTable.TaxTableOutput[I9].InTaxAmount 		not entered)		
+											LocalAmount1	= PayablesInvoice.CalculateTax.OutputTotalTaxAmount
+											LocalAmount2	= PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount
+											LocalAmount3	= PayablesInvoice.CalculateTax.TaxAmount
+											if (((PayablesInvoice.CalculateTax.OutputTotalTaxAmount >= PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount
+											and   PayablesInvoice.CalculateTax.OutputTotalTaxAmount - PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount <= .01)
+											or   (PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount >= PayablesInvoice.CalculateTax.OutputTotalTaxAmount
+											and  PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount - PayablesInvoice.CalculateTax.OutputTotalTaxAmount <= .01))
+											and ((PayablesInvoice.CalculateTax.OutputTotalTaxAmount >= PayablesInvoice.CalculateTax.TaxAmount
+											and  PayablesInvoice.CalculateTax.OutputTotalTaxAmount - PayablesInvoice.CalculateTax.TaxAmount <= .01)
+											or  (PayablesInvoice.CalculateTax.TaxAmount >= PayablesInvoice.CalculateTax.OutputTotalTaxAmount
+											and  PayablesInvoice.CalculateTax.TaxAmount - PayablesInvoice.CalculateTax.OutputTotalTaxAmount <= .01)))
+												LocalAmount = TaxTable.TaxTableOutput[I9].TaxAmount					
+											else
+												if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I"				
+												and PayablesInvoice.TransTaxTableInvoicedAmount entered)	
+													LocalAmount	= ((PayablesInvoice.CalculateTax.TaxAmount / PayablesInvoice.TransTaxTableInvoicedAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+												else
+												if (TaxTable.TaxTableOutput[I9].AccrualFlag = "A")			
+													LocalAmount	= TaxTable.TaxTableOutput[I9].TaxAmount		
+												else
+												if (PayablesInvoice.CalculateTax.TaxAmount entered)		
+													LocalAmount = ((PayablesInvoice.CalculateTax.TaxAmount / PayablesInvoice.CalculateTax.OutputTotalTaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+												else	
+													if (PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount entered)
+														LocalAmount = ((PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount / PayablesInvoice.CalculateTax.OutputTotalTaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+													else
+														LocalAmount	= TaxTable.TaxTableOutput[I9].TaxAmount		
+											if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+												ApinwsTTaxAmt -= LocalAmount										
+										else	
+											if  (TaxTable.TaxTableOutput[I9].TaxAmount 		 	entered			
+											and  TaxTable.TaxTableOutput[I9].InTaxAmount 		entered)		
+												if (PayablesInvoice.PayablesInvoiceTaxRel.TaxMethod.Invoiced			
+												and PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount entered	
+												and !PayablesInvoice.TaxEntityUsesThirdPartyTax)	
+													LocalAmount = ((PayablesInvoice.TaxAmount / PayablesInvoice.PayablesInvoiceTaxRel.TaxSystemTaxAmount) * TaxTable.TaxTableOutput[I9].TaxAmount)	
+												else												
+													LocalAmount = TaxTable.TaxTableOutput[I9].TaxAmount				
+												if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+													ApinwsTTaxAmt -= LocalAmount									
+											else
+												LocalAmount = ApinwsTTaxAmt										
+												if (TaxTable.TaxTableOutput[I9].AccrualFlag = "I")		
+													ApinwsTTaxAmt -= LocalAmount		
+
+							if (ApwsTemp = 8												
+							or  TaxTable.TaxTableOutput[ApwsTemp].TaxAmount not entered)	
+								if (ApinwsTTaxAmt != 0										
+								and ApinwsTTaxAmt <= .03		
+								and ApinwsTTaxAmt >= -.03		
+								and !PayablesInvoice.TaxEntityUsesThirdPartyTax)			
+									LocalAmount += ApinwsTTaxAmt							
+						
+						invoked.DistributionAmount.CurrencyAmount		= LocalAmount				
+						invoked.GLTransactionAmount		= LocalAmount				
+						invoked.TaxCode 				= TaxTable.TaxTableOutput[I9].TaxCode
+						if (!PayablesInvoice.TaxEntityUsesThirdPartyTax)					
+							invoked.TaxType					= TaxTable.TaxTableOutput[I9].AccrualFlag
+						LocalTaxType					= TaxTable.TaxTableOutput[I9].AccrualFlag
+						invoked.TaxRate					= TaxTable.TaxTableOutput[I9].TaxRate
+						invoked.TaxPoint				= TaxTable.TaxTableOutput[I9].TaxPoint	
+						invoked.ProductTaxCategory		= PayablesInvoice.TransientTaxCategory		
+						invoked.InvoiceType				= PayablesInvoice.InvoiceType
+						invoked.DistributionType		= "D"
+						invoked.InvoiceCurrency			= PayablesInvoice.InvoiceCurrency	
+						invoked.ProcessLevel			= PayablesInvoice.ProcessLevel
+						invoked.InvoiceType				= PayablesInvoice.InvoiceType
+						invoked.DistributionDate		= PayablesInvoice.DistributionDate
+						
+						invoked.RecoverablePercent		= RecoverablePercent	
+						invoked.RecoverableAmount		= RecoverableAmount
+						invoked.UnrecoverableAmount		= UnrecoverableAmount
+				
+						invoked.Imposition				= JurisdictionTable.JurisdictionTableOutput[I9].Imposition	
+						invoked.PostingOption			= PostingOption			
+						invoked.Description				= Description
+						invoked.DistributionReference	= DistributionReference
+						invoked.AssetFlag				= AssetFlag
+						invoked.AddOnCharge				= AddOnCharge
+						invoked.UnitAmount				= ApwsApdUntAmount
+						invoked.LineType				= ApwsApdLineType
+						invoked.ICNCode					= ApwsApdIcnCode
+						invoked.SupplementaryQuantity 	= ApwsApdSuplmntaryQty
+						invoked.StockWeight				= ApwsApdWeight			
+
+
+						if (TaxTable.TaxTableOutput[I9].LandCostFlag			
+						and FinanceStructure entered)
+							invoked.GLFinanceCodeBlock = FinanceStructure
+
+						if (DistributionToBeLinked)								
+							if (!TaxTable.TaxTableOutput[I9].LandCostFlag)
+								initialize invoked.AssetFlag
+								
+							initialize invoked.TaxIndicator
+							invoked.TaxSequenceNumber 		= ApwsTaxSeqNbr + 1
+							invoked.OriginalDistribution	= OriginalDistribution
+
+						invoked.TaxUsageCode		= ApwsTaxUsageCd
+						invoked.GLTJournalizeGroup	= PayablesInvoice.GLTJournalizeGroup
+						
+					if (LocalTaxType != "A")									
+						OutputTotalTransactionDistributionAmount 	= LocalAmount
+						
+					OutputTotalTransactionTaxAmount	= LocalAmount
+
+				increment I9	
+			
+			return true
+							
+	Local Fields	 
+		LocalCreateDistribution 		is Boolean
+		ApwsCompany						is Numeric size 4 
+		I9								is Numeric size 2
+		ApwsTemp						is Numeric size 2
+		LocalAmount						is an InternationalAmount
+		LocalTaxType					is AlphaUpper size 1
+		ApinwsTTaxAmt					is an InternationalAmount		
+		LocalTaxTableTotal				is Decimal size 18.2			
+
+	Conditions	 
+
+		DistributionToBeLinked
+			when (ApwsTaxIndicator.DistributionToBeLinkedT
+			or    ApwsTaxIndicator.DistributionToBeLinked2)
+
+
+
+	Relations	 

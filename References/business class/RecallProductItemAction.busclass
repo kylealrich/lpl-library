@@ -1,0 +1,1138 @@
+RecallProductItemAction is a BusinessClass
+    owned by recall
+    prefix is RTPRI
+
+    Ontology
+    	symbolic key is RecallProductItemAction
+    
+    Patterns
+        disable Auditing		
+        disable EffectiveDated	
+        implements ContextualParent
+        		 	
+    Persistent Fields
+    	RecallNoticeTask
+    	ItemAction				is AlphaUpper size 1
+    		States
+    			VendorReturn		value is 1
+    			StockIssue			value is 2
+    			StockTransfer		value is 3
+    			StockAdjustment		value is 4
+    	ActionType				is AlphaUpper size 1
+    		States
+    			Create				value is 1
+    			Append				value is 2
+    			Associate			value is 3
+		InventoryLocationGroup
+		VendorReturnLineGroup
+		InventoryTransactionLineGroup
+			
+	Transient Fields
+		Quantity 				is Decimal size 13.4
+			precision is RecallProductItem.Item.NumberOfDecimalsQuantity
+		CtwSecondaryQty			is like Quantity 
+			precision is RecallProductItem.Item.NumberOfDecimalsQuantity
+
+   	Local Fields
+		Vendor
+		ProcessLevel            			is like PayablesProcessLevel
+		ToCompanyLocationGroup
+		TranUom								is AlphaUpper size 4
+		TranDate							is Date		
+		PostDate							is Date
+		PeriodFound							is Boolean
+		CurrentPeriod						is Numeric size 2
+		I1									is Numeric size 2
+		ValidUom							is Boolean
+		ProcurementReasonCode
+		VendorLocation
+		Buyer								
+		Bin									is AlphaUpper size 7
+		ToBin								is AlphaUpper size 7
+		LocalInventoryTransaction			is like InventoryTransaction
+		LocalInventoryTransactionSystemCode	is like TransactionSystemCode
+		NewInventoryTransaction				is an InventoryTransaction view
+		NewInventoryTransactionLine         is an InventoryTransactionLine view
+		   			
+	Context Fields
+		ContextCompany is an InventoryCompany
+		
+	Derived Fields
+			
+		ChargebackMessage is a MessageField
+			restricted
+			"Chargeback"
+			
+		CreditMemoMessage is a MessageField
+			restricted
+			"CreditMemo"
+			
+		NoChargeMessage is a MessageField
+			restricted
+			"NoCharge"
+		
+		DerivedClaimType is a DerivedField
+			type is Text
+			if (VendorReturnRel.VendorClaimType.Chargeback)
+				return ChargebackMessage
+			else
+			if (VendorReturnRel.VendorClaimType.CreditMemo)
+				return CreditMemoMessage
+			else
+			if (VendorReturnRel.VendorClaimType.NoCharge)
+				return NoChargeMessage
+			
+		VendorReturnInvoiceCount is a DerivedField
+			type is Numeric 3
+			restricted
+			return (instance count of VendorReturnInvoiceRel)
+
+		MultiplesMessage is a MessageField
+			restricted
+			"Multiples"
+		
+		DerivedReturnInvoice is a DerivedField
+			type is Alpha size 22
+			if (VendorReturnInvoiceCount > 1)
+				return MultiplesMessage
+			else
+				return first VendorReturnInvoiceRel.PayablesInvoice.Invoice
+		
+		DerivedDocument is a DerivedField
+			type is like InventoryTransaction
+			return InventoryTransactionLineGroup.InventoryTransaction
+			
+		DerivedDocumentLineNbr is a DerivedField
+			type is Numeric size 6
+			return InventoryTransactionLineGroup.LineNumber
+			
+		DisplayNumber is a DerivedField
+			type is like InventoryTransaction
+			if (ItemAction.VendorReturn)
+				return VendorReturnLineGroup.ReturnNumber
+			else
+			if (StockTransaction)
+				return DerivedDocument
+			
+		DisplayLineNbr is a DerivedField
+			type is Numeric size 6
+			if (ItemAction.VendorReturn)
+				return VendorReturnLineGroup.ReturnLine
+			else
+			if (StockTransaction)
+				return InventoryTransactionLineGroup.LineNumber
+		
+		OpenIctransSohQty is a DerivedField		
+			type is like Quantity 		
+			restricted	
+			return (sum OpenInventoryTransactionLineRel.Quantity * OpenInventoryTransactionLineRel.TransactionUOMMultiplier)
+
+
+		QtyAvailable is a DerivedField		
+			type is like Quantity 		
+			restricted	
+			return (StockItemlocationRel.StockOnHandQuantity - OpenIctransSohQty)
+
+		DerivedQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			if (ItemAction.VendorReturn)
+				if (VendorReturnLineRel exists)
+					if (!RecallProductItem.Item exists
+					or  RecallProductItem.Item.CatchWeightCode = "N")
+						return VendorReturnLineRel.ReturnQuantity
+					else
+						return VendorReturnLineRel.CatchWeightQuantity
+				else
+					return 0
+			else
+			if (StockTransaction)
+				if (InventoryTransactionLineRel exists)
+					if (ItemAction.StockAdjustment)
+						return InventoryTransactionLineRel.Quantity * -1
+					else
+					if (InventoryTransactionLineRel.Status.Unreleased)
+						return InventoryTransactionLineRel.Quantity
+					else
+						return InventoryTransactionLineRel.Quantity * -1
+				else
+					return 0
+			
+		DisplayQuantity is a DerivedField
+			type is like Quantity
+			if  (InventoryTransactionLineRel exists
+			and  ItemAction.StockAdjustment)
+				return InventoryTransactionLineRel.Quantity
+			else
+				return DerivedQuantity
+					
+		DerivedUom is a DerivedField
+			type is like UnitOfMeasure
+			if (ItemAction.VendorReturn)
+				if (VendorReturnLineRel exists)
+					if (RecallProductItem.Item exists
+					and RecallProductItem.Item.CatchWeightCode = "N")
+						return RecallProductItem.Item.StockUOM
+					else
+						return VendorReturnLineRel.EnteredUOM
+			else
+			if (StockTransaction)
+				return InventoryTransactionLineRel.TransactionUOM
+			
+		DerivedSecondaryQty is a DerivedField
+			type is like Quantity
+			if (ItemAction.VendorReturn)
+				if (VendorReturnRel exists)
+					if (RecallProductItem.Item exists
+					and RecallProductItem.Item.CatchWeightCode != "N")
+						return VendorReturnLineRel.ReturnQuantity
+			else
+			if (StockTransaction)
+				if (InventoryTransactionLineRel exists)
+					if (ItemAction.StockAdjustment)
+						if (InventoryTransactionLineRel.SecondaryQuantity < 0)
+							return InventoryTransactionLineRel.SecondaryQuantity
+						else
+							return InventoryTransactionLineRel.SecondaryQuantity * -1
+					else
+					if (InventoryTransactionLineRel.Status.Unreleased)
+						return InventoryTransactionLineRel.SecondaryQuantity
+					else
+						return InventoryTransactionLineRel.SecondaryQuantity * -1
+			
+		DerivedSecondaryUom is a DerivedField
+			type is like UnitOfMeasure
+			if (ItemAction.VendorReturn)
+				if (VendorReturnRel exists)
+					if (RecallProductItem.Item exists
+					and RecallProductItem.Item.CatchWeightCode != "N")
+						return VendorReturnLineRel.EnteredUOM
+			if (StockTransaction)
+				return InventoryTransactionLineRel.SecondaryUOM
+			
+		DerivedTransactionDate is a DerivedField
+			type is Date
+			if (ItemAction.VendorReturn)
+				if (VendorReturnRel exists)
+					return VendorReturnRel.CreationDate
+			else
+			if (StockTransaction)
+				if (InventoryTransactionRel exists)
+					return InventoryTransactionRel.TransactionDate
+				else
+				if (InventoryTransactionLineRel exists)
+					return InventoryTransactionLineRel.TransactionDate
+			
+		DerivedFromToLoc is a DerivedField
+			type is Alpha size 5
+			if (StockTransaction)
+				if (InventoryTransactionRel exists)
+					return InventoryTransactionRel.FromToCompanyLocation.FromToLocation
+				else
+				if (InventoryTransactionLineRel exists)
+					return InventoryTransactionLineRel.InventoryTransaction.FromToCompanyLocation.FromToLocation
+
+		DocumentDoesNotMessage is a MessageField
+			restricted
+			"DocumentDoesNotExist"
+			
+		AddedMessage is a MessageField
+			restricted
+			"Added"			
+		
+		AuthorizedMessage is a MessageField
+			restricted
+			"AuthorizedByVendor"
+			
+		WaitingMessage is a MessageField
+			restricted
+			"WaitingForVendorAction"
+			
+		ClosedMessage is a MessageField
+			restricted
+			"Closed"
+			
+		UnreleasedMessage is a MessageField
+			restricted
+			"Unreleased"
+			
+		ReleasedMessage is a MessageField
+			restricted
+			"Released"
+			
+		GLUpdatedMessage is a MessageField
+			restricted
+			"GlobalLedgerUpdated"
+			
+		NoGLMessage is a MessageField
+			restricted
+			"NoGlobalLedger"
+			
+		IntermediateStatusMessage is a MessageField
+			restricted
+			"IntermediateStatus"		
+	
+		DocumentStatus is a DerivedField
+			type is Text
+			if (ItemAction.VendorReturn)
+				if (!VendorReturnRel exists)
+					return DocumentDoesNotMessage
+				else
+				if (VendorReturnRel.Status.Added)
+					return AddedMessage
+				else
+				if (VendorReturnRel.Status.AuthorizedByVendor)
+					return AuthorizedMessage
+				else
+				if (VendorReturnRel.Status.WaitingForVendorAction)
+					return WaitingMessage
+				else
+				if (VendorReturnRel.Status.Closed)
+					return ClosedMessage
+			else
+			if (StockTransaction)
+				if (!InventoryTransactionLineRel exists)
+					return DocumentDoesNotMessage
+				else
+	    		if (InventoryTransactionLineRel.Status.Unreleased)
+		    		return UnreleasedMessage
+				else
+	    		if (InventoryTransactionLineRel.Status.Released)
+		    		return ReleasedMessage
+				else
+	    		if (InventoryTransactionLineRel.Status.GlobalLedgerUpdated)
+	    			return GLUpdatedMessage
+				else
+	    		if (InventoryTransactionLineRel.Status.NonGlobalLedger)
+	    			return NoGLMessage
+				else
+	    		if (InventoryTransactionLineRel.Status.IntermediateStatus)
+	    			return IntermediateStatusMessage
+			
+		DerivedReferenceNo is a DerivedField
+			type is Alpha size 10
+			restricted
+			return "RMGT" + RecallNotice
+
+	Field Rules
+    	RecallNoticeTask
+    		cannot be changed
+    	ItemAction
+    		cannot be changed
+    	ActionType
+    		cannot be changed
+		InventoryLocationGroup.InventoryCompany
+    		cannot be changed
+		InventoryLocationGroup.InventoryLocation
+    		cannot be changed
+		ToCompanyLocationGroup.ToCompany
+			if (ToCompanyLocationGroup.ToCompany not entered)
+				force default to InventoryLocationGroup.InventoryCompany
+		Vendor
+			if (Vendor entered)
+				constraint (Vendor exists)
+					"VendorDoesNotExist"
+		TranUom
+			if (RecallProductItem.IsItemMaster
+			and RecallProductItem.Item.CatchWeightCode = "N")
+				default to RecallProductItem.Item.StockUOM
+			else
+			if (RecallProductItem.IsItemMaster
+			and RecallProductItem.Item.CatchWeightCode != "N") 
+				default to RecallProductItem.Item.SecondaryUOM
+				
+	Sets
+		ByTaskProductItem
+			indexed
+			Sort Order
+				RecallGroup
+				RecallNotice
+				RecallNoticeTask
+				RecallProduct
+				RecallProductItem
+				RecallProductItemAction
+				
+		ByProductItemTask
+			indexed
+			Sort Order
+				RecallGroup
+				RecallNotice
+				RecallProduct
+				RecallProductItem
+				RecallNoticeTask
+				RecallProductItemAction
+				
+	Relations
+		PurchasingCompanyRel
+			one-to-one relation to PurchasingCompany
+   			Field Mapping uses symbolic key
+				related.Company					= InventoryLocationGroup.InventoryCompany
+   									
+		InventoryCompanyRel
+			one-to-one relation to InventoryCompany
+   			Field Mapping uses symbolic key
+				related.Company					= InventoryLocationGroup.InventoryCompany
+		
+		MatchCompanyRel
+			one-to-one relation to MatchCompany
+   			Field Mapping uses symbolic key
+				related.Company					= InventoryLocationGroup.InventoryCompany
+
+		VendorReturnByReferenceLocationRel
+			one-to-many relation to VendorReturn
+   			Field Mapping uses Set3
+				related.Company					= InventoryLocationGroup.InventoryCompany
+  				related.ReferenceNumber			= DerivedReferenceNo
+   			Instance Selection
+   				where (related.ReturnFromLocation	= InventoryLocationGroup.InventoryLocation)
+   									
+   		VendorReturnRel
+   			one-to-one relation to VendorReturn
+   			Field Mapping uses symbolic key
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn        			= VendorReturnLineGroup.ReturnNumber
+
+		VendorReturnLineRel
+   			one-to-one relation to VendorReturnLine
+   			Field Mapping uses symbolic key
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn        			= VendorReturnLineGroup.ReturnNumber
+				related.VendorReturnLine				= VendorReturnLineGroup.ReturnLine
+    	
+   		AppendReturnRel
+   			one-to-one relation to VendorReturn
+   			Field Mapping uses symbolic key
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn        			= VendorReturnLineGroup.ReturnNumber
+
+		AssociateReturnLineRel
+   			one-to-one relation to VendorReturnLine
+   			Field Mapping uses symbolic key
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn					= VendorReturnLineGroup.ReturnNumber
+				related.VendorReturnLine				= VendorReturnLineGroup.ReturnLine
+    	
+		ReturnHasDifferentVendorRel
+   			one-to-many relation to VendorReturnLine
+   			Field Mapping uses symbolic key
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn					= VendorReturnLineGroup.ReturnNumber
+			Instance Selection
+				where (related.OriginalPurchaseOrder entered
+				and    related.VendorReturn.Vendor	!= Vendor)
+		
+		InventoryTransactionRel
+   			one-to-one relation to InventoryTransaction
+   			Field Mapping uses symbolic key
+	        	related.Company										= InventoryTransactionLineGroup.InventoryCompany
+        		related.InventoryLocation							= InventoryTransactionLineGroup.Location
+        		related.InventoryTransaction						= DerivedDocument
+		
+		InventoryTransactionLineRel
+   			one-to-one relation to InventoryTransactionLine
+   			Field Mapping uses Set1
+	        	related.Company										= InventoryTransactionLineGroup.InventoryCompany
+        		related.InventoryLocation							= InventoryTransactionLineGroup.Location
+        		related.TransactionSystemCode						= InventoryTransactionLineGroup.SystemCode
+        		related.InventoryTransaction						= DerivedDocument
+        		related.InventoryTransactionLine.WarehouseShipment	= InventoryTransactionLineGroup.WarehouseShipment
+        		related.InventoryTransactionLine.LineNumber			= DerivedDocumentLineNbr
+        		related.InventoryTransactionLine.ComponentSequence	= InventoryTransactionLineGroup.ComponentSequence
+		
+		OpenInventoryTransactionLineRel
+   			one-to-many relation to InventoryTransactionLine
+   			Field Mapping uses Set5
+	        	related.Company							= InventoryLocationGroup.InventoryCompany
+        		related.InventoryLocation				= InventoryLocationGroup.InventoryLocation
+			Instance Selection
+				where (related.Item						= RecallProductItem.Item)
+		
+		StockItemmastRel
+			one-to-one relation to Item
+			Field Mapping uses symbolic key
+    			related.ItemGroup						= RecallGroup
+				related.Item	 						= RecallProductItem.Item
+
+		StockItemlocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company							= InventoryLocationGroup.InventoryCompany
+				related.InventoryLocation				= InventoryLocationGroup.InventoryLocation
+				related.Item							= RecallProductItem.Item
+
+		ToStockItemlocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company							= ToCompanyLocationGroup.ToCompany
+				related.InventoryLocation				= ToCompanyLocationGroup.FromToLoc
+				related.Item	 						= RecallProductItem.Item
+
+		RecallProductTaskItemRel
+
+			one-to-many relation to RecallProductTaskItem
+    		Field Mapping uses symbolic key
+				related.RecallGroup				= RecallGroup
+				related.RecallNotice			= RecallNotice
+				related.RecallNoticeTask		= RecallNoticeTask
+				related.RecallProduct	 		= RecallProduct
+				related.RecallProductItem		= RecallProductItem
+		
+		DefaultProcessLevelRel
+   			one-to-many relation to PayablesProcessLevel
+   			Field Mapping uses symbolic key
+				related.Company					= InventoryLocationGroup.InventoryCompany
+			Instance Selection
+				where (related.DefaultProcessLevel)
+    	
+		VendorReturnInvoiceRel
+   			one-to-many relation to PayablesInvoice
+   			Field Mapping uses ByReturnNumber
+				related.Company							= VendorReturnLineGroup.PurchasingCompany
+				related.VendorReturn					= VendorReturnLineGroup.ReturnNumber
+
+    	
+	Conditions
+		AllowQuantityUpdate
+			restricted
+			when ((ItemAction.VendorReturn
+			and    VendorReturnRel.Status.Added)
+			or    (ItemAction.StockIssue
+			and    InventoryTransactionLineRel.Status.Unreleased)
+			or    (ItemAction.StockTransfer
+			and    InventoryTransactionLineRel.Status.Unreleased)
+			or    (ItemAction.StockAdjustment
+			and    InventoryTransactionLineRel.Status.Unreleased))
+			
+		AllowUpdate
+			restricted
+   			when (RecallNotice.Status.Active
+   			and   AllowQuantityUpdate
+			and   ((RecallNoticeTask entered
+			and     RecallNoticeTask.Status.Completed)
+			or     (RecallNoticeTask not entered
+			and     RecallNotice.AllTasksCompleted)))
+			
+		AllowDelete
+			restricted
+			when (DerivedQuantity = 0
+			or   (ItemAction.VendorReturn
+			and   VendorReturnLineGroup.ReturnNumber not entered)
+			or   (StockTransaction
+			and   InventoryTransactionLineGroup.InventoryTransaction not entered))			
+
+		IsItemMaster
+			restricted
+			when (RecallProductItem.IsItemMaster)
+			
+		Resolved
+			restricted
+			when ((ItemAction.VendorReturn
+			and    VendorReturnRel.Status.Closed)
+			or    (StockTransaction
+			and    !InventoryTransactionLineRel.Status.Unreleased))
+			
+		VendorReturnInvoiceExists
+			restricted
+			when (any VendorReturnInvoiceRel exists)
+			
+		StockTransaction
+			restricted
+			when (ItemAction.StockIssue
+			or    ItemAction.StockTransfer
+			or    ItemAction.StockAdjustment)
+		
+	Actions
+		CreateVendorReturn is a Create Action
+			restricted
+			Field Rules
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Local Fields
+				NewVendorReturn         is a VendorReturn view
+				
+			Action Rules
+
+				ItemAction						= 1
+				VendorReturnLineGroup.PurchasingCompany		= InventoryLocationGroup.InventoryCompany
+		
+				if (RecallNotice.Vendor entered
+				and RecallNotice.Vendor != Vendor)
+					confirmation required
+						"VendorDoesNotMatchVendorEnteredOnNotice.Continue?"
+				
+				invoke Create VendorReturn
+					assign result to NewVendorReturn
+					invoked.Company							= InventoryLocationGroup.InventoryCompany
+					invoked.ReturnFromLocation				= InventoryLocationGroup.InventoryLocation
+					invoked.Vendor							= Vendor
+					invoked.ProcessLevel					= ProcessLevel
+					invoked.ReferenceNumber					= DerivedReferenceNo
+					invoked.PurchaseFromLocation			= VendorLocation
+					invoked.ReplacementPurchaseOrderBuyer	= Buyer
+				
+					VendorReturnLineGroup.ReturnNumber      = PurchasingCompanyRel.LastVendorReturn +1
+					
+				invoke Create VendorReturnLine
+					invoked.Company							= InventoryLocationGroup.InventoryCompany
+					invoked.VendorReturn					= NewVendorReturn.VendorReturn
+					invoked.ReferenceNumber					= VendorReturnRel.ReferenceNumber
+					invoked.MatchDetailKey					= RecallProductItem.Item
+					if (RecallProductItem.Item entered)
+						invoked.Item						= RecallProductItem.Item
+						invoked.Description                 = RecallProductItem.Description
+					else 
+					if (RecallProductItem.VendorItem entered)
+						invoked.Item                        = RecallProductItem.VendorItem
+						invoked.Description					= RecallProductItem.VendorItem
+					else
+					if (RecallProductItem.ManufacturerInformation.ManufacturerNumber entered)
+						invoked.Item                        = RecallProductItem.ManufacturerInformation.ManufacturerNumber
+						invoked.Description                 = RecallProductItem.ManufacturerInformation.ManufacturerNumber
+					else
+						invoked.Item                        = RecallProductItem.NDC
+						invoked.Description                 = RecallProductItem.NDC
+					invoked.EnteredUOM                      = TranUom
+					invoked.ReturnQuantity					= Quantity
+					invoked.CatchWeightQuantity				= CtwSecondaryQty
+					if (RecallProductItem.Item !entered)
+						invoked.ItemType                    = ItemType.Special
+					else
+					if (StockItemlocationRel exists
+					and StockItemlocationRel.InventoryTracked = true)
+						invoked.ItemType                    = ItemType.Inventoried
+					else
+						invoked.ItemType                    = ItemType.NonStock 
+					invoked.VendorItem                      = RecallProductItem.VendorItem
+					
+					VendorReturnLineGroup.ReturnLine        = VendorReturnRel.LastVendorReturnLine +1
+					
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+
+		AppendToVendorReturn is a Create Action
+			restricted
+			Local Fields
+				NewVendorReturnLine is a VendorReturnLine view
+			
+			Field Rules
+				VendorReturnLineGroup.PurchasingCompany
+					required
+				VendorReturnLineGroup.ReturnNumber
+					required
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+			Action Rules
+				constraint (VendorReturnLineGroup.PurchasingCompany entered)
+					"CompanyIsRequired"
+				constraint (VendorReturnLineGroup.ReturnNumber entered)
+					"ReturnNumberIsRequired"
+				constraint (VendorReturnRel.Status.Added)
+					"CannotAppendToVendorReturnIn<AppendReturnRel.Status>Status"
+				constraint (!ReturnHasDifferentVendorRel exists)
+					"VendorCannotBeChanged,LineHasPoReference"			
+
+				ItemAction									= 1
+				InventoryLocationGroup.InventoryCompany		= VendorReturnRel.Company
+				InventoryLocationGroup.InventoryLocation	= VendorReturnRel.ReturnFromLocation
+				
+				invoke Create VendorReturnLine
+					invoked.Company							= VendorReturnLineGroup.PurchasingCompany
+					invoked.VendorReturn					= VendorReturnLineGroup.ReturnNumber
+					invoked.ReferenceNumber					= VendorReturnRel.ReferenceNumber
+					invoked.MatchDetailKey					= RecallProductItem.Item
+					if (RecallProductItem.Item entered)
+						invoked.Item						= RecallProductItem.Item
+						invoked.Description                 = RecallProductItem.Description
+					else 
+					if (RecallProductItem.VendorItem entered)
+						invoked.Item                        = RecallProductItem.VendorItem
+						invoked.Description					= RecallProductItem.VendorItem
+					else
+					if (RecallProductItem.ManufacturerInformation.ManufacturerNumber entered)
+						invoked.Item                        = RecallProductItem.ManufacturerInformation.ManufacturerNumber
+						invoked.Description                 = RecallProductItem.ManufacturerInformation.ManufacturerNumber
+					else
+						invoked.Item                        = RecallProductItem.NDC
+						invoked.Description                 = RecallProductItem.NDC
+					if (RecallProductItem.Item !entered)
+						invoked.ItemType                    = ItemType.Special
+					else
+					if (StockItemlocationRel exists
+					and StockItemlocationRel.InventoryTracked = true)
+						invoked.ItemType                    = ItemType.Inventoried
+					else
+						invoked.ItemType                    = ItemType.NonStock 
+					invoked.EnteredUOM                      = TranUom
+					invoked.ReturnQuantity					= Quantity
+					invoked.CatchWeightQuantity				= CtwSecondaryQty
+					invoked.VendorItem                      = RecallProductItem.VendorItem
+					
+					VendorReturnLineGroup.ReturnLine  		= VendorReturnRel.LastVendorReturnLine +1
+					
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+					
+		AssociateToVendorReturn is a Create Action
+			restricted
+			Field Rules
+				VendorReturnLineGroup.PurchasingCompany
+					required
+				VendorReturnLineGroup.ReturnNumber
+					required
+				VendorReturnLineGroup.ReturnLine 
+					required
+			Action Rules
+				constraint (VendorReturnLineGroup.PurchasingCompany entered)
+					"CompanyIsRequired"
+				constraint (VendorReturnLineGroup.ReturnNumber entered)
+					"ReturnNumberIsRequired"
+				constraint (VendorReturnLineGroup.ReturnLine entered)
+					"ReturnLineNumberIsRequired"
+				constraint (VendorReturnLineRel.Item = RecallProductItem.Item)
+					"ItemDoesNotMatchReturnLineItem"
+
+				ItemAction									= 1
+				InventoryLocationGroup.InventoryCompany		= VendorReturnRel.Company
+				InventoryLocationGroup.InventoryLocation	= VendorReturnRel.ReturnFromLocation
+		
+		CreateStockIssue is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				ToCompanyLocationGroup.RequestingLocation
+					required
+				TranDate
+					required
+				PostDate
+					required
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+						
+			Local Fields
+				NewInventoryTransaction is an InventoryTransaction view
+				
+			Action Rules
+			
+				ItemAction										= 2
+				InventoryTransactionLineGroup.DocumentType		= "IS"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+
+				if (ToCompanyLocationGroup.ToCompany not entered)
+					ToCompanyLocationGroup.ToCompany = InventoryLocationGroup.InventoryCompany
+				
+				invoke Create InventoryTransaction
+						assign result to NewInventoryTransaction
+				
+					invoked.Company											= InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation								= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction.InventoryDocumentType		= InventoryTransactionLineGroup.DocumentType
+					invoked.FromToCompanyLocation.FromToCompany				= ToCompanyLocationGroup.ToCompany
+					invoked.FromToCompanyLocation.RequestingLocation		= ToCompanyLocationGroup.RequestingLocation
+					invoked.TransactionDate									= TranDate
+					invoked.GeneralLedgerDate								= PostDate
+					
+					InventoryTransactionLineGroup.InventoryTransaction		= InventoryCompanyRel.LastInventoryTransaction +1
+				
+				invoke Create InventoryTransactionLine
+					
+					invoked.Company                    			= InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation                   = InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction                = NewInventoryTransaction.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+					
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+
+		AppendStockIssue is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				InventoryTransactionLineGroup.InventoryTransaction
+					required
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Action Rules
+				constraint (InventoryTransactionLineGroup.InventoryCompany entered)
+					"CompanyIsRequired"
+				constraint (InventoryTransactionLineGroup.Location entered)
+					"LocationIsRequired"
+				constraint (InventoryTransactionLineGroup.InventoryTransaction entered)
+					"InventoryTransactionIsRequired"
+
+				ItemAction										= 2
+				InventoryTransactionLineGroup.DocumentType		= "IS"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+
+				constraint (InventoryTransactionRel exists)
+					"DocumentDoesNotExist"
+
+				invoke Create InventoryTransactionLine
+					
+					invoked.Company                             = InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation					= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction                = InventoryTransactionLineGroup.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+						
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+
+		CreateStockTransfer is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				ToCompanyLocationGroup.FromToLoc
+					required
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Local Fields
+				NewInventoryTransaction is an InventoryTransaction view
+				
+			Action Rules
+				ItemAction										= 3
+				InventoryTransactionLineGroup.DocumentType		= "IT"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+
+				if (ToCompanyLocationGroup.ToCompany not entered)
+					ToCompanyLocationGroup.ToCompany = InventoryLocationGroup.InventoryCompany
+				
+				
+				invoke Create InventoryTransaction
+					assign result to NewInventoryTransaction
+				
+					invoked.Company											= InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation								= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction.InventoryDocumentType		= InventoryTransactionLineGroup.DocumentType
+					invoked.FromToCompanyLocation.FromToCompany				= ToCompanyLocationGroup.ToCompany
+					invoked.FromToCompanyLocation.FromToLocation            = ToCompanyLocationGroup.FromToLoc
+					invoked.FromToCompanyLocation.RequestingLocation		= ToCompanyLocationGroup.RequestingLocation
+					invoked.TransactionDate									= TranDate
+					invoked.GeneralLedgerDate								= PostDate
+					
+					InventoryTransactionLineGroup.InventoryTransaction		= InventoryCompanyRel.LastInventoryTransaction +1
+				
+				invoke Create InventoryTransactionLine
+					invoked.Company								= InventoryLocationGroup.InventoryCompany
+					invoked.InventoryTransaction                = NewInventoryTransaction.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+					
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+							
+
+		AppendStockTransfer is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				InventoryTransactionLineGroup.InventoryTransaction
+					required
+				Quantity
+					required
+					constraint (Quantity > 0)
+						"QuantityMustBeGreaterThanZero"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = Quantity)
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Action Rules
+				constraint (InventoryTransactionLineGroup.InventoryCompany entered)
+					"CompanyIsRequired"
+				constraint (InventoryTransactionLineGroup.Location entered)
+					"LocationIsRequired"
+				constraint (InventoryTransactionLineGroup.InventoryTransaction entered)
+					"InventoryTransactionIsRequired"
+
+				ItemAction										= 3
+				InventoryTransactionLineGroup.DocumentType		= "IT"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+				ToCompanyLocationGroup.ToCompany				= InventoryTransactionRel.FromToCompanyLocation.FromToCompany
+				ToCompanyLocationGroup.FromToLoc				= InventoryTransactionRel.FromToCompanyLocation.FromToLocation
+
+				constraint (InventoryTransactionRel exists)
+					"DocumentDoesNotExist"
+
+				invoke Create InventoryTransactionLine
+					invoked.Company                             = InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation					= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction                = InventoryTransactionLineGroup.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+			
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = Quantity)
+					invoke Active.Close RecallNotice
+
+		CreateStockAdjustment is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				Quantity
+					required
+					constraint (Quantity < 0)
+						"AdjustmentsShouldBeNegativeToReduceQuantityOfRecalledItem"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = (Quantity * -1))
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Local Fields
+				NewInventoryTransaction is an InventoryTransaction view
+				
+			Action Rules
+				ItemAction										= 4
+				InventoryTransactionLineGroup.DocumentType		= "AJ"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+
+				if (ToCompanyLocationGroup.ToCompany not entered)
+					ToCompanyLocationGroup.ToCompany = InventoryLocationGroup.InventoryCompany
+				
+				invoke Create InventoryTransaction
+					assign result to NewInventoryTransaction
+				
+					invoked.Company											= InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation								= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction.InventoryDocumentType		= InventoryTransactionLineGroup.DocumentType
+					invoked.FromToCompanyLocation.FromToCompany				= ToCompanyLocationGroup.ToCompany
+					invoked.FromToCompanyLocation.RequestingLocation		= ToCompanyLocationGroup.RequestingLocation
+					invoked.TransactionDate									= TranDate
+					invoked.GeneralLedgerDate								= PostDate
+					
+					InventoryTransactionLineGroup.InventoryTransaction		= InventoryCompanyRel.LastInventoryTransaction +1
+				
+				invoke Create InventoryTransactionLine
+					invoked.Company								= InventoryLocationGroup.InventoryCompany
+					invoked.InventoryLocation                   = InventoryLocationGroup.InventoryLocation
+					invoked.InventoryTransaction                = NewInventoryTransaction.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+					
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = (Quantity * -1))
+					invoke Active.Close RecallNotice
+							
+
+		AppendStockAdjustment is a Create Action
+			restricted
+			Field Rules
+				InventoryTransactionLineGroup.InventoryCompany
+					required
+				InventoryTransactionLineGroup.Location
+					required
+				InventoryTransactionLineGroup.InventoryTransaction
+					required
+				Quantity
+					required
+					constraint (Quantity < 0)
+						"AdjustmentsShouldBeNegativeToReduceQuantityOfRecalledItem"
+					if  (RecallNotice.AllowClose
+					and  RecallNotice.RemainingQuantity = (Quantity * -1))
+						confirmation required
+							"ResolutionQuantitiesNowMatchFoundQuantitiesAndNoticeWillBeSetToCompleted.Continue?"
+
+			Action Rules
+				constraint (InventoryTransactionLineGroup.InventoryCompany entered)
+					"CompanyIsRequired"
+				constraint (InventoryTransactionLineGroup.Location entered)
+					"LocationIsRequired"
+				constraint (InventoryTransactionLineGroup.InventoryTransaction entered)
+					"InventoryTransactionIsRequired"
+
+				ItemAction										= 4
+				InventoryTransactionLineGroup.DocumentType		= "AJ"
+				InventoryTransactionLineGroup.SystemCode		= "IC"
+				InventoryLocationGroup.InventoryCompany			= InventoryTransactionLineGroup.InventoryCompany
+				InventoryLocationGroup.InventoryLocation		= InventoryTransactionLineGroup.Location
+
+				constraint (InventoryTransactionRel exists)
+					"DocumentDoesNotExist"
+
+				invoke Create InventoryTransactionLine
+					invoked.Company                             = InventoryTransactionLineGroup.InventoryCompany
+					invoked.InventoryLocation					= InventoryTransactionLineGroup.Location
+					invoked.InventoryTransaction                = InventoryTransactionLineGroup.InventoryTransaction
+					invoked.Item								= RecallProductItem.Item
+					invoked.Quantity 							= Quantity
+					invoked.TransactionUOM						= TranUom
+					invoked.SecondaryQuantity					= CtwSecondaryQty
+					invoked.Bin									= Bin
+					invoked.Reference							= DerivedReferenceNo
+					
+					InventoryTransactionLineGroup.LineNumber    = InventoryTransactionRel.InventoryTransaction.LastLineNumber +1
+			
+			Exit Rules
+				if  (RecallNotice.AllowClose
+				and  RecallNotice.RemainingQuantity = (Quantity * -1))
+					invoke Active.Close RecallNotice
+
+		UpdateQuantity is an Update Action
+			valid when (AllowUpdate)
+			Field Rules
+				Quantity
+					required
+					if (ItemAction.StockAdjustment)
+						constraint (Quantity < 0)
+							"AdjustmentsShouldBeNegativeToReduceQuantityOfRecalledItem"
+					else
+						constraint (Quantity > 0)
+							"QuantityMustBeGreaterThanZero"
+					
+			Action Rules
+				constraint (AllowUpdate)
+					"DocumentStatusDoesNotAllowQuantityChanges"
+				constraint (Quantity != DerivedQuantity)
+					"QuantityHasNotBeenChanged"
+
+				if (ItemAction.StockAdjustment)
+					if (RecallNoticeTask entered)
+						constraint ((0 - Quantity - DerivedQuantity) !> RecallProductTaskItemRel.RemainingQuantity)
+							"CannotExceedRemainingQuantity"
+					else
+						constraint ((0 - Quantity - DerivedQuantity) !> RecallProductItem.RemainingQuantity)
+							"CannotExceedRemainingQuantity"
+				else
+					if (RecallNoticeTask entered)
+						constraint ((Quantity - DerivedQuantity) !> RecallProductTaskItemRel.RemainingQuantity)
+							"CannotExceedRemainingQuantity"
+					else
+						constraint ((Quantity - DerivedQuantity) !> RecallProductItem.RemainingQuantity)
+							"CannotExceedRemainingQuantity"
+
+				if (ItemAction.VendorReturn)
+					constraint (VendorReturnRel exists)
+						"VendorReturnDoesNotExist"
+					constraint (VendorReturnRel.Status.Added)
+						"CannotChangeReturnQuantityAfterShippedToVendor"
+					constraint (VendorReturnLineRel exists)
+						"ReturnLineNoLongerExists"
+					invoke Update VendorReturnLineRel
+						if (!RecallProductItem.Item exists
+						or  RecallProductItem.Item.CatchWeightCode = "N")
+							invoked.ReturnQuantity				= Quantity
+						else
+							invoked.ReturnQuantity 				= CtwSecondaryQty
+							if (CtwSecondaryQty not entered)
+								invoked.ReturnQuantity			= VendorReturnLineRel.ReturnQuantity
+							invoked.CatchWeightQuantity			= Quantity
+				else
+				if (ItemAction.StockIssue
+				or  ItemAction.StockTransfer
+				or  ItemAction.StockAdjustment)
+					constraint (InventoryTransactionRel exists)
+						"DocumentDoesNotExist"
+					constraint (InventoryTransactionLineRel exists)
+						"TransactionDoesNotExist"
+					invoke Update InventoryTransactionLineRel
+						invoked.Quantity 							= Quantity
+						invoked.SecondaryQuantity					= CtwSecondaryQty
+					
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			valid when (AllowDelete)
+			
+		Purge is a Purge Action
+			restricted

@@ -1,0 +1,248 @@
+UserCubeDeployed is a BusinessClass
+    owned by repository
+    prefix is uscd
+    default label is "DeployedUserCube"
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements ConfigurationMetadata
+				
+    Ontology
+        symbolic key is UserCubeDeployed
+    
+    Persistent Fields
+    	BusinessClass
+    	Status 				is a UserObjectStatus
+    	LPL             	is LPL
+    	Description			is a ConfigDescription
+    	UserEditorType
+	   	ErrorText			is Text
+	   	DeployStatus		is Numeric size 1
+	   		States
+	   			NotPending	  value is 0
+	   			PendingDeploy value is 1
+	   			PendingDelete value is 2
+    	
+	Field Rules
+		BusinessClass
+			required
+			
+			constraint (BusinessClass.Configurable)
+				"<BusinessClass>isNotConfigurable"
+			
+
+
+
+    		
+		LPL
+			required
+			 
+			if (Status.Active)
+				LocParseText = ParseText
+				
+				if (not LocParseText = blank)
+
+
+
+
+					confirmation required
+						"<LocParseText>:_User_CubeIsInvalid.__DoYouWantToSaveAnyway?"
+					
+					Status = Status.Invalid	
+					ErrorText = LocParseText	
+					
+		UserEditorType
+			default to UserEditorType.LPL	
+	
+		Status
+			if (Status.Active)
+				initialize ErrorText
+				
+    Derived Fields
+		ConfigActor is a DerivedField
+			type is Actor
+			default label is "Actor"
+			return blank
+			
+    	ParseText is a NativeField
+			type is Text
+			
+	Local Fields
+		LocParseText 	is Text	
+		LocParsed 		is Boolean  
+						
+    Conditions
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when (true)
+			
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+		AnalyticCubeExists
+			when (AnalyticCubeRel exists)
+			
+		AdminstrativeMode
+			when (AnalyticCubeRel exists 
+			and   AnalyticCubeRel.Mode.DeployingConfiguration)			
+
+	Relations
+		AnalyticCubeRel
+			one-to-one relation to AnalyticCube
+			Field Mapping uses AnalyticCubeSet
+				related.BusinessClass = BusinessClass	
+				
+		CubeRel
+			one-to-one relation to UserCube 
+				Field Mapping uses ByClass
+					related.BusinessClass = BusinessClass										
+		
+   	Actions
+    	Create is a Create Action
+    		restricted
+			Exit Rules
+
+
+    			
+    	Update is an Update Action
+    		restricted
+
+
+    			
+
+
+
+
+				
+
+
+
+
+    	Delete is a Delete Action
+    		restricted
+
+
+    		
+
+
+
+    		
+
+
+
+    	
+    	Activate is an Instance Action
+    		restricted
+    		completion message is "ChangesWillBeAppliedWhenCubeIsRebuilt"
+    		valid when (not Status.Active)
+    			
+    		Action Rules
+    			LocParseText = ParseText
+				
+				if (not LocParseText = blank)
+
+
+
+
+					constraint(LocParseText = blank)							
+						"<LocParseText>:_User_CubeIsInvalid._Cannot_Activate."				
+				
+				Status = Status.Active
+				initialize ErrorText
+			
+			Exit Rules
+    			invoke FireEvent				
+				
+    	Deactivate is an Instance Action
+    		restricted
+    		completion message is "ChangesWillBeAppliedWhenCubeIsRebuilt"
+    		valid when (not Status.Inactive)
+    		
+    		Local Fields
+    			LocFireEvent is Boolean
+    			
+			Entrance Rules 
+    			if (old Status.Active)
+    				LocFireEvent = true    			
+    		
+    		Action Rules
+    			Status =  Status.Inactive
+    			
+			Exit Rules
+				if (LocFireEvent)
+    				invoke FireEvent    			
+    	
+    	Invalidate is an Instance Action
+    		restricted
+    		valid when (not Status.Invalid)
+    		
+    		Local Fields
+    			LocFireEvent is Boolean
+    		
+    		Entrance Rules 
+    			if (old Status.Active)
+    				LocFireEvent = true
+    		
+    		Action Rules
+    			Status = Status.Invalid
+    			
+			Exit Rules
+    			if (LocFireEvent)
+    				invoke FireEvent    			
+   
+   
+				
+		FireEvent is an Instance Action
+			restricted		
+			
+		DeployPendingChanges is a Set Action
+			restricted  	
+
+			
+			Local Fields
+				AnyErrors 	 	is Boolean
+				AnyRecords 		is Boolean
+				CurrentError 	is Boolean
+				CurrentAsyncId 	is an AsyncActionRequest
+				
+			Action Rules
+				Instance Rules
+				    CurrentAsyncId = current async action request id
+					CurrentError = false
+					AnyRecords = true
+
+
+					if (DeployStatus.NotPending
+					and not CubeRel exists)					
+						DeployStatus = 2 
+							
+					if (not DeployStatus.NotPending)
+						if (DeployStatus.PendingDeploy)
+
+
+							invoke ReloadToDeployConfiguration AnalyticCubeRel in background 
+								run after CurrentAsyncId
+						else
+						if (DeployStatus.PendingDelete)
+							if (BusinessClass.BaseImplementsAnalyticCube) 
+								invoke ReloadToDeployConfiguration AnalyticCubeRel in background 
+									run after CurrentAsyncId
+							else
+						    	invoke Delete AnalyticCubeRel
+						    	
+							invoke Delete
+							
+						DeployStatus = DeployStatus.NotPending
+							
+				Set Rules
+					Exit Rules
+						invoke FireEvent					
+							
+    Sets
+    	ByClass
+    		indexed
+    		Sort Order
+    			BusinessClass
+		

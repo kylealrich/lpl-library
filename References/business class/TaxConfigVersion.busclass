@@ -1,0 +1,338 @@
+TaxConfigVersion is a BusinessClass	
+    owned by tx
+    prefix is TaxVr
+
+    Ontology
+        symbolic key is TaxConfigVersion  
+
+	Patterns
+        disable EffectiveDated
+		disable Auditing
+		implements CreateStamp
+		implements UpdateStamp
+
+
+
+
+
+
+			
+	Persistent Fields
+		UserName            		is Alpha 64	 
+		Password            		is Password	 
+		PassCode					is Alpha 20
+		ConfirmPassword				is Password
+		WsdlURL 					is Alpha 100	 
+		EndPoint 					is Alpha 100	 
+		NameSpace 					is Alpha 100
+			default label is "Description"
+		ReleaseNotes				is Text
+		ReleaseComments				is a CommentText
+		OneSourcePassword			is Alpha 16		
+
+		HostSystem					 				 
+     	CallingSystem	
+     	CompanyRole				    	 
+		ExternalCompanyId  	
+		ExternalCompanyIdName			  		
+		FilterGroupName				 			 
+		FilterGroupOwner			 			 			 
+		ProductMappingGroupName   	 
+		ProductMappingGroupOwner  	 				 				 
+ 		UseAsLegalEntity			 	 
+		PassToProductCode		
+        ValidationPostalAddress		is a PostalAddressV2	
+        	holds pii
+
+																				
+	Local Fields
+		CalculateTax								
+		LocalTrigger	is Alpha 1					
+		IsSuccess 		is Boolean					
+		ReturnedTaxRate	is Percent size 7.5	 		
+		ReturnedValidationAddress		is a PostalAddressV2	 
+			holds pii
+		LocalUnencryptedPassword		is Alpha 100 
+		PasswordTypeUsed		is Numeric 1		
+			States
+				TextValue		value is 0
+				EncryptedValue	value is 1			
+								
+	Transient Fields
+		ClearValidationAddress is Boolean
+		TransientPassword is Password
+			default label is "Password"
+			
+	Field Rules
+
+
+
+		TransientPassword										
+			if (TransientPassword entered)						
+				Password = TransientPassword					
+										
+	Conditions 
+		OneSourceUserNameNotEntered								
+			when (TaxConfiguration.ThirdParty.Sabrix
+			and   TaxConfiguration.OneSourceVersionType.Generic		
+			and   UserName not entered)
+
+		OneSourcePasswordNotEntered								
+			when (TaxConfiguration.ThirdParty.Sabrix
+			and   TaxConfiguration.OneSourceVersionType.Generic		
+			and   (OneSourcePassword not entered
+			and    Password not entered))	
+
+		OneSourceUserNameOrPasswordMissing	
+			when (TaxConfiguration.ThirdParty.Sabrix
+			and   TaxConfiguration.OneSourceVersionType.Generic		
+			and  (UserName not entered
+			or    OneSourcePassword not entered))	
+
+     	TaxConfigurationVersionsMatch
+			when (TaxConfiguration.ThirdParty.Sabrix
+			and   TaxConfiguration.OneSourceVersionType.Generic
+			and   TaxConfigVersion.ThirdParty 	= TaxConfiguration.ThirdParty 
+			and   TaxConfigVersion.Version 		= TaxConfiguration.SabrixVersion.Version
+			and   TaxConfigVersion.Release 		= TaxConfiguration.SabrixVersion.Release)	
+
+		OneSourceUnencryptedPasswordEntered								
+			when (TaxConfiguration.ThirdParty.Sabrix
+			and   TaxConfiguration.OneSourceVersionType.Generic		
+			and   OneSourcePassword not entered)
+															
+	Derived Fields
+			
+		CurrentTimestamp is a DerivedField
+			type is TimeStamp
+			restricted
+			return current timestamp
+
+		1SourceGenericValidationMsg is a MessageField		
+
+			"One\SourceGenericConnectionSuccessfull...IsSuccess<IsSuccess>;TaxRate:<ReturnedTaxRate>,<CurrentTimestamp>,<PartialValidationAddress>,<PasswordTypeUsed>"					
+
+		ShowValidationAddress is a DerivedField
+			type is Alpha 60
+
+			if (ValidationPostalAddress.Country entered)
+				return ShowVersionValidationAddress
+			return DefaultValidationAddress
+			
+		DefaultValidationAddress is a StringField	 
+			type is Alpha 60
+			restricted
+			"380 Saint Peter"
+			","
+			"Saint Paul" 
+			","
+			"MN" 
+			" "
+			"55102"
+			" "
+			"Ramsey"			
+			" "
+			"US" 	
+						
+		ShowVersionValidationAddress is a StringField	 
+			type is Alpha 60
+			restricted
+			ValidationPostalAddress.DeliveryAddress.AddressLine1
+			" "
+			ValidationPostalAddress.Municipality 
+			","
+			ValidationPostalAddress.StateProvince 
+			" "
+			ValidationPostalAddress.PostalCode
+			" "
+			ValidationPostalAddress.County			
+			" "
+			ValidationPostalAddress.Country
+			
+		PartialValidationAddress is a StringField	 
+			type is Alpha 60
+			restricted
+			ReturnedValidationAddress.DeliveryAddress.AddressLine1
+			","
+			ReturnedValidationAddress.Municipality 
+			","
+			ReturnedValidationAddress.StateProvince 
+			" "
+			ReturnedValidationAddress.PostalCode
+			" "
+			ReturnedValidationAddress.County			
+			" "
+			ReturnedValidationAddress.Country
+
+		DerivedEncryptedPasswordEntered is a DerivedField					
+			type is Boolean													
+			if (Password entered)									 		
+				return true													
+			return false 													
+
+		EncryptedPassword is a DerivedField									
+			type is Password
+			restricted
+			if (OneSourcePassword entered)
+				return OneSourcePassword									
+			return Password			
+																		
+
+	Actions
+
+
+		Create is a Create Action
+			Entrance Rules
+				if (TaxConfiguration.ThirdParty.Sabrix)
+					TaxConfigVersion.ThirdParty = "S"					
+				if (TaxConfigVersion.ThirdParty.VertexOSeries)
+					constraint (TaxConfigVersion.ThirdParty.Sabrix)
+						"Use\Vertex\ConfigToSetUpVertexConfiguration"
+				if (TaxConfigVersion.ThirdParty.InforTax)	
+					constraint (TaxConfigVersion.ThirdParty.Sabrix)
+						"InvalidTaxSystemOption"
+			
+		Update is an Update Action
+			Action Rules
+				if (ClearValidationAddress)
+					initialize ValidationPostalAddress
+					ClearValidationAddress = false
+						
+		Delete is a Delete Action
+		
+		ValidateTaxConfigGenericConnection is an Instance Action	 
+			valid when (TaxConfiguration.OneSourceVersionType.Generic)	 
+			completion message is "One\SourceGenericConnectionSuccessfull...IsSuccess<IsSuccess>;TaxRate:<ReturnedTaxRate>,<PartialValidationAddress>"	
+			Local Fields
+			Action Rules
+				constraint (TaxConfigurationVersionsMatch)
+					"One_\Source_\GenericCannotBeValidated;TaxConfigurationVersionAndReleaseDoNotMatchVersionRecord"			
+				IsSuccess = false	
+				initialize ReturnedTaxRate
+				CalculateTax.CallingModule				= "TaxConfigurationVersion"
+				CalculateTax.InputReference				= "Action:ValidateOneSourceGenericConnection"  
+				CalculateTax.UniqueIdOfRelatedObject	= UniqueID
+				CalculateTax.RelatedObjectReference		= reference to this instance
+				CalculateTax.InFinanceEnterpriseGroup   = TaxConfiguration 
+				CalculateTax.HostSystem					= TaxConfiguration.HostSystem			
+				CalculateTax.CallingSystem				= TaxConfiguration.CallingSystem		
+				CalculateTax.ExternalCompany			= TaxConfiguration.ExternalCompanyId		
+				CalculateTax.ExternalCompanyName		= TaxConfiguration.ExternalCompanyIdName
+				CalculateTax.FilterGroupName			= TaxConfiguration.FilterGroupName	 
+				CalculateTax.FilterGroupOwner			= TaxConfiguration.FilterGroupOwner	 
+				CalculateTax.ProductMappingGroupName	= TaxConfiguration.ProductMappingGroupName	 
+				CalculateTax.ProductMappingGroupOwner	= TaxConfiguration.ProductMappingGroupOwner	 
+ 				
+				LocalTrigger							= CalculateTax.ValidateOneSourceGeneric
+
+				IsSuccess								= CalculateTax.IsSuccess
+				ReturnedTaxRate							= CalculateTax.OutputTaxRate	
+				PasswordTypeUsed						= CalculateTax.PasswordTypeUsed	
+				
+				constraint (CalculateTax.OutputErrorNumber not entered)   
+		      		"ErrorMessage:<CalculateTax.OutputErrorMessage>" 
+				constraint (IsSuccess)   
+					"ValidateConnectionFailed;IsSuccess<IsSuccess>,WebserviceError:<CalculateTax.WebServiceErrorMessage>" 
+				ReturnedValidationAddress				= CalculateTax.ReturnedValidationAddress
+				ReleaseNotes = 1SourceGenericValidationMsg  
+
+				
+		SaveOneSourceConfigurationParameters  is an Instance Action	 	
+			valid when (TaxConfiguration.ThirdParty.Sabrix)
+			restricted
+			Parameters
+			Local Fields
+			Parameter Rules	
+			Action Rules
+				CallingSystem				= TaxConfiguration.CallingSystem			
+				FilterGroupName				= TaxConfiguration.FilterGroupName			
+				FilterGroupOwner			= TaxConfiguration.FilterGroupOwner		
+				HostSystem					= TaxConfiguration.HostSystem				
+				ExternalCompanyId			= TaxConfiguration.ExternalCompanyId		
+				ExternalCompanyIdName		= TaxConfiguration.ExternalCompanyIdName	
+				ProductMappingGroupName		= TaxConfiguration.ProductMappingGroupName	
+				ProductMappingGroupOwner	= TaxConfiguration.ProductMappingGroupOwner
+				CompanyRole					= TaxConfiguration.CompanyRole				
+				UseAsLegalEntity			= TaxConfiguration.UseAsLegalEntity		
+				PassToProductCode			= TaxConfiguration.PassToProduceCode		
+	
+		UpdatePassword is an Instance Action	  
+			completion message is "SecuredPasswordSuccessfullyUpdated"	
+
+			Parameters
+				EnterPassword is Password
+				UpdateWithCurrentPassword is Boolean
+				ClearUnencryptedPassword is Boolean
+				ClearEncryptedPassword is Boolean
+			Action Rules
+				if (ClearEncryptedPassword)
+					constraint (EnterPassword not entered)
+						"CannotClearEncryptedPasswordAndEnterItAtTheSameTime"
+						
+				if (EnterPassword entered)
+					Password = EnterPassword
+				else
+				if (UpdateWithCurrentPassword
+				and OneSourcePassword entered)
+					Password = OneSourcePassword
+					
+				if (ClearUnencryptedPassword)
+					initialize OneSourcePassword	
+
+				if (ClearEncryptedPassword)
+					initialize Password	
+										
+
+		UpdatePasswordToBeEncrypted is a Set Action	  // Use this "Set Action" for production
+
+			completion message is "SecuredPasswordSuccessfullyUpdated,<RecordsUpdated>RecordsUpdated"	
+			run in foreground	
+			Parameters
+				ClearUnencryptedPassword is Boolean
+				Version		is Alpha 3
+
+			Local Fields
+				Section	is Alpha 1
+				DoAllVersions is Boolean
+				VersionMatch is Boolean
+				RecordsUpdated is Numeric 3
+				LocalContinue is Boolean
+			Instance Selection
+				where (TaxConfiguration	= actor.context.FinanceEnterpriseGroup
+				and    TaxConfiguration.ThirdParty.Sabrix
+				and    TaxConfiguration.OneSourceVersionType.Generic)	
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						Section = "1"
+					Exit Rules
+
+				Instance Rules
+					LocalContinue = false
+					VersionMatch = false
+					DoAllVersions = false
+					if (Version not entered)
+						LocalContinue = true
+						DoAllVersions = true
+					else
+					if	(Version entered
+					and  Version = TaxConfigVersion.Version)
+						LocalContinue = true
+					else	
+					if 	(Version not entered)   
+						LocalContinue = true	
+						
+					if (LocalContinue)
+						VersionMatch = true	
+							
+					Section = "3"
+					if (OneSourcePassword entered)
+						if (DoAllVersions
+						or VersionMatch)
+						    initialize Password 
+							Password = EncryptedPassword 
+							if (ClearUnencryptedPassword)
+								initialize OneSourcePassword
+							RecordsUpdated += 1				
+																									

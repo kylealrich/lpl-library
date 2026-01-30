@@ -1,0 +1,331 @@
+ConfigBundleDefinition is a BusinessClass
+	owned by repository
+ 	prefix is cbnd
+ 	default label is "Bundle"
+ 	disable data area copy
+		preserve target data
+
+    Ontology
+        symbolic key is ConfigBundleDefinition
+
+	Patterns
+		disable AsOfDateProcessing
+        disable EffectiveDated
+			
+    Persistent Fields
+    	Name 					is Alpha size 25
+		Description 			is Text
+		ConfigurationTagOccurs
+		AutoValidateAndApply	is Boolean
+			default label is "ManuallyValidateAndApplyOnTarget"
+
+	Field Rules
+		Name
+			required
+		ConfigurationTagOccurs
+			required
+	Local Fields
+		I is Numeric 2
+		LocConfigBundleSnapshot   is a ConfigBundleSnapshot
+		LocConfigSnapshotItemInfo is a ConfigSnapshotItemInfo
+
+	Derived Fields
+		DerTags is a DerivedField
+			type is Text
+			default label is "Tags"
+			I = 1
+			while (I <= sizeofarray ConfigurationTagOccurs)
+				if (ConfigurationTagOccurs.ConfigurationTag[I] entered)
+					if (DerTags entered)
+						DerTags += ", "
+					DerTags += ConfigurationTagOccurs.ConfigurationTag[I]
+				I += 1
+
+		ItemCount is a DerivedField
+			type is Numeric size 4
+			return instance count of TaggedItems
+	
+		BlueAlertMessage is a MessageField
+			restricted
+			"AppliesToConfigurationManagementImportsViaSelf-ServicePortalOnly.DefaultIsToAutomaticallyValidateAndApplyImports"		
+		
+	Create Rules
+		ConfigBundleDefinition = Name 
+
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+
+		CreateBundleSnapshot is an Instance Action
+		    default label is "CreateSnapshot"
+			Parameters
+				SnapshotName 	    is Alpha size 25
+				ParamDescription    is Text
+					default label is "Description"
+		        ParamDocumentation  is a ConfigAttachment
+		            default label is "Documentation"
+
+			Parameter Rules
+				SnapshotName
+					required
+					
+			Local Fields
+				LocConfigEntity 		    is a ConfigEntity
+				LocDeleted					is Boolean
+				LocTag                      is a ConfigurationTag
+				LocReportDef				is a ReportDefinition
+
+			Entrance Rules
+                constraint (ItemCount > 0)
+                    "SnapshotMustContainAtLeastOneConfiguration"
+
+			Action Rules
+				invoke Create ConfigBundleSnapshot
+					assign result to LocConfigBundleSnapshot
+					invoked.Name 				 	= SnapshotName
+					invoked.Description 	     	= ParamDescription
+					invoked.SourceBundleDefinition 	= ConfigBundleDefinition
+					invoked.ConfigurationTagOccurs	= ConfigurationTagOccurs
+					invoked.Documentation           = ParamDocumentation
+
+				for each TaggedItems
+				    LocTag = each.ConfigurationTag
+
+					if (each.OrphanedRecord)
+						confirmation required
+							"BundleContainsOrphanedTaggedItemsWhichWillBeSkipped.Continue?"
+							
+					if (each.InvalidRecord or each.InactiveRecord)
+						confirmation required
+							"BundleContainsTaggedItemsWhichAreInvalidOrInactive.Continue?"
+					
+					if (not each.OrphanedRecord)
+						LocConfigEntity = each.ConfigEntityRel.ConfigEntity
+
+
+						LocConfigSnapshotItemInfo.ConfigEntityType	= each.ConfigEntityRel.ConfigEntity.EntityType
+						LocConfigSnapshotItemInfo.BusinessView		= each.ConfigEntityRel.ConfigEntity.BusinessView
+						LocConfigSnapshotItemInfo.Name				= each.ConfigEntityRel.ConfigEntity.Name
+						LocConfigSnapshotItemInfo.Actor				= each.ConfigEntityRel.ConfigEntity.Actor
+						LocConfigSnapshotItemInfo.UserFolder		= each.ConfigEntityRel.ConfigEntity.UserFolder.BusinessObjectKey
+						
+						if (each.ConfigEntityRel.ConfigEntityExists)
+							LocDeleted = false
+						else
+							LocDeleted = true
+						
+						if (not DupeConfigBundleSnapshotItem exists) 
+							invoke Create ConfigBundleSnapshotItem
+								invoked.ConfigBundleSnapshot	= LocConfigBundleSnapshot
+								invoked.ConfigSnapshotItemInfo	= LocConfigSnapshotItemInfo
+								invoked.LPL                  	= each.ConfigEntityRel.LPL
+		    					invoked.Status               	= each.ConfigEntityRel.Status
+						 		invoked.OriginatingReference 	= each.ConfigEntityRel.Entity
+						 		invoked.DeletedRecord			= LocDeleted
+								invoked.Independent 			= each.ConfigEntityRel.Independent
+								invoked.LPLIndex                = each.ConfigEntityRel.LPLIndex
+								invoked.UserEditorType          = each.ConfigEntityRel.UserEditorType
+								invoked.ErrorText				= each.ConfigEntityRel.ErrorText
+								if (LocConfigSnapshotItemInfo.ConfigEntityType.BusinessClass)
+									invoked.KeyFieldName        = each.ConfigEntityRel.RelUserBusinessClass.KeyFieldName
+								if (LocConfigSnapshotItemInfo.ConfigEntityType.Relation)	
+									invoked.BusSet				= each.ConfigEntityRel.RelUserRelation.BusSet
+								if (LocConfigSnapshotItemInfo.ConfigEntityType.Field)
+									invoked.TypeValue	  		= each.ConfigEntityRel.RelUserField.Type
+								if (LocConfigSnapshotItemInfo.ConfigEntityType.Action
+								or  LocConfigSnapshotItemInfo.ConfigEntityType.ActionConfiguration
+								or  LocConfigSnapshotItemInfo.ConfigEntityType.ActionExtension
+								or  LocConfigSnapshotItemInfo.ConfigEntityType.UserAction)	
+									invoked.TypeValue	  		= each.ConfigEntityRel.RelUserAction.Type
+								if (LocConfigSnapshotItemInfo.ConfigEntityType.Form)	
+									invoked.UserAction			= each.ConfigEntityRel.RelUserForm.UserAction
+								invoked.Owner					= each.ConfigEntityRel.Owner
+								invoked.Description				= each.ConfigEntityRel.Description
+                                invoked.Tags                    = each.ConfigurationTag
+                                invoked.ExtendedInfo			= each.ConfigEntityRel.ExtendedSnapshotInfo
+                                
+                                if (each.ConfigEntityRel.IsFolder)
+                                	invoked.ConfigSnapshotItemFolderInfo.Name 						= each.ConfigEntityRel.UserFolder.Name translations
+                                	invoked.ConfigSnapshotItemFolderInfo.Owner 						= each.ConfigEntityRel.UserFolder.Owner
+                                	invoked.ConfigSnapshotItemFolderInfo.Actor 						= each.ConfigEntityRel.UserFolder.Actor
+                                	invoked.ConfigSnapshotItemFolderInfo.ActorGroup 				= each.ConfigEntityRel.UserFolder.ActorGroup
+                                	invoked.ConfigSnapshotItemFolderInfo.BusinessClass 				= each.ConfigEntityRel.UserFolder.BusinessClass
+                                	invoked.ConfigSnapshotItemFolderInfo.Dynamic 					= each.ConfigEntityRel.UserFolder.Dynamic
+                                	invoked.ConfigSnapshotItemFolderInfo.Search 					= each.ConfigEntityRel.UserFolder.Search
+                                	invoked.ConfigSnapshotItemFolderInfo.ListName 					= each.ConfigEntityRel.UserFolder.ListName
+                                	invoked.ConfigSnapshotItemFolderInfo.ChartName 					= each.ConfigEntityRel.UserFolder.ChartName
+                                	invoked.ConfigSnapshotItemFolderInfo.AsOfDate 					= each.ConfigEntityRel.UserFolder.AsOfDate
+                                	invoked.ConfigSnapshotItemFolderInfo.ContextFields 				= each.ConfigEntityRel.UserFolder.ContextFields
+                                	invoked.ConfigSnapshotItemFolderInfo.Temporal 					= each.ConfigEntityRel.UserFolder.Temporal
+                                	invoked.ConfigSnapshotItemFolderInfo.SourceType 				= each.ConfigEntityRel.UserFolder.SourceType
+                                	invoked.ConfigSnapshotItemFolderInfo.ExtendedInfo 				= each.ConfigEntityRel.UserFolder.ExtendedInfo
+                                	invoked.ConfigSnapshotItemFolderInfo.PDFFontOffset 				= each.ConfigEntityRel.UserFolder.PDFFontOffset
+                                	invoked.ConfigSnapshotItemFolderInfo.Role		 				= each.ConfigEntityRel.UserFolder.Role
+                                	invoked.ConfigSnapshotItemFolderInfo.RoleGroup					= each.ConfigEntityRel.UserFolder.RoleGroup
+                                	invoked.ConfigSnapshotItemFolderInfo.PDFOrientation				= each.ConfigEntityRel.UserFolder.PDFOrientation
+                                	invoked.ConfigSnapshotItemFolderInfo.MRBusinessObject			= each.ConfigEntityRel.UserFolder.MRBusinessObject
+                                	invoked.ConfigSnapshotItemFolderInfo.MRPrintAction				= each.ConfigEntityRel.UserFolder.MRPrintAction
+                                	invoked.ConfigSnapshotItemFolderInfo.ReportCategory  			= each.ConfigEntityRel.UserFolder.ReportCategory translations
+
+                                	LocReportDef = each.ConfigEntityRel.UserFolder.ReportDefinitionRel.ReportDefinition
+                                	
+                                	if (LocReportDef exists)
+                                		invoked.TransSetConfigSnapshotReportDefInfo.ReportName				= LocReportDef.ReportName translations
+										invoked.TransSetConfigSnapshotReportDefInfo.DeliveredReportName		= LocReportDef.DeliveredReportName
+	    								invoked.TransSetConfigSnapshotReportDefInfo.Description				= LocReportDef.Description translations
+	    								invoked.TransSetConfigSnapshotReportDefInfo.DeliveredDescription	= LocReportDef.DeliveredDescription
+	    								invoked.TransSetConfigSnapshotReportDefInfo.Category				= LocReportDef.Category
+	    								invoked.TransSetConfigSnapshotReportDefInfo.SubCategory				= LocReportDef.SubCategory
+	    								invoked.TransSetConfigSnapshotReportDefInfo.ReportWebAppOccurs		= LocReportDef.ReportWebAppOccurs
+	    								invoked.TransSetConfigSnapshotReportDefInfo.Inactive				= LocReportDef.Inactive
+	    								invoked.TransSetConfigSnapshotReportDefInfo.Validity				= LocReportDef.Validity
+	    	 							invoked.TransSetConfigSnapshotReportDefInfo.Visibility				= LocReportDef.Visibility
+                        else
+                            invoke AddTag DupeConfigBundleSnapshotItem
+                                invoked.ParamConfigurationTag  = each.ConfigurationTag
+							
+	Relations
+		DupeConfigBundleSnapshotItem
+			one-to-one relation to ConfigBundleSnapshotItem
+			Field Mapping uses part of key
+				related.ConfigBundleSnapshot	 = LocConfigBundleSnapshot
+				related.ConfigSnapshotItemInfo	 = LocConfigSnapshotItemInfo
+
+		TaggedItems
+			one-to-many relation to ConfigurationTagItem
+			Field Mapping uses symbolic key
+			Instance Selection
+				where ((ConfigurationTagOccurs.ConfigurationTag[1] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[1]
+				or     ConfigurationTagOccurs.ConfigurationTag[2] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[2]
+				or     ConfigurationTagOccurs.ConfigurationTag[3] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[3]
+				or     ConfigurationTagOccurs.ConfigurationTag[4] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[4]
+				or     ConfigurationTagOccurs.ConfigurationTag[5] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[5]
+				or     ConfigurationTagOccurs.ConfigurationTag[6] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[6]
+				or     ConfigurationTagOccurs.ConfigurationTag[7] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[7]
+				or     ConfigurationTagOccurs.ConfigurationTag[8] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[8]
+				or     ConfigurationTagOccurs.ConfigurationTag[9] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[9]
+				or     ConfigurationTagOccurs.ConfigurationTag[10] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[10]
+				or     ConfigurationTagOccurs.ConfigurationTag[11] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[11]
+				or     ConfigurationTagOccurs.ConfigurationTag[12] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[12]
+				or     ConfigurationTagOccurs.ConfigurationTag[13] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[13]
+				or     ConfigurationTagOccurs.ConfigurationTag[14] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[14]
+				or     ConfigurationTagOccurs.ConfigurationTag[15] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[15]
+				or     ConfigurationTagOccurs.ConfigurationTag[16] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[16]
+				or     ConfigurationTagOccurs.ConfigurationTag[17] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[17]
+				or     ConfigurationTagOccurs.ConfigurationTag[18] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[18]
+				or     ConfigurationTagOccurs.ConfigurationTag[19] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[19]
+				or     ConfigurationTagOccurs.ConfigurationTag[20] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[20])
+				and    related.ConfigEntityRel.EntityType != 8) 
+
+		TaggedConfigurations
+			one-to-many relation to ConfigurationTagItem
+			Field Mapping uses symbolic key
+			Instance Selection
+				where ((ConfigurationTagOccurs.ConfigurationTag[1] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[1]
+				or     ConfigurationTagOccurs.ConfigurationTag[2] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[2]
+				or     ConfigurationTagOccurs.ConfigurationTag[3] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[3]
+				or     ConfigurationTagOccurs.ConfigurationTag[4] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[4]
+				or     ConfigurationTagOccurs.ConfigurationTag[5] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[5]
+				or     ConfigurationTagOccurs.ConfigurationTag[6] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[6]
+				or     ConfigurationTagOccurs.ConfigurationTag[7] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[7]
+				or     ConfigurationTagOccurs.ConfigurationTag[8] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[8]
+				or     ConfigurationTagOccurs.ConfigurationTag[9] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[9]
+				or     ConfigurationTagOccurs.ConfigurationTag[10] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[10]
+				or     ConfigurationTagOccurs.ConfigurationTag[11] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[11]
+				or     ConfigurationTagOccurs.ConfigurationTag[12] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[12]
+				or     ConfigurationTagOccurs.ConfigurationTag[13] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[13]
+				or     ConfigurationTagOccurs.ConfigurationTag[14] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[14]
+				or     ConfigurationTagOccurs.ConfigurationTag[15] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[15]
+				or     ConfigurationTagOccurs.ConfigurationTag[16] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[16]
+				or     ConfigurationTagOccurs.ConfigurationTag[17] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[17]
+				or     ConfigurationTagOccurs.ConfigurationTag[18] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[18]
+				or     ConfigurationTagOccurs.ConfigurationTag[19] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[19]
+				or     ConfigurationTagOccurs.ConfigurationTag[20] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[20])
+				and    related.ConfigEntityRel.IsConfiguration 
+				and    related.ConfigEntityRel.EntityType != 8) 
+
+		TaggedPersonalizations
+			one-to-many relation to ConfigurationTagItem
+			Field Mapping uses symbolic key
+			Instance Selection
+				where ((ConfigurationTagOccurs.ConfigurationTag[1] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[1]
+				or     ConfigurationTagOccurs.ConfigurationTag[2] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[2]
+				or     ConfigurationTagOccurs.ConfigurationTag[3] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[3]
+				or     ConfigurationTagOccurs.ConfigurationTag[4] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[4]
+				or     ConfigurationTagOccurs.ConfigurationTag[5] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[5]
+				or     ConfigurationTagOccurs.ConfigurationTag[6] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[6]
+				or     ConfigurationTagOccurs.ConfigurationTag[7] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[7]
+				or     ConfigurationTagOccurs.ConfigurationTag[8] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[8]
+				or     ConfigurationTagOccurs.ConfigurationTag[9] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[9]
+				or     ConfigurationTagOccurs.ConfigurationTag[10] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[10]
+				or     ConfigurationTagOccurs.ConfigurationTag[11] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[11]
+				or     ConfigurationTagOccurs.ConfigurationTag[12] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[12]
+				or     ConfigurationTagOccurs.ConfigurationTag[13] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[13]
+				or     ConfigurationTagOccurs.ConfigurationTag[14] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[14]
+				or     ConfigurationTagOccurs.ConfigurationTag[15] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[15]
+				or     ConfigurationTagOccurs.ConfigurationTag[16] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[16]
+				or     ConfigurationTagOccurs.ConfigurationTag[17] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[17]
+				or     ConfigurationTagOccurs.ConfigurationTag[18] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[18]
+				or     ConfigurationTagOccurs.ConfigurationTag[19] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[19]
+				or     ConfigurationTagOccurs.ConfigurationTag[20] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[20])
+				and    related.ConfigEntityRel.IsPersonalization 
+				and    related.ConfigEntityRel.EntityType != 8) 
+				
+		TaggedReports
+			one-to-many relation to ConfigurationTagItem
+			Field Mapping uses symbolic key
+			Instance Selection
+				where ((ConfigurationTagOccurs.ConfigurationTag[1] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[1]
+				or     ConfigurationTagOccurs.ConfigurationTag[2] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[2]
+				or     ConfigurationTagOccurs.ConfigurationTag[3] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[3]
+				or     ConfigurationTagOccurs.ConfigurationTag[4] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[4]
+				or     ConfigurationTagOccurs.ConfigurationTag[5] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[5]
+				or     ConfigurationTagOccurs.ConfigurationTag[6] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[6]
+				or     ConfigurationTagOccurs.ConfigurationTag[7] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[7]
+				or     ConfigurationTagOccurs.ConfigurationTag[8] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[8]
+				or     ConfigurationTagOccurs.ConfigurationTag[9] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[9]
+				or     ConfigurationTagOccurs.ConfigurationTag[10] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[10]
+				or     ConfigurationTagOccurs.ConfigurationTag[11] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[11]
+				or     ConfigurationTagOccurs.ConfigurationTag[12] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[12]
+				or     ConfigurationTagOccurs.ConfigurationTag[13] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[13]
+				or     ConfigurationTagOccurs.ConfigurationTag[14] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[14]
+				or     ConfigurationTagOccurs.ConfigurationTag[15] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[15]
+				or     ConfigurationTagOccurs.ConfigurationTag[16] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[16]
+				or     ConfigurationTagOccurs.ConfigurationTag[17] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[17]
+				or     ConfigurationTagOccurs.ConfigurationTag[18] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[18]
+				or     ConfigurationTagOccurs.ConfigurationTag[19] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[19]
+				or     ConfigurationTagOccurs.ConfigurationTag[20] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[20])
+				and    related.ConfigEntityRel.IsFolder
+				and    related.ConfigEntityRel.EntityType != 8) 
+				
+		TaggedSecurityClasses
+			one-to-many relation to ConfigurationTagItem
+			Field Mapping uses symbolic key
+			Instance Selection
+				where ((ConfigurationTagOccurs.ConfigurationTag[1] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[1]
+				or     ConfigurationTagOccurs.ConfigurationTag[2] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[2]
+				or     ConfigurationTagOccurs.ConfigurationTag[3] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[3]
+				or     ConfigurationTagOccurs.ConfigurationTag[4] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[4]
+				or     ConfigurationTagOccurs.ConfigurationTag[5] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[5]
+				or     ConfigurationTagOccurs.ConfigurationTag[6] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[6]
+				or     ConfigurationTagOccurs.ConfigurationTag[7] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[7]
+				or     ConfigurationTagOccurs.ConfigurationTag[8] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[8]
+				or     ConfigurationTagOccurs.ConfigurationTag[9] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[9]
+				or     ConfigurationTagOccurs.ConfigurationTag[10] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[10]
+				or     ConfigurationTagOccurs.ConfigurationTag[11] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[11]
+				or     ConfigurationTagOccurs.ConfigurationTag[12] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[12]
+				or     ConfigurationTagOccurs.ConfigurationTag[13] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[13]
+				or     ConfigurationTagOccurs.ConfigurationTag[14] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[14]
+				or     ConfigurationTagOccurs.ConfigurationTag[15] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[15]
+				or     ConfigurationTagOccurs.ConfigurationTag[16] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[16]
+				or     ConfigurationTagOccurs.ConfigurationTag[17] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[17]
+				or     ConfigurationTagOccurs.ConfigurationTag[18] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[18]
+				or     ConfigurationTagOccurs.ConfigurationTag[19] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[19]
+				or     ConfigurationTagOccurs.ConfigurationTag[20] entered and related.ConfigurationTag = ConfigurationTagOccurs.ConfigurationTag[20])
+				and    related.ConfigEntityRel.EntityType = 17 
+				and    related.ConfigEntityRel.IsFolder = false) 
+
+		ConfigEntityHelperRel
+			one-to-many relation to ConfigEntity
+			Field Mapping uses symbolic key

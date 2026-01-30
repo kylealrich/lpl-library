@@ -1,0 +1,142 @@
+EDIWork is a BusinessClass
+    owned by edi
+    prefix is EDIW
+
+    Ontology
+        symbolic key is EDIWork
+
+    Patterns
+        implements DynamicCreation
+        implements StaticJava
+
+        disable Auditing
+
+    Persistent Fields
+        ReferenceId is Alpha size 40
+            default label is "ReferenceID"
+        Direction   
+        ProcessStatus
+            default label is "Status"
+        Data     				is Text
+        LastUpdatedTimeStamp 	is TimeStamp
+            default label is "LastUpdated"
+        ErrorMessage 			is Text
+            default label is "Message"
+        FileName                
+
+	Derived Fields
+        EDIWorkData is a DerivedField
+        	type is BinaryDocument
+        	return Data
+    
+        DerivedCompletionEDIWorkDetailText	is a DerivedField
+			type is RichText
+			if (LocalPurgeRecords)
+				return DerivedPurgeEDIWorkText
+			else
+				return DerivedReportPurgeEDIWorkText
+              
+        DerivedPurgeEDIWorkText is a MessageField
+			"EDIWorkPurgeHasBeenCompletedFor<LocalPurgeCount>Records."
+
+		DerivedReportPurgeEDIWorkText is a MessageField
+			"ThereAre<LocalPurgeCount>EDIWorkRecordsWhichCanBePurged."
+
+        
+            
+    Local Fields
+        LocalPurgeCount					is Numeric 10
+        LocalActor						is an Actor
+        LocalPurgeRecords               is Boolean
+
+    Field Rules
+        ProcessStatus
+            default to ProcessStatus.New
+        Data
+            required
+            
+        LastUpdatedTimeStamp
+            default to current timestamp
+            initial value is current timestamp
+
+
+    Sets
+        ByLastUpdated
+            duplicates
+            Sort Order
+                LastUpdatedTimeStamp
+                ReferenceId
+                Direction
+        
+        
+    Actions
+
+        Create is a Create Action
+        Delete is a Delete Action
+        Update is an Update Action
+            Action Rules
+                LastUpdatedTimeStamp = current timestamp
+
+        PurgeEDIWork is a Set Action
+            default label is "Purge"
+            Parameters
+                PrmReferenceId      is Alpha size 40
+                    default label is "ReferenceID"
+                PrmDirection        is a Direction
+                    default label is "Direction"
+                PrmProcessStatus    is a ProcessStatus
+                    default label is "Status"
+                ThroughDate         is Date
+                OlderThanDays       is Numeric size 3
+                PurgeAll           is Boolean
+                
+            Parameter Rules
+
+                ThroughDate
+                    if (OlderThanDays entered)
+                        ThroughDate = current corporate date - OlderThanDays as days
+                    if (ThroughDate entered)
+                        ThroughDate += 1 day                
+                PurgeAll
+                    if (PurgeAll not entered)
+                        constraint (PrmReferenceId entered or PrmDirection entered or PrmProcessStatus entered or ThroughDate  entered  or OlderThanDays entered )
+                            "EnterFilterCriteriaOrSelectPurgeAll"
+
+            Local Fields
+                LocalSetPurgeCount is Numeric size 10
+
+            Instance Selection
+                include deleted records
+                where ((PrmReferenceId not entered
+                        or ReferenceId = PrmReferenceId)
+                and   (PrmDirection not entered
+                        or Direction = PrmDirection)
+                and   (PrmProcessStatus not entered
+                        or ProcessStatus = PrmProcessStatus)
+                and   (ThroughDate not entered
+                        or LastUpdatedTimeStamp <  ThroughDate))
+            Sort Order is ByLastUpdated
+            Action Rules
+                Set Rules
+                    Exit Rules
+                        LocalPurgeRecords = true
+                        LocalActor = actor
+                        LocalPurgeCount = LocalSetPurgeCount
+                        send notification
+                            to LocalActor
+                            description is "EDIWorkPurgeHasBeenCompleted"
+                            priority is high
+                            detail is "<DerivedCompletionEDIWorkDetailText>"
+                Empty Set Rules
+                    LocalActor = actor
+                    send notification
+                        to LocalActor
+                        description is "NoEDIWorkRecordsFoundToPurge"
+                        priority is high
+                        detail is "ThereAreNoEDIWorkRecordsPurged"
+                Instance Rules
+                    LocalSetPurgeCount += 1
+                    invoke Purge
+
+        Purge is a Purge Action
+			restricted

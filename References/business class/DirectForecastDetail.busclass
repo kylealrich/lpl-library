@@ -1,0 +1,456 @@
+DirectForecastDetail is a BusinessClass
+	owned by cashmgmt
+	prefix is CMDFD
+
+	Ontology
+		symbolic key is DirectForecastDetail
+		
+	Persistent Fields								
+		DueDate						is Date
+		LoadDate					is a ExchangeDate
+		SystemCode					is a GeneralLedgerSystemCode
+		CashCode
+		CashManagementAccount
+			delete cascades
+		Vendor						is AlphaUpper 9
+			default label is "Customer_/_Vendor"		
+		Name						is like VendorName 
+			holds pii
+		DocumentNumber				is AlphaUpper 30
+		ProcessLevel				is AlphaUpper 5
+		TransactionCurrency			is a FromCurrency
+		Amount						is an GroupCurrencyExchange
+		DiscountAmount				is an GroupCurrencyExchange
+		OriginatingTransaction		is BusinessObjectReference
+		ImportRecord				is Boolean		
+
+	Transient Fields
+		Invoice						is AlphaUpper 22
+		InvoiceSequence				is Numeric 6
+		PurchaseOrder				is AlphaUpper 14
+		PORelease					is Numeric 4
+		POCode						is AlphaUpper 4
+		TransientToCurrency			is a ToCurrency		
+			derive value from DerivedToCurrency
+
+    Context Fields
+		DirectForecast
+
+	Local Fields
+		LocalCurrencyTable			is a CurrencyTable
+		LocalCompany				is like Company 
+		LocalCashManagementAccount	is a CashManagementAccount
+		LocalDirectForecastSummary	is Date
+		LocalSystemCode				is a GeneralLedgerSystemCode
+		BankAmountExchange
+				
+	Derived Fields
+		DerivedToCurrency is a DerivedField		
+			type is like ToCurrency
+			if (DirectForecast.ForecastBy.ReportCurrency)
+				return DirectForecast.ReportCurrency
+			if (DirectForecast.ForecastBy.CompanyCurrency
+			and DirectForecast.GeneralLedgerCompany entered)
+				return DirectForecast.GeneralLedgerCompany.Currency
+			else
+				return DirectForecast.CashManagementAccount.Currency
+
+		PurchaseOrderNumber is a StringField
+			type is Alpha 30
+			restricted
+			PurchaseOrder
+			"-"
+			PORelease
+			
+		PurchaseOrderPoCode is a StringField
+			type is Alpha 30
+			restricted
+			PurchaseOrder
+			"-"
+			PORelease
+			"-"
+			POCode
+			
+		InvoiceNumber is a StringField
+			type is Alpha 30
+			restricted
+			Invoice
+			"-"
+			InvoiceSequence
+
+		DerivedDocumentNumber is a DerivedField
+			type is Alpha 30
+			restricted
+			if (SystemCode ="PO")
+				if (POCode entered)
+					return (PurchaseOrderPoCode)
+				else
+					return (PurchaseOrderNumber)
+			else
+				return (InvoiceNumber)
+
+		DerivedAccountAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "AccountAmount"
+			if (CashManagementAccount.CashManagementGroup.ShowDiscountedAmount)
+				return Amount.AccountAmount.EnteredCurrencyAmount - DiscountAmount.AccountAmount.EnteredCurrencyAmount
+			else
+				return Amount.AccountAmount.EnteredCurrencyAmount 
+
+		DerivedCompanyAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "CompanyAmount"
+			if (CashManagementAccount.CashManagementGroup.ShowDiscountedAmount)
+				return Amount.BaseAmount.EnteredCurrencyAmount - DiscountAmount.BaseAmount.EnteredCurrencyAmount
+			else
+				return Amount.BaseAmount.EnteredCurrencyAmount 
+
+		ReportAmount is a DerivedField
+			type is like InternationalAmount
+			if (DirectForecast.ReportCurrency entered)
+				LocalCurrencyTable						= CashManagementAccount.CashManagementGroup.FinanceEnterpriseGroup.CurrencyTable
+				BankAmountExchange.ExchangeDate			= LoadDate
+				BankAmountExchange.FromCurrency			= CashManagementAccount.Currency
+				BankAmountExchange.TransactionAmount	= DerivedAccountAmount
+				BankAmountExchange.ToAmount.ToCurrency 		= DirectForecast.ReportCurrency
+				return BankAmountExchange.ToAmount.OutputCurrencyAmount
+
+		DerivedDetailAmount is a DerivedField
+			type is like InternationalAmount
+			if (DirectForecast.ForecastBy.CompanyCurrency)
+				return DerivedCompanyAmount
+			if (DirectForecast.ForecastBy.CashAccountCurrency)
+				return DerivedAccountAmount
+			if (DirectForecast.ForecastBy.ReportCurrency)
+				return ReportAmount
+
+		PeriodOneEndDate is a DerivedField
+			type is Date
+			return DirectForecast.ForecastDate + DirectForecast.PeriodDays1
+
+		PeriodTwoEndDate is a DerivedField
+			type is Date
+			return DirectForecast.ForecastDate + DirectForecast.PeriodDays2
+
+		PeriodThreeEndDate is a DerivedField
+			type is Date
+			return DirectForecast.ForecastDate + DirectForecast.PeriodDays3
+
+		PeriodFourEndDate is a DerivedField
+			type is Date
+			return DirectForecast.ForecastDate + DirectForecast.PeriodDays4
+
+		PeriodOneAmount is a DerivedField
+			type is like InternationalAmount
+			if (DueDate <= PeriodOneEndDate)
+				return DerivedDetailAmount
+
+		PeriodTwoAmount is a DerivedField
+			type is like InternationalAmount
+			if (DueDate > PeriodOneEndDate
+			and DueDate	<= PeriodTwoEndDate)
+				return DerivedDetailAmount
+
+		PeriodThreeAmount is a DerivedField
+			type is like InternationalAmount
+			if (DueDate > PeriodTwoEndDate
+			and DueDate	<= PeriodThreeEndDate)
+				return DerivedDetailAmount
+
+		PeriodFourAmount is a DerivedField
+			type is like InternationalAmount
+			if (DueDate > PeriodThreeEndDate
+			and DueDate	<= PeriodFourEndDate)
+				return DerivedDetailAmount
+
+		AbovePeriodAmount is a DerivedField
+			type is like InternationalAmount
+			if (DueDate > PeriodFourEndDate)
+				return DerivedDetailAmount
+
+		SecondPeriodStart is a DerivedField
+			type is Numeric 3
+			restricted
+			return (DirectForecast.PeriodDays1 + 1)
+
+		ThirdPeriodStart is a DerivedField
+			type is Numeric 3
+			restricted
+			return (DirectForecast.PeriodDays2 + 1)
+
+		FourthPeriodStart is a DerivedField
+			type is Numeric 3
+			restricted
+			return (DirectForecast.PeriodDays3 + 1)
+
+		PeriodOneDays is a DerivedField
+			type is Numeric 3
+			restricted
+			if (DirectForecast entered)
+				return (DirectForecast.PeriodDays1)
+		
+		DerivedVendorLabel is a DerivedField		
+			type is Alpha 20
+			if (AccountsReceivableTransaction)
+				return CustomerLabel
+			else
+				return VendorLabel
+
+		VendorLabel is a MessageField		
+			restricted
+			"Vendor"
+
+		CustomerLabel is a MessageField		
+			restricted
+			"Customer"
+
+		LessThanPeriod is a MessageField
+			restricted
+			"LessThan<PeriodOneDays>"
+
+		SecondRangePeriod is a MessageField
+			restricted
+			"<SecondPeriodStart>To<DirectForecast.PeriodDays2>"
+
+		ThirdRangePeriod is a MessageField
+			restricted
+			"<ThirdPeriodStart>To<DirectForecast.PeriodDays3>"
+
+		FourthRangePeriod is a MessageField
+			restricted
+			"<FourthPeriodStart>To<DirectForecast.PeriodDays4>"
+
+		AbovePeriod is a MessageField
+			restricted
+			"Above<DirectForecast.PeriodEndInRange>"
+
+	Sets
+		CompanySystemAccountByDueDate
+			Sort Order
+				Company
+				SystemCode
+				CashManagementAccount
+				DueDate
+				DirectForecastDetail
+
+		CompanyAccountVendor
+			duplicates
+			Sort Order
+				SystemCode
+				Company
+				CashManagementAccount
+				Vendor
+
+
+		AccountVendorCompany
+			duplicates
+			Sort Order
+				SystemCode
+				CashManagementAccount
+				Vendor
+				Company
+
+		DisbursementCompanyAccountVendor
+			duplicates
+			Instance Selection
+				where (DisbursementTransaction)
+			Sort Order
+				Company
+				CashManagementAccount
+				Vendor
+
+		DisbursementAccountVendorCompany
+			duplicates
+			Instance Selection
+				where (DisbursementTransaction)
+			Sort Order
+				CashManagementAccount
+				Vendor
+				Company
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Rule Blocks
+		CurrencyCalculation
+			LocalCurrencyTable = Company.CurrencyTable
+			if (Company.Currency = TransactionCurrency)
+				Amount.BaseAmount.ToCurrency			= TransactionCurrency
+				Amount.BaseAmount.EnteredCurrencyAmount	= Amount.TransactionAmount
+				Amount.BaseAmount.EnteredCurrencyRate	= 1
+				if (DiscountAmount entered)
+					DiscountAmount.BaseAmount.ToCurrency			= TransactionCurrency
+					DiscountAmount.BaseAmount.EnteredCurrencyAmount	= DiscountAmount.TransactionAmount
+					DiscountAmount.BaseAmount.EnteredCurrencyRate	= 1
+			else
+				Amount.BaseAmount.ToCurrency = Company.Currency
+				if (DiscountAmount entered)		
+					DiscountAmount.BaseAmount.ToCurrency			= Company.Currency
+
+			if (CashManagementAccount.Currency = TransactionCurrency)
+				Amount.AccountAmount.ToCurrency				= TransactionCurrency
+				Amount.AccountAmount.EnteredCurrencyAmount	= Amount.TransactionAmount
+				Amount.AccountAmount.EnteredCurrencyRate	= 1
+				if (DiscountAmount.TransactionAmount entered)
+					DiscountAmount.AccountAmount.ToCurrency				= TransactionCurrency
+					DiscountAmount.AccountAmount.EnteredCurrencyAmount	= DiscountAmount.TransactionAmount
+					DiscountAmount.AccountAmount.EnteredCurrencyRate	= 1
+			else
+			if (Company.Currency = CashManagementAccount.Currency)
+				Amount.AccountAmount.ToCurrency				= Amount.BaseAmount.ToCurrency
+				Amount.AccountAmount.EnteredCurrencyAmount	= Amount.BaseAmount.EnteredCurrencyAmount
+				Amount.AccountAmount.EnteredCurrencyRate	= Amount.BaseAmount.EnteredCurrencyRate
+				if (DiscountAmount.TransactionAmount entered)
+					DiscountAmount.AccountAmount.ToCurrency				= DiscountAmount.BaseAmount.ToCurrency
+					DiscountAmount.AccountAmount.EnteredCurrencyAmount	= DiscountAmount.BaseAmount.EnteredCurrencyAmount
+					DiscountAmount.AccountAmount.EnteredCurrencyRate	= DiscountAmount.BaseAmount.EnteredCurrencyRate
+			else
+				Amount.AccountAmount.ToCurrency = CashManagementAccount.Currency
+				if (DiscountAmount.TransactionAmount entered)		
+					DiscountAmount.AccountAmount.ToCurrency			= CashManagementAccount.Currency
+
+	Conditions
+		AccountsPayableTransaction
+			restricted
+			when (SystemCode	= "AP"
+			and  !ImportRecord)		
+
+		AccountsReceivableTransaction
+			restricted
+			when (SystemCode	= "AR"
+			and  !ImportRecord)		
+
+		PurchaseOrderTransaction
+			restricted
+			when (SystemCode	= "PO"
+			and  !ImportRecord)		
+
+		DisbursementTransaction
+			restricted
+			when (SystemCode	= "AP"
+			or    SystemCode	= "PO")
+		
+		ReportCurrencyEntered
+			restricted
+			when (DirectForecast.ReportCurrency entered)
+
+  	Relations
+	  	LocalDirectForecastSummaryRel
+	  		one-to-one relation to DirectForecastSummary
+  			Field Mapping uses symbolic key
+	  			related.Company		  		  	= LocalCompany
+				related.GeneralLedgerSystemCode	= LocalSystemCode
+				related.CashManagementAccount 	= LocalCashManagementAccount
+				related.DirectForecastSummary 	= LocalDirectForecastSummary
+
+		DirectForecastDetailImportRel		
+			one-to-many relation to DirectForecastDetailImport
+			Field Mapping uses symbolic key
+
+	Actions
+		Create is a Create Action
+			restricted
+			Action Rules
+				if (!ImportRecord)		
+					DocumentNumber = DerivedDocumentNumber
+				include CurrencyCalculation
+
+		Update is an Update Action
+			restricted
+			Action Rules
+				if (!ImportRecord)		
+					DocumentNumber = DerivedDocumentNumber
+				include CurrencyCalculation
+
+		SummarizeDirectForecastDetail is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup	is like CashManagementGroup
+				PrmCompany				is a GeneralLedgerCompany
+				
+			Parameter Rules
+				PrmCashManagementGroup
+					if (PrmCompany				!entered)
+						required
+
+				PrmCompany
+					if (PrmCashManagementGroup	!entered)
+						required
+
+			Local Fields	
+				LocalDueDate	is Date
+				LocalCashCode	is a CashCode
+
+			Instance Selection
+				where ((PrmCompany	entered
+				and     Company											= PrmCompany)
+				or	   (PrmCashManagementGroup							entered
+				and     Company.FinanceEnterpriseGroup	= PrmCashManagementGroup)
+				and     DueDate entered 
+				and	    CashManagementAccount entered)
+
+
+
+				
+			Sort Order
+				Company
+				SystemCode
+				CashCode
+				CashManagementAccount
+				DueDate
+
+			Accumulators
+				TotalCompanyAmount
+				TotalAccountAmount
+				TotalCompanyDiscountAmount
+				TotalAccountDiscountAmount
+
+
+
+			Action Rules
+				Set Rules
+				DueDate Set Rules
+					Exit Rules
+						LocalCompany = Company
+						LocalSystemCode	= SystemCode
+						LocalCashManagementAccount = CashManagementAccount
+						LocalCashCode = CashCode
+						LocalDirectForecastSummary = DueDate
+						invoke Update LocalDirectForecastSummaryRel 
+							invoked.CompanyAmount			+= TotalCompanyAmount
+							invoked.AccountAmount			+= TotalAccountAmount
+							invoked.CompanyDiscountAmount	+= TotalCompanyDiscountAmount
+							invoked.AccountDiscountAmount	+= TotalAccountDiscountAmount
+
+
+
+				Instance Rules
+					TotalCompanyAmount			+= Amount.BaseAmount.EnteredCurrencyAmount
+					TotalAccountAmount			+= Amount.AccountAmount.EnteredCurrencyAmount
+					TotalCompanyDiscountAmount	+= DiscountAmount.BaseAmount.EnteredCurrencyAmount
+					TotalAccountDiscountAmount	+= DiscountAmount.AccountAmount.EnteredCurrencyAmount
+
+
+
+  		Delete is a Delete Action
+  			restricted
+  			
+  		Purge is a Purge Action
+  			restricted	

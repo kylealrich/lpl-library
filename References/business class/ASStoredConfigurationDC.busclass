@@ -1,0 +1,235 @@
+ASStoredConfigurationDC is a BusinessClass
+	default label is "DeliveredConfigurationFile"    
+    owned by appsetup
+    prefix is ASSDC
+
+	Ontology
+     	symbolic key is ASStoredConfigurationDC
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+
+    Persistent Fields
+        Description 		    	is Alpha size up to 500 
+    	ConfigurationFile 	    	is BinaryDocument
+    	ConfigurationFileName   	is FileName size 50
+    		default label is "FileName"
+    	MimeType
+		ASConfigurationName			is like ASConfiguration
+			default label is "ApplicationSetupConfiguration"
+		VersionNumber						is Numeric 5
+	
+	Local Fields
+		ConfigurationParameterName		is Alpha size up to 150	
+		JsonFromFile 					is JSONObject
+		StringFromFile 					is Text
+		VersionToCheck 					is Numeric 5
+		ASConfigNameToCheck 			is like ASConfiguration
+		TimerCount						is Numeric size 1
+
+	Derived Fields
+		SuperuserOn is a DerivedField
+			type is Boolean
+			ConfigurationParameterName = "appsetup.superuser.mode"
+			if (ConfigurationParameterRel exists)
+				return ConfigurationParameterRel.Value
+			return false
+		
+		AutoReapplyInactiveSettingsIsOn is a DerivedField
+			type is Boolean
+			ConfigurationParameterName = "appsetup.auto.reapply.inactive.settings"
+			if (ConfigurationParameterRel exists)
+				return ConfigurationParameterRel.Value
+			return false
+
+		AutoReapplyDefaultEffectiveDatesIsOn is a DerivedField
+			type is Boolean
+			ConfigurationParameterName = "appsetup.auto.reapply.default.effective.dates"
+			if (ConfigurationParameterRel exists)
+				return ConfigurationParameterRel.Value
+			return false
+
+		VerificationModeIsOn is a DerivedField
+			type is Boolean
+			ConfigurationParameterName = "appsetup.verification.mode"
+			if (ConfigurationParameterRel exists)
+				return ConfigurationParameterRel.Value
+			return false
+
+		SleepOneSecond is a NativeField
+			type is Boolean
+			restricted
+		
+		VersionFromFile is a DerivedField
+			type is Numeric size 5
+			if (ConfigurationFile entered)
+				if (JsonFromFile not entered)
+					StringFromFile = ConfigurationFile
+					JsonFromFile = "" + StringFromFile
+				if (JsonFromFile select "$.versionNumber" != "")
+					return JsonFromFile select "$.versionNumber"
+			return 1
+		
+		ASConfigFromFile is a DerivedField
+			type is Alpha size 10
+			if (ConfigurationFile entered)
+				if (JsonFromFile not entered)
+					StringFromFile = ConfigurationFile
+					JsonFromFile = "" + StringFromFile	
+				return JsonFromFile select "$.appSetupConfiguration"
+			return ""
+
+	Field Rules
+		MimeType
+			required
+			initial value is "application/json"
+			default to "application/json"
+
+		ASConfigurationName
+			required
+			if (ASConfigurationName not entered)
+				ASConfigurationName = ASStoredConfigurationDC
+			ASConfigNameToCheck  = ASConfigFromFile
+			constraint (ASConfigurationName = ASConfigNameToCheck)
+				"ApplicationSetupConfigurationMustMatchApp_Setup_ConfigurationInsideConfigurationFile.App_Setup_ConfigurationIs<ASConfigNameToCheck>"			
+			
+
+		
+		VersionNumber
+			required
+			if (VersionNumber not entered)
+				VersionNumber = 1
+			VersionToCheck = VersionFromFile
+			constraint (VersionNumber = VersionToCheck)
+				"VersionNumberMustMatchVersionNumberInsideConfigurationFile.FileVersionNumberIs<VersionToCheck>"
+		
+		ConfigurationFile
+			required
+
+    Relations
+		ASConfigurationRel
+			one-to-one relation to ASConfiguration
+			Field Mapping uses symbolic key
+				related.ASConfiguration =  ASConfigurationName
+
+		ConfigurationParameterRel
+			one-to-one relation to ConfigurationParameter
+			Field Mapping uses symbolic key
+				related.ConfigurationParameter.ConfigurationID	= "config"
+				related.ConfigurationParameter.Name				= ConfigurationParameterName	
+	
+	Conditions
+		ConfigurationExists
+			when (ASConfigurationRel exists)
+
+	Rule Blocks
+		HandlePrimaryConfigurationDesignation
+			ConfigurationParameterName = "appsetup_Primary"
+			if ((ConfigurationParameterRel exists
+			and ConfigurationParameterRel.Value = ASConfigurationRel.ASConfiguration) or 
+			ConfigurationParameterRel not exists)
+				invoke MarkPrimaryInternal ASConfigurationRel
+	    
+    Actions
+        Create is a Create Action
+			
+		Update is an Update Action
+    		
+    	Delete is a Delete Action
+    		
+    	Purge is a Purge Action
+    		restricted
+			bypass relational integrity rules
+		
+		PurgeAll is a Set Action
+			restricted
+			disable checkpoint
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+		PurgeDeliveredConfiguration is an Instance Action
+			valid when (SuperuserOn)
+			confirmation required
+                "AreYouSureYouWantToPurgeDeliveredConfiguration?"
+
+			Action Rules
+				invoke Purge				
+
+		UpgradeDeliveredConfigurations is a Set Action 
+			restricted
+			disable checkpoint
+			Action Rules
+				Instance Rules
+					if (ConfigurationExists) 
+						invoke UpgradeDeliveredConfiguration
+		
+		UpgradeDeliveredConfiguration is an Instance Action
+			valid when ConfigurationExists
+			Local Fields
+				BackupConfig 	is like ASStoredConfiguration
+
+			Action Rules
+				if (VersionNumber > ASConfigurationRel.VersionNumber
+				or (VerificationModeIsOn and VersionNumber = ASConfigurationRel.VersionNumber))
+					invoke CreateUpgradeBackup ASConfigurationRel
+					BackupConfig = ASConfigurationRel.UpgradeBackup.ASStoredConfiguration
+					invoke PurgeConfiguration ASConfigurationRel
+
+					while (TimerCount <= 3)
+						if (SleepOneSecond)
+							log "UpgradeDeliveredConfiguration_Sleep_<ASConfigurationRel.ASConfiguration>"
+						TimerCount += 1
+
+					invoke CreateFromFile ASConfiguration
+						invoked.ImportConfigurationFile.File 		= ConfigurationFile
+						invoked.ImportConfigurationFile.Title		= ConfigurationFileName 
+						invoked.ImportConfigurationFile.MimeType	= MimeType
+						invoked.NewConfigurationName 				= ASConfigurationName
+						invoked.TriggeredByUpgrade					= true
+
+					if (AutoReapplyInactiveSettingsIsOn)
+						invoke ReapplyInactiveSettings ASConfigurationRel
+							invoked.PrmLastConfig = BackupConfig
+					
+					if (AutoReapplyDefaultEffectiveDatesIsOn)
+						invoke ReapplyDefaultEffectiveDates ASConfigurationRel
+							invoked.PrmLastConfig = BackupConfig
+					
+				include HandlePrimaryConfigurationDesignation
+		
+		UpgradeCustomizedConfigurations is a Set Action 
+			restricted
+			disable checkpoint
+			Action Rules
+    			Instance Rules
+					if (ConfigurationExists) 
+    					invoke UpgradeCustomized
+		
+		UpgradeCustomized is an Instance Action
+			valid when ConfigurationExists
+			Action Rules
+				invoke CheckForBaseUpgrades ASConfiguration
+					invoked.PrmASConfigurationName = ASConfigurationName				
+		
+
+    	LoadNewConfigurations is a Set Action 
+			restricted
+			disable checkpoint
+    		Action Rules
+    			Instance Rules
+    				if (!ConfigurationExists)
+    					invoke LoadConfiguration
+		
+		LoadConfiguration is an Instance Action
+			valid when !ConfigurationExists
+			Action Rules
+				invoke CreateFromFile ASConfigurationRel
+					invoked.ImportConfigurationFile.File 		= ConfigurationFile
+					invoked.ImportConfigurationFile.Title		= ConfigurationFileName 
+					invoked.ImportConfigurationFile.MimeType	= MimeType
+					invoked.NewConfigurationName 				= ASConfigurationName
+					invoked.TriggeredByUpgrade					= true
+			
+				include HandlePrimaryConfigurationDesignation

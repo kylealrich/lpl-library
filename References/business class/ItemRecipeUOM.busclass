@@ -1,0 +1,144 @@
+ItemRecipeUOM is a BusinessClass
+	owned by recipe
+	
+	prefix is IRUOM
+	
+	Ontology
+		symbolic key is ItemRecipeUOM
+		
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+	
+	Persistent Fields
+		UnitsPerStock		is a UOMConversion
+		UOMConversion
+		ValidForRecipe		is Numeric 1
+			States
+				NotValid	value is 0
+				Default		value is 1
+				Valid		value is 2
+				Inactive	value is 9
+	
+	Local Fields
+		LocalCreateFromCopy	is Boolean
+	
+	Field Rules
+		ValidForRecipe
+			initial value is DerivedDefaultValidForRecipe
+	
+	Derived Fields
+		UnitsPerStockMessage				is a MessageField
+			"1<Item.StockUOM>_(<Item.StockUOM.Description>)_contains<UnitsPerStock>_<RecipeUnitOfMeasure>_(<RecipeUnitOfMeasure.Description>)"
+		
+		UOMMultiplierMessage			is a MessageField
+			"1_<RecipeUnitOfMeasure>_(<RecipeUnitOfMeasure.Description>)_contains<UOMConversion>_<Item.StockUOM>_(<Item.StockUOM.Description>)"
+	
+		DerivedDefaultValidForRecipe	is a DerivedField
+			type is Numeric size 1
+			if (OtherDefaultItemRecipeUOMRel exists)
+				return ValidForRecipe.Valid
+			else
+				return ValidForRecipe.Default
+	
+	Conditions
+		IsDefaultExists
+			restricted
+			when (OtherDefaultItemRecipeUOMRel exists)
+				
+	Relations
+		RecipeForItemRel
+			one-to-many relation to Recipe
+			Field Mapping uses symbolic key
+				related.ItemGroup					= ItemGroup
+				related.Item						= Item
+			Instance Selection
+				where (related.ServingSizeUOM		= RecipeUnitOfMeasure)
+		
+		RecipeLineForItemRel
+			one-to-many relation to RecipeLine
+			Field Mapping uses symbolic key
+				related.ItemGroup					= ItemGroup
+			Instance Selection
+				where (related.IngredientItem		= Item
+				and	   related.RecipeUnitOfMeasure	= RecipeUnitOfMeasure)
+				
+		OtherDefaultItemRecipeUOMRel
+			one-to-many relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup					= ItemGroup
+				related.Item						= Item
+			Instance Selection
+				where (related.RecipeUnitOfMeasure != RecipeUnitOfMeasure
+				and	   related.ValidForRecipe.Default)
+	
+	Rule Blocks
+		ValidateDefaultRecipeUOM
+			if (not LocalCreateFromCopy)
+				if  (ValidForRecipe.Default)
+					if (OtherDefaultItemRecipeUOMRel exists
+					and (action type.Create or ValidForRecipe changed))
+						confirmation required
+							"ExistingDefaultUOMWillChangeIntoValidUOM;Proceed?"
+				
+					invoke ChangeDefaultUOM OtherDefaultItemRecipeUOMRel
+						invoked.ValidForRecipe		= ValidForRecipe.Valid			
+				else
+					constraint (OtherDefaultItemRecipeUOMRel exists)
+						"TheNewDefaultUOMForRecipesMustBeUpdatedFirst"
+					
+		CalculateUnitsAndConversion
+			if (UnitsPerStock entered)
+				UOMConversion = 1 / UnitsPerStock
+			else
+			if (UOMConversion entered)
+				UnitsPerStock = 1 / UOMConversion
+				
+	Actions
+		Create is a Create Action
+			Action Rules
+				if (not LocalCreateFromCopy)
+					if (UnitsPerStock entered)
+						constraint (UOMConversion not entered)
+							"EnterEitherUOMConversionOrUnitsPerStock"
+					else
+						if (UOMConversion entered)
+							constraint (UnitsPerStock not entered)
+								"EnterEitherUOMConversionOrUnitsPerStock"
+						else
+							constraint (UnitsPerStock entered or UOMConversion entered)
+								"EitherUOMConversionOrUnitsPerStockIsRequired"
+							
+				include ValidateDefaultRecipeUOM
+				include CalculateUnitsAndConversion
+
+		Update is an Update Action
+			Action Rules
+				if (UnitsPerStock entered and UnitsPerStock changed)
+					constraint (UOMConversion not entered)
+						"EnterEitherUOMConversionOrUnitsPerStock"
+				else
+					if (UOMConversion entered and UOMConversion changed)
+						constraint (UnitsPerStock not entered)
+							"EnterEitherUOMConversionOrUnitsPerStock"
+							
+				include ValidateDefaultRecipeUOM
+				include CalculateUnitsAndConversion
+		
+		ChangeDefaultUOM is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			valid when (not ValidForRecipe.Default)
+			Entrance Rules
+				constraint (not ValidForRecipe.Default)
+					"CannotDeleteDefaultRecipeUOMForItem<Item>"	
+					
+				constraint (RecipeForItemRel not exist)
+					"UnitOf_\Measure<RecipeUnitOfMeasure>IsBeingUsedBy_\RecipeFor_\Item<Item>"
+					
+				constraint (first RecipeLineForItemRel not exists)
+					"UnitOf_\Measure<RecipeUnitOfMeasure>IsBeingUsedBy_\Recipe_\Line_\Item<first RecipeLineForItemRel.IngredientItem>For_\Recipe_\Item<first RecipeLineForItemRel.Item>"
+				
+
+					

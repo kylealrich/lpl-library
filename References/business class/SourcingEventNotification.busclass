@@ -1,0 +1,350 @@
+SourcingEventNotification is a BusinessClass 
+    owned by ss
+    prefix is EVN
+
+    Ontology
+    	part of SourcingEvent
+    		relative key is NotifiedSupplier 
+    			    			
+    Patterns
+        implements DynamicCreation
+    
+    Local Fields
+    	LocalProxyEmailAddressList  is an EmailAddressMulti 
+    		holds pii
+		LocalProxyEmailAddressFound is Boolean
+		LocalEventCount				is Numeric size 8
+		LocalPreviousEventId		is Numeric size 21
+    
+    Context Fields
+    	ContextSupplyManagementReport is a SupplyManagementReport
+    	
+    Rule Blocks
+    
+    	BuildProxyEmailAddressList
+			LocalProxyEmailAddressFound = false
+			LocalProxyEmailAddressList  = ""
+			for each SupplierContactProxyRel
+				if (LocalProxyEmailAddressFound)
+					LocalProxyEmailAddressList = LocalProxyEmailAddressList + "," + each.EmailAddress
+				else
+					LocalProxyEmailAddressList = each.EmailAddress
+					LocalProxyEmailAddressFound = true
+    
+    Derived Fields
+    	FinalizedDate is a ComputeField
+    		type is Date
+    		(SourcingEvent.FinalizedDate)
+    		
+    	DerivedProxyEmailAddressList is a DerivedField 
+			type is EmailAddressField with multiple addresses 
+    		holds pii
+    		restricted
+			include BuildProxyEmailAddressList
+			return LocalProxyEmailAddressList
+			
+		DerivedTotalNotificationForContact is a ComputeField
+			type is Numeric size 6
+    		restricted
+			(instance count of SourcingEventNotificationRel)
+
+
+		DerivedTotalEventsBid is a DerivedField
+			type is Numeric size 21
+			initialize LocalEventCount
+			initialize LocalPreviousEventId			
+			for each EventLineResponsesByDiversitySupplierRel
+				if (each.SourcingEvent != LocalPreviousEventId)
+					LocalPreviousEventId = each.SourcingEvent
+					LocalEventCount+=1
+			return (LocalEventCount)	
+
+		DerivedTotalEventsAwarded is a DerivedField
+			type is Numeric size 21
+			initialize LocalEventCount
+			initialize LocalPreviousEventId			
+			for each EventLineResponsesByDiversitySupplierRel
+				if (each.SourcingEvent != LocalPreviousEventId)
+					LocalPreviousEventId = each.SourcingEvent
+					LocalEventCount+=1
+			return (LocalEventCount)	
+
+		DerivedEventsBidPercent is a ComputeField	
+    		type is Percent size 6.2
+    		(DerivedTotalEventsAwarded/ DerivedTotalEventsBid)
+
+
+		DerivedTotalEventLinesBid is a ComputeField
+			type is Numeric size 6
+			(instance count of EventLineResponsesByDiversitySupplierRel)
+		
+		DerivedTotalEventLinesAwarded is a ComputeField
+			type is Numeric size 6
+			(instance count of ResponseLinesAwardedByDiversitySupplierRel)
+		
+		DerivedEventLinesBidPercent is a ComputeField	
+    		type is Percent size 6.2
+    		(DerivedTotalEventLinesAwarded/ DerivedTotalEventLinesBid)
+ 		 
+ 		DerivedBidTotal is a DerivedField
+			type is like InternationalAmount
+			return (sum EventLineResponsesByDiversitySupplierRel.BaseExtendedPrice)
+ 		
+ 		DerivedAwardedTotal is a DerivedField
+			type is Decimal size 21.2
+			return (sum EventLineResponsesByDiversitySupplierRel.TotalOfSupplierResponseAwards)
+ 
+		DerivedTotalBidPercent is a ComputeField	
+    		type is Percent size 6.2
+    		(DerivedAwardedTotal/ DerivedBidTotal)
+	
+    Conditions
+		EventFinalized
+    		restricted
+			when (FinalizedDate entered)
+		ResponsesExist
+    		restricted
+			when (SubmittedEventResponsesRel exists)
+		CanRespondToEvent
+    		restricted
+			when (SourcingEvent.Status.Open
+			and   SourcingEvent.ApprovalStatus.Approved
+    		and   SourcingEvent.NotificationStatus.Notified)
+    	NeedResponses
+    		restricted
+    		when (!ResponsesExist
+    		and  CanRespondToEvent)
+    	SupplierContactCertificationsExist
+    		restricted
+    		when (SupplierLocationCertRel exists)
+    	SupplierContactEmailAddressExists
+    		restricted
+    		when (NotifiedSupplier.SupplierSourceId.EmailAddress entered)
+    		
+    	AwardHistoryListNotEmpty
+    		restricted
+    		when (EventLineResponsesByDiversitySupplierRel exists or SourcingEventNotificationRel exists)
+
+		BuyerCanCreateDialog
+			restricted
+			when (NotifiedSupplier.SupplierGroup.CanCreateDialogWithSupplier
+			and   SupplierContactHasEventAccess
+			and   CanRespondToEvent)
+
+		SupplierContactHasEventAccess
+			restricted
+			when (NotifiedSupplier.SupplierSourceId.HasEventAccess)
+
+    Relations
+    	SupplierContactProxyRel
+    		one-to-many relation to SupplierContactProxy
+    		Field Mapping uses part of key
+    			related.SupplierGroup		= NotifiedSupplier.SupplierGroup
+    			related.Supplier			= NotifiedSupplier.Supplier
+    			related.SupplierSourceId	= NotifiedSupplier.SupplierSourceId
+    		Instance Selection
+    			where (related.ReceiveEmailNotification)
+
+     	SupplierSourceIdRel
+     		one-to-one relation to SupplierSourceId
+     		Field Mapping uses symbolic key
+    			related.SupplierGroup		= NotifiedSupplier.SupplierGroup
+    			related.Supplier			= NotifiedSupplier.Supplier
+    			related.SupplierSourceId	= NotifiedSupplier.SupplierSourceId     		
+     	
+     	SupplierDiversityRel
+			one-to-many relation to SupplierDiversityResponse
+			Field Mapping uses BySupplier
+				related.SupplierGroup		= NotifiedSupplier.SupplierGroup
+ 				related.Supplier			= NotifiedSupplier.Supplier
+			Instance Selection
+				where	(related.EffectiveDate		= blank
+				or		(related.EffectiveDate  	<= FinalizedDate
+				and		 related.ExpirationDate	    >= FinalizedDate))	
+				
+     	SubmittedEventResponsesRel
+			one-to-many relation to SourcingEventResponse
+			Field Mapping uses ByEvent
+				related.Company				= Company
+				related.SourcingEvent		= SourcingEvent
+				related.NotifiedSupplier	= NotifiedSupplier
+			Instance Selection
+				where (related.Status.Submitted)
+
+		SupplierLocationCertRel
+			one-to-many relation to SupplierCertification
+			Field Mapping uses symbolic key
+				related.SupplierGroup     = NotifiedSupplier.SupplierGroup
+				related.Supplier          = NotifiedSupplier.Supplier
+				related.SupplierSourceId  = NotifiedSupplier.SupplierSourceId
+
+     	SourcingEventPlanHolderRel
+			one-to-many relation to SourcingEventPlanHolder
+			Field Mapping uses BySupplier
+				related.NotifiedSupplier.SupplierGroup 	  = NotifiedSupplier.SupplierGroup
+				related.NotifiedSupplier.Supplier	   	  = NotifiedSupplier.Supplier
+				related.NotifiedSupplier.SupplierSourceId = NotifiedSupplier.SupplierSourceId
+				related.Company                           = Company
+				related.SourcingEvent                     = SourcingEvent
+			Instance Selection
+				where (!related.AddedBySupplier)
+
+
+
+     	SourcingEventNotificationRel
+			one-to-many relation to SourcingEventNotification
+			Field Mapping uses BySupplier
+				related.NotifiedSupplier.SupplierGroup 	  = NotifiedSupplier.SupplierGroup
+				related.NotifiedSupplier.Supplier	   	  = NotifiedSupplier.Supplier
+				related.NotifiedSupplier.SupplierSourceId = NotifiedSupplier.SupplierSourceId
+			Instance Selection
+				where	(related.SourcingEvent.FinalizedDate	>= ContextSupplyManagementReport.FromDate
+				or		related.SourcingEvent.FinalizedDate		<= ContextSupplyManagementReport.ThruDate)
+		
+		EventLineResponsesByDiversitySupplierRel
+			one-to-many relation to SourcingEventLineResponse
+			Field Mapping uses BySupplier
+				related.NotifiedSupplier.SupplierGroup		= NotifiedSupplier.SupplierGroup
+ 				related.NotifiedSupplier.Supplier			= NotifiedSupplier.Supplier
+ 				related.NotifiedSupplier.SupplierSourceId 	= NotifiedSupplier.SupplierSourceId
+			Instance Selection
+				where	(related.SourcingEvent.FinalizedDate	>= ContextSupplyManagementReport.FromDate
+				or		related.SourcingEvent.FinalizedDate		<= ContextSupplyManagementReport.ThruDate)
+
+		ResponseLinesAwardedByDiversitySupplierRel
+			one-to-many relation to SourcingEventLineResponse
+			Field Mapping uses BySupplier
+				related.NotifiedSupplier.SupplierGroup		= NotifiedSupplier.SupplierGroup
+ 				related.NotifiedSupplier.Supplier			= NotifiedSupplier.Supplier
+ 				related.NotifiedSupplier.SupplierSourceId 	= NotifiedSupplier.SupplierSourceId
+			Instance Selection
+				where	(related.IsAwarded)
+
+
+
+    Sets
+        BySupplier
+        	Sort Order
+ 				NotifiedSupplier.SupplierGroup
+ 				NotifiedSupplier.Supplier
+				NotifiedSupplier.SupplierSourceId
+ 				Company
+ 				SourcingEvent					
+    			
+    Actions
+   		Create is a Create Action
+   			valid when (SourcingEvent.InEditableState)	
+   			Action Rules
+   				constraint (!SourcingEvent.IsTemplate)
+					"CannotAddNotificationsForEventTemplates"
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddNotificationWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotAddNotificationWhileEventIsPendingEventApproval"
+                if (!SourcingEvent.Status.Draft
+                and !SourcingEvent.PostingOptions.DoNotDisplayOnPortal)
+                    confirmation required
+                        "Warning:<NotifiedSupplier.SupplierSourceId.MainContact.FirstAndLastName>Of<NotifiedSupplier.SupplierSourceId.Supplier.SupplierName>WillImmediatelyReceiveNotificationAboutBiddingOnThisEventViaThePortalAnd/OrEmailUponBeingAddingToThisEvent.DoYouWantToContinue?"
+                    
+            Exit Rules
+                if (!SourcingEvent.Status.Draft
+                and !SourcingEvent.PostingOptions.DoNotDisplayOnPortal)
+                    if (NotifiedSupplier.SupplierSourceId.ReceiveEmailNotification)
+                        send email
+                            to NotifiedSupplier.SupplierSourceId.EmailAddress
+                            cc DerivedProxyEmailAddressList
+                            from SourcingEvent.DerivedFromEmail
+                            subject "<Company.FinalEventEmailSubject>"
+                            Contents
+                                "<Company.FinalEventEmailContent>"
+
+                    invoke Create SupplierContactMessage
+                        invoked.SupplierGroup              	= NotifiedSupplier.SupplierSourceId.SupplierGroup
+                        invoked.Supplier                    = NotifiedSupplier.SupplierSourceId.Supplier
+                        invoked.SupplierSourceId            = NotifiedSupplier.SupplierSourceId
+                        invoked.CreationDateTime            = current timestamp
+                        invoked.MessageTitle                = Company.FinalEventEmailSubject
+                        invoked.MessageText                 = Company.FinalEventEmailContent
+                        invoked.Status                      = 1
+                        invoked.Priority                    = 2
+                        invoked.SystemGenerated             = true
+                        invoked.ReleaseStatus               = 2
+                        invoked.OriginatingEvent    		= SourcingEvent
+						invoked.OriginatingCompany  		= Company
+                        invoked.MessageOwner                = SourcingEvent.Buyer  
+                        
+		CreateMessageAndDialog is an Instance Action  
+			default label is "StartASupplierDialog"
+			valid when (BuyerCanCreateDialog)
+			Parameters
+				ParmDialogMessage       is Alpha size 1000
+					default label is "Message"
+				ParmDialogAttachment	is an Attachment
+					default label is "Attachment"
+				ParmPriority            is Numeric 1
+					States
+						Low				value is 1
+						Normal			value is 2
+						High			value is 3
+					default label is "Priority"
+				ParmResponseRequested   is Boolean
+					default label is "ResponseRequired"
+
+			Parameter Rules
+				ParmDialogMessage
+					required
+
+				ParmPriority
+					initial value is 2
+
+			Local Fields
+				LocalSupplierContactMessage        is a SupplierContactMessage view
+
+			Action Rules
+
+				invoke Create SupplierContactMessage
+					assign result to LocalSupplierContactMessage
+					invoked.SupplierGroup  					= NotifiedSupplier.SupplierSourceId.SupplierGroup					
+ 					invoked.Supplier    			 		= NotifiedSupplier.SupplierSourceId.Supplier
+					invoked.SupplierSourceId                = NotifiedSupplier.SupplierSourceId 
+					invoked.MessageTitle					= "Dialog for Event: " + SourcingEvent.RepresentativeText
+					invoked.MessageText                     = "User Created Message and Dialog for Event: " + SourcingEvent.RepresentativeText
+					invoked.Status							= 1
+					invoked.Priority						= ParmPriority
+					invoked.ReleaseStatus					= 2
+					invoked.MessageOwner                    = actor.agent(Employee).Employee
+					invoked.OriginatingCompany              = Company
+					invoked.OriginatingEvent                = SourcingEvent
+
+				invoke Create SupplierMessageDialog
+					invoked.SupplierGroup  					= NotifiedSupplier.SupplierSourceId.SupplierGroup					
+ 					invoked.Supplier    			 		= NotifiedSupplier.SupplierSourceId.Supplier
+					invoked.SupplierSourceId                = NotifiedSupplier.SupplierSourceId
+					invoked.SupplierContactMessage 			= LocalSupplierContactMessage.SupplierContactMessage
+					invoked.Message                 		= ParmDialogMessage
+					invoked.MessageAttachment       		= ParmDialogAttachment
+					invoked.ResponseRequested       		= ParmResponseRequested
+					invoked.Origin                          = 1
+
+   		Update is an Update Action
+   			valid when (SourcingEvent.InEditableState)		
+   			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotUpdateNotificationWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotUpdateNotificationWhileEventIsPendingEventApproval"
+   			   					
+   		Delete is a Delete Action
+   			valid when (SourcingEvent.InEditableState) 		
+   			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotDeleteNotificationWhileEventIsPendingAward,Cancelled,OrClosed"  
+				if (!SourcingEvent.PostingOptions.DoNotDisplayOnPortal) 			
+   					constraint (SourcingEvent.Status.Draft)
+   						"SupplierHasAlreadyBeenNotified-CannotDelete"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotDeleteNotificationWhileEventIsPendingEventApproval"
+				if (SourcingEventPlanHolderRel exists)
+					invoke Delete SourcingEventPlanHolderRel
+
+   		

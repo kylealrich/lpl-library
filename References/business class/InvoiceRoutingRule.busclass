@@ -1,0 +1,180 @@
+InvoiceRoutingRule is a BusinessClass
+    owned by apautomation
+    prefix is APIRR
+
+    Ontology
+    	symbolic key is InvoiceRoutingRule
+
+	Patterns
+		implements Resequence on Priority
+			new sequence field is NewPriority
+			set is ByPriority
+			
+    Persistent Fields
+		Priority						 	is a DisplayOrder
+		Name								is AlphaUpper 50
+		Description						 	is Alpha 250
+		ApproverAssignmentRule				is a PayablesInvoice group
+			default label is "InvoiceRoutingRule"
+		RoutingCode							is a InvoiceRoutingCode
+			default label is "ApprovalCode"
+		InvoiceRoutingCodeGroup				
+			default label is "ApprovalCodeGroup"
+		UseResponsibilityMatrix				is Boolean
+		AutoApprove							is Boolean
+		Active
+	
+	Transient Fields
+		NewPriority					is a DisplayOrder
+
+	Local Fields
+		SaveRule					is a InvoiceRoutingRule view
+
+	Derived Fields
+		DerivedDepthLevel is a DerivedField
+			type is Numeric 2
+			restricted
+        	return (instance count of InvoiceRoutingRule ancestors)
+
+		DerivedParent is a DerivedField
+			type is Numeric 12
+			restricted
+			return InvoiceRoutingRule parent.InvoiceRoutingRule
+
+		CountOfRuleDescendants is a ComputeField
+			type is Numeric 1
+			restricted
+			(instance count of InvoiceRoutingRule descendants)
+
+		CountOfRuleDescendantsPlusOne is a DerivedField
+			type is Numeric 1
+			restricted
+			return (CountOfRuleDescendants + 1)
+
+		DerivedDescription is a DerivedField		
+			type is Alpha size up to 350
+			default label is "Code_/GroupDescription"
+			if (RoutingCode entered)
+				return RoutingCode.Description
+			if (InvoiceRoutingCodeGroup entered)
+				return InvoiceRoutingCodeGroup.Description3
+
+	Field Rules
+		Priority
+			default to InvoiceRoutingRule
+
+		Name
+			required
+
+		Description
+		
+		ApproverAssignmentRule
+			required
+
+		UseResponsibilityMatrix
+			constraint (!AutoApprove)
+				"CannotUseResponsibilityMatrixIfAutoApproveIsSelected"
+			if (UseResponsibilityMatrix)
+				constraint (VendorGroup.FinanceEnterpriseGroup.EnableResponsibilityMatrix)
+					"CannotEnable_Use_Responsibility_MatrixWhenThe_Finance_Enterprise_GroupDoesNotHaveThe_Responsibility_MatrixTurnedOn"
+		
+		RoutingCode
+
+
+			if (AutoApprove		
+			or  UseResponsibilityMatrix
+			or  InvoiceRoutingCodeGroup entered)
+				cannot be entered
+					"ApprovalCodeCannotBeEnteredIfAutoApproveOrUseResponsibilityMatrixIsSetToTrueAndOrApprovalCodeGroupEntered"
+
+		InvoiceRoutingCodeGroup		
+			if (AutoApprove
+			or  UseResponsibilityMatrix)
+				cannot be entered
+					"ApprovalCodeGroupCannotBeEnteredIfAutoApproveOrUseResponsibilityMatrixIsSetToTrue"
+
+		Active
+			initial value is true
+
+		ParentInvoiceRoutingRule
+			constraint (ParentInvoiceRoutingRule != InvoiceRoutingRule)
+				"AnInvoiceRoutingRuleCannotBeItsOwnParentInvoiceRoutingRule"
+
+			constraint (all InvoiceRoutingRule descendants.InvoiceRoutingRule != ParentInvoiceRoutingRule)
+				"InvoiceRoutingRule<InvoiceRoutingRule parent.InvoiceRoutingRule.Name>CannotBeAParentForInvoiceRoutingRule<Name>.ItIsAlreadyADescendantOfInvoiceRoutingRule<InvoiceRoutingRule.Name>"
+							
+	Attach Rules
+		if (parentcontext.name != "InvoiceRoutingRule")
+			constraint (Active)
+				"InvoiceRoutingRuleIsInactive"
+	
+	Sets
+		ByPriority
+			duplicates
+			Sort Order
+ 				VendorGroup
+ 				Priority
+ 				InvoiceRoutingRule
+ 				
+ 		ByParentPriorityKey			
+ 			Sort Order
+ 				VendorGroup
+ 				ParentInvoiceRoutingRule
+ 				Priority
+ 				InvoiceRoutingRule
+ 
+ 	Conditions
+		HasChild
+			restricted
+			when (InvoiceRoutingRule children exist)
+		ResourcesExist
+			restricted
+			when (InvoiceRoutingCodeResourceRel exists)
+		InvoiceRoutingCodeGroupEntered		
+			restricted
+			when (InvoiceRoutingCodeGroup entered)
+
+	Relations
+		InvoiceRoutingCodeResourceRel
+			one-to-many relation to InvoiceRoutingCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.VendorGroup			= VendorGroup
+				related.InvoiceRoutingCode	= RoutingCode
+
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+
+		MoveRule is an Instance Action
+			default label is "Move"
+			completion message is "MoveComplete;RefreshView"
+			Parameters
+				MoveDirection	is Numeric 1 
+					States
+						Above	value is 1
+						Below 	value is 2
+				PrmRule			is a InvoiceRoutingRule
+			Parameter Rules
+				MoveDirection
+					required
+					initial value is MoveDirection.Below
+				PrmRule
+					required
+						"InvoiceRoutingRuleIsRequired"
+					constraint (PrmRule != InvoiceRoutingRule)
+						"YouCannotSelectTheSameRuleAsTheOneYouAreMoving"
+			Action Rules
+				SaveRule = PrmRule
+
+				if (SaveRule.ParentInvoiceRoutingRule not = ParentInvoiceRoutingRule) 
+					invoke Update 
+						invoked.NewPriority = ParentInvoiceRoutingRule.CountOfRuleDescendantsPlusOne
+				invoke Update 
+					invoked.ParentInvoiceRoutingRule = SaveRule.ParentInvoiceRoutingRule
+					if (MoveDirection.Above)
+						invoked.NewPriority = SaveRule.Priority 
+					else
+						invoked.NewPriority = SaveRule.Priority + 1

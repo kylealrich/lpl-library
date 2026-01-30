@@ -1,0 +1,166 @@
+MobileSupplyChainPurchaseOrderReceipt is a BusinessClass
+    owned by mscm
+    prefix is MSPOR
+    sql name is "MSCMPOReceipt"
+
+    Ontology
+        symbolic key is MobileSupplyChainPurchaseOrderReceipt
+
+    Persistent Fields
+        MobileSupplyChainUpload
+        PurchaseOrder
+        PurchaseOrderReceipt
+        PurchaseOrderLocation       is like InventoryLocation
+        ShipToLocation              is like InventoryLocation
+        Carrier                     is a MobileSupplyChainVendor
+        CarrierTrackingNumber       is a TrackingNumber
+        BillOfLading
+        ReferenceNumber 
+        TimeSubmitted               is TimeStamp
+        TimeStarted                 is TimeStamp
+        ReportPrinter               is a MobileSupplyChainPrinter
+        LabelPrinter                is a MobileSupplyChainPrinter
+        ErrorMessage                is Text
+
+    Field Rules
+
+    Local Fields
+        PurchaseOrderReceiptView is a PurchaseOrderReceipt view
+        LocalError               is Boolean
+        LocalErrorMessage        is Text
+        LocalPOLineCount         is Numeric size 6
+        
+    Relations
+        DuplicateReferenceNumberRel
+            one-to-many relation to PurchaseOrderReceipt
+            Field Mapping uses Set11
+                related.Company         = Company
+                related.ReferenceNumber = ReferenceNumber
+            Instance Selection
+                where (related.PurchaseOrderReceipt != PurchaseOrderReceipt)
+
+        MobileSupplyChainPurchaseOrderReceiptLineRel is a MobileSupplyChainPurchaseOrderReceiptLine set
+
+        MobileSupplyChainPurchaseOrderReceiptLineInspectionRel is a MobileSupplyChainPurchaseOrderReceiptLine set
+            Instance Selection
+                where (related.RejectedQuantity entered)
+
+		MobileSupplyChainLocationRel
+			one-to-one relation to MobileSupplyChainLocation
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.MobileSupplyChainLocation	= ShipToLocation
+                
+        PurchaseOrderReceiptInspectionRel
+            one-to-many relation to POReceiptAdjustmentAndInspection
+            Field Mapping uses symbolic key
+                related.Company                          = Company
+                related.AdjustmentInspectionDocumentType = AdjustmentInspectionDocumentType.ReceiptInspection
+            Instance Selection
+                where (related.PurchaseOrderReceipt = PurchaseOrderReceipt
+                and    related.Status.Released)
+
+    Derived Fields
+        DuplicateReferenceNumberMessage is a MessageField
+            "ReferenceNumberUsedOnReceipt<first DuplicateReferenceNumberRel.PurchaseOrderReceipt>"
+        
+        RejectedPurchaseOrderMessage is a MessageField
+            "CannotReceiveARejectedPurchaseOrder"
+        
+        CancelledPurchaseOrderMessage is a MessageField
+            "PurchaseOrderIsCancelled"
+        
+        UnreleasedPurchaseOrderMessage is a MessageField
+            "PurchaseOrderIsNotReleased"
+        
+        PurchaseOrderReceiptBuyerMessage is a MessageField
+            "Receipt<PurchaseOrderReceipt>_Line_<DerivedBuyerMessageFirstLineNumber>_HasOutstandingBuyerMessage"
+
+        InspectionNotCreatedMessage is a MessageField
+            "InspectionNotCreated"
+
+        DerivedBuyerMessageFirstLineNumber is a DerivedField
+            type is like LineNumber
+            restricted
+            return first PurchaseOrderReceipt.PurchaseOrderUnreleasedBuyerMessagesRel.PurchaseOrderReceiptLine.PurchaseOrderLine.LineNumber
+
+    Conditions
+        IsUnreleased
+            restricted
+            when ((PurchaseOrderReceipt entered 
+            and    PurchaseOrderReceipt.Status.Unreleased)
+            or     ErrorMessage entered)
+        
+        PurchaseOrderHasCatchWeight
+            when (PurchaseOrder.PurchaseOrderHasCatchWeight)
+
+        IsReleasedValidForInspection
+            restricted
+            when (PurchaseOrderReceipt entered
+            and   PurchaseOrderReceipt.Status.Released)
+
+    Actions
+        Create is a Create Action
+            Action Rules
+                if (PurchaseOrderReceipt entered)
+                    invoke Update PurchaseOrderReceipt
+                        invoked.Carrier        = Carrier
+                        invoked.BillOfLading   = BillOfLading
+                        invoked.ReferenceNumber       = ReferenceNumber                        
+                else
+                    if (DuplicateReferenceNumberRel exists)
+                        ErrorMessage = DuplicateReferenceNumberMessage
+                    else
+                    if (PurchaseOrder.Rejected)
+                        ErrorMessage = RejectedPurchaseOrderMessage
+                    else
+                    if (PurchaseOrder.Canceled)
+                        ErrorMessage = CancelledPurchaseOrderMessage
+                    else
+                    if (not PurchaseOrder.Released)
+                        ErrorMessage = UnreleasedPurchaseOrderMessage
+
+                    if (ErrorMessage not entered)
+                        invoke Unreleased.Create PurchaseOrderReceipt
+                            assign result to PurchaseOrderReceiptView
+                            invoked.Company               = Company
+                            invoked.PurchaseOrder         = PurchaseOrder
+                            invoked.ShipToLocation        = ShipToLocation
+                            invoked.PurchaseOrderLocation = PurchaseOrderLocation
+                            invoked.Carrier               = Carrier
+                            invoked.ReferenceNumber       = ReferenceNumber
+                            invoked.MSCMReportPrinter     = ReportPrinter
+                            invoked.MSCMLabelPrinter      = LabelPrinter
+
+                        PurchaseOrderReceipt    = PurchaseOrderReceiptView.PurchaseOrderReceipt
+                        
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+        ReleaseReceipt is an Instance Action
+            valid when (IsUnreleased)
+            Action Rules
+                initialize ErrorMessage
+
+                if (PurchaseOrderReceipt.HasUnreleasedBuyerMessages)
+                    ErrorMessage = PurchaseOrderReceiptBuyerMessage
+                else
+                if (not PurchaseOrder.Released)
+                    ErrorMessage = UnreleasedPurchaseOrderMessage
+
+                if (ErrorMessage entered
+                and MobileSupplyChainPurchaseOrderReceiptLineInspectionRel exists)
+                    ErrorMessage = ErrorMessage + "; " + InspectionNotCreatedMessage
+
+                if (ErrorMessage not entered)
+                    invoke ReleaseFromMSCM MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+
+    Sets
+        ByTimeSubmitted
+            Sort Order
+                TimeSubmitted descending
+                Company
+                MobileSupplyChainPurchaseOrderReceipt

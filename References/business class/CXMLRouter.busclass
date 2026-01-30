@@ -1,0 +1,175 @@
+CXMLRouter is a BusinessClass
+	owned by cxml
+
+	prefix is Rout
+
+	Ontology
+		symbolic key is CXMLRouter
+
+	Patterns
+		implements CRUD
+        disable Auditing
+        disable EffectiveDated
+
+	Persistent Fields
+		RunGroup
+		Data 					is XMLDocument
+		Status 					is Alpha 60
+		LastUpdatedTimeStamp	is TimeStamp
+			default label is "LastUpdated"
+		ResponseXML				is XMLDocument
+		MultiPartAttachments 	is a MultiPartArray
+		WSIEndpoint 			is Alpha 1000
+
+	Local Fields
+		ErrorOccurred 			is Boolean
+		LocalDate				is Date
+		LocalStatusCode			is Numeric 3
+		LocalStatusMessage		is Text
+		LocalData				is XMLDocument
+		LocalDocumentNumber		is Alpha size 29
+
+	Derived Fields
+		AribaResponseXML is a DerivedField
+			type is XMLDocument
+			restricted
+			AribaResponseXML = template.AribaResponseXML_ST document for this instance
+
+		PayloadID is a StringField
+			type is Alpha size 100
+			restricted
+			LastUpdatedTimeStamp
+			"@"
+			RunGroup
+
+		DateTimestamp is a NativeField
+			type is Alpha 20
+			restricted
+
+	Transient Fields
+		SharedSecret is Alpha 100
+
+	Field Rules
+		LastUpdatedTimeStamp
+            default to current timestamp
+            initial value is current timestamp
+
+	Sets
+		ByLastUpdated
+			duplicates
+			Sort Order
+				LastUpdatedTimeStamp
+				RunGroup
+				Status
+
+		ByStatus
+			duplicates
+			Sort Order
+				Status
+
+	Rule Blocks
+
+	    IdentifyOutboundDocument
+	        if (Data select "/cXML/Request/StatusUpdateRequest" != "")
+	            Status = "Invoice Status Update Request"
+	        if (Data select "/cXML/Request/PaymentProposalRequest" != "")
+	            Status = "Payment Proposal Request"
+	        if (Data select "/cXML/Request/PaymentRemittanceRequest" != "")
+	            Status = "Payment Remittance Request"
+	        if (Data select "/cXML/Request/OutboundCXMLOrderRequest" != "")
+	            Status = "Order Request"
+
+
+	Actions
+		Create is an Action
+		Delete is a Delete Action
+		Update is an Update Action
+			Action Rules
+                LastUpdatedTimeStamp = current timestamp
+
+
+
+
+
+		InboundCreate is a Create Action
+			restricted
+			Exit Rules
+				invoke InboundRouteDocument
+					resume on error
+						if (LocalStatusMessage = "")
+							Status = "Unknown Inbound Document"
+							LocalStatusCode = 500
+							LocalStatusMessage = "Internal Service Error"
+				ResponseXML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+				ResponseXML += "<!DOCTYPE cXML SYSTEM \"http://xml.cxml.org/schemas/cXML/1.2.021/cXML.dtd\">"
+				ResponseXML += AribaResponseXML
+
+		InboundRouteDocument is an Instance Action
+			Action Rules
+				if (Data != "")
+					invoke PopulateInboundRunGroup
+					if (Data select "/cXML/Request/ConfirmationRequest" != "")
+						LocalDocumentNumber = Data select "/cXML/Request/ConfirmationRequest/ConfirmationHeader/@confirmID"
+						Status = "Order Confirmation: " + LocalDocumentNumber
+						invoke Create InboundCXMLPOAcknowledgement
+							invoked.ResponseXML = Data
+							LocalStatusCode = 200
+							LocalStatusMessage = "OK"
+					else
+					if (Data select "/cXML/Request/InvoiceDetailRequest" != "")
+						LocalDocumentNumber = Data select "/cXML/Request/InvoiceDetailRequest/InvoiceDetailRequestHeader/@invoiceID"
+						Status = "Invoice Request: " + LocalDocumentNumber
+						invoke Create InboundCXMLInvoice
+							invoked.ResponseXML = Data
+							invoked.AttachmentData = MultiPartAttachments
+							LocalStatusCode = 200
+							LocalStatusMessage = "OK"
+					else
+					if (Data select "/cXML/Request/StatusUpdateRequest" != "")
+						Status = "Status Update Request Received"
+						invoke Create InboundCXMLPOStatusUpdate
+							invoked.ResponseXML = Data
+							LocalStatusCode = 200
+							LocalStatusMessage = "OK"
+					else
+						Status = "Unknown Document"
+						LocalStatusCode = 450
+						LocalStatusMessage = "Not Implemented"
+				else
+					Status = "Data Field Empty"
+					LocalStatusCode = 204
+					LocalStatusMessage = "No Content"
+				LastUpdatedTimeStamp = current timestamp
+
+
+
+
+		OutboundCreate is a Create Action
+			restricted
+			Exit Rules
+				invoke OutboundRouteDocument
+					resume on error
+						if (Status = "")
+							Status += error message
+							Status += " | Unable to Route Outbound Document"
+
+		OutboundRouteDocument is an Instance Action
+			Action Rules
+				if (Data != "")
+					invoke PopulateOutboundRunGroup
+					invoke OutboundCXMLRequest OutboundCXML 
+						invoked.Request 							= Data
+						ResponseXML									= result.Response
+						invoked.OUTBOUNDCXMLWSITIMEOUT				= "120"
+						invoked.OUTBOUNDCXMLWSIENDPOINT				= WSIEndpoint
+                      	if (Status = "")
+                        	include IdentifyOutboundDocument
+                LastUpdatedTimeStamp = current timestamp
+
+		PopulateInboundRunGroup is an Instance Action
+			Action Rules
+				RunGroup = Data select "/cXML/Header/From/Credential[1]/Identity"
+
+		PopulateOutboundRunGroup is an Instance Action
+		    Action Rules
+		        RunGroup = Data select "/cXML/Header/To/Credential/Identity"

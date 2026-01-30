@@ -1,0 +1,301 @@
+VendorReturnLineDistribution is a BusinessClass
+    owned by po
+    prefix is VRMMD
+    
+    Ontology
+    	symbolic key is VendorReturnLineDistribution
+
+
+	Persistent Fields
+		AssetInformation
+        DistributionPercent				is Percent size 6.3 
+        DistributionQuantity			is a Quantity
+        PostingType                 	is AlphaUpper size 2
+            States
+                Inventory           value is "I1"
+                Offset              value is "O1"
+                RniExpenseAccount   value is "E1"
+                ReceivedNotInvoiced value is "RN"
+                MatchedNotReceived  value is "MN"
+                AddOnCost           value is "A"
+
+	Transient Fields
+		BypassAccountEdit				is Boolean
+		DistributionAccount		 		is a TransactionCodeBlock		 		
+			derive value from GLTransactionDetailRel.FinanceCodeBlock	
+		DistributionAmount		 		is a CurrencyAmount
+			derive value from GLTransactionDetailRel.TransactionAmount 
+		GLTKeepRateOnly					is Boolean
+		ReportCurrencyAmount            is a FinanceCurrencyAmount
+		TransientCurrencyTable          is a CurrencyTable
+			derive value from Company.FinanceEnterpriseGroup.CurrencyTable
+		TransientAccountingEntity       is an AccountingEntity  
+			derive value from Company.AccountingEntity
+		TransientExchangeDate           is an ExchangeDate
+			derive value from VendorReturnLine.LastUpdateDate
+		TransientPostingDate            is a PostingDate
+			derive value from VendorReturnLine.LastUpdateDate
+		TransientFromCurrency           is a FromCurrency
+			derive value from VendorReturnLine.VendorReturn.Currency
+		TransientCurrencyAmount         is a CurrencyAmount
+			derive value from DistributionAmount
+		BypassActiveCodeBlockEdit
+				
+	Conditions
+		DistributionByQuantity
+			restricted
+			when (DistributionQuantity entered)
+		
+		DistributionByPercent
+			restricted
+			when (DistributionPercent entered)
+		
+		DistributionByAmount
+			restricted
+			when (DistributionAmount entered)
+			
+	Local Fields
+		LocalAccountingEntity                       is an AccountingEntity 
+		LocalBypassUnitAndAmountEdit				is a BypassUnitAndAmountEdit
+		LocalGeneralLedgerSystemCode				is a GeneralLedgerSystemCode
+		LocalPostingDate							is a PostingDate
+		LocalExchangeDate							is an ExchangeDate
+			
+	Relations
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			delete cascades
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction = reference to this instance   
+		
+		OtherVendorReturnLineDistributionsRel
+			one-to-many relation to VendorReturnLineDistribution
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.VendorReturn		= VendorReturn
+				related.VendorReturnLine	= VendorReturnLine
+			Instance Selection
+				where (related.VendorReturnLineDistribution != VendorReturnLineDistribution)
+				
+		GeneralLedgerSystemCodeRel
+            one-to-one relation to GeneralLedgerSystemCode
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup    = Company.FinanceEnterpriseGroup
+                related.GeneralLedgerSystemCode   = "PO"
+
+	Rule Blocks
+	
+		CreateGLTransDetail
+			LocalBypassUnitAndAmountEdit = true
+			invoke Unreleased.Create GLTransactionDetail
+				fill in fields from this instance		 
+				invoked.OriginatingTransaction 	= reference to this instance
+				invoked.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+				invoked.System					= "PO"	
+				invoked.Reference				= "VendorReturnLineDistribution"
+				invoked.AccountingEntity		= VendorReturnLine.Company.AccountingEntity
+				invoked.CurrencyCode			= VendorReturnLine.VendorReturn.Currency					 
+				invoked.TransactionDate			= VendorReturnLine.LastUpdateDate
+				invoked.PostingDate				= current corporate date
+				invoked.FinanceCodeBlock		= DistributionAccount
+				invoked.ReportCurrencyAmount 	= ReportCurrencyAmount
+				invoked.TransactionAmount		= DistributionAmount	
+				invoked.ReportCurrencyAmount.KeepRateOnly = GLTKeepRateOnly
+				invoked.ControlDocumentNumber 	= VendorReturnLine.VendorReturn
+				invoked.DocumentNumber		  	= VendorReturnLine.VendorReturn
+				invoked.Description			  	= VendorReturnLine.Description		
+				invoked.AutoReverse 			= false		
+				invoked.GeneralLedgerEvent 		= "VR"		
+
+
+		UpdateGLTransDetail
+			if (DistributionQuantity entered)
+				DistributionAmount				= DistributionQuantity * VendorReturnLine.UnitCost
+			else
+			if (DistributionPercent entered)
+				if (VendorReturnLine.IsCatchWeightItem)
+					DistributionAmount				= ((DistributionPercent * VendorReturnLine.CatchWeightQuantity) * VendorReturnLine.DerivedUnitCost)
+				else
+					DistributionAmount				= ((DistributionPercent * VendorReturnLine.ReturnQuantity) * VendorReturnLine.UnitCost)
+				
+			invoke Unreleased.Update GLTransactionDetailRel
+				invoked.TransactionAmount		= DistributionAmount
+
+		DistributionAmountCalculation
+			if (VendorReturnLine.ItemType.Inventoried)
+				DistributionAccount				= VendorReturnLine.ItemLocationRel.GeneralLedgerCategory.InventoryAccount
+			
+			if (DistributionQuantity entered)
+				DistributionAmount				= DistributionQuantity * VendorReturnLine.UnitCost
+			else
+			if (DistributionPercent entered)
+				if (VendorReturnLine.IsCatchWeightItem)
+					DistributionAmount			= ((DistributionPercent * VendorReturnLine.CatchWeightQuantity) * VendorReturnLine.DerivedUnitCost)
+				else
+					DistributionAmount			= ((DistributionPercent * VendorReturnLine.ReturnQuantity) * VendorReturnLine.UnitCost)
+		
+			initialize ReportCurrencyAmount
+			TransientCurrencyTable  		  							= Company.FinanceEnterpriseGroup.CurrencyTable
+			TransientAccountingEntity         							= Company.AccountingEntity
+			TransientExchangeDate    		  							= VendorReturnLine.LastUpdateDate
+			TransientPostingDate                                        = VendorReturnLine.LastUpdateDate
+			TransientFromCurrency             							= VendorReturnLine.VendorReturn.Currency
+			TransientCurrencyAmount           							= DistributionAmount
+			
+		ValidateProjectDates
+	        if (GeneralLedgerSystemCodeRel exists)
+	            LocalGeneralLedgerSystemCode = GeneralLedgerSystemCodeRel.GeneralLedgerSystemCode
+	        if (DistributionAccount.Project entered
+	        and Company.FinanceEnterpriseGroup.ProjectDateEdit entered)
+	            if (Company.FinanceEnterpriseGroup.ProjectDateEdit.TransactionDate)
+	                LocalExchangeDate        	  = VendorReturn.CreationDate
+	            else
+	                if (VendorReturn.ShipmentDate entered)
+	                    LocalPostingDate          = VendorReturn.ShipmentDate
+	                else
+	                    LocalPostingDate          = current corporate date
+			
+	Field Rules
+		DistributionAccount
+			required
+
+		DistributionPercent
+			if (DistributionAmount entered)
+				if (DistributionByPercent)
+					initialize DistributionAmount
+			if ((DistributionByAmount
+			or  DistributionByQuantity)
+			and !DistributionByPercent)
+				cannot be entered
+					"CannotEnterDistributionPercent;DistributionQuantityOrAmountEntered"
+			else
+			if (DistributionQuantity not entered
+			and DistributionAmount not entered
+			and OtherVendorReturnLineDistributionsRel not exists)
+				default to 100%
+			else
+			if (DistributionByPercent)
+				required
+				
+				constraint (DistributionPercent > 0%)
+					"DistributionPercentMustBeGreaterThanZero"
+			
+			constraint (DistributionPercent <= 100%)
+				"DistributionPercentCannotBeGreaterThan100%"
+
+
+		DistributionQuantity
+			if (DistributionAmount entered)
+				if (DistributionByQuantity)
+					initialize DistributionAmount
+			if (DistributionByAmount
+			or  DistributionByPercent)
+				cannot be entered
+					"CannotEnterDistributionQuantity;DistributionPercentOrAmountEntered"
+			else
+			if (DistributionPercent entered
+			or  DistributionAmount entered)
+				cannot be entered
+					"CannotEnterDistributionQuantity;DistributionPercentOrAmountEntered"
+			else
+			if (DistributionByQuantity)
+				required
+
+				if (VendorReturn.CreatedFromPurchaseOrder not entered)
+					constraint (DistributionQuantity <= VendorReturnLine.ReturnQuantity)
+						"DistributionQuantityCannotExceedVendorReturnLineReturnQuantity"
+
+		DistributionAmount
+
+
+
+
+
+
+
+
+
+
+			if (DistributionByAmount
+			and !DistributionByPercent)
+				required
+
+	Actions
+		UpdateForInventoriedItem is an Update Action
+			restricted
+			Entrance Rules
+				BypassActiveCodeBlockEdit 	= true			
+			
+			Action Rules
+				LocalAccountingEntity 	= Company.AccountingEntity
+				BypassAccountEdit		= true
+			Exit Rules
+				include DistributionAmountCalculation				
+				include UpdateGLTransDetail
+				
+		Create is a Create Action
+			valid when (!VendorReturnLine.ItemType.Inventoried)
+			
+			Entrance Rules
+				BypassActiveCodeBlockEdit 	= true			
+			
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity
+				constraint (!VendorReturnLine.ItemType.Inventoried)
+					"DistributionsCannotBeCreatedForInventoriedItem"							
+				BypassAccountEdit		= true
+				include ValidateProjectDates
+
+
+
+
+
+
+				constraint (!VendorReturnLine.VendorReturn.ShippedStatus)
+					"CannotCreateDistributionsOnShippedReturns"									
+			
+			Exit Rules
+				include DistributionAmountCalculation
+				include CreateGLTransDetail
+		
+		Update is an Update Action
+			valid when (!VendorReturnLine.ItemType.Inventoried)
+			Entrance Rules
+				BypassActiveCodeBlockEdit 	= true			
+			
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity
+				BypassAccountEdit		= true
+
+
+				constraint (!VendorReturnLine.VendorReturn.ShippedStatus)
+					"CannotUpdateDistributionsOnShippedReturns"									
+				include ValidateProjectDates
+				
+			Exit Rules
+				include DistributionAmountCalculation
+				include UpdateGLTransDetail		
+
+		Delete is a Delete Action
+			valid when (!VendorReturnLine.ItemType.Inventoried)
+			
+
+
+
+					
+		Release is an Instance Action															
+			restricted
+			Action Rules
+				BypassAccountEdit		= false
+
+
+				invoke Unreleased.Release GLTransactionDetailRel
+					if (not VendorReturnLine.InventoryItem)
+						invoked.MoveToNotToBePosted = true
+
+						
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke PurgeValidSubLedgerTrx GLTransactionDetailRel

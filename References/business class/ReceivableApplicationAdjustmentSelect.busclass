@@ -1,0 +1,1389 @@
+ReceivableApplicationAdjustmentSelect is a BusinessClass
+	owned by ar
+	prefix is ASJ
+	sql name is RApplicationAdjustmentSelect
+	classic name is ARSADJUST
+
+	Ontology
+		symbolic key is ReceivableApplicationAdjustmentSelect
+			classic set name is ASJSET1
+			classic name for ReceivableApplicationAdjustmentSelect.BatchNumber is BATCH-NBR
+			classic name for ReceivableApplicationAdjustmentSelect.AdjustmentSequence is ADJ-SEQ
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		enable explicit context override
+
+	Persistent Fields
+		ExchangeDate
+		AdjustAmount						is an InternationalAmount
+			classic name is ORIG-ADJ-AMT
+		BaseAdjustAmount					is an InternationalAmount
+			classic name is ADJ-AMT
+			precision is Company.Currency.NumberOfDecimals
+		CreditAdjustAmount					is an InternationalAmount
+			classic name is CR-ORIG-AJ-AMT
+		AdjustmentReason					is an ApplicationAdjustmentReason
+			classic name is REASON-CODE
+
+		Description
+			classic name is DESC
+		MemoChargeback						is a MemoChargebackGroup
+			classic name for MemoChargeback.Company is MEMO-COMPANY
+			classic name for MemoChargeback.Customer is MEMO-CUSTOMER
+			classic name for MemoChargeback.ProcessLevel is MEMO-PROC-LEV
+			classic name for MemoChargeback.MemoChargeback is MEMO-XREF-NBR
+		MemoChargebackAdjustment			is Boolean
+			classic name is MEMO-INDIC
+
+
+
+
+
+
+
+
+		GeneralLedgerDate					is Date
+			classic name is GL-DATE
+			default label is "GlobalLedgerDate"
+		ReceivableOperator
+			classic name is OPR-CODE
+		JournalBook
+			classic name is JRNL-BOOK-NBR
+			restricted
+		DistributionAccount					is a TransactionCodeBlock	
+			classic name for DistributionAccount.AccountingUnit is ACCT-UNIT
+			classic name for DistributionAccount.GeneralLedgerChartAccount is ACCOUNT
+			classic name for DistributionAccount.Project is ACTIVITY
+		ReceivableReasonType
+		ARIncomeWithholdingCode				is AlphaUpper size 10	
+		ARIncomeWithholdingDocumentNumber	is AlphaUpper size 16	
+		Attachment
+
+	Transient Fields
+		ApplicationCurrency		is a Currency
+		BypassExceedEdit		is Boolean
+		CreateFromBatch			is Boolean
+		TransientToCurrency		is a ToCurrency
+		BypassActiveCodeBlockEdit					
+		BypassProjectDateEdit	
+
+
+
+	Context Fields
+
+
+		ReceivablePaymentHeader
+		ReceivablePayment
+
+
+	Local Fields
+		LocalGeneralLedgerSystemCode is a GeneralLedgerSystemCode
+		LocalCurrencyTable			is a CurrencyTable
+		CurrencyWork				is a FromCurrencyExchangeGroup
+		LocalCurrency				is like Currency
+		WorkAdjustments				is an InternationalAmount
+		NextSentence				is Boolean
+		LocalAction					is AlphaUpper size 1
+			States
+				Create value is "C"
+				Update value is "U"
+		LocalPaymentCurrency		is like Currency
+		NewReceivableInvoice		is a ReceivableInvoice view
+		NewReceivableApplication	is a ReceivableApplication view
+
+		NativeLPLBODTrigger			is Boolean
+		NativeLPLRTBODTrigger		is Boolean
+		LocalMainUserTemplate		is Alpha size 250
+		LocalTriggerFrom			is Alpha size 100
+
+
+
+	Field Rules
+		ReceivableApplicationAdjustmentSelect.AdjustmentSequence
+			autosequence
+
+		AdjustmentReason
+			if (MemoChargebackAdjustment) 
+				constraint (MemoChargeback.Company entered)
+					"Memo_CompanyIsRequired"
+				constraint (MemoChargeback.Customer entered)
+					"Memo_CustomerIsRequired"
+				constraint (MemoChargeback.AdjustmentReason entered)
+					"Adjustment_ReasonIsRequired"
+				constraint (MemoChargeback.AdjustmentReason exists)
+					"Adjustment_ReasonDoesNotExistFor_Company<MemoChargeback.Company>"
+				constraint (MemoChargeback.ProcessLevel entered)
+					"Process_LevelIsRequired"
+				constraint (MemoChargeback.AdjustmentReason != "CURR")
+					"CURRIsAReservedReasonCode"
+				constraint (!MemoChargeback.AdjustmentReason.ReceivableAdjustmentReasonType.Grouping)
+					"CannotUseGroupingReasonCode"
+				constraint (MemoChargeback.AdjustmentReason.ReceivableAdjustmentReasonType.Chargeback)
+					"ReasonCodeIsNotAChargebackType"
+				constraint (MemoChargeback.AdjustmentReason.ChargebackType.Memo)
+					"ChargebackTypeMustBeMemo"
+				constraint (CreditAdjustAmount >= 0)	
+					"Chargeback_Adjust_Amount<CreditAdjustAmount>MustBePositiveToAllowSuccessfulCreationOfA_Memo"	
+
+				if (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CashDetailState.None)
+					constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company.DetailedRNADistributions)
+						"Chargeback_\MemosCannotBeCreatedForAPaymentThatHas_\Cash_\DetailsIfThe_\CompanyHas_\Allow_\Detailed_\RNA_\DistributionsAnd_\Match_\Finance_\Structure_\For_\ApplicationsSelected"
+
+				if (MemoChargeback.Company 	!= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company
+				or  MemoChargeback.Customer != ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer)
+
+					if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ReceivableCompanyRel.IsApplyCashAcrossReceivableCompanies
+					and ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer = MemoChargeback.Customer)
+						NextSentence = true
+					else
+						constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.No)
+							"PaymentCustomerIsNotPartOfANationalAccount"
+
+						if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.Child)
+							constraint (DerivedChargebackMemoPaymentNationalCompany 	= DerivedMemoNationalCompany
+							and		 	DerivedChargebackMemoPaymentNationalCustomer 	= DerivedMemoNationalCustomer)
+								"NationalAccountRelationshipDoesNotExist"
+						else
+							constraint (MemoChargebackCustomerRel.NationalAccountIndicator.Child
+							and		 ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.Company 	= DerivedMemoNationalCompany
+							and		 ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.Customer 	= DerivedMemoNationalCustomer)
+								"NationalAccountRelationshipDoesNotExist"
+				if (CompanyCustomerReceivableGlobalLedgerForChargebackAndCodeEntered)
+					MemoChargeback.GlobalLedgerCode = MemoChargebackCustomerRel.ReceivableGeneralLedgerCode
+				else
+					initialize MemoChargeback.GlobalLedgerCode
+			else
+				required
+				constraint (!AdjustmentReason.ReceivableAdjustmentReasonType.Grouping)
+					"CannotUseGroupingReasonCode"
+				if (!ReceivablePaymentRel.IsZeroPayment)
+					if (BaseAdjustAmount < 0)
+						constraint (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort
+						or			AdjustmentReason.ReceivableAdjustmentReasonType.OverApplied)
+							"AdjustmentAmountIsNegative;ReasonCodeMustBeTypeOver/Short"
+
+				constraint (AdjustmentReason != "CURR")
+					"CURRIsAReservedReasonCode"
+
+				if (!ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+				and  AdjustmentReason.ReceivableAdjustmentReasonType.Chargeback)
+					constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.ReceivableInvoiceDetailType.CreditMemo)
+						"ChargebackReasonCodeNotAllowedOnCreditMemos"
+
+					constraint (AdjustmentReason.ChargebackType.Detail or AdjustmentReason.ChargebackType.Summary)
+						"ChargebackReasonCodeTypeMustBeDetailOrSummary"
+
+					constraint (AdjustAmount > 0)
+						"NegativeChargebacksNotPermitted"
+				if (ReceivablePaymentRel.IsZeroPaymentAllowAdjustments
+				and ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+					if (AdjustmentReason entered)
+						constraint (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort)
+							"AdjustmentReasonCodeMustBeOverShortTypeForZeroPaymentAdjustments"
+					else
+					if (CreditAdjustAmount entered)
+						constraint (AdjustmentReason entered)
+							"AdjustmentReasonRequiredIfAdjustmentAmountEntered"
+				else
+				if (ReceivablePaymentRel.IsZeroPaymentAllowAdjustments
+				and !ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+					constraint (ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+						"Invoice_\Company<ReceivableInvoiceDetailRel.ReceivableInvoiceRel.Company>DoesNotAllowZeroPaymentAdjustments"
+
+				if (AdjustmentReason.ReceivableAdjustmentReasonType.OverApplied)
+					constraint (!ReceivableApplicationSelectRel.AdjustmentsExist)
+						"CannotUse_\Over_\Applied_\Reason_\Code;ReasonCodeIsReservedForOverApplicationOfInvoiceProcess."
+
+		DistributionAccount
+			required
+			LocalGeneralLedgerSystemCode = "AR"
+			BypassProjectDateEdit = true	
+			if (MemoChargebackAdjustment) 
+				if (MemoChargeback.AdjustmentReason.AllowProcessLevelFinanceCodeBlockOverride)
+					default to MemoChargeback.ProcessLevel.AccountingUnitFinanceCodeBlock
+						default individual fields
+					if (MemoChargeback.AdjustmentReason.AccrualAccount entered)
+						default to MemoChargeback.AdjustmentReason.AccrualAccount
+							default individual fields
+					else
+						default to MemoChargeback.AdjustmentReason.DistributionAccount
+							default individual fields
+					if (DistributionAccount.Project not entered)
+						default to ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Project
+							default individual fields
+				if (MemoChargeback.AdjustmentReason.PreventProcessLevelFinanceCodeBlockOverride)
+					if (MemoChargeback.AdjustmentReason.AccrualAccount entered)
+						default to MemoChargeback.AdjustmentReason.AccrualAccount
+					else
+						default to MemoChargeback.AdjustmentReason.DistributionAccount
+			else
+				if (AdjustmentReason.ReceivableAdjustmentReasonType.OverApplied)
+					default to ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.ReceivableGeneralLedgerCode.DistributionAccount
+				if (AdjustmentReason.AllowProcessLevelFinanceCodeBlockOverride)
+					if (!ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)	
+						default to ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.ReceivableProcessLevel.AccountingUnitFinanceCodeBlock
+							default individual fields
+					else	
+						default to ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ReceivableProcessLevel.AccountingUnitFinanceCodeBlock	
+							default individual fields	
+					if (AdjustmentReason.AccrualAccount entered)
+						default to AdjustmentReason.AccrualAccount
+							default individual fields
+					else
+						default to AdjustmentReason.DistributionAccount
+							default individual fields
+					if (DistributionAccount.Project not entered)	
+						if (!ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)	
+							default to ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.Project	
+								default individual fields	
+						else	
+							default to ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Project	
+								default individual fields
+
+				if (AdjustmentReason.PreventProcessLevelFinanceCodeBlockOverride)
+					if (AdjustmentReason.AccrualAccount entered)
+						default to AdjustmentReason.AccrualAccount
+					else
+						default to AdjustmentReason.DistributionAccount
+
+		CreditAdjustAmount
+			required
+			if (!ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+
+				constraint (CreditAdjustAmount entered)  
+					"FieldIsRequired"
+
+
+
+				if (!AdjustmentReason.ReceivableAdjustmentReasonType.OverApplied)
+					if(!ReceivablePaymentRel.IsZeroPayment)
+						if (!AdjustmentReason.ReceivableAdjustmentReasonType.OverShort)
+							constraint (AdjustAmount > 0)
+								"ReasonTypeMustBeOverShortIfUsingNegativeAdjustmentAmount"
+
+
+
+
+
+			if (ReceivablePaymentRel.IsZeroPaymentAllowAdjustments
+			and ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+				if (CreditAdjustAmount entered)
+					constraint(CreditAdjustAmount >= 0)
+						"AdjustmentAmount<CreditAdjustAmount>MustBePositive"
+
+				else
+				if (AdjustmentReason entered
+				and AdjustmentReason.ReceivableAdjustmentReasonType.OverShort)
+					constraint (CreditAdjustAmount entered)
+						"AdjustmentAmountRequiredIfAdjustmentReasonEntered"
+			else
+			if (ReceivablePaymentRel.IsZeroPaymentAllowAdjustments
+			and !ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+				constraint (ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsAllowed)
+					"Invoice_\Company<ReceivableInvoiceDetailRel.ReceivableInvoiceRel.Company>DoesNotAllowZeroPaymentAdjustments"
+
+		ReceivableOperator						
+			default to actor
+			if (Company.CashOperatorRequired)
+				constraint (ReceivableOperator entered)
+					"OperatorIsRequired"
+				constraint (ReceivableOperatorRel exists)
+					"OperatorDoesNotExist"
+				constraint (ReceivableOperatorRel.ActiveStatus.Active)
+					"OperatorIsNotActive"
+
+		GeneralLedgerDate
+
+			if  (GeneralLedgerDate not entered)
+				if (Company.DefaultApplicationDate.LatestTransactionPostDate)	
+					if (ReceivablePaymentRel.GeneralLedgerDate > ReceivableInvoiceDetailRel.GeneralLedgerDate)
+						GeneralLedgerDate = ReceivablePaymentRel.GeneralLedgerDate
+					else
+						GeneralLedgerDate = ReceivableInvoiceDetailRel.GeneralLedgerDate
+				else
+				if (Company.DefaultApplicationDate.PaymentCreditPostDate)
+					if (ReceivablePaymentRel.GeneralLedgerDate entered) 	
+						GeneralLedgerDate = ReceivablePaymentRel.GeneralLedgerDate 	
+
+
+				else
+					GeneralLedgerDate = current corporate date
+
+				if  (CompanySystemClosingControlRel.Control and Company.VerifyGLDateWithinGLDateRange
+				and  GeneralLedgerDate not within CompanySystemClosingControlRel.ValidEntryDate)
+					GeneralLedgerDate = CompanySystemClosingControlRel.ValidEntryDate.Begin
+
+			required
+
+
+		Description
+			if (MemoChargebackAdjustment) 
+				default to MemoChargeback.AdjustmentReason.Description
+			else
+				default to AdjustmentReason.Description
+
+
+		ARIncomeWithholdingCode	
+
+
+
+			constraint (AdjustmentReason.ReceivableAdjustmentReasonType.TaxWithholding)	
+				"AR_\Income_\Withholding_\CodeCanNotBePopulatedWith_\Adjustment_\Reason<AdjustmentReason>,SinceItIsNotDefinedAs_\Tax_\Withholding"	
+
+		ARIncomeWithholdingDocumentNumber	
+
+
+
+			constraint (AdjustmentReason.ReceivableAdjustmentReasonType.TaxWithholding)	
+				"AR_\Income_\Withholding_\Document_\NumberCanNotBePopulatedWith_\Adjustment_\Reason<AdjustmentReason>,SinceItIsNotDefinedAs_\Tax_\Withholding"	
+
+
+
+	Derived Fields
+		DerivedDisplayCurrency			is a DerivedField
+			type is AlphaUpper size 5
+			restricted
+			LocalCurrency = actor.context.Currency
+			if (LocalCurrency entered)
+				return LocalCurrency
+			if  (MemoChargebackAdjustment)
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.OriginalCurrency
+			if  (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+			and  ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.OriginalCurrency
+			if (ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency entered)
+				return ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency
+			return ReceivableInvoiceDetailRel.OriginalCurrency
+
+
+
+		NextSeq is a DerivedField
+			type is Numeric size 6
+			restricted
+			return first PrevSeqRel.ReceivableApplicationAdjustmentSelect.AdjustmentSequence + 1
+
+		DerivedPaymentNationalCompany is a DerivedField
+			type is like ReceivableCompany
+			restricted
+			if (ReceivablePaymentRel.CompanyCustomerRel.NationalAccountIndicator.No)
+				return ReceivablePaymentRel.Company
+			else
+			if (ReceivablePaymentRel.CompanyCustomerRel.NationalAccountIndicator.Child)
+				return ReceivablePaymentRel.CompanyCustomerRel.NationalCompany
+			else
+				return ReceivablePaymentRel.CompanyCustomerRel.Company
+
+		DerivedPaymentNationalCustomer is a DerivedField
+			type is Alpha size 9
+			restricted
+			if (ReceivablePaymentRel.CompanyCustomerRel.NationalAccountIndicator.No)
+				return ReceivablePaymentRel.Customer
+			else
+			if (ReceivablePaymentRel.CompanyCustomerRel.NationalAccountIndicator.Child)
+
+
+				return PaymentNationalAccountInvoiceRel.NationalAccount.NationalAccountGroup.NatCustomer
+			else
+				return ReceivablePaymentRel.Customer
+
+		DerivedChargebackMemoPaymentNationalCompany is a DerivedField
+			type is like ReceivableCompany
+			restricted
+			if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.No)
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company
+			else
+			if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.Child)
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalCompany
+			else
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.Company
+
+		DerivedChargebackMemoPaymentNationalCustomer is a DerivedField
+			type is Alpha size 9
+			restricted
+			if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.No)
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer
+			else
+			if (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.CompanyCustomerRel.NationalAccountIndicator.Child)
+				return MemoChargebackPaymentNationalAccountInvoiceRel.NationalAccount.NationalAccountGroup.NatCustomer
+			else
+				return ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer
+
+		DerivedChargebackMemoCompany is a DerivedField
+			type is like ReceivableCompany
+			restricted
+			if (MemoChargeback.Company entered)
+				return MemoChargeback.Company
+			else
+				return Company
+
+		DerivedMemoNationalCompany is a DerivedField
+			type is like ReceivableCompany
+			restricted
+			if (MemoChargebackCustomerRel.NationalAccountIndicator.No)
+				return MemoChargeback.Company
+			else
+			if (MemoChargebackCustomerRel.NationalAccountIndicator.Child)
+				return MemoChargebackCustomerRel.NationalCompany
+			else
+				return MemoChargebackCustomerRel.Company
+
+		DerivedMemoNationalCustomer is a DerivedField
+			type is like Customer
+			restricted
+			if (MemoChargebackCustomerRel.NationalAccountIndicator.No)
+				return MemoChargeback.Customer
+			else
+			if (MemoChargebackCustomerRel.NationalAccountIndicator.Child)
+
+
+				return MemoNationalAccountInvoiceRel.NationalAccount.NationalAccountGroup.NatCustomer
+			else
+				return MemoChargeback.Customer
+
+
+	Conditions
+
+		IsValidForActorContext	
+			restricted	
+			when (GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		IsValidForActorContextCreateRulesOnly	
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+		SecurityGroupAllowsAccess	
+			when (actor.context.CompanySecurityGroup = blank
+			or	   CompanySecurityGroupMemberRel exists)
+
+		MemoChargebackIsValidForActorContext	
+			restricted	
+			when (MemoChargeback.Company.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)	
+
+		MemoChargebackIsValidForActorContextCreateRulesOnly	
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   MemoChargeback.Company.GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+		IsPaymentAdjust
+			restricted
+			when (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+
+		AllowInvoiceAdjustment
+			when (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail
+
+
+			and	!ReceivableApplicationSelectRel.IsOverApplied)
+
+		AllowForPurge
+			when (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail
+			and   !ReceivableApplicationSelectRel.IsOverApplied)
+
+		IsTaxWithholding	
+			when (ReceivableApplicationSelectRel.ReceivableApplicationAdjustmentSelectRel.AdjustmentReason.ReceivableAdjustmentReasonType.TaxWithholding)	
+
+		CompanyHasATaxWithholdingReceivableReason	
+			when (Company.ReceivableReasonTaxWithholdingRel exists)	
+
+		AllowManualChargebackInvoiceNumberingAndInvoiceEntered	
+			when (MemoChargeback.Company.AllowManualChargebackInvoiceNumbering
+			and   MemoChargeback.InvoiceNumber entered)
+
+		CompanyCustomerReceivableGlobalLedgerForChargebackAndCodeEntered	
+			when (MemoChargeback.Company.CompanyCustomerReceivableGlobalLedgerForChargeback
+			and   MemoChargebackCustomerRel.ReceivableGeneralLedgerCode entered)
+
+		IsValidForAddAttachment
+			restricted
+			when (ReceivableApplicationAdjustmentSelect set exists
+			and AdjustmentReason.AttachmentRequired)
+
+	Relations
+
+		ReceivableApplicationSelectRel
+			classic name is ARSAPPLIED
+			one-to-one relation to ReceivableApplicationSelect
+			required
+			Field Mapping uses Set2
+				related.ReceivableApplicationSelect.TransactionCompany								  = Company 
+				related.ReceivableApplicationSelect.ReceivableInvoiceDetail.ReceivableInvoiceDetailType = ReceivableApplicationAdjustmentSelect.TransType
+				related.ReceivableApplicationSelect.ReceivableInvoiceDetail.Invoice					 = ReceivableApplicationAdjustmentSelect.Invoice
+				related.ReceivableApplicationSelect.ReceivableInvoiceDetail.PaymentSeq				  = ReceivableApplicationAdjustmentSelect.PaymentSeq
+
+
+
+
+
+
+
+
+		PrevSeqRel
+			one-to-many relation to ReceivableApplicationAdjustmentSelect
+			Field Mapping uses SequenceDescending
+				related.Company		= Company 
+				related.ReceivableApplicationAdjustmentSelect.TransType		= ReceivableApplicationAdjustmentSelect.TransType
+				related.ReceivableApplicationAdjustmentSelect.Invoice		= ReceivableApplicationAdjustmentSelect.Invoice
+				related.ReceivableApplicationAdjustmentSelect.PaymentSeq	= ReceivableApplicationAdjustmentSelect.PaymentSeq
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+
+		ReceivablePaymentRel
+			one-to-one relation to ReceivablePayment
+			Field Mapping uses symbolic key
+				related.Company									= ReceivableApplicationSelectRel.ReceivablePayment.Company
+				related.ReceivablePaymentHeader					= ReceivableApplicationSelectRel.ReceivablePaymentHeader
+				related.ReceivablePayment						= ReceivableApplicationSelectRel.ReceivablePayment
+
+		ReceivablePaymentMemoChargebackOrPaymentWriteoffRel 
+			one-to-one relation to ReceivablePayment
+			Field Mapping uses symbolic key
+				related.Company									= ReceivableApplicationAdjustmentSelect.Company
+				related.ReceivablePaymentHeader					= ReceivableApplicationAdjustmentSelect.BatchNumber
+				related.ReceivablePayment						= ReceivableApplicationAdjustmentSelect.PaymentSeq
+
+		DerivedMemoChargebackCompanyReceivableReasonRel
+			one-to-many relation to ReceivableReason
+			Field Mapping uses symbolic key
+				related.Company		= DerivedChargebackMemoCompany
+
+		DerivedMemoChargebackCompanyReceivableProcessLevelRel
+			one-to-many relation to ReceivableProcessLevel
+			Field Mapping uses symbolic key
+				related.Company		= DerivedChargebackMemoCompany
+
+		ReceivableOperatorRel
+			one-to-one relation to ReceivableOperator
+			Field Mapping uses symbolic key
+				related.Company				 		= Company 
+				related.ReceivableOperator				= ReceivableOperator
+
+		MemoChargebackCustomerRel
+			one-to-one relation to CompanyCustomer
+			Field Mapping uses symbolic key
+				related.Company							= MemoChargeback.Company
+				related.Customer						= MemoChargeback.Customer
+
+		MemoChargebackPaymentNationalAccountInvoiceRel
+			one-to-many relation to NationalAccount
+			Field Mapping uses Set2
+				related.NationalAccount.InvoiceAccountGroup.Company	  		= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company
+				related.NationalAccount.InvoiceAccountGroup.Customer	 	= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer
+
+
+		CompanySystemClosingControlRel	
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode	 = "AR"
+				related.Company					 = Company
+
+
+		GeneralLedgerCompanyRel	
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company		= Company
+
+		CompanySecurityGroupMemberRel	
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company						= Company
+
+		PaymentNationalAccountInvoiceRel
+			one-to-many relation to NationalAccount
+			Field Mapping uses Set2
+				related.NationalAccount.InvoiceAccountGroup.Company	  = ReceivablePaymentRel.Company
+				related.NationalAccount.InvoiceAccountGroup.Customer	 = ReceivablePaymentRel.Customer
+
+		MemoNationalAccountInvoiceRel
+			one-to-many relation to NationalAccount
+			Field Mapping uses Set2
+				related.NationalAccount.InvoiceAccountGroup.Company	  = MemoChargeback.Company
+				related.NationalAccount.InvoiceAccountGroup.Customer	 = MemoChargeback.Customer
+
+		ReceivableInvoiceDetailRel
+			classic name is AROITEMS
+			one-to-one relation to ReceivableInvoiceDetail
+			required
+			Field Mapping uses symbolic key
+				related.Company											 = Company 
+				related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType = ReceivableApplicationAdjustmentSelect.TransType
+				related.ReceivableInvoiceDetail.Invoice					 = ReceivableApplicationAdjustmentSelect.Invoice
+				related.ReceivableInvoiceDetail.PaymentSeq				  = ReceivableApplicationAdjustmentSelect.PaymentSeq
+
+	Sets
+		Set2
+			indexed
+			Sort Order
+				Company 
+				ReceivableApplicationAdjustmentSelect.TransType
+				ReceivableApplicationAdjustmentSelect.Invoice
+				ReceivableApplicationAdjustmentSelect.PaymentSeq
+				MemoChargebackAdjustment
+				ReceivableApplicationAdjustmentSelect.BatchNumber
+				ReceivableApplicationAdjustmentSelect.AdjustmentSequence
+
+		Set3
+			indexed
+			Instance Selection
+				where (IsPaymentAdjust)
+			Sort Order
+				Company 
+				ReceivableApplicationAdjustmentSelect.BatchNumber
+				ReceivableApplicationAdjustmentSelect.PaymentSeq
+				ReceivableApplicationAdjustmentSelect.AdjustmentSequence
+
+		SET4
+			not indexed
+			Sort Order
+				ReceivableApplicationAdjustmentSelect
+				MemoChargeback.Company
+				MemoChargeback.Customer
+				MemoChargeback.ProcessLevel
+
+		SequenceDescending
+			indexed
+			Sort Order
+				Company 
+				ReceivableApplicationAdjustmentSelect.TransType
+				ReceivableApplicationAdjustmentSelect.Invoice
+				ReceivableApplicationAdjustmentSelect.PaymentSeq
+				ReceivableApplicationAdjustmentSelect.BatchNumber
+				ReceivableApplicationAdjustmentSelect.AdjustmentSequence descending
+
+
+	Rule Blocks
+		ConvertAmounts
+
+			if  (MemoChargebackAdjustment)
+				ExchangeDate = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.DepositDate
+			else
+			if  (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+			and  ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+				ExchangeDate = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.DepositDate
+			else
+			if (ReceivablePayment.DepositDate entered)
+				ExchangeDate = ReceivablePayment.DepositDate
+			else
+				ExchangeDate = ReceivableApplicationSelectRel.ReceivablePayment.DepositDate
+
+			if (ExchangeDate not entered
+			and ReceivableInvoiceDetailRel exists)
+				ExchangeDate = ReceivableInvoiceDetailRel.DerivedExchangeDate
+
+
+
+
+
+
+
+
+
+
+
+
+
+			if (ApplicationCurrency not entered
+			or  ApplicationCurrency = blank)
+				ApplicationCurrency = DerivedDisplayCurrency
+
+
+			if (ReceivableInvoiceDetailRel exists
+			and ReceivableInvoiceDetailRel.OriginalCurrency != ApplicationCurrency)
+				CurrencyWork.TransactionAmount							= CreditAdjustAmount
+				CurrencyWork.FromCurrency								= ApplicationCurrency
+				CurrencyWork.BaseAmount.ToCurrency						= ReceivableInvoiceDetailRel.OriginalCurrency
+				AdjustAmount											= CurrencyWork.BaseAmount.OutputCurrencyAmount
+
+
+			else
+				AdjustAmount											= CreditAdjustAmount
+
+
+			if (Company.Currency != ApplicationCurrency)
+				CurrencyWork.TransactionAmount							= CreditAdjustAmount
+				CurrencyWork.FromCurrency								= ApplicationCurrency
+				CurrencyWork.BaseAmount.ToCurrency						= Company.Currency
+				BaseAdjustAmount										= CurrencyWork.BaseAmount.OutputCurrencyAmount
+
+			else
+				BaseAdjustAmount										= CreditAdjustAmount
+
+
+			if  (MemoChargebackAdjustment)
+				NextSentence = true
+			else
+			if  (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+			and  ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+				NextSentence = true
+			else
+			if (ReceivablePayment entered)
+				if (ReceivablePayment.OriginalCurrency entered)
+					LocalPaymentCurrency = ReceivablePayment.OriginalCurrency
+				else
+					LocalPaymentCurrency = ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency
+				if (LocalPaymentCurrency != ApplicationCurrency)
+
+					CurrencyWork.TransactionAmount						= CreditAdjustAmount
+					CurrencyWork.FromCurrency							= ApplicationCurrency
+					CurrencyWork.BaseAmount.ToCurrency					= LocalPaymentCurrency
+					CreditAdjustAmount									= CurrencyWork.BaseAmount.OutputCurrencyAmount
+
+			else
+				if (ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency != ApplicationCurrency)
+
+					CurrencyWork.TransactionAmount						= CreditAdjustAmount
+					CurrencyWork.FromCurrency							= ApplicationCurrency
+					CurrencyWork.BaseAmount.ToCurrency					= ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency
+					CreditAdjustAmount									= CurrencyWork.BaseAmount.OutputCurrencyAmount
+
+		CommonEdits
+
+			constraint (IsValidForActorContextCreateRulesOnly)		
+
+				"CannotCreate_AdjustmentFor<AdjustAmount>.Customer_Group<Company.CustomerGroupField.CustomerGroup>And_Company<Company>NotValidFor_Actor_Context.Actor<actor>DoesNotHave'Finance_Enterprise_Group'ContextFor_Finance_Enterprise_Group_<GeneralLedgerCompanyRel.FinanceEnterpriseGroup>"	
+
+			if (MemoChargeback.Company entered)	
+				constraint (MemoChargebackIsValidForActorContextCreateRulesOnly)	
+
+					"CannotCreate_Credit_Memo_ChargebackFor<AdjustAmount>.Memo_Customer_Group<MemoChargeback.Company.CustomerGroupField.CustomerGroup>And_Memo_Chargeback_Company<MemoChargeback.Company>NotValidFor_Actor_Context.Actor<actor>DoesNotHave'Finance_Enterprise_Group'ContextFor_Finance_Enterprise_Group_<MemoChargeback.Company.GeneralLedgerCompanyRel.FinanceEnterpriseGroup>"	
+				constraint (MemoChargeback.Company.CustomerGroupField.CustomerGroup = Company.CustomerGroupField.CustomerGroup)	
+					"Memo_Customer_Group<MemoChargeback.Company.CustomerGroupField.CustomerGroup>And_Memo_Chargeback_Company<MemoChargeback.Company>DoesNotMatch_Payment_Customer_Group<Company.CustomerGroupField.CustomerGroup>And_Payment_Company<Company>."	
+
+			if (ReceivableInvoiceDetailRel.SummarizeDetail)
+				WorkAdjustments = ReceivableApplicationSelectRel.SameInvoiceApplicationSelectRel.TotalAdjustments
+				initialize WorkAdjustments
+				for each ReceivableApplicationSelectRel.SameInvoiceApplicationSelectRel
+					WorkAdjustments += each.TotalAdjustments
+
+			else
+				WorkAdjustments = ReceivableApplicationSelectRel.TotalAdjustments
+
+			if (LocalAction.Create)
+				WorkAdjustments += AdjustAmount
+
+
+
+			if (!Company.AllowZeroPayments)
+				if (ReceivableInvoiceDetailRel exists)
+					if (ReceivableInvoiceDetailRel.SummarizeDetail)
+						constraint (AdjustAmount < ReceivableInvoiceDetailRel.DerivedOpenAmount)
+							"TotalAdjustment<AdjustAmount>MustBeLessThanTransactionOpenAmount<ReceivableInvoiceDetailRel.DerivedOpenAmount>"
+						if (!BypassExceedEdit)
+							constraint (ReceivableApplicationSelectRel.DerivedTransactionApplicationAmount + WorkAdjustments <= ReceivableInvoiceDetailRel.DerivedOpenAmount)
+								"AmountToApplyCannotExceedInvoiceOpenAmount<ReceivableApplicationSelectRel.DerivedTransactionApplicationAmount>+<WorkAdjustments>IsGreaterThan<ReceivableInvoiceDetailRel.DerivedOpenAmount>"
+					else
+						constraint (AdjustAmount < ReceivableInvoiceDetailRel.OpenAmount)
+							"TotalAdjustment<AdjustAmount>MustBeLessThanTransactionOpenAmount<ReceivableInvoiceDetailRel.DerivedOpenAmount>"
+						if (!BypassExceedEdit)
+							constraint (ReceivableApplicationSelectRel.TransactionApplicationAmount + WorkAdjustments <= ReceivableInvoiceDetailRel.OpenAmount)
+								"AmountToApplyCannotExceedInvoiceOpenAmount<ReceivableApplicationSelectRel.TransactionApplicationAmount>+<WorkAdjustments>IsGreaterThan<ReceivableInvoiceDetailRel.DerivedOpenAmount>"
+
+			if (Company.VendorCreateAndInterfaceToAP)
+				if (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+					constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ARToAPApplicationSelectRel exists)
+						"AdjustmentsNotAllowed.PaymentHasPendingTransferToAP."
+				else
+					if (ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail)
+						constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.ARToAPApplicationSelectSumLineRel exists)
+							"CannotUpdate;ARToAPInterfaceRecordsExistForInvoice"
+					else
+						constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.ARToAPApplicationSelectRel exists)
+							"CannotUpdate;ARToAPInterfaceRecordsExistForInvoice"
+
+					if (AdjustAmount < 0)
+						constraint (ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.Company = Company)
+							"WriteOffsNotAllowedBetweenCompanies"
+
+			if (Company.DetailedRNADistributions
+			and ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+			and ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ReceivablePaymentCashDetail set exists)
+				for each ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ReceivablePaymentCashDetail set
+					constraint (each.Status.Released)
+						"Payment_\Cash_\DetailsMustBeReleased.UseThe_\Release_\Cash_\DetailsAction."
+
+
+	Create Rules
+
+		constraint (IsValidForActorContextCreateRulesOnly)		
+
+			"CannotCreate_AdjustmentFor<AdjustAmount>.Customer_Group<Company.CustomerGroupField.CustomerGroup>And_Company<Company>NotValidFor_Actor_Context.Actor<actor>DoesNotHave'Finance_Enterprise_Group'ContextFor_Finance_Enterprise_Group_<GeneralLedgerCompanyRel.FinanceEnterpriseGroup>"	
+
+		if (MemoChargeback.Company entered)	
+			constraint (MemoChargebackIsValidForActorContextCreateRulesOnly)	
+
+				"CannotCreate_Credit_Memo_ChargebackFor<AdjustAmount>.Memo_Customer_Group<MemoChargeback.Company.CustomerGroupField.CustomerGroup>And_Memo_Chargeback_Company<MemoChargeback.Company>NotValidForActorContext.Actor<actor>DoesNotHave'Finance_Enterprise_Group'ContextFor_Finance_Enterprise_Group_<MemoChargeback.Company.GeneralLedgerCompanyRel.FinanceEnterpriseGroup>"	
+			constraint (MemoChargeback.Company.CustomerGroupField.CustomerGroup = Company.CustomerGroupField.CustomerGroup)	
+				"Memo_Customer_Group<MemoChargeback.Company.CustomerGroupField.CustomerGroup>And_Memo_Chargeback_Company<MemoChargeback.Company>DoesNotMatch_Payment_Customer_Group<Company.CustomerGroupField.CustomerGroup>And_Payment_Company<Company>."	
+
+		if  (GeneralLedgerDate not entered)
+			if (Company.DefaultApplicationDate.LatestTransactionPostDate)	
+				if (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+					GeneralLedgerDate = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.GeneralLedgerDate
+				else
+				if (ReceivablePaymentRel.GeneralLedgerDate > ReceivableInvoiceDetailRel.GeneralLedgerDate)
+					GeneralLedgerDate = ReceivablePaymentRel.GeneralLedgerDate
+				else
+					GeneralLedgerDate = ReceivableInvoiceDetailRel.GeneralLedgerDate
+			else		
+			if (Company.DefaultApplicationDate.PaymentCreditPostDate)
+				if (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+					GeneralLedgerDate = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.GeneralLedgerDate
+				else
+					GeneralLedgerDate = ReceivablePaymentRel.GeneralLedgerDate
+			else
+				GeneralLedgerDate = current corporate date
+
+			if  (CompanySystemClosingControlRel.Control and Company.VerifyGLDateWithinGLDateRange
+			and  GeneralLedgerDate not within CompanySystemClosingControlRel.ValidEntryDate)
+				GeneralLedgerDate = CompanySystemClosingControlRel.ValidEntryDate.Begin
+
+		if  (!CreateFromBatch)
+			if  (ReceivablePayment exists
+			and ReceivablePayment.IsZeroPayment)
+				constraint (!ReceivablePayment.IsZeroPaymentNotAllowAdjustments)
+					"CompanySetupNotPresentForZeroPaymentAdjustments<ReceivablePayment.ReceivablePayment><ReceivablePayment.PaymentNumber>"
+				constraint (!ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsNotAllowed)
+					"Invoice_\Company<ReceivableInvoiceDetailRel.ReceivableInvoiceRel.Company>DoesNotAllowZeroPaymentAdjustments"
+			else
+			if  (ReceivablePaymentRel exists
+			and ReceivablePaymentRel.IsZeroPayment)
+				constraint (!ReceivablePaymentRel.IsZeroPaymentNotAllowAdjustments)
+					"CompanySetupNotPresentForZeroPaymentAdjustments<ReceivablePaymentRel.ReceivablePayment><ReceivablePaymentRel.PaymentNumber>"
+				constraint (!ReceivableInvoiceDetailRel.ReceivableInvoiceRel.IsZeroPaymentAdjustmentsNotAllowed)
+					"Invoice_\Company<ReceivableInvoiceDetailRel.ReceivableInvoiceRel.Company>DoesNotAllowZeroPaymentAdjustments"
+
+			if  (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort
+			and  Company.PreventWriteOffBeforeTransactionGLDate)
+				if (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+					constraint (GeneralLedgerDate >= ReceivablePaymentRel.GeneralLedgerDate)
+						"Adjustment_\Global_\Ledger_\Date<GeneralLedgerDate>MustBeGreaterThanOrEqualTo_\Payment_\Global_\Ledger_\Date<ReceivablePaymentRel.GeneralLedgerDate>"
+				else
+				if (ReceivableInvoiceDetailRel exists)
+					constraint (ReceivableApplicationSelectRel.GeneralLedgerDate >= ReceivableInvoiceDetailRel.GeneralLedgerDate)
+						"Adjustment_\Global_\Ledger_\Date<GeneralLedgerDate>MustBeGreaterThanOrEqualTo_\Invoice_\Global_\Ledger_\Date<ReceivableInvoiceDetailRel.GeneralLedgerDate>"
+
+
+	Actions
+		Create is a Create Action
+			restricted
+			Entrance Rules
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+
+			Action Rules
+				LocalAction = "C"
+				include ConvertAmounts
+
+				include CommonEdits
+
+
+		CreateFromBatch is a Create Action
+			restricted
+			Entrance Rules
+				CreateFromBatch = true
+				BypassActiveCodeBlockEdit	= true		
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+
+			Action Rules
+
+
+
+		InvoiceAdjustment is a Create Action
+			valid when (AllowInvoiceAdjustment)
+			Entrance Rules
+				if (!IsPaymentAdjust)
+					ReceivableApplicationAdjustmentSelect.BatchNumber = ReceivableInvoiceDetailRel.BatchNumber
+
+
+
+
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+			Action Rules
+				LocalAction = "C"
+
+
+				include ConvertAmounts
+				include CommonEdits
+				constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail)
+					"CannotUpdateAdjustmentsOnThisFormIfInvoiceHasSummarizeDetailForDisplay,MustUnselectAndReselect"
+				constraint (AdjustAmount <= ReceivableApplicationSelectRel.TransactionApplicationAmount)
+					"DiscountCannotExceedApplicationAmount"
+				if (AdjustmentReason.ReceivableAdjustmentReasonType.OverApplied)
+					constraint (ReceivableApplicationSelectRel.IsOverAppliedInvoiceSelect)
+						"CannotUse_\Over_\Applied_\Reason_\Code;ReasonCodeIsReservedForOverApplicationOfInvoiceProcess"
+
+		LineInvoiceAdjustment is a Create Action
+			Entrance Rules
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+			Action Rules
+				LocalAction = "C"
+				include ConvertAmounts
+				include CommonEdits
+				constraint (ReceivableApplicationAdjustmentSelect.TransType entered)
+					"InvoiceTypeIsRequired"
+				constraint (AdjustAmount <= ReceivableApplicationSelectRel.TransactionApplicationAmount)
+					"DiscountCannotExceedApplicationAmount"
+
+		CreateMemo is a Create Action
+
+			Entrance Rules
+				LocalCurrencyTable 				= Company.DerivedCurrencyTable
+				MemoChargebackAdjustment 		= true
+
+				if (MemoChargeback.Company not entered)
+                	MemoChargeback.Company 		= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company
+
+				if (MemoChargeback.Customer not entered
+				and MemoChargeback.Company 		= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company)
+					MemoChargeback.Customer 	= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Customer
+
+				if (MemoChargeback.ProcessLevel not entered
+				and MemoChargeback.Company 		= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Company)
+					MemoChargeback.ProcessLevel = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ReceivableProcessLevel
+
+				if (MemoChargeback.ProcessLevel not entered
+				and MemoChargeback.Company.DefaultReceivableProcessLevel entered)
+					MemoChargeback.ProcessLevel = MemoChargeback.Company.DefaultReceivableProcessLevel
+
+				if (CreditAdjustAmount not entered)
+					constraint (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.PendingOpenAmount <= 0)
+						"AmountRequired;PaymentIsNotOverApplied"
+					CreditAdjustAmount = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.PendingOpenAmount * -1
+
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+			Action Rules
+				LocalAction = "C"
+				include ConvertAmounts
+				include CommonEdits
+
+				constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.IsPrepaymentTaxWithHolding)		
+					"CannotProcessMemoChargeback;PaymentHasPrepaymentTax"  
+				constraint (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+					"PaymentDoesNotExist"
+				constraint (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.Status < 7)
+					"PaymentIsFullyApplied;ChargebackNotAllowed"
+				if (Company.VendorCreateAndInterfaceToAP)
+					constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ARToAPApplicationSelectRel exists)
+						"AdjustmentsNotAllowed.PaymentHasPendingTransferToAP."
+				constraint (Company.PaymentOverApplication)
+					"CannotProcessMemoChargeback;OverApplicationFlag=N"
+
+
+		PaymentWriteoff is a Create Action
+			Entrance Rules
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (ReceivableApplicationAdjustmentSelect.AdjustmentSequence not entered)
+					ReceivableApplicationAdjustmentSelect.AdjustmentSequence = NextSeq
+
+				if (CreditAdjustAmount not entered)
+					CreditAdjustAmount = ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.PendingOpenAmount
+			Action Rules
+				constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.IsPrepaymentTaxWithHolding)		
+					"CannotWriteOff;PrepaymentTaxRecordsExists._MustUse_AR_To_APInterfaceForOverpayment"  
+				LocalAction = "C"
+				include ConvertAmounts
+				include CommonEdits
+				constraint (ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+					"PaymentDoesNotExist"
+				if (Company.VendorCreateAndInterfaceToAP)
+					constraint (!ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.ARToAPApplicationSelectRel exists)
+						"AdjustmentsNotAllowed.PaymentHasPendingTransferToAP."
+				constraint (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort)
+					"TheReasonCodeMustBeTypeOver/ShortForPaymentWriteoff"
+
+			Exit Rules	
+				if  (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort
+				and  Company.PreventWriteOffBeforeTransactionGLDate
+				and ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+					constraint (GeneralLedgerDate >= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.GeneralLedgerDate)
+						"Adjustment_\Global_\Ledger_\Date<GeneralLedgerDate>MustBeGreaterThanOrEqualTo_\Payment_\Global_\Ledger_\Date<ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.GeneralLedgerDate>"
+
+		Update is an Update Action
+			Entrance Rules
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (CreditAdjustAmount changed)
+					constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail)
+						"CannotUpdateAmountIfInvoiceHasSummarizeDetailForDisplay,MustUnselectAndReselect"
+				LocalAction = "U"
+				include ConvertAmounts
+				include CommonEdits
+
+				if  (AdjustmentReason.ReceivableAdjustmentReasonType.OverShort
+				and  Company.PreventWriteOffBeforeTransactionGLDate)
+					if (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment)
+						constraint (GeneralLedgerDate >= ReceivablePayment.GeneralLedgerDate)
+							"Adjustment_\Global_\Ledger_\Date<GeneralLedgerDate>MustBeGreaterThanOrEqualTo_\Payment_\Global_\Ledger_\Date<ReceivablePaymentRel.GeneralLedgerDate>"
+					else
+					if (ReceivableInvoiceDetailRel exists)
+						constraint (GeneralLedgerDate >= ReceivableInvoiceDetailRel.GeneralLedgerDate)
+							"Adjustment_\Global_\Ledger_\Date<GeneralLedgerDate>MustBeGreaterThanOrEqualTo_\Invoice_\Global_\Ledger_\Date<ReceivableInvoiceDetailRel.GeneralLedgerDate>"
+
+
+		LineUpdate is an Update Action
+			Action Rules
+				LocalAction = "U"
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				include ConvertAmounts
+				include CommonEdits
+
+
+		JustUpdate is an Update Action
+			restricted
+			Action Rules
+				LocalCurrencyTable = Company.DerivedCurrencyTable
+				if (CreditAdjustAmount changed)
+					constraint (!ReceivableApplicationSelectRel.ReceivableInvoiceDetailRel.SummarizeDetail)
+						"CannotUpdateAmountIfInvoiceHasSummarizeDetailForDisplay,MustUnselectAndReselect"
+				LocalAction = "U"
+				include ConvertAmounts
+				include CommonEdits
+
+
+		Purge is a Purge Action
+			valid when (AllowForPurge)
+			default label is "Delete"
+			Action Rules
+
+
+		LinePurge is a Purge Action
+
+
+		JustPurge is a Purge Action
+			restricted
+
+		Apply is an Instance Action
+			restricted
+			Parameters
+				ParmCompany					is a ReceivableCompany
+				ParmReceivableApplication 	is a ReceivableApplication
+			Action Rules
+
+				invoke Create ReceivableApplicationAdjustment
+					fill in fields from this instance
+					invoked.Company										= ParmCompany
+					invoked.ReceivableApplication.TransType				= ParmReceivableApplication.TransType
+					invoked.ReceivableApplication.Invoice				= ParmReceivableApplication.Invoice
+					invoked.ReceivableApplication.PaymentSeq			= ParmReceivableApplication.PaymentSeq
+					invoked.ReceivableApplication.BatchNumber			= ParmReceivableApplication.BatchNumber
+					invoked.ReceivableApplication.ApplicationSequence	= ParmReceivableApplication.ApplicationSequence
+					invoked.AdjustmentReason							= AdjustmentReason
+					invoked.ReceivableAdjustType						= "N"
+					invoked.AdjustmentAmount.CurrencyAmount				= AdjustAmount
+					invoked.CreditAdjustAmount							= CreditAdjustAmount
+
+					if  (MemoChargebackAdjustment)
+						invoked.ApplicationCurrency						= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.OriginalCurrency
+						if (MemoChargeback.AdjustmentReason entered)
+							invoked.AdjustmentReason					= MemoChargeback.AdjustmentReason
+					else
+					if  (ReceivableApplicationAdjustmentSelect.TransType.CustomerPayment
+					and  ReceivablePaymentMemoChargebackOrPaymentWriteoffRel exists)
+						invoked.ApplicationCurrency						= ReceivablePaymentMemoChargebackOrPaymentWriteoffRel.OriginalCurrency
+					else
+						invoked.ApplicationCurrency						= ReceivableApplicationSelectRel.ReceivablePayment.OriginalCurrency
+					invoked.ARIncomeWithholdingCode						= ARIncomeWithholdingCode	
+					invoked.ARIncomeWithholdingDocumentNumber			= ARIncomeWithholdingDocumentNumber	
+					if (Attachment entered)
+						invoked.TransientAttachment						= Attachment	
+						
+			Exit Rules
+				invoke Purge
+
+
+		ProcessMemoChargebackSelectionsBatch is a Set Action
+			restricted
+			Parameters
+				PrmCompany 					is a ReceivableCompany
+				PrmReceivablePaymentHeader 	is a ReceivablePaymentHeader
+				PrmReceivablePayment 		is a ReceivablePayment
+
+			Instance Selection
+				where (Company 												= PrmCompany
+				and	   ReceivableApplicationAdjustmentSelect.BatchNumber 	= PrmReceivablePaymentHeader
+				and	   ReceivableApplicationAdjustmentSelect.PaymentSeq 	= PrmReceivablePayment
+				and	MemoChargebackAdjustment)
+
+			Action Rules
+				Empty Set Rules
+					invoke ProcessNonMemoChargebackSelectionsBatch ReceivableApplicationAdjustmentSelect
+						invoked.PrmCompany 					= PrmCompany
+						invoked.PrmReceivablePaymentHeader 	= PrmReceivablePaymentHeader
+						invoked.PrmReceivablePayment 		= PrmReceivablePayment
+
+				Set Rules
+					Exit Rules
+						invoke ProcessNonMemoChargebackSelectionsBatch ReceivableApplicationAdjustmentSelect
+							invoked.PrmCompany 					= PrmCompany
+							invoked.PrmReceivablePaymentHeader 	= PrmReceivablePaymentHeader
+							invoked.PrmReceivablePayment 		= PrmReceivablePayment
+
+				Instance Rules
+					invoke ProcessMemoChargebackSelection
+						invoked.PrmCompany 					= PrmCompany
+						invoked.PrmReceivablePaymentHeader 	= PrmReceivablePaymentHeader
+						invoked.PrmReceivablePayment 		= PrmReceivablePayment
+
+
+		ProcessNonMemoChargebackSelectionsBatch is a Set Action
+			restricted
+			Parameters
+				PrmCompany 					is a ReceivableCompany
+				PrmReceivablePaymentHeader 	is a ReceivablePaymentHeader
+				PrmReceivablePayment 		is a ReceivablePayment
+
+			Instance Selection
+				where (Company 												= PrmCompany
+				and	   ReceivableApplicationAdjustmentSelect.BatchNumber 	= PrmReceivablePaymentHeader
+				and	   ReceivableApplicationAdjustmentSelect.PaymentSeq 	= PrmReceivablePayment
+				and	!MemoChargebackAdjustment)
+
+			Action Rules
+				Empty Set Rules
+					if (PrmReceivablePayment.IsZeroPayment
+					and PrmReceivablePayment.Status.Open)
+						invoke FastUpdate PrmReceivablePayment
+							invoked.Status = 7
+							initialize invoked.BackgroundProcessing
+						invoke UpdateForeignTradeAndPayments PrmReceivablePayment
+					else
+						invoke FastUpdate PrmReceivablePayment
+							initialize invoked.BackgroundProcessing
+
+					invoke TriggerReceivableTracker PrmReceivablePayment
+
+
+
+
+
+
+				Set Rules
+					Exit Rules
+						if (PrmReceivablePayment.IsZeroPayment
+						and PrmReceivablePayment.Status.Open)
+							invoke FastUpdate PrmReceivablePayment
+								invoked.Status = 7
+								initialize invoked.BackgroundProcessing
+							invoke UpdateForeignTradeAndPayments PrmReceivablePayment
+						else
+							invoke FastUpdate PrmReceivablePayment
+								initialize invoked.BackgroundProcessing
+
+						invoke TriggerReceivableTracker PrmReceivablePayment
+
+
+
+
+
+
+				Instance Rules
+					invoke ProcessNonMemoChargebackSelection
+						invoked.PrmCompany					= PrmCompany
+						invoked.PrmReceivablePaymentHeader	= PrmReceivablePaymentHeader
+						invoked.PrmReceivablePayment		= PrmReceivablePayment
+
+
+		ProcessMemoChargebackSelection is an Instance Action
+			restricted
+			Parameters
+				PrmCompany 					is a ReceivableCompany
+				PrmReceivablePaymentHeader 	is a ReceivablePaymentHeader
+				PrmReceivablePayment 		is a ReceivablePayment
+			Action Rules
+
+				if (!AllowManualChargebackInvoiceNumberingAndInvoiceEntered)
+					increment MemoChargeback.Company.LastChargebackNumber by 1
+				invoke Released.CreateReleasedFromPayment ReceivableInvoice
+					assign result to NewReceivableInvoice
+					invoked.Company												= MemoChargeback.Company
+					invoked.Customer											= MemoChargeback.Customer
+					invoked.ReceivableInvoiceType								= "D"
+					invoked.AlternateReceivableInvoiceType						= "D"
+					if (AllowManualChargebackInvoiceNumberingAndInvoiceEntered)	
+						invoked.ReceivableInvoice									= MemoChargeback.InvoiceNumber
+					else
+						invoked.ReceivableInvoice									= "CB-" + MemoChargeback.Company.ZeroFilledLastChargeback
+					invoked.BatchNumber											= PrmReceivablePaymentHeader
+					if (MemoChargeback.ProcessLevel entered)
+						invoked.ReceivableProcessLevel							= MemoChargeback.ProcessLevel
+						invoked.ReceivableGeneralLedgerCode						= MemoChargeback.ProcessLevel.ReceivableGeneralLedgerCode
+					else
+						invoked.ReceivableProcessLevel							= PrmReceivablePayment.ReceivableProcessLevel
+						invoked.ReceivableGeneralLedgerCode						= PrmReceivablePayment.ReceivableProcessLevel.ReceivableGeneralLedgerCode
+					if (MemoChargeback.GlobalLedgerCode entered)
+						invoked.ReceivableGeneralLedgerCode						= MemoChargeback.GlobalLedgerCode
+					invoked.GeneralLedgerDate									= GeneralLedgerDate
+					invoked.TransactionDate										= PrmReceivablePayment.DepositDate 
+					invoked.InvoiceAmount.CurrencyAmount						= CreditAdjustAmount
+					if (MemoChargeback.MemoChargeback entered)
+						invoked.ReceivableCrossReference.ReceivableInvoiceType	= "O"
+						invoked.ReceivableCrossReference.ReceivableInvoice		= MemoChargeback.MemoChargeback
+						invoked.CustomerPurchaseOrder							= MemoChargeback.MemoChargeback
+					else
+						invoked.ReceivableCrossReference.ReceivableInvoiceType	= "P"
+						invoked.ReceivableCrossReference.ReceivableInvoice		= PrmReceivablePayment.PaymentNumber
+						invoked.CustomerPurchaseOrder							= PrmReceivablePayment.PaymentNumber
+					invoked.Description											= "Over Applied Payment " + PrmReceivablePayment.PaymentNumber
+					invoked.OriginalCurrency									= PrmReceivablePayment.OriginalCurrency
+					invoked.ChargebackReason									= MemoChargeback.AdjustmentReason
+					invoked.ChargebackSequence									= 1
+					invoked.ReceivableChargebackCompany.ChargebackCompany		= PrmReceivablePayment.Company
+					invoked.FromReceivablePayment								= true
+					invoked.Origin												= "C"
+					invoked.CurrencyDecimalsNumber								= PrmReceivablePayment.CurrencyDecimalsNumber
+					invoked.CurrencyRateToCustomerGroupCurrency					= PrmReceivablePayment.CurrencyRateToCustomerGroupCurrency
+					invoked.CustomerGroupCurrencyMultiplicationOrDivision		= PrmReceivablePayment.CustomerGroupCurrencyMultiplicationOrDivision
+					invoked.InvoiceAmount.FunctionalAmount.EnteredCurrencyRate	= PrmReceivablePayment.CurrencyRate
+					invoked.CurrencyMultiplicationOrDivision					= PrmReceivablePayment.ReceivablePaymentHeader.CurrencyMultiplicationOrDivision
+					invoked.TermsCode											= MemoChargebackCustomerRel.DebitCreditMemoTermsCode
+					invoked.TaxExempt											= MemoChargebackCustomerRel.TaxExempt
+					invoked.BankTransactionCode									= MemoChargebackCustomerRel.BankTransactionCode
+					invoked.BankTransactionType									= MemoChargebackCustomerRel.BankTransactionCode.BankTransactionType
+					invoked.SalesRepresentative									= MemoChargebackCustomerRel.SalesRepresentative
+					invoked.System												= "AR"
+					invoked.CreditDebitMemoReason								= MemoChargeback.DebitMemoReason
+
+				invoke TriggerReceivableTransaction NewReceivableInvoice.ReceivableInvoice
+				invoke TriggerReceivableInvoice NewReceivableInvoice.ReceivableInvoice
+
+
+
+
+
+
+				invoke Create ReceivableInvoiceDetail
+					fill in fields from NewReceivableInvoice.ReceivableInvoice
+					invoked.ReceivableInvoiceDetail.ReceivableInvoiceDetailType	= "D"
+					invoked.ReceivableInvoiceDetail.Invoice						= NewReceivableInvoice.ReceivableInvoice
+					invoked.ReceivableInvoiceDetail.PaymentSeq					= 1
+					invoked.DueDate												= PrmReceivablePayment.DepositDate 
+					invoked.TransactionDate										= PrmReceivablePayment.DepositDate 
+					invoked.Status												= 0
+					invoked.InvoiceAmount.CurrencyAmount						= NewReceivableInvoice.InvoiceAmount.CurrencyAmount
+
+				invoke UnreleasedCashApplication.Create ReceivableApplication
+					assign result to NewReceivableApplication
+					invoked.Company												= MemoChargeback.Company
+					invoked.ReceivableApplication.TransType						= "D"
+					invoked.ReceivableApplication.Invoice						= NewReceivableInvoice.ReceivableInvoice
+					invoked.ReceivableApplication.PaymentSeq					= 1
+					invoked.ReceivableApplication.BatchNumber					= NewReceivableInvoice.BatchNumber
+					invoked.CreditTransaction.CreditType						= "P"
+					invoked.CreditTransaction.CreditCompany						= PrmReceivablePayment.Company
+					invoked.CreditTransaction.CreditCustomer					= PrmReceivablePayment.Customer
+					invoked.CreditTransaction.CreditBatch						= PrmReceivablePaymentHeader
+					invoked.CreditTransaction.CreditSequence					= PrmReceivablePayment
+					invoked.CreditTransaction.CreditType						= PrmReceivablePayment.TypeOfPayment
+					invoked.CreditTransaction.CreditNumber						= PrmReceivablePayment.PaymentNumber
+					invoked.EnteredAmount										= CreditAdjustAmount * -1
+					invoked.GeneralLedgerDate									= GeneralLedgerDate
+					invoked.ReceivableOperator									= ReceivableOperator
+					invoked.DepositDate											= PrmReceivablePayment.ReceivablePaymentHeader.DepositDate
+					invoked.ApplicationCurrency									= PrmReceivablePayment.OriginalCurrency
+					invoked.ApplicationSource									= "M"
+					invoked.ReceivableGeneralLedgerCode							= NewReceivableInvoice.ReceivableGeneralLedgerCode
+					invoked.GLOffsetCode										= PrmReceivablePayment.ReceivedNotAppliedReceivableGeneralLedgerCode
+					invoked.Prepayment											= PrmReceivablePayment.Prepayment
+
+					invoked.Result												= "C"
+
+					if (PrmReceivablePayment.OriginalCurrency = Company.Currency)
+						invoked.ApplicationCurrencyType								= "B"
+					else
+						invoked.ApplicationCurrencyType								= "N"
+					invoked.BypassOpenAmountEdit								= true
+					invoked.BypassAutoAdjust									= true
+					invoked.SkipToleranceCheck									= true
+
+				invoke Apply
+					invoked.ParmCompany											= MemoChargeback.Company
+					invoked.ParmReceivableApplication.TransType					= NewReceivableApplication.ReceivableApplication.TransType
+					invoked.ParmReceivableApplication.Invoice					= NewReceivableApplication.ReceivableApplication.Invoice
+					invoked.ParmReceivableApplication.PaymentSeq				= NewReceivableApplication.ReceivableApplication.PaymentSeq
+					invoked.ParmReceivableApplication.BatchNumber				= NewReceivableApplication.ReceivableApplication.BatchNumber
+					invoked.ParmReceivableApplication.ApplicationSequence		= NewReceivableApplication.ReceivableApplication.ApplicationSequence
+
+				if  (MemoChargeback.Company  = PrmReceivablePayment.Company 
+				and  MemoChargeback.Customer = PrmReceivablePayment.Customer)
+					invoke UpdateCurrentBalance MemoChargebackCustomerRel
+						invoked.ChangeAmount						= NewReceivableInvoice.InvoiceAmount.CurrencyAmount
+						invoked.TransactionDate						= PrmReceivablePayment.DepositDate
+						invoked.CheckLastPaymentAmount				= PrmReceivablePayment.BaseAmount
+						invoked.PrmBalanceType						= 4	
+						invoked.PrmReference						= NewReceivableInvoice.Reference
+
+		ProcessNonMemoChargebackSelection is an Instance Action
+			restricted
+			Parameters
+				PrmCompany 					is a ReceivableCompany
+				PrmReceivablePaymentHeader 	is a ReceivablePaymentHeader
+				PrmReceivablePayment 		is a ReceivablePayment
+			Action Rules
+				invoke UnreleasedCashApplication.Create ReceivableApplication
+					assign result to NewReceivableApplication
+					invoked.Company												= PrmReceivablePayment.Company
+					invoked.ReceivableApplication.TransType						= PrmReceivablePayment.TypeOfPayment
+					invoked.ReceivableApplication.Invoice						= PrmReceivablePayment.PaymentNumber
+					invoked.ReceivableApplication.PaymentSeq					= PrmReceivablePayment
+					invoked.ReceivableApplication.BatchNumber					= PrmReceivablePaymentHeader
+					invoked.CreditTransaction.CreditType						= "P"
+					invoked.CreditTransaction.CreditCompany						= PrmCompany
+					invoked.CreditTransaction.CreditCustomer					= PrmReceivablePayment.Customer
+					invoked.CreditTransaction.CreditBatch						= PrmReceivablePaymentHeader
+					invoked.CreditTransaction.CreditSequence					= PrmReceivablePayment
+					invoked.CreditTransaction.CreditType						= PrmReceivablePayment.TypeOfPayment
+					invoked.CreditTransaction.CreditNumber						= PrmReceivablePayment.PaymentNumber
+					invoked.GeneralLedgerDate									= GeneralLedgerDate
+					invoked.ReceivableOperator									= ReceivableOperator
+					invoked.DepositDate											= PrmReceivablePaymentHeader.DepositDate
+					invoked.ApplicationCurrency									= PrmReceivablePayment.OriginalCurrency
+					invoked.ApplicationSource									= "M"
+					invoked.ReceivableGeneralLedgerCode							= PrmReceivablePayment.ReceivedNotAppliedReceivableGeneralLedgerCode
+					invoked.Prepayment											= PrmReceivablePayment.Prepayment
+
+					if (PrmReceivablePayment.OriginalCurrency = Company.Currency)
+						invoked.ApplicationCurrencyType							= "B"
+					else
+						invoked.ApplicationCurrencyType							= "N"
+
+					invoked.BypassOpenAmountEdit								= true
+					invoked.BypassAutoAdjust									= true
+
+				invoke Apply
+					invoked.ParmCompany											= PrmCompany
+					invoked.ParmReceivableApplication.TransType					= NewReceivableApplication.ReceivableApplication.TransType
+					invoked.ParmReceivableApplication.Invoice					= NewReceivableApplication.ReceivableApplication.Invoice
+					invoked.ParmReceivableApplication.PaymentSeq				= NewReceivableApplication.ReceivableApplication.PaymentSeq
+					invoked.ParmReceivableApplication.BatchNumber				= NewReceivableApplication.ReceivableApplication.BatchNumber
+					invoked.ParmReceivableApplication.ApplicationSequence		= NewReceivableApplication.ReceivableApplication.ApplicationSequence
+
+		AddAttachment is an Instance Action
+			default label is "AddAttachment"
+			valid when (IsValidForAddAttachment)
+			Parameters
+				PrmAttachment	is an Attachment
+			
+			Parameter Rules
+				PrmAttachment
+					required
+						"AttachmentIsRequired"
+			Action Rules
+				invoke Update ReceivableApplicationAdjustmentSelect
+					invoked.Attachment							= PrmAttachment
+
+

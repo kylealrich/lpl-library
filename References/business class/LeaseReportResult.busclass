@@ -1,0 +1,245 @@
+LeaseReportResult is a BusinessClass
+    owned by lm
+    prefix is LRFRR
+	sql name is "LeaseReportResult"
+
+    Ontology
+        symbolic key is LeaseReportResult 
+
+
+    Patterns
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+		Description
+			default label is "ReportDescription"
+		TypeOfReport									is Numeric 2
+			States
+				Rollforward								value is 1
+				DisclosureSummary						value is 2
+		ReportDate										is a DateRange
+		ReportAsOfDate									is Date
+		PayablesCompany
+		LeaseAccountingStandard							is Numeric size 1
+			States
+				ASC 									value is 1
+				GASB 									value is 2
+		CompanyGroup									is a GeneralLedgerCompanyGroup
+		LeaseCount 										is Numeric 4	
+		RollforwardReportType							is Numeric 1
+            States
+                RightOfUse								value is 1
+                Liability								value is 2			
+
+		FiscalYear
+		Period
+        FiscalQuarter									is Numeric size 1
+			States
+				FirstQuarter        					value is 1
+				SecondQuarter       					value is 2
+				ThirdQuarter        					value is 3
+				FourthQuarter       					value is 4
+		AmortizationRightOfUse							is an InternationalAmount  
+		InterestOnLeaseLiability						is an InternationalAmount  
+		OperatingLeaseCost								is an InternationalAmount  
+		ShortTermLeaseCost								is an InternationalAmount  
+		CashPaid										is an InternationalAmount  
+		OperatingCashFLowFinanceLease					is an InternationalAmount  
+		OperatingCashFlowOperatingLease					is an InternationalAmount  
+		OperatingCashFlowLiabilityReduction				is an InternationalAmount  
+		FinancingCashFlowFinanceLease					is an InternationalAmount  
+		AdditionalRightOfUseAmountFinanceLease			is an InternationalAmount  
+		AdditionalRightOfUseAmountOperatingLease		is an InternationalAmount  
+
+
+	Transient Fields
+    	UseCompanyGroup					is Numeric 2
+    		States
+    			Company					value is 1
+    			CompanyGroup 			value is 2
+
+	Local Fields
+		LocalReportDate 				is Date
+		LocalLease						is like Lease
+		LocalReportDay					is Numeric 2
+		LocalNewLine					is LPLText
+		LocalNotificationDetails		is LPLText
+		LocalActor						is an Actor
+		LocalAccountingStandard			is Boolean
+
+	Conditions
+		RollforwardLiabilityReport
+			when (TypeOfReport.Rollforward
+			and  RollforwardReportType.Liability)
+
+		RollforwardRightOfUseReport
+			when (TypeOfReport.Rollforward
+			and  RollforwardReportType.RightOfUse)
+
+		RollforwardReport
+			when (TypeOfReport.Rollforward)
+
+		IsValidForActorContext
+			restricted
+			when (FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+
+	Sets		
+		ByTypeOfReport
+			Sort Order
+				FinanceEnterpriseGroup
+				TypeOfReport
+				LeaseReportResult  descending
+
+		ByAccountingStandard
+			Sort Order
+				FinanceEnterpriseGroup
+				LeaseAccountingStandard
+				LeaseReportResult descending
+
+	Field Rules
+
+		Description
+			required
+		
+		TypeOfReport
+			required
+		
+		ReportDate
+			if (TypeOfReport.Rollforward)
+				required
+
+		ReportAsOfDate
+			initial value is current date
+
+		LeaseAccountingStandard
+			initial value is "1"		
+			if (TypeOfReport.DisclosureSummary)
+				required
+
+		PayablesCompany
+			if (CompanyGroup not entered)
+				required
+					"MustEnterEitherCompanyOrCompanyGroup"
+		
+		CompanyGroup
+			if (PayablesCompany not entered)
+				required
+					"MustEnterEitherCompanyOrCompanyGroup"
+			if (CompanyGroup entered)
+				constraint (PayablesCompany not entered)
+					"CannotEnterBothCompanyGroupAndCompany"
+
+		RollforwardReportType
+			if (TypeOfReport.Rollforward)
+				required
+		
+		FiscalYear
+			if (TypeOfReport.DisclosureSummary)
+				required
+
+		Period
+			if (FiscalQuarter entered)
+				constraint (Period not entered)
+					"EnterAPeriodOrFiscalQuater"
+        
+		FiscalQuarter
+			if (Period entered)
+				constraint (FiscalQuarter not entered)
+					"EnterAPeriodOrFiscalQuater"
+
+	Derived Fields
+		CompanyGroupSameAccountingStandard is a DerivedField
+			type is Boolean
+			restricted
+			for each CompanyGroupRel
+				if (each.Company.AccountingEntity.LeaseAccountingStandard != LeaseAccountingStandard)
+					LocalAccountingStandard = false
+					end for each
+				else
+					LocalAccountingStandard = true
+			return LocalAccountingStandard
+
+    Relations
+		
+		LeaseReportDetailRel
+			one-to-many relation to LeaseReportDetail
+            Field Mapping uses ByLeaseReportResult
+                related.LeaseReportResult  = LeaseReportResult
+
+		CompanyGroupRel
+			one-to-many relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup 	= CompanyGroup
+
+	Actions
+		Create is a Create Action
+			restricted
+
+		CreateRollforwardReport is a Create Action
+
+			Action Rules
+				TypeOfReport	= "1"
+			Exit Rules
+
+				invoke CreateLeaseReportDetail Lease
+					invoked.PrmFinanceEnterpriseGroup               = FinanceEnterpriseGroup
+					invoked.PrmLeaseReportResult					= LeaseReportResult
+					invoked.PrmCompany								= PayablesCompany
+					invoked.PrmCompanyGroup							= CompanyGroup
+					invoked.PrmReportType							= TypeOfReport
+					invoked.PrmRollforwardReportType				= RollforwardReportType
+					invoked.PrmReportDateRange						= ReportDate
+					invoked.PrmReportAsOfDate						= ReportAsOfDate
+
+		CreateDisclosureSummaryReport is a Create Action
+
+			Action Rules
+				TypeOfReport	= "2"
+				constraint (LeaseAccountingStandard entered)
+					"LeaseAccountingStandardIsRequired"
+				if (UseCompanyGroup.Company)
+					initialize CompanyGroup
+				else
+					initialize PayablesCompany
+				if (CompanyGroup entered)
+					constraint (CompanyGroupSameAccountingStandard)
+						"AllTheCompaniesInTheCompanyGroupNeedToHaveTheSameLeaseAccountingStandard:<LeaseAccountingStandard>."
+				if (PayablesCompany entered)
+					constraint (PayablesCompany.AccountingEntity.LeaseAccountingStandard = LeaseAccountingStandard)
+						"TheCompanyDoesNotHaveTheSameLeaseAccountingStandardAsTheOptionSelected:<LeaseAccountingStandard>."
+
+			Exit Rules
+
+				invoke CreateLeaseReportDetail Lease
+					invoked.PrmFinanceEnterpriseGroup               = FinanceEnterpriseGroup
+					invoked.PrmLeaseReportResult					= LeaseReportResult
+					invoked.PrmAccountingStandard					= LeaseAccountingStandard
+					invoked.PrmCompany								= PayablesCompany
+					invoked.PrmCompanyGroup							= CompanyGroup
+					invoked.PrmFiscalYear							= FiscalYear
+					invoked.PrmPeriod								= Period
+					invoked.PrmFiscalQuarter						= FiscalQuarter
+					invoked.PrmReportType							= TypeOfReport
+					invoked.PrmReportAsOfDate						= ReportAsOfDate
+
+		DisclosureSummaryTotalUpdate is an Update Action
+			restricted
+			Action Rules
+				if (LeaseReportDetailRel exists)
+					AmortizationRightOfUse						= sum LeaseReportDetailRel.AmortizationRightOfUse
+					InterestOnLeaseLiability					= sum LeaseReportDetailRel.InterestOnLeaseLiability
+					OperatingLeaseCost							= sum LeaseReportDetailRel.OperatingLeaseCost
+					ShortTermLeaseCost							= sum LeaseReportDetailRel.ShortTermLeaseCost
+					CashPaid									= sum LeaseReportDetailRel.CashPaid
+					OperatingCashFLowFinanceLease				= sum LeaseReportDetailRel.OperatingCashFLowFinanceLease
+					OperatingCashFlowOperatingLease				= sum LeaseReportDetailRel.OperatingCashFlowOperatingLease
+					OperatingCashFlowLiabilityReduction			= sum LeaseReportDetailRel.OperatingCashFlowLiabilityReduction
+					FinancingCashFlowFinanceLease				= sum LeaseReportDetailRel.FinancingCashFlowFinanceLease
+					AdditionalRightOfUseAmountFinanceLease		= sum LeaseReportDetailRel.AdditionalRightOfUseAmountFinanceLease
+					AdditionalRightOfUseAmountOperatingLease	= sum LeaseReportDetailRel.AdditionalRightOfUseAmountOperatingLease
+					
+		Delete is a Delete Action
+
+		Purge is a Purge Action
+			restricted

@@ -1,0 +1,233 @@
+ReceivableInvoiceObligationGroup is a BusinessClass
+    owned by ar
+    prefix is AOG
+    sql name is RInvoiceObligationGroup
+    classic name is AROBLIGGRP
+
+    Ontology
+        symbolic key is ReceivableInvoiceObligationGroup
+            classic set name is AOGSET2
+            classic name for ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType is TRANS-TYPE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+    	NationalAccount						is a CompanyAndCustomer
+
+
+
+
+        Customer
+        TransactionAmount				is an InternationalAmount
+        AppliedAmount					is an InternationalAmount
+        AdjustAmount					is an InternationalAmount
+        OrigProgram						is a Program
+        DraftNumber						is an Invoice
+        Suffix
+        CancelSequence          		is a SeqNbr
+            classic name is CANCEL-SEQ
+		Actor
+
+	Local Fields
+
+
+		LocalOperator									is a ReceivableOperator
+
+		NewCompany						is like Company
+        NewTransType					is like TransType
+        NewInvoice						is like Invoice
+        NewPaymentSeq          			is like Sequence
+        NewBatchNumber					is like BatchNumber
+        NewApplicationSequence			is like ApplicationSequence
+
+	Derived Fields
+	
+		SignedOpenAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType.CreditMemo)
+				return ReceivableInvoiceDetailRel.OpenAmount * -1
+			else
+				return ReceivableInvoiceDetailRel.OpenAmount
+
+		SignedOpenAmountCustomerCurrency is a DerivedField
+			type is like InternationalAmount
+			restricted
+
+			if (ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType.CreditMemo)
+				return ReceivableInvoiceDetailRel.OpenAmountCustomerCurrency * -1
+			else
+				return ReceivableInvoiceDetailRel.OpenAmountCustomerCurrency
+
+    Conditions
+
+        IsAogset3
+        	restricted
+            classic name is AOGSET3
+            when (OrigProgram.VDt40
+            or    OrigProgram.VDt46)
+
+	Relations
+
+        ReceivableInvoiceDetailRel
+            classic name is AROITEMS
+            one-to-one relation to ReceivableInvoiceDetail
+            required
+            Field Mapping uses symbolic key
+                related.Company                                             = Company
+                related.ReceivableInvoiceDetail.ReceivableInvoiceDetailType = ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType
+                related.ReceivableInvoiceDetail.Invoice                     = ReceivableInvoiceObligationGroup.Invoice
+                related.ReceivableInvoiceDetail.PaymentSeq                  = ReceivableInvoiceObligationGroup.PaymentSeq
+
+        ReceivableInvoiceRel
+            one-to-one relation to ReceivableInvoice
+            Field Mapping uses Set6
+                related.Company                                             = Company
+                related.AlternateReceivableInvoiceType						= ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType
+                related.ReceivableInvoice                   				= ReceivableInvoiceObligationGroup.Invoice
+
+        CompanyCustomerRel
+            one-to-one relation to CompanyCustomer
+            Field Mapping uses symbolic key
+                related.Company  						= Company
+                related.Customer 						= Customer
+
+		LocalOperatorRel
+			one-to-one relation to ReceivableOperator
+			Field Mapping uses symbolic key
+                related.Company                 		= Company
+				related.ReceivableOperator				= LocalOperator
+
+        NewReceivableApplicationRel
+            one-to-one relation to ReceivableApplication
+            Field Mapping uses symbolic key
+                related.Company                                   = NewCompany
+                related.ReceivableApplication.TransType           = NewTransType
+                related.ReceivableApplication.Invoice             = NewInvoice
+                related.ReceivableApplication.PaymentSeq          = NewPaymentSeq
+                related.ReceivableApplication.BatchNumber         = NewBatchNumber
+                related.ReceivableApplication.ApplicationSequence = NewApplicationSequence
+
+    Sets
+
+        Set1
+            indexed
+            Sort Order
+                NationalAccount.Company
+                NationalAccount.Customer
+                Company
+                ReceivableInvoiceObligationGroup
+                
+	Field Rules
+		Actor
+			initial value is actor
+			default to actor
+
+    Actions
+        Create is a Create Action
+        	restricted
+        	Exit Rules
+
+
+        Update is an Update Action
+        	restricted
+
+        Delete is a Delete Action
+        	restricted
+        
+        Purge is a Purge Action
+        	default label is "Delete"
+        	confirmation required
+        		"AreYouSureYouWantToRemoveThisTransaction?"
+        		
+        ObligationGroupWriteoff is an Instance Action
+			restricted
+        		
+			Parameters
+				ApplicationGeneralLedgerDate				is Date
+					default label is "ApplicationGlobalLedgerDate"
+				ApplyOperator								is like ReceivableOperator
+				PrmAdjustReason								is like ReceivableReason
+				CreditCompany								is a ReceivableCompany
+				CreditCustomer								is like Customer
+				CreditInvoice								is AlphaUpper 22
+				CreditType									is AlphaUpper 1
+				
+			Parameter Rules
+				ApplyOperator
+					default to actor
+					if (Company.CashOperatorRequired)
+						LocalOperator		= ApplyOperator
+						constraint (LocalOperatorRel exists)
+							"OperatorDoesNotExist"
+						constraint (LocalOperatorRel.ActiveStatus.Active)
+							"OperatorIsNotActive"
+							
+				PrmAdjustReason
+					constraint (PrmAdjustReason != "CURR")
+						"CURRIsAReservedReasonCode"
+			Action Rules
+        		invoke UnreleasedCashApplication.Create ReceivableApplication
+
+					invoked.Company												= Company
+		            invoked.ReceivableApplication.TransType						= ReceivableInvoiceObligationGroup.ReceivableInvoiceDetailType
+		            invoked.ReceivableApplication.Invoice						= ReceivableInvoiceObligationGroup.Invoice
+		            invoked.ReceivableApplication.PaymentSeq					= ReceivableInvoiceObligationGroup.PaymentSeq
+		            invoked.ReceivableApplication.BatchNumber					= ReceivableInvoiceDetailRel.ReceivableInvoiceDetail.BatchNumber
+					
+					invoked.ReceivableOperator									= ApplyOperator
+					invoked.ApplicationSource									= "G"
+					invoked.ReceivableGeneralLedgerCode							= ReceivableInvoiceDetailRel.ReceivableGeneralLedgerCode
+
+        			invoked.CreditTransaction.CreditCompany						= CreditCompany
+        			invoked.CreditTransaction.CreditType 						= CreditType
+        			invoked.CreditTransaction.CreditNumber						= CreditInvoice
+        			invoked.CreditTransaction.CreditSequence					= 1
+					invoked.CreditTransaction.CreditCustomer					= CreditCustomer
+        			invoked.CreditTransaction.CreditBatch						= current corporate date
+
+			       	invoked.GeneralLedgerDate									= ApplicationGeneralLedgerDate
+					invoked.DepositDate											= ApplicationGeneralLedgerDate
+					if (Company.Currency = CreditCompany.Currency)
+						invoked.ApplicationCurrencyType							= "B"
+					else
+						invoked.ApplicationCurrencyType							= "M"
+
+					invoked.CreateAdjustReason									= PrmAdjustReason
+					invoked.CreateAdjustAmount									= ReceivableInvoiceDetailRel.OpenAmount
+					invoked.ApplicationCurrency									= ReceivableInvoiceDetailRel.OriginalCurrency  
+					invoked.AdjustAccount										= ReceivableInvoiceDetailRel.ReceivableGeneralLedgerCode.DistributionAccount
+					invoked.TransientSetToReviewed								= true
+					
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

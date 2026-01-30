@@ -1,0 +1,241 @@
+IncomingBankStatementDetail is a BusinessClass
+	owned by cashmgmt
+	prefix is BSDA
+
+	Ontology
+		symbolic key is IncomingBankStatementDetail
+
+	Persistent Fields
+		TimeReceived	is TimeStamp
+		TimeImported	is TimeStamp
+		Status			is Numeric 2
+			States
+				Missing		value is 1
+				Completed	value is 2
+				Excluded	value is 3
+		MissingStatus	is Numeric 2
+			States
+				NotReceived			value is 1
+				ReceivedNotImported	value is 2
+		CompletedStatus	is Numeric 2
+			States
+				Imported			value is 1
+				ManuallyEntered		value is 2
+		ExcludedStatus	is Numeric 2
+			States
+				ExcludedForDate		value is 1
+				ExcludedForAccount	value is 2
+		BankStatementInterfaceHeader
+			delete ignored
+		Comment			is Alpha size up to 500
+		ExcludedBy		is an Actor
+
+	Derived Fields
+		DerivedIncomingBankStatementHeader is a DerivedField
+			type is Date
+			restricted
+			return IncomingBankStatementHeader
+
+		DerivedIncomingBankStatementDetail is a DerivedField
+			type is AlphaUpper 35
+			restricted
+			return IncomingBankStatementDetail
+
+		DerivedBlueAlertMouseOverText is a DerivedField
+			type is Alpha up to 250
+			if (Status.Completed)
+				if (CompletedStatus.ManuallyEntered)
+					return "Manually Entered"
+				else
+					return ""
+			else
+			if (Status.Excluded)
+				if (ExcludedStatus.ExcludedForDate)
+					return "Excluded For Date"
+				else
+					return "Excluded For Account"
+			else
+				return ""
+
+  	Field Rules
+		Status
+			initial value is 1	
+
+  	Sets
+		ByAccount
+			Sort Order
+				EnterpriseGroup
+				SystemCalendar
+				IncomingBankStatementDetail
+				IncomingBankStatementHeader
+
+		ByStatus
+			Sort Order
+				EnterpriseGroup
+				SystemCalendar
+				IncomingBankStatementHeader
+				Status
+				IncomingBankStatementDetail
+
+	Conditions
+		BankStatementExists
+			restricted
+			when (BankStatementRel exists)
+
+		MissingStatement
+			restricted
+			when (Status.Missing)
+
+		BankStatementInterfaceHeaderEntered
+			restricted
+			when (BankStatementInterfaceHeader entered)
+
+		CashManagementAccountExists
+			restricted
+			when (CashManagementAccountRel exists)
+
+		AccountExcludesBankStatements
+			restricted
+			when (CashManagementAccountRel.NoBankStatementsExpected)
+
+		NotReceived
+			restricted
+			when (Status.Missing
+			and	  MissingStatus.NotReceived)
+
+		ReceivedNotImported
+			restricted
+			when (Status.Missing
+			and	  MissingStatus.ReceivedNotImported)
+
+		RaiseBlueAlert
+			restricted
+			when (Status.Excluded
+			or	 (Status.Completed
+			and	  CompletedStatus.ManuallyEntered))
+
+		IncludeStatementForDateValid
+			restricted
+			when (Status.Excluded
+			and	  ExcludedStatus.ExcludedForDate)
+
+		MultipleStatementsExistForSameDay	
+			restricted
+			when (instance count of BankStatementRel > 1)
+
+		SecurityGroupAllowsAccess
+			restricted
+			when ((actor.context.CashCodeSecurityGroup = "")
+			or   (actor.context.CashCodeSecurityGroup != ""
+			and   CashManagementAccountRel.CashCode entered
+			and   CashCodeSecurityGroupDetailRel exists)
+			or    CashManagementAccountRel.CashCode !entered)
+ 
+			
+  	Relations
+	    BankStatementRel
+			one-to-many relation to BankStatement
+			Field Mapping uses ByAccountDate
+				related.CashManagementGroup	  = EnterpriseGroup
+				related.CashManagementAccount = IncomingBankStatementDetail
+				related.StatementDate		  = IncomingBankStatementHeader
+
+		CashManagementAccountRel
+			one-to-one relation to CashManagementAccount
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	  = EnterpriseGroup
+				related.CashManagementAccount = IncomingBankStatementDetail
+
+		CashCodeRel
+			one-to-many relation to CashCode
+			Field Mapping uses ByBankAccount
+				related.CashManagementGroup		= EnterpriseGroup
+				related.BankAccountNumber		= IncomingBankStatementDetail
+
+		CashCodeSecurityGroupDetailRel
+			one-to-one relation to CashCodeGroupDetail
+			Field Mapping uses symbolic key
+				related.CashManagementGroup         = actor.context.FinanceEnterpriseGroup
+				related.CashCodeGroup				= actor.context.CashCodeSecurityGroup.FinanceDimensionStructure
+				related.CashCode                    = CashManagementAccountRel.CashCode
+ 
+
+  	Actions
+  		Create is a Create Action
+			restricted
+
+  		Update is an Update Action
+  			
+  		Delete is a Delete Action
+  			restricted
+  			
+  		Purge is a Purge Action
+  			restricted
+
+		ExcludeStatementForDate is an Instance Action
+			valid when (MissingStatement)
+			action comment required
+			confirmation required
+				"ByPerformingThisActionYouAreIndicatingThatYouDoNotExpectToReceiveABankStatementForAccount<DerivedIncomingBankStatementDetail>On<DerivedIncomingBankStatementHeader>.WouldYouLikeToContinue?"
+			Action Rules
+				Status = 3	
+				ExcludedStatus = 1	
+				ExcludedBy = actor
+				Comment = action comment
+
+		IncludeStatementForDate is an Instance Action
+			valid when (IncludeStatementForDateValid)
+			action comment required
+			confirmation required
+				"ByPerformingThisActionYouAreIndicatingThatYouExpectToReceiveABankStatementForAccount<DerivedIncomingBankStatementDetail>On<DerivedIncomingBankStatementHeader>.WouldYouLikeToContinue?"
+			Action Rules
+				if (BankStatementRel exists)
+					if (BankStatementRel.BankStatementInterfaceHeader entered)
+						Status = 2	
+						CompletedStatus = 1	
+					else
+						Status = 2	
+						CompletedStatus = 2	
+				else
+					Status = 1	
+					MissingStatus = 1	
+				initialize ExcludedBy
+				Comment = action comment
+
+		ExcludeStatementsForAccount is an Instance Action
+			valid when (MissingStatement)
+			action comment required
+			confirmation required
+				"ByPerformingThisActionYouAreIndicatingThatYouDoNotExpectToReceiveBankStatementsForAccount<DerivedIncomingBankStatementDetail>.ChangesWillTakeEffectStartingOn<current corporate date>.WouldYouLikeToContinue?"
+
+			Action Rules
+				Status = 3	
+				ExcludedStatus = 2	
+				ExcludedBy = actor
+				Comment = action comment
+				if (CashManagementAccountRel exists)
+					invoke Update CashManagementAccountRel
+						invoked.NoBankStatementsExpected = true
+
+		IncludeStatementsForAccount is an Instance Action
+			valid when (AccountExcludesBankStatements)
+			action comment required
+			confirmation required
+				"ByPerformingThisActionYouAreIndicatingThatYouExpectToReceiveBankStatementsForAccount<DerivedIncomingBankStatementDetail>.ChangesWillTakeEffectStartingOn<current corporate date>.WouldYouLikeToContinue?"
+
+			Action Rules
+				if (BankStatementRel exists)
+					if (BankStatementRel.BankStatementInterfaceHeader entered)
+						Status = 2	
+						CompletedStatus = 1	
+					else
+						Status = 2	
+						CompletedStatus = 2	
+				else
+					Status = 1	
+					MissingStatus = 1	
+				initialize ExcludedBy
+				Comment = action comment
+				if (CashManagementAccountRel exists)
+					invoke Update CashManagementAccountRel
+						invoked.NoBankStatementsExpected = false

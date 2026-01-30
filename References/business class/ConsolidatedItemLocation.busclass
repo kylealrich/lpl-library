@@ -1,0 +1,477 @@
+ConsolidatedItemLocation is a BusinessClass
+	owned by po
+	prefix is CCLC
+
+	Ontology
+		symbolic key is ConsolidatedItemLocation
+
+	Patterns
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp 
+
+	Persistent Fields
+		ContractOrItemLocation          is Numeric 2
+			States 
+				Item			value is 1 
+				Contract        value is 2
+		InventoryCompany            
+		InventoryLocation           
+		RequestingLocation
+		InactiveFlag					is Boolean  
+		DeletedFlag                     is Boolean  
+		NotForClinicalUseFlag           is Boolean  
+		DiscontinuedFlag                is Boolean  
+		CreateDate                  	is Date
+		UpdateDate                  	is Date 		
+			default label is "LastUpdateDate"
+
+	Local Fields 
+
+		CostDefaultingDone 				is Boolean
+		ProcurementCostDefault 
+		Execute							is Boolean	
+		LocalHasRemainingLocations      is Boolean 
+		LocalContract                   is like Contract 
+		LocalContractLine               is like ContractLine 
+		LocalNotForClinicalUse          is Boolean 		
+		UOMCalculation         
+
+	Transient Fields
+		ItemNumber                       is an Item 
+			derive value from ConsolidatedItemMaster.InternalItem
+		TransientDelete                 is Boolean 
+		TransientInactivate             is Boolean 
+	
+	Rule Blocks
+
+		CostDefaulting
+			if (InventoryLocation.LocationType.InventoryLocation)
+				ProcurementCostDefault.InCompany				= InventoryCompany
+				ProcurementCostDefault.InLocation				= InventoryLocation
+			else
+				ProcurementCostDefault.InCompany				= InventoryLocation.FromCompany
+				ProcurementCostDefault.InLocation				= InventoryLocation.ReplenishFromLocation
+
+			ProcurementCostDefault.InItem 						= ConsolidatedItemMaster.InternalItem
+			if (ConsolidatedItemMaster.InternalItem exists)
+				ProcurementCostDefault.InItemType 				= ItemType.Inventoried
+			else 
+				ProcurementCostDefault.InItemType               = ItemType.Special
+
+			ProcurementCostDefault.InManufacturerCode 			= ConsolidatedItemMaster.Manufacturer.ManufacturerCode
+			ProcurementCostDefault.InManufacturerDivision 		= ConsolidatedItemMaster.Manufacturer.ManufacturerDivision
+			ProcurementCostDefault.InManufacturerNumber 		= ConsolidatedItemMaster.ManufacturerNumber
+
+			if (ConsolidatedItemMaster.InternalItem exists)
+				if (ItemLocationRel.DefaultTransactionUOM entered)
+					ProcurementCostDefault.InQuantityUOM		= ItemLocationRel.DefaultTransactionUOM
+				else
+					ProcurementCostDefault.InQuantityUOM		= ConsolidatedItemMaster.InternalItem.DefaultBuyUOM
+
+			ProcurementCostDefault.InDate 						= current corporate date
+			ProcurementCostDefault.InSystem						= "RQ"
+
+			if (InventoryLocation.LocationType.InventoryLocation)
+				initialize ProcurementCostDefault.InRequestingLocation
+			else
+				ProcurementCostDefault.InRequestingLocation		= RequestingLocation
+			ProcurementCostDefault.InProcurementGroup 			= ContractGroup
+			ProcurementCostDefault.InDescription				= ConsolidatedItemMaster.Description
+			if (ItemLocationRel.Vendor entered)
+				ProcurementCostDefault.InVendor                 = ItemLocationRel.Vendor
+			else 
+				ProcurementCostDefault.InVendor					= ItemLocationRel.first ItemReplenishmentVendorRel.Vendor
+				ProcurementCostDefault.InPurchaseFromLocation	= ItemLocationRel.first ItemReplenishmentVendorRel.PurchaseFromLocation
+
+			Execute	= ProcurementCostDefault.DefaultUnitCost	
+
+	Derived Fields 
+
+		DerivedNumberOfDecimalsCost is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ConsolidatedItemMaster.ItemExists)
+				ConsolidatedItemMaster.InternalItem.NumberOfDecimalsCost
+			else
+				ItemGroupRel.DefaultNumberOfDecimalsCost
+
+		DefaultUnitCost		is a DerivedField
+			type is like UnitCost
+				precision is DerivedNumberOfDecimalsCost
+
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputUnitCost		
+
+		DefaultUnitCostUOM		is a DerivedField
+			type is like UnitOfMeasure
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputCostUOM		
+
+		DefaultUnitCostContract     is a DerivedField 
+			type is like Contract 
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputContract 		
+		
+		DefaultUnitCostContractLine     is a DerivedField 
+			type is like ContractLine 
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputContractLine
+
+		DefaultUnitCostForLowestDivisibleCost is a DerivedField 
+			type is like UnitCost
+				precision is DerivedNumberOfDecimalsCost
+			if (ConsolidatedItemMaster.ItemExists)
+				if (ConsolidatedItemMaster.InternalItem.UOMConversion = 1
+				or  ConsolidatedItemMaster.InternalItem.UOMConversion = 0)
+					return DefaultUnitCostInStockUOM
+				else
+					return (DefaultUnitCostInStockUOM/ConsolidatedItemMaster.InternalItem.UOMConversion)
+			else 
+			if (!ConsolidatedItemMaster.ItemExists)
+				return (ContractLineForOutputCostRel.BaseCostForLowestDivisibleCost)
+
+		DefaultUnitCostInStockUOM		is a DerivedField
+			type is like UnitCost
+				precision is DerivedNumberOfDecimalsCost
+
+			if (ConsolidatedItemMaster.ItemExists)
+				if (DefaultUnitCostUOM = ConsolidatedItemMaster.InternalItem.StockUOM)
+					return DefaultUnitCost
+				else
+					initialize UOMCalculation
+					if (DefaultUnitCostUOM entered)
+						UOMCalculation.InputUOM						= DefaultUnitCostUOM
+					else
+						UOMCalculation.InputUOM						= ConsolidatedItemMaster.InternalItem.DefaultBuyUOM
+					UOMCalculation.InputToUOM						= ConsolidatedItemMaster.InternalItem.StockUOM
+					UOMCalculation.InputUnitCost					= DefaultUnitCost
+					UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+					return UOMCalculation.OutputUnitCost
+
+		DefaultUnitCostVendor		is a DerivedField
+			type is like Vendor
+
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputVendor
+
+		DefaultUnitCostVendorName		is a DerivedField
+			type is like VendorName
+
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputVendorName
+
+		DefaultUnitCostPurchaseFromLocation		is a DerivedField
+			type is like PurchaseFromLocation
+
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputPurchaseFromLocation
+
+		DefaultUnitCostPurchaseFromLocationName		is a DerivedField
+			type is like VendorName
+
+			if (!CostDefaultingDone)
+				include CostDefaulting
+				CostDefaultingDone = true
+			return ProcurementCostDefault.OutputPurchaseFromLocationName
+
+		InventoryCostInStockUOM is a DerivedField 
+			type is like UnitCost 
+				precision is DerivedNumberOfDecimalsCost
+			if (InventoryCompany.CostingMethod.StandardCosting)
+				if (ItemLocationRel.StandardCost entered)
+					return ItemLocationRel.StandardCost
+			else
+			if (ItemLocationRel.NoCharge)
+				return 0
+			else
+			if (InventoryCompany.CostingMethod.AverageCosting)
+				if (ItemLocationRel.DerivedItemAverageCost entered)
+					return ItemLocationRel.DerivedItemAverageCost
+			else
+			if (InventoryCompany.CostingMethod.FirstInFirstOut)
+				for each InventoryCostHistoryFIFORel
+					return each.UnitCost 
+					if (InventoryCostInStockUOM entered)
+						end for each 
+			else 
+			if (InventoryCompany.CostingMethod.LastInFirstOut)
+				for each InventoryCostHistoryLIFORel
+					return each.UnitCost 
+					if (InventoryCostInStockUOM entered)
+						end for each 						
+
+		InventoryCostForLowestDivisibleCost is a DerivedField 
+			type is like UnitCost
+				precision is DerivedNumberOfDecimalsCost
+			if (ConsolidatedItemMaster.InternalItem.UOMConversion = 1
+			or  ConsolidatedItemMaster.InternalItem.UOMConversion = 0)
+				return InventoryCostInStockUOM
+			else
+				return (InventoryCostInStockUOM/ConsolidatedItemMaster.InternalItem.UOMConversion)
+
+		ItemConsignment							is a DerivedField
+			type is Boolean
+			return ItemRel.Consignment		
+	
+	Conditions 
+
+		HasItemLocation 
+			restricted 
+			when (ItemLocationRel exists)
+
+		HasContractLocations 
+			restricted 
+			when (LocationsForContractsRel exists)
+		
+		ContractLocation 
+			restricted 
+			when (ContractOrItemLocation = 2)
+
+		ItemLocation 
+			restricted 
+			when (ContractOrItemLocation = 1)
+
+	Relations 
+
+		ItemGroupRel
+			one-to-one relation to ItemGroup 
+			Field Mapping uses symbolic key 
+				related.ItemGroup 							= ContractGroup
+		
+		ItemRel 
+			one-to-one relation to Item 
+			Field Mapping uses symbolic key 	
+				related.ItemGroup 							= ContractGroup 
+				related.Item                                = ConsolidatedItemMaster.InternalItem 
+		
+		ItemLocationRel 
+			one-to-one relation to ItemLocation 
+			Field Mapping uses symbolic key 
+				related.Company                             = InventoryCompany 
+				related.InventoryLocation                   = InventoryLocation 
+				related.Item                                = ConsolidatedItemMaster.InternalItem 
+
+		InventoryLocationRel 
+			one-to-one relation to InventoryLocation
+			Field Mapping uses symbolic key 
+				related.Company                             = InventoryCompany 
+				related.InventoryLocation                   = InventoryLocation 
+
+		ContractLineForItemRel 
+			one-to-many relation to ContractLine
+			Field Mapping uses ByMfgInfoVenItem
+				related.ContractGroup                       = ContractGroup 
+				related.Manufacturer.ManufacturerCode       = ConsolidatedItemMaster.Manufacturer.ManufacturerCode 
+				related.Manufacturer.ManufacturerDivision   = ConsolidatedItemMaster.Manufacturer.ManufacturerDivision
+				related.ManufacturerNumber                  = ConsolidatedItemMaster.ManufacturerNumber 
+			Instance Selection 
+				where (related.CanUseForConsolidated) 
+		
+		ContractLineForOutputCostRel
+			one-to-one relation to ContractLine 
+			Field Mapping uses symbolic key 
+				related.ContractGroup                      = ContractGroup 
+				related.Contract                           = DefaultUnitCostContract
+				related.ContractLine                       = DefaultUnitCostContractLine 
+		
+		LocationsForContractsRel 
+			one-to-many relation to ContractAndLineLocation
+			Field Mapping uses ByLocationFirst
+				related.ContractGroup                       			= ContractGroup 
+				related.ContractAndLineLocation.Company 				= InventoryCompany 
+                related.ContractAndLineLocation.Location                = InventoryLocation  
+                related.ContractAndLineLocation.RequestingLocation		= RequestingLocation 
+				related.Contract                						= ContractLineForItemRel.Contract 
+			Instance Selection 
+				where (related.ClinicalSystemUse = true)
+		
+		ContractAndLineLocationRel 
+		 	one-to-many relation to ContractAndLineLocation 
+		 	Field Mapping uses ByLocationFirst  
+				related.ContractGroup                       			= ContractGroup 
+				related.ContractAndLineLocation.Company 				= InventoryCompany 
+                related.ContractAndLineLocation.Location                = InventoryLocation  
+                related.ContractAndLineLocation.RequestingLocation		= RequestingLocation 
+				related.Contract                                        = LocalContract 				
+			Instance Selection 
+				where (related.ClinicalSystemUse = true
+				and   (related.LineLevel = false
+				or     related.ContractLine = LocalContractLine))	
+
+		InventoryCostHistoryFIFORel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set3
+				related.Company				= InventoryCompany
+				related.InventoryLocation	= InventoryLocation
+				related.Item				= ConsolidatedItemMaster.InternalItem
+
+		InventoryCostHistoryLIFORel
+			one-to-many relation to InventoryCostHistory
+			Field Mapping uses Set5
+				related.Company				= InventoryCompany
+				related.InventoryLocation	= InventoryLocation
+				related.Item				= ConsolidatedItemMaster.InternalItem		
+
+		ConsolidatedItemMasterUOM 
+			one-to-one relation to ConsolidatedItemMasterUOM
+			Field Mapping uses symbolic key 
+				related.ContractGroup                  = ContractGroup 
+				related.ConsolidatedItemMaster         = ConsolidatedItemMaster					
+
+	Sets 
+
+		ByLocation 
+			Sort Order 
+				ContractGroup
+				InventoryCompany
+				InventoryLocation	
+				RequestingLocation 
+				ConsolidatedItemMaster 	
+		 		ConsolidatedItemLocation 	
+
+		ByConsolidatedInventoryLocationOnly 
+			Sort Order 
+				ContractGroup 
+				InventoryCompany 
+				InventoryLocation 
+				ConsolidatedItemMaster
+				ConsolidatedItemLocation 
+
+	Actions 
+
+		Create is a Create Action 
+			restricted 
+			Action Rules 
+				CreateDate = current corporate date
+
+		Update is an Update Action 
+		    restricted
+			Action Rules
+
+				LocalHasRemainingLocations = false 
+				if (HasItemLocation)
+					LocalHasRemainingLocations = true 
+					if (ItemLocationRel.Active)
+						ContractOrItemLocation     = 1
+				
+				if (ContractLineForItemRel exists)
+					for each ContractLineForItemRel 
+						LocalContract 		= each.Contract 
+						LocalContractLine	= each.ContractLine
+						if (ContractAndLineLocationRel exists)
+							LocalHasRemainingLocations = true 
+							if (!HasItemLocation
+							or (HasItemLocation
+							and ItemLocationRel.Active = false))
+								ContractOrItemLocation     = 2
+				if (LocalHasRemainingLocations = false)
+					DeletedFlag = true 
+				else 
+				if (LocalHasRemainingLocations = true)
+					DeletedFlag = false
+				if (DeletedFlag = false)
+					if (HasItemLocation)
+						DiscontinuedFlag = ItemLocationRel.Discontinued 
+						if (ItemLocationRel.Active = false)
+							InactiveFlag = true 
+						else 
+							InactiveFlag = false 	
+				if (ContractLocation
+				and	ContractLineForItemRel exists)
+					LocalNotForClinicalUse = true  				
+					for each ContractLineForItemRel 
+						LocalContract 		= each.Contract 
+						LocalContractLine	= each.ContractLine
+						if (ContractAndLineLocationRel exists)
+							for each ContractAndLineLocationRel 
+								if (each.ClinicalSystemUse)
+									LocalNotForClinicalUse = false
+									InactiveFlag           = false 
+									DiscontinuedFlag       = false  
+								end for each 
+				if (LocalNotForClinicalUse = true
+				or  ConsolidatedItemMaster.NotForClinicalUseFlag)
+					NotForClinicalUseFlag = true 											
+				if (CreateDate != current corporate date)
+					UpdateDate		= current corporate date		
+
+		Delete is a Delete Action 
+		  	restricted 
+		
+		Purge is a Purge Action 
+		  	restricted 
+
+		CleanUpConsolidatedItemLocationSet is a Set Action 
+			restricted 
+			Parameters 
+				PrmContractGroup       is a ContractGroup 
+					default label is "ContractGroup"
+				PrmUpdateDate          is Date
+					default label is "CleanUpRecordsWithAnUpdateDateOnOrBeforeThisDate"
+
+			Instance Selection 
+				where (PrmContractGroup	= ContractGroup
+				and    UpdateDate entered
+				and    UpdateDate <= PrmUpdateDate)
+			
+			Sort Order 
+				ContractGroup 
+				ConsolidatedItemMaster 
+				ConsolidatedItemLocation 
+			
+			Action Rules 
+
+				Empty Set Rules 
+
+					invoke CleanUpConsolidatedItemMasterSet ConsolidatedItemMaster 
+						invoked.PrmContractGroup	= PrmContractGroup 
+						invoked.PrmUpdateDate       = PrmUpdateDate
+
+				ContractGroup Set Rules
+
+					Exit Rules 
+
+						invoke CleanUpConsolidatedItemMasterSet ConsolidatedItemMaster 
+							invoked.PrmContractGroup	= PrmContractGroup 
+							invoked.PrmUpdateDate       = PrmUpdateDate
+
+				Instance Rules 
+					
+					if (InactiveFlag
+					or  DeletedFlag                 
+					or  NotForClinicalUseFlag        
+					or  DiscontinuedFlag)
+
+						invoke Purge
+
+					else 
+
+						initialize UpdateDate 
+
+
+
+
+		
+					
+
+
+
+
+

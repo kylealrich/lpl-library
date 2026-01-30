@@ -1,0 +1,440 @@
+ADBTransaction is a BusinessClass
+    owned by ad
+    prefix is ADBTR
+
+    Ontology
+    	symbolic key is ADBTransaction
+
+    Patterns
+ 		implements DynamicCreation
+		implements LightweightAuditing
+		disable AuditIndex
+ 		disable EffectiveDated
+		disable AsOfDateProcessing 		
+
+	Context Fields
+
+    Persistent Fields
+        Status							is Numeric 1
+            States
+                Unreleased				value is 0
+                Posted					value is 9
+    	AccountingUnit
+    	FinanceDimension1
+		FunctionalAmount				is a InternationalAmount
+        BasisLastRunDate				is Date
+        NonChartAccount					is Boolean
+
+	Transient Fields
+		PrmFunctionalAmount				is a InternationalAmount
+
+	Derived Fields
+
+	Local Fields
+		LocalGeneralLedgerCalendar			is like GeneralLedgerCalendar
+		LocalAccountingEntity				is like AccountingEntity
+		LocalReportingChart					is like ReportingChart
+		LocalReportingBasis					is a ReportingBasis
+		LocalDate							is Date
+		LocalSummaryPeriodType	 			is Numeric 1
+			States
+				Year					    value is 1
+				Quarter					    value is 2
+				Month					    value is 3
+				Week					    value is 4
+				Day							value is 8					
+				EndDate					    value is 5
+				TopNode    	   				value is 7
+		LocalInstADBOrganizationDimension	is like AccountingUnit 
+		LocalInstGeneralLedgerChartAccount	is like GeneralLedgerChartAccount
+		LocalInstGeneralLedgerCalendarPeriod is like GeneralLedgerCalendarPeriod
+		LocalSystemAccount					is a SystemAccount
+
+	Conditions
+
+	Sets				
+		ByStatusEntityAccount
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				Status
+				AccountingEntity
+				ADBTransaction.PostingDate
+				ADBTransaction.TransactionDate
+        	    ADBTransaction.GeneralLedgerChartAccount
+				ADBTransaction.ADBOrganizationDimension
+				ADBTransaction.RunDate
+
+
+	Relations
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup						= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date 							    >=  LocalDate)
+		GeneralLedgerPeriodShadowRel
+			one-to-many relation to GeneralLedgerPeriodShadow
+			Field Mapping uses BySummaryPeriodType
+				related.FinanceEnterpriseGroup						= FinanceEnterpriseGroup
+				related.GeneralLedgerCalendar						= LocalGeneralLedgerCalendar
+				related.GeneralLedgerCalendarPeriod					= first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+				related.SummaryPeriodType							= LocalSummaryPeriodType
+		ReportingChartAccountRel
+			one-to-one relation to ReportingChartAccount
+			Field Mapping uses AccountByChartType
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup
+				related.ReportingChart					= LocalReportingChart
+				related.ChartType						= 2 
+				related.GeneralLedgerChartAccount		= ADBTransaction.GeneralLedgerChartAccount
+		UpdateADBDailyAmountRel
+			one-to-one relation to ADBDailyAmount
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup							= FinanceEnterpriseGroup
+				related.ReportingBasis									= LocalReportingBasis
+				related.AccountingEntity								= LocalAccountingEntity
+				related.ADBDailyAmount.ADBOrganizationDimension			= LocalInstADBOrganizationDimension
+				related.ADBDailyAmount.GeneralLedgerChartAccount		= LocalInstGeneralLedgerChartAccount
+				related.ADBDailyAmount.RunDate 							= LocalDate
+		UpdateADBAggregateBalanceRel
+			one-to-one relation to ADBAggregateBalance
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup							= FinanceEnterpriseGroup
+				related.ReportingBasis									= LocalReportingBasis
+				related.AccountingEntity								= LocalAccountingEntity
+				related.ADBAggregateBalance.ADBOrganizationDimension	= LocalInstADBOrganizationDimension
+				related.ADBAggregateBalance.GeneralLedgerChartAccount	= LocalInstGeneralLedgerChartAccount
+				related.ADBAggregateBalance.GeneralLedgerCalendarPeriod	= LocalInstGeneralLedgerCalendarPeriod
+		ADBAccountMasterByAccountRel
+			one-to-many relation to ADBAccountMaster
+			Field Mapping uses ByEntityAccount
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AccountingEntity			= AccountingEntity
+				related.GeneralLedgerChartAccount	= ADBTransaction.GeneralLedgerChartAccount
+				related.AccountingUnit				= AccountingUnit
+				related.FinanceDimension1			= FinanceDimension1
+
+		SystemAccountRel
+			one-to-many relation to GeneralLedgerChartAccount
+			Field Mapping uses BySystemAccount
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.SystemAccount				= LocalSystemAccount
+
+	Field Rules
+		ADBTransaction.GeneralLedgerChartAccount
+			required
+
+		AccountingUnit
+			if (FinanceEnterpriseGroup.ADBSelection.AccountAndAccountingUnit)
+				required
+				constraint (AccountingEntity.AverageDailyBalance)
+					"<FinanceEnterpriseGroup.AccountingEntityLabel>NotSetForAverageDailyBalance"						
+
+		FinanceDimension1
+			if (FinanceEnterpriseGroup.ADBSelection.AccountAndDimension1)
+				required
+
+		ADBTransaction.ADBOrganizationDimension
+			if (FinanceEnterpriseGroup.ADBSelection.Account)
+				force default to blank
+			if (FinanceEnterpriseGroup.ADBSelection.AccountAndAccountingUnit)
+				force default to AccountingUnit
+			if (FinanceEnterpriseGroup.ADBSelection.AccountAndDimension1)
+				force default to FinanceDimension1
+
+	Rule Blocks
+
+		UpdateActualTotal
+			FunctionalAmount				+= PrmFunctionalAmount
+
+		GetCalendarPeriod
+			LocalGeneralLedgerCalendar			= PrmReportingBasis.GeneralLedgerCalendar
+			LocalSummaryPeriodType			= 1
+			if (GeneralLedgerPeriodShadowRel exists)
+				LocalYTDCalendarPeriod		= GeneralLedgerPeriodShadowRel.SummaryGeneralLedgerCalendarPeriod
+			LocalSummaryPeriodType			= 2
+			if (GeneralLedgerPeriodShadowRel exists)
+				LocalQTDCalendarPeriod		= GeneralLedgerPeriodShadowRel.SummaryGeneralLedgerCalendarPeriod
+			LocalSummaryPeriodType			= 3
+			if (GeneralLedgerPeriodShadowRel exists)
+				LocalMTDCalendarPeriod		= GeneralLedgerPeriodShadowRel.SummaryGeneralLedgerCalendarPeriod
+			LocalSummaryPeriodType			= 4
+			if (GeneralLedgerPeriodShadowRel exists)
+				LocalWTDCalendarPeriod		= GeneralLedgerPeriodShadowRel.SummaryGeneralLedgerCalendarPeriod
+
+		UpdateAggregateAmounts	
+			LocalReportingBasis							= PrmReportingBasis
+			LocalAccountingEntity						= PrmAccountingEntity
+			LocalInstADBOrganizationDimension			= LocalADBOrganizationDimension
+			LocalInstGeneralLedgerChartAccount			= LocalGeneralLedgerChartAccount
+			if (LocalYTDCalendarPeriodOld entered
+			and LocalYTDCalendarPeriod		!= LocalYTDCalendarPeriodOld)
+				LocalInstGeneralLedgerCalendarPeriod					= LocalYTDCalendarPeriodOld
+				invoke Update UpdateADBAggregateBalanceRel
+					invoked.PrmBalanceOnPostDate						= LocalYTDPeriodAmount
+					invoked.PrmBalanceOnTransactionDate					= LocalYTDPeriodTranAmount
+				LocalRecordCount			+= 1
+				LocalYTDCalendarPeriodOld								= LocalYTDCalendarPeriod
+				initialize LocalYTDPeriodAmount
+				initialize LocalYTDPeriodTranAmount
+			if (LocalQTDCalendarPeriodOld entered
+			and LocalQTDCalendarPeriod		!= LocalQTDCalendarPeriodOld)
+				LocalInstGeneralLedgerCalendarPeriod					= LocalQTDCalendarPeriodOld
+				invoke Update UpdateADBAggregateBalanceRel
+					invoked.PrmBalanceOnPostDate						= LocalQTDPeriodAmount
+					invoked.PrmBalanceOnTransactionDate					= LocalQTDPeriodTranAmount
+				LocalRecordCount			+= 1
+				LocalQTDCalendarPeriodOld								= LocalQTDCalendarPeriod
+				initialize LocalQTDPeriodAmount
+				initialize LocalQTDPeriodTranAmount
+			if (LocalMTDCalendarPeriodOld entered
+			and LocalMTDCalendarPeriod		!= LocalMTDCalendarPeriodOld)
+				LocalInstGeneralLedgerCalendarPeriod					= LocalMTDCalendarPeriodOld
+				invoke Update UpdateADBAggregateBalanceRel
+					invoked.PrmBalanceOnPostDate						= LocalMTDPeriodAmount
+					invoked.PrmBalanceOnTransactionDate					= LocalMTDPeriodTranAmount
+				LocalRecordCount			+= 1
+				LocalMTDCalendarPeriodOld								= LocalMTDCalendarPeriod
+				initialize LocalMTDPeriodAmount
+				initialize LocalMTDPeriodTranAmount
+			if (LocalWTDCalendarPeriodOld entered
+			and LocalWTDCalendarPeriod		!= LocalWTDCalendarPeriodOld)
+				LocalInstGeneralLedgerCalendarPeriod					= LocalWTDCalendarPeriodOld
+				invoke Update UpdateADBAggregateBalanceRel
+					invoked.PrmBalanceOnPostDate						= LocalWTDPeriodAmount
+					invoked.PrmBalanceOnTransactionDate					= LocalWTDPeriodTranAmount
+				LocalRecordCount			+= 1
+				LocalWTDCalendarPeriodOld								= LocalWTDCalendarPeriod
+				initialize LocalWTDPeriodAmount
+				initialize LocalWTDPeriodTranAmount
+
+	Actions
+		Create is a Create Action
+			restricted
+			bypass field rules
+			Action Rules
+				include UpdateActualTotal
+
+		Update is an Update Action
+			restricted
+			bypass field rules
+			Action Rules
+				include UpdateActualTotal
+
+		Delete is a Delete Action
+			restricted
+			Action Rules
+
+		UpdateDailyAggregateAmount is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup		is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmReportingBasis				is a ReportingBasis
+					default label is "ReportingBasis"
+				PrmAccountingEntity				is a AccountingEntity
+					default label is "<FinanceEnterpriseGroup.AccountingEntityLabel>"
+				PrmLastRunDate					is Date
+					default label is "LastRunDate"
+				PrmRunDate				is Date
+					default label is "RunDate"
+				PrmNonChartAccountOnly			is Boolean
+				PrmAccount						is like GeneralLedgerChartAccount
+				PrmADBOrganizationDimension		is like AccountingUnit
+
+			Parameter Rules
+				PrmReportingBasis
+					LocalReportingBasis			= PrmReportingBasis
+					LocalReportingChart			= PrmReportingBasis.ReportingChart
+				PrmAccountingEntity
+					LocalAccountingEntity		= PrmAccountingEntity
+
+			Queue Mapping Fields
+				PrmAccountingEntity.PostingCategory
+				
+			Set Is
+				PrmFinanceEnterpriseGroup
+				PrmReportingBasis
+				PrmAccountingEntity
+
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    AccountingEntity       = PrmAccountingEntity
+				and	   Status.Unreleased
+				and    (PrmADBOrganizationDimension not entered or PrmADBOrganizationDimension = ADBTransaction.ADBOrganizationDimension)
+				and    (PrmAccount                  not entered or PrmAccount = ADBTransaction.GeneralLedgerChartAccount)
+				and    (NonChartAccount or (not PrmNonChartAccountOnly and ReportingChartAccountRel exists))
+				and	   ADBTransaction.PostingDate		<= PrmRunDate
+				and	   (config.UsePostDateAndTranDateInAdb != true or (ADBTransaction.TransactionDate <= PrmRunDate))
+				and    (!ADBTransaction.GeneralLedgerChartAccount.SystemAccount.AverageDailyBalance))
+
+			Sort Order
+				FinanceEnterpriseGroup
+				Status
+				AccountingEntity
+				ADBTransaction.ADBOrganizationDimension
+        	    ADBTransaction.GeneralLedgerChartAccount
+				ADBTransaction.PostingDate
+				ADBTransaction.TransactionDate
+				ADBTransaction.RunDate
+
+			Accumulators
+				FunctionalTotal
+
+			Local Fields
+				LocalYTDCalendarPeriod				is like GeneralLedgerCalendarPeriod
+				LocalQTDCalendarPeriod				is like GeneralLedgerCalendarPeriod
+				LocalMTDCalendarPeriod				is like GeneralLedgerCalendarPeriod
+				LocalWTDCalendarPeriod				is like GeneralLedgerCalendarPeriod
+				LocalYTDCalendarPeriodOld			is like GeneralLedgerCalendarPeriod
+				LocalQTDCalendarPeriodOld			is like GeneralLedgerCalendarPeriod
+				LocalMTDCalendarPeriodOld			is like GeneralLedgerCalendarPeriod
+				LocalWTDCalendarPeriodOld			is like GeneralLedgerCalendarPeriod
+				LocalYTDPeriodAmount				is an InternationalAmount
+				LocalQTDPeriodAmount				is an InternationalAmount
+				LocalMTDPeriodAmount				is an InternationalAmount
+				LocalWTDPeriodAmount				is an InternationalAmount
+				LocalYTDPeriodTranAmount			is an InternationalAmount
+				LocalQTDPeriodTranAmount			is an InternationalAmount
+				LocalMTDPeriodTranAmount			is an InternationalAmount
+				LocalWTDPeriodTranAmount			is an InternationalAmount
+				LocalPostingDate					is Date
+				LocalTransactionDate				is Date
+				LocalRunDate						is Date
+				LocalRecordCount					is Numeric 4
+				LocalADBOrganizationDimension		is like AccountingUnit 
+        		LocalGeneralLedgerChartAccount		is like GeneralLedgerChartAccount
+				LocalUndistributedRetainEarnings	is like GeneralLedgerChartAccount
+
+			Action Rules
+				Empty Set Rules
+
+				Set Rules
+					Entrance Rules
+						initialize LocalUndistributedRetainEarnings
+						LocalSystemAccount  = SystemAccount.UndistributedRetainedEarnings
+						LocalUndistributedRetainEarnings = first SystemAccountRel.GeneralLedgerChartAccount
+
+				FinanceEnterpriseGroup Set Rules
+					Entrance Rules
+						LocalRunDate				= PrmRunDate
+
+					Exit Rules
+
+				ADBTransaction.RunDate Set Rules
+					Entrance Rules
+						LocalPostingDate					= ADBTransaction.PostingDate
+						LocalTransactionDate				= ADBTransaction.TransactionDate
+						LocalADBOrganizationDimension		= ADBTransaction.ADBOrganizationDimension
+						LocalGeneralLedgerChartAccount		= ADBTransaction.GeneralLedgerChartAccount
+						initialize LocalYTDCalendarPeriodOld
+						initialize LocalQTDCalendarPeriodOld
+						initialize LocalMTDCalendarPeriodOld
+						initialize LocalWTDCalendarPeriodOld
+
+					Exit Rules
+						if (FunctionalTotal entered)
+							if (config.UsePostDateAndTranDateInAdb != true) 
+								LocalDate  = LocalPostingDate
+							else
+								if (LocalPostingDate	< LocalTransactionDate)	
+									LocalDate				= LocalPostingDate
+								else
+									LocalDate				= LocalTransactionDate
+							initialize LocalYTDCalendarPeriod
+							initialize LocalQTDCalendarPeriod
+							initialize LocalMTDCalendarPeriod
+							initialize LocalWTDCalendarPeriod
+							initialize LocalYTDPeriodAmount
+							initialize LocalQTDPeriodAmount
+							initialize LocalMTDPeriodAmount
+							initialize LocalWTDPeriodAmount
+							initialize LocalYTDPeriodTranAmount
+							initialize LocalQTDPeriodTranAmount
+							initialize LocalMTDPeriodTranAmount
+							initialize LocalWTDPeriodTranAmount
+							include GetCalendarPeriod
+							LocalYTDCalendarPeriodOld		= LocalYTDCalendarPeriod
+							LocalQTDCalendarPeriodOld		= LocalQTDCalendarPeriod
+							LocalMTDCalendarPeriodOld		= LocalMTDCalendarPeriod
+							LocalWTDCalendarPeriodOld		= LocalWTDCalendarPeriod
+							while (LocalDate	<= LocalRunDate)
+								LocalReportingBasis							= PrmReportingBasis
+								LocalAccountingEntity						= PrmAccountingEntity
+								LocalInstADBOrganizationDimension			= LocalADBOrganizationDimension
+								LocalInstGeneralLedgerChartAccount			= LocalGeneralLedgerChartAccount
+								invoke Update UpdateADBDailyAmountRel
+									if (LocalDate					>= PrmLastRunDate
+									and LocalDate					= LocalPostingDate)
+										invoked.PrmAmount					= FunctionalTotal
+									if (LocalDate					< PrmLastRunDate
+									and LocalDate					= LocalPostingDate)
+										invoked.PrmAdjustmentAmount			= FunctionalTotal
+									if (LocalDate					>= LocalPostingDate)
+										invoked.PrmBalanceOnPostDate		= FunctionalTotal
+									if (LocalDate					>= LocalTransactionDate)
+										invoked.PrmBalanceOnTransactionDate	= FunctionalTotal
+								LocalRecordCount			+= 1
+								include UpdateAggregateAmounts
+								if (LocalDate					>= LocalPostingDate)
+									LocalYTDPeriodAmount		+= FunctionalTotal
+									LocalQTDPeriodAmount		+= FunctionalTotal
+									LocalMTDPeriodAmount		+= FunctionalTotal
+									LocalWTDPeriodAmount		+= FunctionalTotal
+								if (LocalDate					>= LocalTransactionDate)
+									LocalYTDPeriodTranAmount	+= FunctionalTotal
+									LocalQTDPeriodTranAmount	+= FunctionalTotal
+									LocalMTDPeriodTranAmount	+= FunctionalTotal
+									LocalWTDPeriodTranAmount	+= FunctionalTotal
+								LocalDate	+= 1
+								initialize LocalYTDCalendarPeriod
+								initialize LocalQTDCalendarPeriod
+								initialize LocalMTDCalendarPeriod
+								initialize LocalWTDCalendarPeriod
+								include GetCalendarPeriod
+								if ((LocalYTDCalendarPeriodOld entered
+								and  LocalYTDCalendarPeriodOld		not = LocalYTDCalendarPeriod)
+								and LocalInstGeneralLedgerChartAccount	= LocalUndistributedRetainEarnings) 
+									end while		
+							initialize LocalYTDCalendarPeriod
+							initialize LocalQTDCalendarPeriod
+							initialize LocalMTDCalendarPeriod
+							initialize LocalWTDCalendarPeriod
+							include UpdateAggregateAmounts
+
+
+
+				Instance Rules
+
+
+
+
+					if (ADBAccountMasterByAccountRel.Active)
+						FunctionalTotal		+= FunctionalAmount
+						Status				= 9
+						BasisLastRunDate	= PrmLastRunDate
+
+		Purge is a Purge Action
+			restricted
+
+		PurgeData is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup		is a FinanceEnterpriseGroup
+				PrmAccount						is like GeneralLedgerChartAccount
+				PrmStartDate					is Date
+				PrmEndDate						is Date
+				PrmAccountingEntity						is like AccountingEntity
+				PrmADBOrganizationDimension				is like AccountingUnit
+
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    (PrmAccount          not entered or PrmAccount = ADBTransaction.GeneralLedgerChartAccount)
+				and    (PrmAccountingEntity not entered or PrmAccountingEntity = AccountingEntity)
+				and    (PrmADBOrganizationDimension not entered or PrmADBOrganizationDimension = ADBTransaction.ADBOrganizationDimension)
+				and    (PrmStartDate not entered or ADBTransaction.PostingDate >= PrmStartDate)
+				and    (PrmEndDate   not entered or ADBTransaction.PostingDate <= PrmEndDate))
+
+			Action Rules
+				Instance Rules
+					invoke Purge

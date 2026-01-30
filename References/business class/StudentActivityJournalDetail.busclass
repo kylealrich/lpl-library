@@ -1,0 +1,213 @@
+StudentActivityJournalDetail is a BusinessClass
+    owned by studentactivities
+    prefix is SAJD
+
+    Ontology
+    	symbolic key is StudentActivityJournalDetail
+
+ 	Patterns
+ 		implements DynamicCreation
+
+    Persistent Fields
+		PostingAmount				is an InternationalAmount
+		Description					is Alpha 60
+		Status						is Numeric 2
+			States
+				Unreleased	value is 0
+				Released 	value is 1
+				Posted		value is 2
+		GLAccount 					is a FinanceCodeBlockFull
+		OriginatingTransaction		is BusinessObjectReference
+
+	Transient Fields
+
+
+		GLAccountingEntity				is an AccountingEntity
+			derive value from GLTransactionDetailRel.AccountingEntity
+
+
+
+
+
+
+		System							is a GeneralLedgerSystemCode
+			derive value from GLTransactionDetailRel.System
+		TransactionCurrencyCode			is a Currency
+			derive value from StudentActivitySchool.DefaultAccountingEntity.FunctionalCurrency
+       	CurrencyCode					is a FromCurrency
+       		derive value from GLTransactionDetailRel.CurrencyCode    		
+		UnitsAmount
+			derive value from GLTransactionDetailRel.UnitsAmount
+		TransactionDate					is an ExchangeDate
+			derive value from GLTransactionDetailRel.TransactionDate
+       	JournalizeGroup
+       		derive value from GLTransactionDetailRel.JournalizeGroup
+		Reference 						
+			derive value from GLTransactionDetailRel.Reference
+
+
+		DocumentNumber
+			derive value from GLTransactionDetailRel.DocumentNumber
+			
+	Derived Fields
+		StudentActivityDistributionPostingMessage is a MessageField 
+			restricted
+			"StudentActivityDistributionPosting"
+
+	Sets
+
+	Relations
+	
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction = reference to this instance
+				
+		StudentActivityGeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup                  = StudentActivityDistrict
+				related.GeneralLedgerSystemCode                 = "SA"
+				
+
+
+
+
+
+
+
+	Conditions
+
+
+	
+	Field Rules
+
+	Delete Rules
+		if (Status.Unreleased)
+			invoke Unreleased.Delete GLTransactionDetailRel
+		else
+		if (Status.Released)
+			invoke Released.Delete GLTransactionDetailRel
+
+	StateCycles
+		StudentActivityJournalDetailLifeCycle is a StateCycle
+			state field is Status
+			
+			Unreleased is a State
+
+				Create is a Create Action
+					restricted
+					Exit Rules
+						invoke Create Unreleased GLTransactionDetail
+							fill in fields from this instance		 
+							invoked.OriginatingTransaction 					= reference to this instance
+							invoked.FinanceEnterpriseGroup					= StudentActivityDistrict
+							invoked.AccountingEntity						= StudentActivitySchool.DefaultAccountingEntity
+							invoked.PostingDate								= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod.Date
+							invoked.TransactionDate							= StudentActivitySchool.CurrentPeriod.GeneralLedgerCalendarPeriod.Date
+							invoked.ReportCurrencyAmount					= PostingAmount 	
+							invoked.TransactionAmount						= PostingAmount 	
+							invoked.FinanceCodeBlock						= GLAccount
+							invoked.Description			  					= Description		
+							invoked.GeneralLedgerEvent						= "SM"
+						
+				Update is an Update Action
+				
+				Delete is a Delete Action
+					restricted
+				
+				Release is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+					Exit Rules
+						invoke Release GLTransactionDetailRel
+						
+
+
+
+
+				
+			Released is a State
+			
+				JournalizeDistributions is a Set Action
+
+					Parameters
+						PrmStudentActivityDistrict		is a StudentActivityDistrict
+							default label is "SchoolDistrict"
+						PrmStudentActivitySchool		is a StudentActivitySchool								
+							default label is "School"
+						PrmPostThruDate					is Date           
+							default label is "PostThruDate"
+						PrmDescription					is a Description
+							default label is "Description"
+						JournalizeActionFrom			is Numeric 1
+							States
+								JournalDetail				value is 0
+								SchoolDistrict				value is 1
+								School						value is 2
+		
+					Parameter Rules
+						PrmStudentActivityDistrict
+							default to actor.context.FinanceEnterpriseGroup
+							required
+						PrmStudentActivitySchool
+							required
+						PrmPostThruDate
+							required
+						PrmDescription
+							initial value is StudentActivityDistributionPostingMessage
+						 
+					Local Fields
+						LocalJournalizeGroup is a JournalizeGroup
+						CompletionMessage	 is Alpha 150
+						RecordCount			 is Numeric 10
+						LocalStudentActivitySchool				is like StudentActivitySchool
+						LocalStudentActivityClosedPeriod		is like StudentActivityClosedPeriod
+		
+					Instance Selection
+						where (StudentActivityDistrict	= PrmStudentActivityDistrict
+						and    StudentActivitySchool	= PrmStudentActivitySchool
+						and    StudentActivityClosedPeriod.GeneralLedgerCalendarPeriod.Date				<= PrmPostThruDate
+						and    Status.Released)
+		
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+		
+		
+					Action Rules								
+						Empty Set Rules
+		
+						Set Rules
+							Entrance Rules
+								invoke IncrementLastJournalizeGroup StudentActivityGeneralLedgerSystemCodeRel
+						        LocalJournalizeGroup					= StudentActivityGeneralLedgerSystemCodeRel.DerivedJournalizeGroup
+						
+						StudentActivitySchool Set Rules
+		
+							Exit Rules
+								invoke InitiateJournalize StudentActivitySchool.DefaultAccountingEntity in background
+									invoked.PrmJournalizeGroup            = LocalJournalizeGroup
+									invoked.PrmJournalizeGroupDescription = PrmDescription
+
+		
+						Instance Rules
+							if (JournalizeActionFrom.JournalDetail)
+								if ((RecordCount = 0)
+								or  (RecordCount > 0
+								and (LocalStudentActivitySchool       != StudentActivitySchool
+								or   LocalStudentActivityClosedPeriod != StudentActivityClosedPeriod)))
+									LocalStudentActivitySchool       = StudentActivitySchool
+									LocalStudentActivityClosedPeriod = StudentActivityClosedPeriod
+									invoke Post Released StudentActivityJournal
+
+							increment RecordCount
+							if (GLTransactionDetailRel exist)
+								invoke UpdateJournalizeGroup GLTransactionDetailRel	 
+									invoked.PrmJournalizeGroup 	= LocalJournalizeGroup  
+								Status = Status.Posted
+		
+		
+			Posted is a State

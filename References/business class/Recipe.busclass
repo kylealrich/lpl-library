@@ -1,0 +1,510 @@
+Recipe is a BusinessClass
+	owned by recipe
+	prefix is Reci
+	representative text is "<Recipe>-<Description>"
+	representative image is Item.Picture.File
+		display as full image
+		missing image is random background
+			foreground text is "<RecipeDescriptionAbbreviation>"
+	
+	Ontology
+		symbolic key is Recipe
+		
+	Patterns
+		disable AuditIndex
+	
+	Persistent Fields
+		Description
+		SecondaryYieldQuantity			is a UnsignedQuantity
+			precision is Item.NumberOfDecimalsQuantity
+		SecondaryYieldUOM				is a UnitOfMeasure
+		BatchYieldQuantity				is an UnsignedQuantity
+			default label is "YieldQuantity"
+			precision is Item.NumberOfDecimalsQuantity
+		BatchYieldUOM					is a UnitOfMeasure
+			default label is "YieldUOM"
+		Notes							is Text
+		Active							
+		KitchenOffsetAccount			is a FinanceCodeBlockFull
+			default label is "KitchenOffsetAccount"
+		BurdenAbsorptionAccount			is a FinanceCodeBlockFull
+		LineCount						is Numeric size 6
+			disable Auditing
+			protected
+			restricted
+		InstructionCount				is Numeric size 6
+			disable Auditing
+			protected
+			restricted
+		ServingSize						is like UnsignedQuantity
+			precision is Item.DerivedNumberOfDecimalsRecipe
+		ServingSizeUOM					is a RecipeUnitOfMeasure
+		ServingSizeUOMMultiplier		is a UOMMultiplier
+			protected
+		IDMJob							is like IDMJob
+			protected
+		IDMUniqueID						is an IDMPID
+			protected
+		IDMPrinter
+	
+	Transient Fields
+	
+	Local Fields
+		UOMCalculation
+		IDMItem
+		IDMXMLDefinition
+		RoundedValue
+		LocalInputQuantity			is an UnsignedQuantity
+		LocalRoundedQuantity		is an UnsignedQuantity
+		RoundToRecipeDecimals		is Boolean
+		AttributeCtr				is Numeric 2
+		LocalExecute				is Boolean
+		
+	Rule Blocks
+		RoundQuantity
+			initialize RoundedValue
+			RoundedValue.RoundInput = LocalInputQuantity
+			if (RoundToRecipeDecimals)
+				RoundedValue.RoundTo = (1/10^Item.DerivedNumberOfDecimalsRecipe)
+			else
+				RoundedValue.RoundTo = (1/10^Item.NumberOfDecimalsQuantity)
+			RoundedValue.RoundingType = RoundingType.Normal
+			
+			LocalRoundedQuantity = RoundedValue.RoundResult
+		
+	Field Rules
+		Description
+			required
+			force default to Recipe.Item.Description
+			
+		SecondaryYieldQuantity
+			if (Item.SecondaryUOM entered)
+				required
+				
+				if (action type.Create)
+					constraint (SecondaryYieldQuantity decimals <= Item.NumberOfDecimalsQuantity)
+						"TooManyDecimalDigitsEnteredForQuantity:MaxForItem<Item>Is<Item.NumberOfDecimalsQuantity>"
+				else
+				if (action type.Update)
+					LocalInputQuantity = SecondaryYieldQuantity
+					RoundToRecipeDecimals = false
+					include RoundQuantity
+					SecondaryYieldQuantity = LocalRoundedQuantity
+				
+		SecondaryYieldUOM
+			initial value is Item.SecondaryUOM
+			force default to Item.SecondaryUOM
+		
+		BatchYieldQuantity
+			if (Item.IsCatchWeightItem)
+				LocalInputQuantity = (SecondaryYieldQuantity * Item.SecondaryUOMConversion)
+				RoundToRecipeDecimals = false
+				include RoundQuantity
+				force default to LocalRoundedQuantity
+			else
+				required
+				
+				if (action type.Create)
+					constraint (BatchYieldQuantity decimals <= Item.NumberOfDecimalsQuantity)
+						"TooManyDecimalDigitsEnteredForQuantity:MaxForItem<Item>Is<Item.NumberOfDecimalsQuantity>"
+				else
+				if (action type.Update)
+					LocalInputQuantity = BatchYieldQuantity
+					RoundToRecipeDecimals = false
+					include RoundQuantity
+					BatchYieldQuantity = LocalRoundedQuantity
+
+		BatchYieldUOM
+			initial value is Item.StockUOM
+			force default to Item.StockUOM
+
+
+
+		ServingSize
+			if (action type.Create)
+				constraint (ServingSize decimals <= Item.DerivedNumberOfDecimalsRecipe)
+					"TooManyDecimalDigitsEnteredForQuantity:MaxForItem<Item>Is<Item.DerivedNumberOfDecimalsRecipe>"
+			else
+			if (action type.Update)
+				LocalInputQuantity = ServingSize
+				RoundToRecipeDecimals = true
+				include RoundQuantity
+				ServingSize = LocalRoundedQuantity
+				
+		ServingSizeUOM
+			if (ServingSize entered)
+				required
+				
+			constraint (ServingRecipeItemUOMRel exists)
+				"<ServingSizeUOM>IsAnInvalidUnitOfMeasureForItem<Item>"				
+		
+		ServingSizeUOMMultiplier
+			force default to ServingRecipeItemUOMRel.UOMConversion	
+			
+		Active
+			initial value is true
+			
+			if (Active)
+				constraint (Item.Recipe)
+					"Item<Item>IsNotARecipeItem"
+			
+			if (Active changed and not Active)
+				constraint (OpenKitchenOrdersRel not exist)
+					"Open_\Kitchen_\Order(s)ExistsFor_\Recipe<Recipe.Item>"
+		
+		IDMPrinter
+			initial value is UserDefaultPrinterRel.IDMPrinter
+			
+	Relations
+		ValidItemGroupsRel
+			one-to-many relation to ItemGroup
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.RecipeManagementInUse)
+				
+		RecipeLinesBySequenceRel
+			one-to-many relation to RecipeLine
+			Field Mapping uses BySequence
+				related.ItemGroup			= ItemGroup
+				related.Item				= Item
+		
+		RecipeInstructionsBySequenceRel
+			one-to-many relation to RecipeInstruction
+			Field Mapping uses BySequence
+				related.ItemGroup			= ItemGroup
+				related.Item				= Item
+		
+		ItemUOMRel
+			one-to-one relation to ItemUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup     		= ItemGroup
+				related.Item          		= Item
+				related.UnitOfMeasure 		= BatchYieldUOM
+		
+		ServingRecipeItemUOMRel
+			one-to-one relation to ItemRecipeUOM
+			Field Mapping uses symbolic key
+				related.ItemGroup     			= ItemGroup
+				related.Item          			= Item
+				related.RecipeUnitOfMeasure	 	= ServingSizeUOM	
+		
+		IDMJobRel
+			one-to-one relation to IDMJob
+			Field Mapping uses symbolic key
+				related.IDMJob = IDMJob
+				
+		IDMPrinterRel
+			one-to-many relation to IDMPrinter
+			Field Mapping uses symbolic key
+		
+		UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor = actor
+		
+		OpenKitchenOrdersRel
+			one-to-many relation to KitchenOrder
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.Item.ItemGroup	= ItemGroup
+				and	   related.Item				= Item
+				and	   related.IsNotCompletedOrCancelled)
+
+		IDMAdditionalAttributesLinesRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader = "FSM_Recipe"
+			Instance Selection
+				where(related.IDMAdditionalAttributesHeader.ActivateAdditionalAttributes
+				and	  related.ActivateAdditionalAttributes.Active)
+		
+	Conditions
+		IsRecordExists
+			restricted
+			when (Recipe exists)
+			
+		ValidForLineResequence
+			restricted
+			when (RecipeLine set exists)
+			
+		ValidForInstructionResequence
+			restricted
+			when (RecipeInstruction set exists)
+		
+		HasIDMDocument
+			restricted
+			when (IDMUniqueID entered)
+			
+		HasIDMJobError
+			restricted	
+			when (IDMJob entered 
+			and  (IDMJobRel.Status.TimedOut 
+			or    IDMJobRel.Status.Failed))
+
+		ValidForGeneration
+			restricted
+			when (ItemGroup.UseIDMTemplate
+			and   ItemGroup.RecipeManagementInUse
+			and   not HasIDMDocument)
+		
+		ValidForRegeneration
+			restricted
+			when (ItemGroup.UseIDMTemplate
+			and   ItemGroup.RecipeManagementInUse
+			and   HasIDMDocument)
+		
+		ValidForPrint
+			restricted
+			when (ItemGroup.UseIDMTemplate
+			and   HasIDMDocument)
+		
+		IsItemGroupOrItemBlank
+			restricted
+			when (ItemGroup not entered
+			or	  Item not entered)
+	
+	Derived Fields
+		RecipeAndYieldDisplay is a LabelField
+			default label is "Description"
+			"<Description>_(<YieldQuantityAndUOMDisplay>)"
+
+		ActiveLabel is a LabelField
+			"Active"
+
+		InactiveLabel is a LabelField
+			"Inactive"
+		
+		RecipeDescriptionAbbreviation is a DerivedField
+			type is AlphaUpper 3
+			default label is "RecipeItem"
+			return Description
+		
+		ActiveDisplay is a DerivedField
+			type is MessageField
+			default label is "Status"
+			if (Active)
+				return ActiveLabel
+			else
+				return InactiveLabel
+		
+		YieldQuantityAndUOMDisplay is a LabelField
+			default label is "Yield"
+			"<BatchYieldQuantity>_<BatchYieldUOM>"
+		
+		SecondaryYieldQuantityAndUOMDisplay is a LabelField
+			"<SecondaryYieldQuantity>_<SecondaryYieldUOM>"
+			
+		YieldDisplay is a DerivedField
+			type is MessageField
+			if (Item.SecondaryUOM entered)
+				return YieldQuantityAndUOMDisplay + " / " + SecondaryYieldQuantityAndUOMDisplay
+			else
+				return YieldQuantityAndUOMDisplay
+		
+		ServingSizeAndUOMDisplay is a LabelField
+			default label is "ServingSize"
+			"<ServingSize>_<ServingSizeUOM>"
+		
+		DerivedBatchYieldQuantity is a DerivedField
+			type is like UnsignedQuantity
+				precision is Item.NumberOfDecimalsQuantity
+			LocalInputQuantity = (SecondaryYieldQuantity * Item.SecondaryUOMConversion)
+			RoundToRecipeDecimals = false
+			include RoundQuantity
+			return LocalRoundedQuantity
+		
+		DerivedServingQuantity is a DerivedField
+			type is like Quantity
+			if (ServingSize entered)
+				if (BatchYieldUOM != ServingSizeUOM)
+					initialize UOMCalculation
+					UOMCalculation.InputQuantity 			= BatchYieldQuantity
+					UOMCalculation.InputUOM      			= BatchYieldUOM
+					UOMCalculation.InputToUOMConversion 	= ServingSizeUOMMultiplier
+					UOMCalculation.InputToUOM	 			= ServingSizeUOM
+					UOMCalculation.Method       			= UOMCalculation.Method.ConvertToAlternate
+					return UOMCalculation.OutputQuantity / ServingSize
+				else
+					return BatchYieldQuantity / ServingSize
+		
+		DerivedRecipeFileName is a DerivedField
+			type is Alpha 100
+			restricted
+			return "Recipe " + Item + " - " + Description + ItemGroup.RecipeTemplate.DerivedOutputFormat
+		
+		DerivedGenerationMessage is a MessageField
+			restricted
+			"Create_Recipe"
+		
+		DerivedPrintMessage is a MessageField
+			restricted
+			"Print_Recipe"
+		
+		DerivedIDMRecipeLink is a DerivedField
+			type is Alpha 2083
+			restricted
+			if (IDMUniqueID entered)
+				IDMItem.DocumentType	= "FSM_Recipe"
+				IDMItem.IDMUniqueId		= IDMUniqueID 
+				return IDMItem.GetLink
+			return blank
+	
+		IDMStatusMessage is a MessageField
+            "IDM_Job_<IDMJobRel.Status>"
+            
+        NoIDMTemplateMessage is a MessageField
+        	"NoAssignedDocumentTemplateIn_Item_Group"
+
+        DerivedIDMXML is a DerivedField
+            type is Text
+            restricted
+        	initialize IDMXMLDefinition
+        	IDMXMLDefinition.Busclass													= reference to this instance
+			IDMXMLDefinition.ListName													= "RecipeForIDMList"
+			IDMXMLDefinition.DocumentName												= "Recipe"
+            IDMXMLDefinition.OutputFileName                                     		= "Recipe_" + Recipe
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName 				= "RecipeLinesBySequenceRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName 					= "RecipeLinesForIDMList"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag						= "Lines"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag						= "Line"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1 				= 1
+
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].RelationName 				= "RecipeInstructionsBySequenceRel"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListName 					= "RecipeInstructionsForIDMList"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListTag						= "Instructions"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ItemTag						= "Instruction"
+			IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection1 				= 2
+            
+                        
+            constraint (IDMXMLDefinition.GenerateXML)
+                "ErrorOccuredInIDMXMLDefinition.GenerateXML"
+            
+            return IDMXMLDefinition.OutputText
+			
+	Form Invokes
+		CreateKitchenOrderFromRecipe
+			invoke CreateFromRecipe KitchenOrder
+				invoked.Item					= Item
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint (ItemGroup.RecipeManagementInUse)
+					"ItemGroup<ItemGroup>NotSetupFor_\Kitchen_\Management"
+	
+				constraint (Item.Recipe)
+					"Item<Item>IsNotARecipeItem"
+			
+		Update is an Update Action
+		
+		Delete is a Delete Action
+		
+		SystemUpdate is an Update Action
+			restricted
+			bypass field rules
+		
+		ResequenceRecipeLines is an Instance Action	
+			valid when (ValidForLineResequence)
+			Local Fields
+				LocalLineCounter is Numeric size 6
+
+			Action Rules
+				initialize LocalLineCounter
+
+				for each RecipeLinesBySequenceRel
+					LocalLineCounter += 1
+					if (LocalLineCounter != each.Sequence)
+						invoke SystemUpdate each
+							invoked.Sequence = LocalLineCounter
+		
+		ResequenceInstructions is an Instance Action	
+			valid when (ValidForInstructionResequence)
+			Local Fields
+				LocalLineCounter is Numeric size 6
+
+			Action Rules
+				initialize LocalLineCounter
+
+				for each RecipeInstructionsBySequenceRel
+					LocalLineCounter += 1
+					if (LocalLineCounter != each.Sequence)
+						invoke SystemUpdate each
+							invoked.Sequence = LocalLineCounter
+
+		GenerateRecipe is an Instance Action
+			valid when (ValidForGeneration)
+			Local Fields
+				IDMAttributes
+				IDMGenerateDocument
+   				IDMJobView					is an IDMJob view
+			Action Rules
+				initialize IDMAttributes
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName  	= "ItemGroup"
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue  	= ItemGroup
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName  	= "RecipeItem"
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue  	= Item
+			
+				if (IDMAdditionalAttributesLinesRel exists)
+					AttributeCtr = 3
+					include IDM.IDMAdditionalAttributes
+
+				initialize IDMGenerateDocument
+				
+				IDMGenerateDocument.XML 				 						= DerivedIDMXML
+
+				IDMGenerateDocument.IDMAttributes								= IDMAttributes
+				IDMGenerateDocument.TemplateUniqueId 							= ItemGroup.RecipeTemplate.IDMUniqueId
+				
+				IDMGenerateDocument.DocumentType								= "FSM_Recipe"
+				
+				IDMGenerateDocument.FileName									= DerivedRecipeFileName
+				IDMGenerateDocument.IDMAccessControlList 						= "CSFDefined"
+				
+				if (IDMPrinter entered)
+   					IDMGenerateDocument.IDMPrinter	 = IDMPrinter
+
+				invoke CreateFromGenerateDocument IDMJob
+					assign result to IDMJobView
+					invoked.Actor				= actor
+					invoked.Description			= DerivedGenerationMessage
+					invoked.IDMGenerateDocument = IDMGenerateDocument
+
+				IDMJob = IDMJobView.IDMJob
+				
+				invoke UpdateIDMDocumentPID in background
+					run after IDMJobView.AsyncId
+		
+		RegenerateRecipe is an Instance Action
+			valid when (ValidForRegeneration)
+			Action Rules
+				invoke GenerateRecipe
+   		
+   		UpdateIDMDocumentPID is an Instance Action
+			run in background
+			default label is untranslatable
+			restricted
+			Action Rules
+				if (IDMJobRel.GenerationStatus.Finished
+				and IDMJobRel.MDSID entered)
+					IDMUniqueID				= IDMJobRel.MDSID
+		
+		
+		PrintRecipe is an Instance Action
+			valid when (ValidForPrint)
+			
+			Action Rules
+				initialize IDMItem
+				IDMItem.DocumentType = "FSM_Recipe"
+				IDMItem.IDMUniqueId	 = IDMUniqueID
+				IDMItem.IDMPrinter	 = IDMPrinter
+			
+				constraint (IDMItem.GetItemDetails)
+					"DocumentDoesNotExistInIDM"
+				
+				IDMItem.IDMPID    = IDMItem.IDMItemDetails.PID
+			
+				invoke SendToPrinter IDMJob
+					invoked.Description = DerivedPrintMessage
+					invoked.FileName	= DerivedRecipeFileName
+					invoked.IDMItem		= IDMItem

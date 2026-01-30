@@ -1,0 +1,2447 @@
+ConfigBundleSnapshot is a BusinessClass
+	owned by repository
+ 	prefix is cbss
+ 	default label is "Snapshot"
+ 	disable data area copy
+
+    Ontology
+        symbolic key is ConfigBundleSnapshot
+
+	Patterns
+		disable AsOfDateProcessing
+        disable EffectiveDated
+        disable Auditing
+        implements CreateStamp
+        implements UpdateStamp
+       
+    Persistent Fields
+    	SourceBundleDefinition is a ConfigBundleDefinition
+    	Name 				   is Alpha size 25
+		Description 	       is Text
+		ConfigurationTagOccurs
+		ExportCount 		   is Numeric size 3 // This will not make sense on the "import" side but a positive value will prevent changes
+		LastExportTime		   is TimeStamp      
+		AppliedCount           is Numeric size 3
+		OriginationInfo		   is Alpha size 80
+			default label is "OriginationInformation"
+		ConfigValidationStatus
+		Documentation 		   is a ConfigAttachment
+		LastImportTime		   is TimeStamp      
+		LastAppliedTime		   is TimeStamp
+		LastRollbackTime       is TimeStamp
+		RollbackConfigValidationStatus is a ConfigValidationStatus
+        ConfigurationsIncluded  is Boolean
+            default label is "Configurations"
+        SecurityClassesIncluded  is Boolean
+            default label is "SecurityClasses"
+        PersonalizationsIncluded is Boolean
+            default label is "Personalizations"
+
+
+
+	Local Fields
+		I is Numeric 2
+        LocConfigSnapshotItemInfo is a ConfigSnapshotItemInfo
+        ByPassCreateRules is Boolean
+
+	Derived Fields
+		DerOriginationInfo is a NativeField
+			type is Alpha size 80
+			restricted
+
+		DerTags is a DerivedField
+			type is Text
+			default label is "Tags"
+			I = 1
+			while (I <= sizeofarray ConfigurationTagOccurs)
+				if (ConfigurationTagOccurs.ConfigurationTag[I] entered)
+					if (DerTags entered)
+						DerTags += ","
+					DerTags += ConfigurationTagOccurs.ConfigurationTag[I]
+				I += 1
+
+		ItemCount is a DerivedField
+			type is Numeric size 4
+			return instance count of ConfigBundleSnapshotItem set
+			
+		DerFTPFileName is a DerivedField
+			type is Alpha up to 255
+			default label is "ExportFileName"
+			restricted
+			return DerSanitizedFTPFileName + ".zip"
+			
+		DerSanitizedFTPFileName is a NativeField
+			type is Alpha up to 255
+			restricted
+			
+		DerFTPImportResutFile is a DerivedField
+			type is Alpha up to 255
+			default label is "ImportResultFile"
+			restricted
+			return "CdImportSnapshotOut.txt"
+
+        SnapshotTypeText is a DerivedField
+            type is MessageField
+            if (IsSystemSnapshot)
+                return SystemSnapshotPhrase
+            return blank
+
+        SystemSnapshotPhrase is a MessageField
+            "System"
+            
+        ValidateNotificationMessage is a MessageField
+            "ValidationResultsForSnapshot<ConfigBundleSnapshot>-<Name>"
+
+	Conditions
+		OriginatedByThisDataArea
+		    default label is "Outgoing"
+			when (OriginationInfo = DerOriginationInfo)
+		
+		EnableSourceBundleDrill
+			restricted
+			when (OriginatedByThisDataArea and SourceBundleDefinition exists)
+
+        IsImported
+        	default label is "Imported"
+            when (LastImportTime != blank)
+
+        WasExported
+        	default label is "Exported"
+            when (ExportCount > 0)
+
+		WasApplied
+			default label is "Applied"
+		    when (AppliedCount > 0)
+
+        HasDocumentation
+        	default label is "Documentation"
+            when (Documentation entered)
+            
+            
+        WasRolledback
+        	default label is "RolledBack"
+        	when (LastRollbackTime entered)
+        	
+        CanRollback
+        	default label is "Rollback"
+        	when (WasApplied and any ConfigBundleSnapshotItem set.ConfigRollbackInfo entered) 
+        	
+        IsSystemSnapshot
+            default label is "SystemSnapshot"
+            when (SourceBundleDefinition = blank)
+        
+        DuplicateConfigurationsExist
+        	when (DuplicateSystemSnapshotRel exists)
+        	
+        ValidationPassed
+        	when (ConfigValidationStatus.Status.Passed)
+        	
+        ValidateConfigsBackgroundOnly
+        	default label is "BackgroundValidationOnly"
+        	when (config.ValidateConfigsInBackgroundOnly = "true")
+        	
+        RestrictFGSysValidateConfigs
+        	default label is untranslatable
+        	when (IsSystemSnapshot or ValidateConfigsBackgroundOnly)
+
+	Field Rules
+		Name
+			required
+			cannot be changed
+		
+		SourceBundleDefinition
+			cannot be changed
+		
+		ConfigurationTagOccurs
+			cannot be changed
+		
+		OriginationInfo
+			cannot be changed
+
+        ConfigurationsIncluded
+            cannot be changed
+
+        SecurityClassesIncluded
+            cannot be changed
+
+        PersonalizationsIncluded
+            cannot be changed
+			
+	Create Rules
+		if (not ByPassCreateRules)
+			ConfigBundleSnapshot = Name 
+			OriginationInfo = DerOriginationInfo
+		
+	Rule Blocks
+		CreateFromSnapshotUIRB
+			invoke CreateFromSnapshot {UserBC} 
+				invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+				invoked.{UserKeyName} = each.ConfigSnapshotItemInfo.Name 
+				invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+				
+				if ({SetUserFolder})
+					invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+				
+				invoked.Status = each.Status
+				invoked.Description = each.Description
+				invoked.{LPLField} = each.LPL 
+				invoked.UserEditorType = each.UserEditorType	
+				invoked.Independent = each.Independent
+				invoked.LPLIndex = each.LPLIndex
+				invoked.ErrorText = each.ErrorText
+				invoked.Owner = each.Owner
+				
+		ProcessFolderRB
+			LocConfigAppliedStatus.Status = {Status}
+							
+			if (each.IsReportOrFolder)
+				if (LocUserFolder exists)
+					invoke UpdateFromSnapshot LocUserFolder
+						invoked.Name = each.ConfigSnapshotItemFolderInfo.Name translations
+						invoked.Owner = each.ConfigSnapshotItemFolderInfo.Owner
+						invoked.Actor = each.ConfigSnapshotItemFolderInfo.Actor
+						invoked.ActorGroup = each.ConfigSnapshotItemFolderInfo.ActorGroup
+						invoked.BusinessClass = each.ConfigSnapshotItemFolderInfo.BusinessClass
+						invoked.Dynamic = each.ConfigSnapshotItemFolderInfo.Dynamic
+						invoked.Search = each.ConfigSnapshotItemFolderInfo.Search
+						invoked.ListName = each.ConfigSnapshotItemFolderInfo.ListName
+						invoked.ChartName = each.ConfigSnapshotItemFolderInfo.ChartName
+						invoked.AsOfDate = each.ConfigSnapshotItemFolderInfo.AsOfDate
+						invoked.ContextFields = each.ConfigSnapshotItemFolderInfo.ContextFields
+						invoked.Temporal = each.ConfigSnapshotItemFolderInfo.Temporal
+						invoked.SourceType = each.ConfigSnapshotItemFolderInfo.SourceType
+						invoked.ExtendedInfo = each.ConfigSnapshotItemFolderInfo.ExtendedInfo
+						invoked.PDFFontOffset = each.ConfigSnapshotItemFolderInfo.PDFFontOffset
+						invoked.Role = each.ConfigSnapshotItemFolderInfo.Role
+						invoked.RoleGroup = each.ConfigSnapshotItemFolderInfo.RoleGroup
+						invoked.PDFOrientation = each.ConfigSnapshotItemFolderInfo.PDFOrientation
+						invoked.MRBusinessObject = each.ConfigSnapshotItemFolderInfo.MRBusinessObject
+						invoked.MRPrintAction = each.ConfigSnapshotItemFolderInfo.MRPrintAction
+		    			invoked.ReportCategory = each.ConfigSnapshotItemFolderInfo.ReportCategory translations
+
+		    			if (each.ConfigBundleSnapshotItemExtRel exists)
+		    				invoked.TransSnapshotItemReportDefInfo = each.ConfigBundleSnapshotItemExtRel.ReportDefinitionInformation translations
+		    			else
+		    				invoked.TransSnapshotItemReportDefInfo = blank
+				else 
+					invoke CreateFromSnapshot UserFolder
+						invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+						invoked.Name = each.ConfigSnapshotItemFolderInfo.Name translation
+						invoked.Owner = each.ConfigSnapshotItemFolderInfo.Owner
+						invoked.Actor = each.ConfigSnapshotItemFolderInfo.Actor
+						invoked.ActorGroup = each.ConfigSnapshotItemFolderInfo.ActorGroup
+						invoked.BusinessClass = each.ConfigSnapshotItemFolderInfo.BusinessClass
+						invoked.Dynamic = each.ConfigSnapshotItemFolderInfo.Dynamic
+						invoked.Search = each.ConfigSnapshotItemFolderInfo.Search
+						invoked.ListName = each.ConfigSnapshotItemFolderInfo.ListName
+						invoked.ChartName = each.ConfigSnapshotItemFolderInfo.ChartName
+						invoked.AsOfDate = each.ConfigSnapshotItemFolderInfo.AsOfDate
+						invoked.ContextFields = each.ConfigSnapshotItemFolderInfo.ContextFields
+						invoked.Temporal = each.ConfigSnapshotItemFolderInfo.Temporal
+						invoked.SourceType = each.ConfigSnapshotItemFolderInfo.SourceType
+						invoked.ExtendedInfo = each.ConfigSnapshotItemFolderInfo.ExtendedInfo
+						invoked.PDFFontOffset = each.ConfigSnapshotItemFolderInfo.PDFFontOffset
+						invoked.Role = each.ConfigSnapshotItemFolderInfo.Role
+						invoked.RoleGroup = each.ConfigSnapshotItemFolderInfo.RoleGroup
+						invoked.PDFOrientation = each.ConfigSnapshotItemFolderInfo.PDFOrientation
+						invoked.MRBusinessObject = each.ConfigSnapshotItemFolderInfo.MRBusinessObject
+						invoked.MRPrintAction = each.ConfigSnapshotItemFolderInfo.MRPrintAction
+	                    invoked.ReportCategory = each.ConfigSnapshotItemFolderInfo.ReportCategory translations
+
+	                 	if (each.ConfigBundleSnapshotItemExtRel exists)
+		    				invoked.TransSnapshotItemReportDefInfo = each.ConfigBundleSnapshotItemExtRel.ReportDefinitionInformation translations
+		    			else
+		    				invoked.TransSnapshotItemReportDefInfo = blank
+					
+		ProcessFolderRollBackRB
+			if (each.IsReportOrFolder)
+				if (LocUserFolder exists)
+					invoke UpdateFromSnapshot LocUserFolder
+						invoked.Name = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Name translations
+						invoked.Owner = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Owner
+						invoked.Actor = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Actor	
+						invoked.ActorGroup = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ActorGroup
+						invoked.BusinessClass = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.BusinessClass
+						invoked.Dynamic = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Dynamic
+						invoked.Search = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Search
+						invoked.ListName = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ListName
+						invoked.ChartName = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ChartName
+						invoked.AsOfDate = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.AsOfDate
+						invoked.ContextFields = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ContextFields
+						invoked.Temporal = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Temporal
+						invoked.SourceType = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.SourceType
+						invoked.ExtendedInfo = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ExtendedInfo
+						invoked.PDFFontOffset = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFFontOffset
+						invoked.Role = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Role
+						invoked.RoleGroup = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.RoleGroup
+						invoked.PDFOrientation = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFOrientation
+						invoked.MRBusinessObject = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRBusinessObject
+						invoked.MRPrintAction = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRPrintAction
+		    			invoked.ReportCategory = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ReportCategory translations
+
+		    			if (each.ConfigBundleSnapshotItemExtRel exists)
+		    				invoked.TransSnapshotItemReportDefInfo = each.ConfigBundleSnapshotItemExtRel.ReportDefinitionInformation translations
+		    			else
+		    				invoked.TransSnapshotItemReportDefInfo = blank
+				else
+					invoke CreateFromSnapshot UserFolder
+						invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+						invoked.Name = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Name translations
+						invoked.Owner = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Owner
+						invoked.Actor = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Actor
+						invoked.ActorGroup = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ActorGroup
+						invoked.BusinessClass = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.BusinessClass
+						invoked.Dynamic = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Dynamic
+						invoked.Search = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Search
+						invoked.ListName = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ListName
+						invoked.ChartName = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ChartName
+						invoked.AsOfDate = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.AsOfDate
+						invoked.ContextFields = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ContextFields
+						invoked.Temporal = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Temporal
+						invoked.SourceType = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.SourceType
+						invoked.ExtendedInfo = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ExtendedInfo
+						invoked.PDFFontOffset = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFFontOffset
+						invoked.Role = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Role
+						invoked.RoleGroup = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.RoleGroup
+						invoked.PDFOrientation = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFOrientation
+						invoked.MRBusinessObject = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRBusinessObject
+						invoked.MRPrintAction = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRPrintAction
+	                    invoked.ReportCategory = each.ConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ReportCategory translations
+
+						if (each.ConfigBundleSnapshotItemExtRel exists)
+		    				invoked.TransSnapshotItemReportDefInfo = each.ConfigBundleSnapshotItemExtRel.ReportDefinitionInformation translations
+		    			else
+		    				invoked.TransSnapshotItemReportDefInfo = blank
+		
+		AssignLocConfigRollbackInfoRB
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Name = LocUserFolder.Name translations
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Owner = LocUserFolder.Owner
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Actor = LocUserFolder.Actor
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ActorGroup = LocUserFolder.ActorGroup
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.BusinessClass = LocUserFolder.BusinessClass
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Dynamic = LocUserFolder.Dynamic
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Search = LocUserFolder.Search
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ListName = LocUserFolder.ListName
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ChartName = LocUserFolder.ChartName
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.AsOfDate = LocUserFolder.AsOfDate
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ContextFields = LocUserFolder.ContextFields
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Temporal = LocUserFolder.Temporal
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.SourceType = LocUserFolder.SourceType
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ExtendedInfo = LocUserFolder.ExtendedInfo
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFFontOffset = LocUserFolder.PDFFontOffset
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.Role = LocUserFolder.Role
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.RoleGroup = LocUserFolder.RoleGroup
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.PDFOrientation = LocUserFolder.PDFOrientation
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRBusinessObject = LocUserFolder.MRBusinessObject
+			LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.MRPrintAction = LocUserFolder.MRPrintAction
+            LocConfigRollbackInfo.ConfigSnapshotItemFolderInfo.ReportCategory = LocUserFolder.ReportCategory translations
+
+            if (LocUserFolder.ReportDefinitionRel exists)
+	            LocConfigReportDefRollbackInfo.ReportName			= LocUserFolder.ReportDefinitionRel.ReportName translations
+		    	LocConfigReportDefRollbackInfo.DeliveredReportName	= LocUserFolder.ReportDefinitionRel.DeliveredReportName
+		    	LocConfigReportDefRollbackInfo.Description			= LocUserFolder.ReportDefinitionRel.Description translations
+		    	LocConfigReportDefRollbackInfo.DeliveredDescription	= LocUserFolder.ReportDefinitionRel.DeliveredDescription
+				LocConfigReportDefRollbackInfo.Category				= LocUserFolder.ReportDefinitionRel.Category
+				LocConfigReportDefRollbackInfo.SubCategory			= LocUserFolder.ReportDefinitionRel.SubCategory
+				LocConfigReportDefRollbackInfo.ReportWebAppOccurs	= LocUserFolder.ReportDefinitionRel.ReportWebAppOccurs
+				LocConfigReportDefRollbackInfo.Inactive				= LocUserFolder.ReportDefinitionRel.Inactive
+				LocConfigReportDefRollbackInfo.Validity				= LocUserFolder.ReportDefinitionRel.Validity
+				LocConfigReportDefRollbackInfo.Visibility			= LocUserFolder.ReportDefinitionRel.Visibility
+		    else
+		    	initialize LocConfigReportDefRollbackInfo
+			
+	Actions
+		Create is a Create Action
+		    restricted
+		    
+		    Entrance Rules
+		    	ByPassCreateRules = false	
+		    
+		T2VCreate is a Create Action
+			restricted
+			
+			Entrance Rules
+				ByPassCreateRules = true
+			
+			Action Rules
+				initialize ExportCount
+				initialize LastExportTime
+				initialize AppliedCount 
+				initialize ConfigValidationStatus
+				initialize LastAppliedTime
+				initialize LastRollbackTime
+				initialize RollbackConfigValidationStatus
+				LastImportTime = system current timestamp	
+			
+			Exit Rules
+				ByPassCreateRules = false	
+		    
+		T2VUpdate is an Update Action 
+			restricted
+			bypass field rules
+			
+			Action Rules
+				initialize ExportCount
+				initialize LastExportTime
+				initialize AppliedCount 
+				initialize ConfigValidationStatus
+				initialize LastAppliedTime
+				initialize LastRollbackTime
+				initialize RollbackConfigValidationStatus
+				LastImportTime = system current timestamp
+				
+				invoke Delete ConfigBundleSnapshotItem set
+				
+		T2VUpdateExport is an Instance Action 
+			restricted
+			Action Rules
+				ExportCount += 1
+				LastExportTime = system current timestamp
+						
+		ChangeDescription is an Instance Action
+			Parameters
+				NewDescription is Text
+			Parameter Rules
+				NewDescription
+					initial value is Description
+					
+					if (Description entered and not NewDescription entered)
+						confirmation required 
+							"AreYouSureYouWantToBlankOutTheDescription?"
+			Action Rules
+				Description = NewDescription
+				
+		Delete is a Delete Action
+			Entrance Rules
+				if (OriginatedByThisDataArea)
+					if (ExportCount > 0)
+						confirmation required
+							"SnapshotHasBeenPreviouslyExported.AreYouSureYouWantToDelete?"
+
+				else
+					if (AppliedCount = 0)
+						confirmation required
+							"SnapshotHasNotBeenApplied.AreYouSureYouWantToDelete?"
+							
+		Export is an Instance Action
+			completion message is "ExportJobSubmitted"
+			Parameters
+				ParamFileName is a FileName
+					default label is "FileName"
+				ParamSubDirectory is a SubDirectory
+					default label is "Subdirectory"
+			
+			Parameter Rules
+				ParamFileName
+					initial value is DerFTPFileName
+					required
+			
+			Entrance Rules
+				if (not OriginatedByThisDataArea)
+					confirmation required
+						"SnapshotWasNotOriginatedInThisDataArea.Continue?"
+			
+			Action Rules
+				invoke RunCommand CdExport in background
+					invoked.FileName = ParamFileName
+					invoked.FileFormat = 0 
+					invoked.ExportSnapshot = true
+					invoked.ConfigBundleSnapshot = ConfigBundleSnapshot
+					invoked.WorkDirectory.SubDirectory = ParamSubDirectory
+					invoked.WorkDirectory.FileLocation = 0 
+					invoked.WorkDirectory.CommandOutputFileName = "CdExport" + DerSanitizedFTPFileName + "Out.txt"
+		
+		Import is an Import Action
+			completion message is "ImportJobSubmitted"
+			Parameters
+				ParamFileName is a FileName
+					default label is "FileName"
+				ParamSubDirectory is a SubDirectory
+					default label is "Subdirectory"
+			
+			Parameter Rules
+				ParamFileName
+					required
+			
+			Action Rules
+				invoke RunCommand CdImport in background
+					invoked.FileName = ParamFileName
+					invoked.ImportSnapshot = true
+					invoked.WorkDirectory.SubDirectory = ParamSubDirectory
+					invoked.WorkDirectory.FileLocation = 0 
+					invoked.WorkDirectory.CommandOutputFileName = DerFTPImportResutFile
+
+		ValidateSnapshots is an Instance Action // Cannot make this "valid when" for FG vs BG puposes. This is called in FG from other BG actions.
+		    default label is "ValidateSnapshot"
+		  	Parameters
+				StrictParsing is Boolean
+			Parameter Rules
+				StrictParsing
+					initial value is true	
+			Action Rules
+				invoke ResetValidationStatus
+				invoke ValidateConfigurations ValidateConfigsTask in foreground 
+					invoked.UpdateConfigStatus   = true
+					invoked.ConfigBundleSnapshot = ConfigBundleSnapshot
+					invoked.ProcessRollback = false
+					invoked.StrictParsing = StrictParsing
+					
+		ScheduleValidateSnapshots is an Instance Action
+		    run in background
+		    default label is "ScheduleValidateSnapshot"
+		  	Parameters
+				StrictParsing 		is Boolean
+				CreateNotification 	is Boolean
+			Parameter Rules
+				StrictParsing
+					initial value is true	
+			Action Rules
+				invoke ValidateSnapshots in foreground
+					invoked.StrictParsing = StrictParsing
+				
+				if (CreateNotification)
+					invoke Create UserNotification
+	                    invoked.SourceObject = reference to this instance
+	                    invoked.Actor = actor
+	                    invoked.SourceType = 6 
+	                    invoked.NavigationName = "ValidationResults"
+	                    invoked.Description = ValidateNotificationMessage
+					
+		ValidateRollback is an Instance Action
+			valid when (CanRollback)
+			Parameters
+				StrictParsing is Boolean
+			Parameter Rules
+				StrictParsing
+					initial value is true
+			Action Rules
+				invoke ResetRollbackValidationStatus
+				invoke ValidateConfigurations ValidateConfigsTask in foreground
+					invoked.UpdateConfigStatus   = true
+					invoked.ConfigBundleSnapshot = ConfigBundleSnapshot
+					invoked.ProcessRollback = true
+					invoked.StrictParsing = StrictParsing
+
+		ResetValidationStatus is an Instance Action
+			Action Rules
+				initialize ConfigValidationStatus
+		
+				for each ConfigBundleSnapshotItem set
+					invoke ResetValidationStatus each
+					
+		ResetRollbackValidationStatus is an Instance Action
+			valid when (CanRollback)
+			Action Rules
+				initialize RollbackConfigValidationStatus 
+		
+				for each ConfigBundleSnapshotItem set
+					invoke ResetRollbackValidationStatus each
+
+		ApplyConfigurations is an Instance Action
+		    Local Fields
+				LocUserProd       is a UserProd
+				LocUserList       is a UserList
+				LocUserForm       is a UserForm
+				LocSJRptMap       is a UserSJRptMap
+				LocUserCardView   is a UserCardView
+				LocConfigAppliedStatus is a ConfigAppliedStatus
+				LocConfigRollbackInfo is a ConfigRollbackInfo 
+				LocConfigReportDefRollbackInfo is a ConfigSnapshotItemReportDefInfo
+				LocAnyCubeChanges is Boolean
+				LocKFDeleteError  is Boolean
+				LocUserFolder     is a UserFolder
+				
+			Entrance Rules
+				if (OriginatedByThisDataArea)
+					confirmation required
+						"SnapshotWasOriginatedInThisDataArea.Continue?"
+						
+				if (ConfigValidationStatus.Status.NotValidated)
+					confirmation required
+						"SnapshotHasNotBeenValidated.Continue?"
+						
+				if (ConfigValidationStatus.Status.Failed)
+					confirmation required
+						"SnapshotFailedValidation.Continue?"
+			
+				if (AppliedCount > 0)
+					confirmation required
+						"SnapshotHasPreviouslyBeenApplied.Continue?"
+			
+			Action Rules
+				AppliedCount += 1
+				LastAppliedTime = system current timestamp
+				LocConfigAppliedStatus.LastAppliedTime = LastAppliedTime
+
+				for each ProductLineSnapshotItems
+					LocConfigAppliedStatus.Status = 0
+					LocUserProd = each.first UserProductRel.UserProd 
+					
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (LocUserProd exists)
+						LocConfigRollbackInfo.Status = LocUserProd.Status
+						LocConfigRollbackInfo.LPL = "" + LocUserProd.LPL 
+						LocConfigRollbackInfo.Description = LocUserProd.Description
+						LocConfigRollbackInfo.UserEditorType = LocUserProd.UserEditorType
+						LocConfigRollbackInfo.ErrorText = "" + LocUserProd.ErrorText 
+    			
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot LocUserProd
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot LocUserProd
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserProd
+							invoked.Status = 0 
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText	
+									
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+						
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+				LocKFDeleteError = false
+				
+
+				for each KeyFieldSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserKeyFieldRel exists)
+						LocConfigRollbackInfo.Status = each.UserKeyFieldRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserKeyFieldRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserKeyFieldRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserKeyFieldRel.UserEditorType
+						LocConfigRollbackInfo.ErrorText = "" + each.UserKeyFieldRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserKeyFieldRel
+								resume on error 
+									LocKFDeleteError = true
+
+
+
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserKeyFieldRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserKeyField
+							invoked.KeyFieldName = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+						
+					if (not LocKFDeleteError)	
+						invoke UpdateAppliedStatus each
+							invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+							invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+							invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+					
+				for each BusinessClassSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserBusinessClassRel exists)
+						LocConfigRollbackInfo.Status = each.UserBusinessClassRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserBusinessClassRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserBusinessClassRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserBusinessClassRel.UserEditorType
+						LocConfigRollbackInfo.ErrorText = "" + each.UserBusinessClassRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserBusinessClassRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserBusinessClassRel
+								invoked.UserKeyField = each.UserKeyFieldForBusClassRel.UserKeyField
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserBusinessClass
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.UserKeyField = each.UserKeyFieldForBusClassRel.UserKeyField
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+							
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+				if (LocKFDeleteError) 
+					for each KeyFieldSnapshotItems
+						if (each.UserKeyFieldRel exists)
+							if (each.ConfigRollbackInfo.Deleted)
+								initialize LocConfigRollbackInfo
+								LocConfigRollbackInfo.RollbackSaved = true
+						
+								LocConfigRollbackInfo.Status = each.UserKeyFieldRel.Status
+								LocConfigRollbackInfo.LPL = "" + each.UserKeyFieldRel.LPL 
+								LocConfigRollbackInfo.Description = each.UserKeyFieldRel.Description
+								LocConfigRollbackInfo.UserEditorType = each.UserKeyFieldRel.UserEditorType
+								LocConfigRollbackInfo.ErrorText = "" + each.UserKeyFieldRel.ErrorText 
+							
+								invoke DeleteNoEvent each.UserKeyFieldRel
+								LocConfigAppliedStatus.Status = 3 
+								
+								invoke UpdateAppliedStatus each
+									invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+									invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+									invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+			
+				for each RelationSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserRelationRel exists)
+						LocConfigRollbackInfo.Status = each.UserRelationRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserRelationRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserRelationRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserRelationRel.UserEditorType
+						LocConfigRollbackInfo.BusSet = each.UserRelationRel.BusSet
+						LocConfigRollbackInfo.ErrorText = "" + each.UserRelationRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserRelationRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserRelationRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.BusSet = each.BusSet
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserRelation
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.RelationName = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.BusSet = each.BusSet
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+						
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+							
+				for each FieldSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserFieldRel exists)
+						LocConfigRollbackInfo.Status = each.UserFieldRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserFieldRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserFieldRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserFieldRel.UserEditorType
+						LocConfigRollbackInfo.TypeValue = each.UserFieldRel.Type
+						LocConfigRollbackInfo.ErrorText = "" + each.UserFieldRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserFieldRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserFieldRel
+								invoked.Type = each.TypeValue
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserField
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.FieldName = each.ConfigSnapshotItemInfo.Name
+							invoked.Type = each.TypeValue
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+							
+				for each ActionSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserActionRel exists)
+						LocConfigRollbackInfo.Status = each.UserActionRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserActionRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserActionRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserActionRel.UserEditorType
+						LocConfigRollbackInfo.TypeValue = each.UserActionRel.Type
+						LocConfigRollbackInfo.ErrorText = "" + each.UserActionRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserActionRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserActionRel
+								invoked.Type = each.TypeValue
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserAction
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.ActionName = each.ConfigSnapshotItemInfo.Name
+							invoked.Type = each.TypeValue
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText	
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+							
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+						
+				for each CubeConfigurationSnapshotItems 
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+
+
+					if (each.UserCubeRel exists)
+						LocConfigRollbackInfo.Status = each.UserCubeRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserCubeRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserCubeRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserCubeRel.UserEditorType
+						LocConfigRollbackInfo.ErrorText = "" + each.UserCubeRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserCubeRel
+							LocConfigAppliedStatus.Status = 3 
+							LocAnyCubeChanges = true
+						else
+							invoke UpdateFromSnapshot each.UserCubeRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+							
+							LocConfigAppliedStatus.Status = 2 
+							LocAnyCubeChanges = true
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserCube
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType	
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+						LocAnyCubeChanges = true
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+						
+
+
+				for each ListSnapshotItems 
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					initialize LocUserList
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.IsReportOrFolder)
+						if (each.UserListFolderRel exists) 
+							LocUserList = each.UserListFolderRel.UserList
+
+						LocUserFolder = each.ConfigSnapshotItemInfo.UserFolder
+						
+						if (LocUserFolder exists)
+							include AssignLocConfigRollbackInfoRB
+					else
+					if (each.HasActor)
+						if (each.UserListActorRel exists) 
+							LocUserList = each.UserListActorRel.UserList
+					else
+						if (each.UserListGlobalRel exists) 
+							LocUserList = each.UserListGlobalRel.UserList 
+						
+					if (LocUserList exists)
+						LocConfigRollbackInfo.Status = LocUserList.Status
+						LocConfigRollbackInfo.LPL = "" +  LocUserList.Delta 
+						LocConfigRollbackInfo.LPLIndex = "" + LocUserList.LPLIndex 
+						LocConfigRollbackInfo.Independent = LocUserList.Independent
+						LocConfigRollbackInfo.Description = LocUserList.Description
+						LocConfigRollbackInfo.UserEditorType = LocUserList.UserEditorType
+						LocConfigRollbackInfo.Owner = LocUserList.Owner
+						LocConfigRollbackInfo.ErrorText = "" + LocUserList.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot LocUserList
+							LocConfigAppliedStatus.Status = 3 
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot LocUserList
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.Delta = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.LPLIndex = each.LPLIndex
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							include ProcessFolderRB
+								replace Status with 2 
+					else
+					if (not each.DeletedRecord)
+						include CreateFromSnapshotUIRB
+							replace UserBC with UserList
+							replace UserKeyName with BusinessList
+							replace SetUserFolder with true
+							replace LPLField with Delta
+							
+						include ProcessFolderRB
+							replace Status with 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+											
+
+				for each FormSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocUserForm
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.HasActor)
+						if (each.UserFormActorRel exists) 
+							LocUserForm = each.UserFormActorRel.UserForm
+					else
+						if (each.UserFormGlobalRel exists)
+							LocUserForm = each.UserFormGlobalRel.UserForm 
+						
+					if (LocUserForm exists)
+						LocConfigRollbackInfo.Status = LocUserForm.Status
+						LocConfigRollbackInfo.LPL = "" + LocUserForm.LPL 
+						LocConfigRollbackInfo.LPLIndex = "" + LocUserForm.LPLIndex 
+						LocConfigRollbackInfo.Independent = LocUserForm.Independent
+						LocConfigRollbackInfo.Description = LocUserForm.Description
+						LocConfigRollbackInfo.UserEditorType = LocUserForm.UserEditorType
+						LocConfigRollbackInfo.Owner = LocUserForm.Owner
+						LocConfigRollbackInfo.ErrorText = "" + LocUserForm.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot LocUserForm
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot LocUserForm
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.LPLIndex = each.LPLIndex
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						include CreateFromSnapshotUIRB
+							replace UserBC with UserForm
+							replace UserKeyName with BusinessForm
+							replace SetUserFolder with false
+							replace LPLField with LPL
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+							
+				for each MenuSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.IsReportOrFolder)
+						LocUserFolder = each.ConfigSnapshotItemInfo.UserFolder
+						
+						if (LocUserFolder exists)
+							include AssignLocConfigRollbackInfoRB
+
+					if (each.UserMenuRel exists)
+						LocConfigRollbackInfo.Status = each.UserMenuRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserMenuRel.LPL 
+						LocConfigRollbackInfo.Independent = each.Independent
+						LocConfigRollbackInfo.Description = each.UserMenuRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserMenuRel.UserEditorType
+						LocConfigRollbackInfo.Owner = each.UserMenuRel.Owner
+						LocConfigRollbackInfo.ErrorText = "" + each.UserMenuRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserMenuRel
+							LocConfigAppliedStatus.Status = 3 
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot each.UserMenuRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							include ProcessFolderRB
+								replace Status with 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserMenu
+							invoked.UserMenuName = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType	
+							invoked.Independent = each.Independent
+							invoked.ErrorText = each.ErrorText
+							invoked.Owner = each.Owner
+							
+						include ProcessFolderRB
+							replace Status with 1 
+						
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+				for each PageSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.IsReportOrFolder)
+						LocUserFolder = each.ConfigSnapshotItemInfo.UserFolder
+						
+						if (LocUserFolder exists)
+							include AssignLocConfigRollbackInfoRB
+					
+					if (each.UserPageRel exists)
+						LocConfigRollbackInfo.Status = each.UserPageRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserPageRel.LPL 
+						LocConfigRollbackInfo.Independent = each.Independent
+						LocConfigRollbackInfo.Description = each.UserPageRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserPageRel.UserEditorType
+						LocConfigRollbackInfo.Owner = each.UserPageRel.Owner
+						LocConfigRollbackInfo.ErrorText = "" + each.UserPageRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserPageRel
+							LocConfigAppliedStatus.Status = 3 
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot each.UserPageRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							include ProcessFolderRB
+								replace Status with 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserPage
+							invoked.UserPageName = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.Independent = each.Independent
+							invoked.ErrorText = each.ErrorText	
+							invoked.Owner = each.Owner
+						
+						include ProcessFolderRB
+							replace Status with 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+
+				for each ReportSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					initialize LocSJRptMap
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.HasActor)
+						if (each.UserSJRptActorRel exists) 
+							LocSJRptMap = each.UserSJRptActorRel.UserSJRptMap
+					else
+						if (each.UserSJRptGlobalRel exists)
+							LocSJRptMap = each.UserSJRptGlobalRel.UserSJRptMap 
+						
+					if (LocSJRptMap exists)
+						LocConfigRollbackInfo.Status = LocSJRptMap.Status
+						LocConfigRollbackInfo.LPL = "" + LocSJRptMap.LPL 
+						LocConfigRollbackInfo.Description = LocSJRptMap.Description
+						LocConfigRollbackInfo.UserEditorType = LocSJRptMap.UserEditorType
+						LocConfigRollbackInfo.ErrorText = "" + LocSJRptMap.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot LocSJRptMap
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot LocSJRptMap
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserSJRptMap
+							invoked.UserSJRptMapName = each.ConfigSnapshotItemInfo.Name 
+							invoked.SJRptMap = each.ConfigSnapshotItemInfo.Name 
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+							
+				for each ImageMapClassSnapshotItems 
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserImageMapRel exists)
+						if (each.UserImageMapRel.InActive)
+							LocConfigRollbackInfo.Status = LocConfigRollbackInfo.Status.Active
+						else
+							LocConfigRollbackInfo.Status = LocConfigRollbackInfo.Status.Inactive
+						LocConfigRollbackInfo.LPL = "" +  each.UserImageMapRel.Delta 
+						LocConfigRollbackInfo.Description = each.UserImageMapRel.Description
+						
+						if (each.DeletedRecord)
+							invoke Delete each.UserImageMapRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke Update each.UserImageMapRel
+								if (each.Status.Active)
+									invoked.InActive = false
+								else
+									invoked.InActive = true
+								invoked.Description = each.Description
+								invoked.Delta = each.LPL
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke Create UserImageMap
+							invoked.BusinessImageMap = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							if (each.Status.Active)
+								invoked.InActive = false
+							else
+								invoked.InActive = true
+							invoked.Description = each.Description
+							invoked.Delta = each.LPL
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+
+				for each CardViewSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					initialize LocUserCardView
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.HasActor)
+						if (each.UserCardViewActorlRel exists) 
+							LocUserCardView = each.UserCardViewActorlRel.UserCardView
+					else
+						if (each.UserCardViewGlobalRel exists)
+							LocUserCardView = each.UserCardViewGlobalRel.UserCardView 
+
+					if (LocUserCardView exists)
+						LocConfigRollbackInfo.Status = LocUserCardView.Status
+						LocConfigRollbackInfo.LPL = "" + LocUserCardView.LPL 
+						LocConfigRollbackInfo.LPLIndex = "" +  LocUserCardView.LPLIndex 
+						LocConfigRollbackInfo.Independent = LocUserCardView.Independent
+						LocConfigRollbackInfo.Description = LocUserCardView.Description
+						LocConfigRollbackInfo.UserEditorType = LocUserCardView.UserEditorType
+						LocConfigRollbackInfo.Owner = LocUserCardView.Owner
+						LocConfigRollbackInfo.ErrorText = "" + LocUserCardView.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot LocUserCardView
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot LocUserCardView
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.LPLIndex = each.LPLIndex
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						include CreateFromSnapshotUIRB
+							replace UserBC with UserCardView
+							replace UserKeyName with BusinessCardView
+							replace SetUserFolder with false
+							replace LPLField with LPL
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+
+				for each NavigationSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserNavigationRel exists)
+						LocConfigRollbackInfo.Status = each.UserNavigationRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserNavigationRel.LPL 
+						LocConfigRollbackInfo.LPLIndex = "" +  each.UserNavigationRel.LPLIndex 
+						LocConfigRollbackInfo.Independent = each.UserNavigationRel.Independent
+						LocConfigRollbackInfo.Description = each.UserNavigationRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserNavigationRel.UserEditorType
+						LocConfigRollbackInfo.Owner = each.UserNavigationRel.Owner
+						LocConfigRollbackInfo.ErrorText = "" + each.UserNavigationRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserNavigationRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserNavigationRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.LPLIndex = each.LPLIndex
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserNavigation
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessNavigation = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType	
+							invoked.Independent = each.Independent
+							invoked.LPLIndex = each.LPLIndex
+							invoked.ErrorText = each.ErrorText
+							invoked.Owner = each.Owner
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo	
+						
+				for each DrillListSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserDrillListRel exists)
+						LocConfigRollbackInfo.Status = each.UserDrillListRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserDrillListRel.LPL 
+
+						LocConfigRollbackInfo.Independent = each.UserDrillListRel.Independent
+						LocConfigRollbackInfo.Description = each.UserDrillListRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserDrillListRel.UserEditorType
+						LocConfigRollbackInfo.Owner = each.UserDrillListRel.Owner
+						LocConfigRollbackInfo.ErrorText = "" + each.UserDrillListRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserDrillListRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserDrillListRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserDrillList
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessDrillList = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType	
+							invoked.Independent = each.Independent
+
+							invoked.ErrorText = each.ErrorText
+							invoked.Owner = each.Owner
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo		
+				
+				for each WebApplicationSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserWebAppRel exists)
+						LocConfigRollbackInfo.Status = each.UserWebAppRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserWebAppRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserWebAppRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserWebAppRel.UserEditorType
+						LocConfigRollbackInfo.Owner = each.UserWebAppRel.Owner
+						LocConfigRollbackInfo.ErrorText = "" + each.UserWebAppRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserWebAppRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserWebAppRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.ErrorText = each.ErrorText
+								invoked.Owner = each.Owner
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserWebApp
+							invoked.UserWebAppName = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType
+							invoked.ErrorText = each.ErrorText	
+							invoked.Owner = each.Owner
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus	
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+				for each WebServiceInterfaceSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserWebServiceRel exists)
+						LocConfigRollbackInfo.Status = each.UserWebServiceRel.Status
+						LocConfigRollbackInfo.LPL = "" + each.UserWebServiceRel.LPL 
+						LocConfigRollbackInfo.Independent = each.Independent
+						LocConfigRollbackInfo.Description = each.UserWebServiceRel.Description
+						LocConfigRollbackInfo.UserEditorType = each.UserWebServiceRel.UserEditorType
+						LocConfigRollbackInfo.ErrorText = ""+ each.UserWebServiceRel.ErrorText 
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserWebServiceRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserWebServiceRel
+								invoked.Status = each.Status
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								invoked.UserEditorType = each.UserEditorType
+								invoked.Independent = each.Independent
+								invoked.ErrorText = each.ErrorText
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot UserWebServiceInterface
+							invoked.WebServiceInterface = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.Status
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							invoked.UserEditorType = each.UserEditorType	
+							invoked.Independent = each.Independent
+							invoked.ErrorText = each.ErrorText	
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+				
+				for each SecurityClassSnapshotItems
+					initialize LocConfigRollbackInfo
+					initialize LocConfigReportDefRollbackInfo
+					LocConfigRollbackInfo.RollbackSaved = true
+					
+					if (each.UserSecurityClassRel exists)
+						if (each.UserSecurityClassRel.InActive)
+							LocConfigRollbackInfo.Status = LocConfigRollbackInfo.Status.Inactive
+						else
+							LocConfigRollbackInfo.Status = LocConfigRollbackInfo.Status.Active
+						LocConfigRollbackInfo.LPL = "" + each.UserSecurityClassRel.LPL 
+						LocConfigRollbackInfo.Description = each.UserSecurityClassRel.Description
+						
+						if (each.DeletedRecord)
+							invoke DeleteFromSnapshot each.UserSecurityClassRel
+							LocConfigAppliedStatus.Status = 3 
+						else
+							invoke UpdateFromSnapshot each.UserSecurityClassRel
+								if (each.Status.Active)
+									invoked.InActive = false
+								else
+									invoked.InActive = true
+								invoked.Description = each.Description
+								invoked.LPL = each.LPL
+								
+								if (each.ExtendedInfo entered)
+									invoked.CopiedFrom = each.ExtendedInfo select "$.CopiedFrom"
+									invoked.BaseClass = each.ExtendedInfo select "$.BaseClass"
+								
+							LocConfigAppliedStatus.Status = 2 
+					else
+					if (not each.DeletedRecord)
+						invoke CreateFromSnapshot SecurityClass
+							invoked.SecurityClass = each.ConfigSnapshotItemInfo.Name
+							if (each.Status.Active)
+								invoked.InActive = false
+							else
+								invoked.InActive = true
+							invoked.Description = each.Description
+							invoked.LPL = each.LPL
+							
+							if (each.ExtendedInfo entered)
+								invoked.CopiedFrom = each.ExtendedInfo select "$.CopiedFrom"
+								invoked.BaseClass = each.ExtendedInfo select "$.BaseClass"
+							
+						LocConfigAppliedStatus.Status = 1 
+					else
+						LocConfigAppliedStatus.Status = 4 
+					
+					invoke UpdateAppliedStatus each
+						invoked.ParamConfigAppliedStatus = LocConfigAppliedStatus
+						invoked.ParamConfigRollbackInfo = LocConfigRollbackInfo
+						invoked.ParamConfigSnapshotItemReportDefInfo = LocConfigReportDefRollbackInfo
+						
+				initialize LastRollbackTime
+				
+				invoke FireEvent
+				
+				if (LocAnyCubeChanges)
+					invoke ApplyPendingChanges UserCube in background
+				
+
+				
+		RollbackSnapshot is an Instance Action
+			valid when (CanRollback)
+		    Local Fields
+				LocUserProd       is a UserProd
+				LocUserList       is a UserList
+				LocUserForm       is a UserForm
+				LocSJRptMap       is a UserSJRptMap
+				LocUserCardView   is a UserCardView
+				LocAnyCubeChanges is Boolean
+				LocKFDeleteError  is Boolean
+				LocUserFolder     is a UserFolder
+				
+			Entrance Rules
+				if (OriginatedByThisDataArea)
+					confirmation required
+						"SnapshotWasOriginatedInThisDataArea.Continue?"
+						
+				if (RollbackConfigValidationStatus.Status.NotValidated)
+					confirmation required
+						"SnapshotRollbackHasNotBeenValidated.Continue?"
+						
+				if (RollbackConfigValidationStatus.Status.Failed)
+					confirmation required
+						"SnapshotRollbackFailedValidation.Continue?"
+			
+			Action Rules
+				LastRollbackTime = system current timestamp
+
+				for each ProductLineSnapshotItems
+					LocUserProd = each.first UserProductRel.UserProd 
+					
+					if (LocUserProd exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot LocUserProd
+						else
+							invoke UpdateFromSnapshot LocUserProd
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserProd
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+				
+				LocKFDeleteError = false
+				
+
+				for each KeyFieldSnapshotItems
+					if (each.UserKeyFieldRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteNoEvent each.UserKeyFieldRel
+								resume on error 
+									LocKFDeleteError = true
+
+
+
+						else
+							invoke UpdateNoEvent each.UserKeyFieldRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateNoEvent UserKeyField
+							invoked.KeyFieldName = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each BusinessClassSnapshotItems
+					if (each.UserBusinessClassRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserBusinessClassRel
+						else
+							invoke UpdateFromSnapshot each.UserBusinessClassRel
+								invoked.UserKeyField = each.UserKeyFieldForBusClassRel.UserKeyField
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserBusinessClass
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.UserKeyField = each.UserKeyFieldForBusClassRel.UserKeyField
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				if (LocKFDeleteError) 
+					for each KeyFieldSnapshotItems
+						if (each.UserKeyFieldRel exists)
+							if (each.ConfigRollbackInfo.Deleted)
+								invoke DeleteNoEvent each.UserKeyFieldRel
+			
+				for each RelationSnapshotItems
+					if (each.UserRelationRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserRelationRel
+						else
+							invoke UpdateFromSnapshot each.UserRelationRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.BusSet = each.ConfigRollbackInfo.BusSet
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserRelation
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.RelationName = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.BusSet = each.ConfigRollbackInfo.BusSet
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each FieldSnapshotItems
+					if (each.UserFieldRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserFieldRel
+						else
+							invoke UpdateFromSnapshot each.UserFieldRel
+								invoked.Type = each.ConfigRollbackInfo.TypeValue
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserField
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.FieldName = each.ConfigSnapshotItemInfo.Name
+							invoked.Type = each.ConfigRollbackInfo.TypeValue
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each ActionSnapshotItems
+					if (each.UserActionRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserActionRel
+						else
+							invoke UpdateFromSnapshot each.UserActionRel
+								invoked.Type = each.ConfigRollbackInfo.TypeValue
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserAction
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.ActionName = each.ConfigSnapshotItemInfo.Name
+							invoked.Type = each.ConfigRollbackInfo.TypeValue
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+						
+				for each CubeConfigurationSnapshotItems 
+
+
+					if (each.UserCubeRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserCubeRel
+							LocAnyCubeChanges = true
+						else
+							invoke UpdateFromSnapshot each.UserCubeRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+							LocAnyCubeChanges = true
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserCube
+							invoked.BusinessClass = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+						LocAnyCubeChanges = true
+						
+
+
+				for each ListSnapshotItems
+				    initialize LocUserList
+				    
+
+				    if (each.IsReportOrFolder)
+				    	if (each.UserListFolderRel exists)
+				    		LocUserFolder = each.UserListFolderRel.UserFolder 
+							LocUserList = each.UserListFolderRel.UserList
+					else
+					if (each.HasActor)
+						if (each.UserListActorRel exists)
+							LocUserList = each.UserListActorRel.UserList
+					else
+						if (each.UserListGlobalRel exists)
+							LocUserList = each.UserListGlobalRel.UserList 
+						
+					if (LocUserList exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot LocUserList
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot LocUserList
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.Delta = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+								
+							include ProcessFolderRollBackRB
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserList
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessList = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.Delta = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+						include ProcessFolderRollBackRB
+											
+
+				for each FormSnapshotItems
+				    initialize LocUserForm
+					if (each.HasActor)
+						if (each.UserFormActorRel exists) 
+							LocUserForm = each.UserFormActorRel.UserForm
+					else
+						if (each.UserFormGlobalRel exists)
+							LocUserForm = each.UserFormGlobalRel.UserForm 
+						
+					if (LocUserForm exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot LocUserForm
+						else
+							invoke UpdateFromSnapshot LocUserForm
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserForm
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessForm = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each MenuSnapshotItems
+					if (each.UserMenuRel exists)
+						if (each.IsReportOrFolder)
+				    		LocUserFolder = each.UserMenuRel.UserFolder 
+						
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserMenuRel
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot each.UserMenuRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+							include ProcessFolderRollBackRB
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserMenu
+							invoked.UserMenuName = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.Independent
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+						
+						include ProcessFolderRollBackRB
+				
+				for each PageSnapshotItems
+					if (each.UserPageRel exists)
+						if (each.IsReportOrFolder)
+				    		LocUserFolder = each.UserPageRel.UserFolder 
+					
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserPageRel
+							
+							if (each.IsReportOrFolder)
+								invoke DeleteFromSnapshot LocUserFolder
+						else
+							invoke UpdateFromSnapshot each.UserPageRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+								
+							include ProcessFolderRollBackRB
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserPage
+							invoked.UserPageName = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.UserFolder = each.ConfigSnapshotItemInfo.UserFolder
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+						
+						include ProcessFolderRollBackRB	
+				
+
+				for each ReportSnapshotItems
+				    initialize LocSJRptMap
+					if (each.HasActor)
+						if (each.UserSJRptActorRel exists) 
+							LocSJRptMap = each.UserSJRptActorRel.UserSJRptMap
+					else
+						if (each.UserSJRptGlobalRel exists)
+							LocSJRptMap = each.UserSJRptGlobalRel.UserSJRptMap 
+						
+					if (LocSJRptMap exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot LocSJRptMap
+						else
+							invoke UpdateFromSnapshot LocSJRptMap
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserSJRptMap
+							invoked.UserSJRptMapName = each.ConfigSnapshotItemInfo.Name 
+							invoked.SJRptMap = each.ConfigSnapshotItemInfo.Name 
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each ImageMapClassSnapshotItems 
+					if (each.UserImageMapRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke Delete each.UserImageMapRel
+						else
+							invoke Update each.UserImageMapRel
+								if (each.ConfigRollbackInfo.Status.Active)
+									invoked.InActive = false
+								else
+									invoked.InActive = true
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.Delta = each.ConfigRollbackInfo.LPL
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke Create UserImageMap
+							invoked.BusinessImageMap = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+							if (each.ConfigRollbackInfo.Status.Active)
+								invoked.InActive = false
+							else
+								invoked.InActive = true
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.Delta = each.ConfigRollbackInfo.LPL
+							
+
+				for each CardViewSnapshotItems
+				    initialize LocUserCardView
+					if (each.HasActor)
+						if (each.UserCardViewActorlRel exists) 
+							LocUserCardView = each.UserCardViewActorlRel.UserCardView
+					else
+						if (each.UserCardViewGlobalRel exists)
+							LocUserCardView = each.UserCardViewGlobalRel.UserCardView 
+
+					if (LocUserCardView exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot LocUserCardView
+						else
+							invoke UpdateFromSnapshot LocUserCardView
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserCardView
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessCardView = each.ConfigSnapshotItemInfo.Name
+							invoked.Actor = each.ConfigSnapshotItemInfo.Actor
+
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each NavigationSnapshotItems
+					if (each.UserNavigationRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserNavigationRel
+						else
+							invoke UpdateFromSnapshot each.UserNavigationRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserNavigation
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessNavigation = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+				for each DrillListSnapshotItems
+					if (each.UserDrillListRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserDrillListRel
+						else
+							invoke UpdateFromSnapshot each.UserDrillListRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserDrillList
+							invoked.BusinessView = each.ConfigSnapshotItemInfo.BusinessView
+							invoked.BusinessDrillList = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+							
+							
+				for each WebApplicationSnapshotItems
+					if (each.UserWebAppRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserWebAppRel
+						else
+							invoke UpdateFromSnapshot each.UserWebAppRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Owner = each.ConfigRollbackInfo.Owner
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserWebApp
+							invoked.UserWebAppName = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+							invoked.Owner = each.ConfigRollbackInfo.Owner
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+				
+				for each WebServiceInterfaceSnapshotItems
+					if (each.UserWebServiceRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserWebServiceRel
+						else
+							invoke UpdateFromSnapshot each.UserWebServiceRel
+								invoked.Status = each.ConfigRollbackInfo.Status
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+								invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType
+								invoked.Independent = each.ConfigRollbackInfo.Independent
+								invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot UserWebServiceInterface
+							invoked.WebServiceInterface = each.ConfigSnapshotItemInfo.Name
+							invoked.Status = each.ConfigRollbackInfo.Status
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+							invoked.UserEditorType = each.ConfigRollbackInfo.UserEditorType	
+							invoked.Independent = each.ConfigRollbackInfo.Independent
+							invoked.ErrorText = each.ConfigRollbackInfo.ErrorText
+				
+				for each SecurityClassSnapshotItems
+					if (each.UserSecurityClassRel exists)
+						if (each.ConfigRollbackInfo.Deleted)
+							invoke DeleteFromSnapshot each.UserSecurityClassRel
+						else
+							invoke UpdateFromSnapshot each.UserSecurityClassRel
+								if (each.ConfigRollbackInfo.Status.Active)
+									invoked.InActive = false
+								else
+									invoked.InActive = true
+								invoked.Description = each.ConfigRollbackInfo.Description
+								invoked.LPL = each.ConfigRollbackInfo.LPL
+					else
+					if (not each.ConfigRollbackInfo.Deleted)
+						invoke CreateFromSnapshot SecurityClass
+							invoked.SecurityClass = each.ConfigSnapshotItemInfo.Name
+							if (each.ConfigRollbackInfo.Status.Active)
+								invoked.InActive = false
+							else
+								invoked.InActive = true
+							invoked.Description = each.ConfigRollbackInfo.Description
+							invoked.LPL = each.ConfigRollbackInfo.LPL
+				
+				invoke FireEvent
+				
+				if (LocAnyCubeChanges)
+					invoke ApplyPendingChanges UserCube in background
+				
+		FireEvent is an Instance Action
+			restricted 
+
+		UpdateDocumentation is an Instance Action
+		    valid when (!WasApplied)
+            disable multiple instance selection
+			Parameters
+				ParamDocumentation is a ConfigAttachment
+					default label is "Documentation"
+
+			Parameter Rules
+				ParamDocumentation
+					initial value is Documentation
+
+			Action Rules
+				Documentation = ParamDocumentation
+
+		CreateSystemSnapshot is a Create Action
+		    default label is "CreateSystemSnapshot"
+			Parameters
+				SnapshotName 	    is Alpha size 25
+				    default label is "Name"
+				ParamDescription    is Text
+				    default label is "Description"
+				ConfigurationParam  is Boolean
+				    default label is "IncludeConfigurations"
+				SecurityClassParam is Boolean
+				    default label is "IncludeSecurityClasses"
+				PersonalizationParam is Boolean
+				    default label is "IncludePersonalization"
+		
+			Parameter Rules
+				SnapshotName
+					required
+			    ConfigurationParam
+			        initial value is true
+			
+			Entrance Rules
+				ByPassCreateRules = false	
+				
+                constraint(ConfigurationParam entered or SecurityClassParam entered or PersonalizationParam entered)
+                    "PleaseIncludeSomethingToSnapshot."
+		    	
+			Action Rules
+			    invoke Create this instance
+                    invoked.Name 				 	= SnapshotName
+                    invoked.Description 	     	= ParamDescription
+                    invoked.ConfigurationsIncluded   = ConfigurationParam
+                    invoked.SecurityClassesIncluded   = SecurityClassParam
+                    invoked.PersonalizationsIncluded = PersonalizationParam
+
+            Exit Rules
+				for each SystemSnapshotRel
+                    LocConfigSnapshotItemInfo.ConfigEntityType	= each.EntityType
+                    LocConfigSnapshotItemInfo.BusinessView		= each.BusinessView
+                    LocConfigSnapshotItemInfo.Name				= each.Name
+                    LocConfigSnapshotItemInfo.Actor				= each.Actor
+                    LocConfigSnapshotItemInfo.UserFolder 		= each.UserFolder
+
+					if (not DupeConfigBundleSnapshotItem exists)
+	                    invoke Create ConfigBundleSnapshotItem
+	                        invoked.ConfigBundleSnapshot	= this instance.ConfigBundleSnapshot
+	                        invoked.ConfigSnapshotItemInfo	= LocConfigSnapshotItemInfo
+	                        invoked.LPL                  	= each.LPL
+	                        invoked.Status               	= each.Status
+	                        invoked.OriginatingReference 	= each.Entity
+	                        invoked.Independent 			= each.Independent
+	                        invoked.LPLIndex                = each.LPLIndex
+	                        invoked.UserEditorType          = each.UserEditorType
+	                        invoked.ErrorText				= each.ErrorText
+	                        if (LocConfigSnapshotItemInfo.ConfigEntityType.BusinessClass)
+	                            invoked.KeyFieldName        = each.RelUserBusinessClass.KeyFieldName
+	                        if (LocConfigSnapshotItemInfo.ConfigEntityType.Relation)
+	                            invoked.BusSet				= each.RelUserRelation.BusSet
+	                        if (LocConfigSnapshotItemInfo.ConfigEntityType.Field)
+	                            invoked.TypeValue	  		= each.RelUserField.Type
+	                        if (LocConfigSnapshotItemInfo.ConfigEntityType.Action
+	                        or  LocConfigSnapshotItemInfo.ConfigEntityType.ActionConfiguration
+	                        or  LocConfigSnapshotItemInfo.ConfigEntityType.ActionExtension
+	                        or  LocConfigSnapshotItemInfo.ConfigEntityType.UserAction)
+	                            invoked.TypeValue	  		= each.RelUserAction.Type
+	                        if (LocConfigSnapshotItemInfo.ConfigEntityType.Form)
+	                            invoked.UserAction			= each.RelUserForm.UserAction
+	                        invoked.Owner					= each.Owner
+
+				initialize LocConfigSnapshotItemInfo
+
+
+
+	Relations
+		BusinessClassSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.BusinessClass)
+            	
+		KeyFieldSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.KeyField)
+            	
+		RelationSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Relation)
+            	
+		FieldSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Field)
+            	
+		ActionSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Action
+            	or     related.ConfigSnapshotItemInfo.ConfigEntityType.ActionConfiguration
+            	or     related.ConfigSnapshotItemInfo.ConfigEntityType.ActionExtension
+            	or     related.ConfigSnapshotItemInfo.ConfigEntityType.UserAction)
+            	
+        ProductLineSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.ProductLine) 
+            	
+        CubeConfigurationSnapshotItems 
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.CubeConfiguration)           	
+            	
+        ListSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.List)    
+            	
+       	FormSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Form)  
+          
+		MenuSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Menu) 
+            	
+		PageSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Page) 
+            	
+		ReportSnapshotItems 
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Report) 
+            	
+        ImageMapClassSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.ImageMap) 
+            	
+		CardViewSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.CardView) 
+            	
+        NavigationSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.Navigation) 
+            	
+        DrillListSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.DrillList) 
+		
+		WebApplicationSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.WebApplication) 
+            
+		WebServiceInterfaceSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.WebServiceInterface) 
+        
+		SecurityClassSnapshotItems
+			one-to-many relation to ConfigBundleSnapshotItem
+            Field Mapping uses part of key
+            	related.ConfigBundleSnapshot = ConfigBundleSnapshot
+            Instance Selection
+            	where (related.ConfigSnapshotItemInfo.ConfigEntityType.SecurityClass)
+
+		SystemSnapshotRel
+			one-to-many relation to ConfigEntity
+			Field Mapping uses symbolic key
+            Instance Selection
+                where ((related.IsConfiguration and ConfigurationsIncluded)
+                or (related.IsPersonalization and PersonalizationsIncluded)
+                or (related.IsSecurityClass and SecurityClassesIncluded))
+               
+       	DuplicateSystemSnapshotRel
+			one-to-many relation to ConfigEntity
+			Field Mapping uses symbolic key
+            Instance Selection
+                where (related.IsDuplicateConfiguration)
+                
+		DupeConfigBundleSnapshotItem
+			one-to-one relation to ConfigBundleSnapshotItem
+			Field Mapping uses part of key
+				related.ConfigBundleSnapshot	 = ConfigBundleSnapshot
+				related.ConfigSnapshotItemInfo	 = LocConfigSnapshotItemInfo
+
+	Sets
+		ByLastImportTime
+			indexed
+			Sort Order
+				LastImportTime
+				ConfigBundleSnapshot
+
+        ByCreateStamp
+        	indexed
+            Sort Order
+                create stamp
+                ConfigBundleSnapshot
+
+        ByLastAppliedTime
+        	indexed
+            Sort Order
+                LastAppliedTime
+                ConfigBundleSnapshot

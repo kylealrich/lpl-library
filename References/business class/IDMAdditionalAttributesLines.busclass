@@ -1,0 +1,252 @@
+IDMAdditionalAttributesLines is a BusinessClass 
+	owned by idm
+	prefix is IDMAL
+
+    		
+	Ontology
+		symbolic key is IDMAdditionalAttributesLines
+		
+ 
+    Patterns
+        implements StaticJava
+		enable explicit context override
+	Persistent Fields
+		IDMAttributeDescription  	is a IDMAttributeName
+			default label is "DisplayName"
+		Status			  			is Numeric 1
+			States
+				NotImported 	value is 1
+				Imported    	value is 2
+				Existing		value is 3
+		HeaderBusinessClass 		is a BusinessClass
+		HeaderBusinessField 		is a BusinessField
+            context of HeaderBusinessClass
+		BusinessRelation
+            context of HeaderBusinessClass
+
+		RelatedBusinessClass		is a BusinessClass
+		RelatedBusinessField 		is a BusinessField
+			context of RelatedBusinessClass
+		FieldType					is Numeric 2
+			protected
+		ActivateAdditionalAttributes is Numeric 1
+			States
+				Active		value is 1
+				Inactive	value is 2
+		TextSearchable				 is Boolean
+		AttributeRequired			 is Boolean
+		AttributeUnique				 is Boolean
+		AttributeName				 is Alpha 32
+			default label is "Name"
+		
+
+	Field Rules
+		IDMAttributeDescription
+			required
+		RelatedBusinessField
+			if (BusinessRelation entered)
+				required
+					"Field_is_required"
+		HeaderBusinessField
+			if (BusinessRelation not entered)
+				required
+					"Field_is_required"
+		BusinessRelation
+			constraint (BusinessRelation.Cardinality.OneToOne)
+				"OnlyOne-To-OneRelations_are_applicable."
+		
+			constraint (BusinessRelation.Accessible)
+				"BusinessRelationIsNotAccessible"
+
+		HeaderBusinessClass
+			default to IDMAdditionalAttributesHeader.BusinessClass
+		FieldType
+			if (HeaderBusinessField.IsStateField
+			or  RelatedBusinessField.IsStateField)
+				force default to 1 
+			else
+			if (HeaderBusinessField.RepresentationType.Integer
+			or	HeaderBusinessField.RepresentationType.Numeric
+			or	RelatedBusinessField.RepresentationType.Integer
+			or	RelatedBusinessField.RepresentationType.Numeric)
+				force default to 4 
+			else
+				if (RelatedBusinessField.RepresentationType.Decimal
+				or  HeaderBusinessField.RepresentationType.Decimal)
+					force default to 6 
+				else
+					if (RelatedBusinessField.RepresentationType.Date
+					or  HeaderBusinessField.RepresentationType.Date)
+						force default to 7 
+					else
+						if (RelatedBusinessField.RepresentationType.Boolean
+						or  HeaderBusinessField.RepresentationType.Boolean)
+							force default to 20 
+						else
+							force default to 1 
+
+		AttributeName
+			required
+			constraint (AttributeName matches "^[a-zA-Z0-9_]+$")
+				"Only_letters,_numbers,_and_underscore_are_allowed"
+
+	Conditions
+		ValidForActivation
+            restricted
+            when (ActivateAdditionalAttributes.Inactive)
+        
+        ValidForDeactivation
+            restricted
+            when (ActivateAdditionalAttributes.Active)
+
+		ValidForCreate
+			restricted
+			when (instance count of IDMAdditionalAttributesLinesRel < 15)
+
+		ImportedAttributeNotExistInIDM
+			restricted
+			when (Status.Imported
+			and not AttributeExistsInIDM)
+
+		DuplicateAttributeNameExists
+			restricted
+			when (AttributeNameExistsRel exists)
+		
+	Derived Fields
+		DerivedAttrsName is a DerivedField
+			type is like BusinessField
+			if (HeaderBusinessField entered)
+				return HeaderBusinessField
+			return RelatedBusinessField
+
+		AttributeExistsInIDM is a NativeField
+			type is Boolean
+
+		DeactivateMessage is a MessageField
+            "DeactivatingThisAdditionalAttributeWillStopPopulatingItInTheFutureGeneratedIDMDocuments.Continue?"
+
+		DerivedStatus  is a DerivedField
+            type is Alpha 20
+            if (Status.NotImported)
+                return "Not Imported"
+            else
+                return "Imported"
+
+		AttributeNotExistingInIDM is a MessageField
+			restricted
+			"AttributeDoesNotExistInIDM"	
+	Relations
+		IDMAdditionalAttributesLinesRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader = IDMAdditionalAttributesHeader
+
+		AttributeNameExistsRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader	= IDMAdditionalAttributesHeader
+			Instance Selection
+				where (related.AttributeName = AttributeName
+				and    related.UniqueID not = UniqueID)
+
+	Create Rules
+        constraint (ValidForCreate)
+            "CannotCreateMoreThan15Lines."
+
+	Delete Rules
+		if (Status.Imported)
+			constraint (not AttributeExistsInIDM)
+				"CannotDelete.AdditionalAttributeExistsInIDM"
+
+	Rule Blocks
+		DuplicateAttributeName
+			constraint (not DuplicateAttributeNameExists)
+				"Name_already_exists."
+
+ 	Actions
+
+		Activate is an Instance Action
+            valid when (ValidForActivation)
+            Action Rules
+                ActivateAdditionalAttributes = ActivateAdditionalAttributes.Active
+
+        Deactivate is an Instance Action
+            valid when (ValidForDeactivation)
+            Entrance Rules
+                confirmation required
+                    "<DeactivateMessage>"
+            Action Rules
+                ActivateAdditionalAttributes = ActivateAdditionalAttributes.Inactive
+
+		Delete is a Delete Action
+
+		PopulateAdditionalLineAttributeName is a Set Action
+			default label is untranslatable
+			restricted
+
+			Instance Selection
+				where (IDMAttributeDescription entered)
+
+			Action Rules
+				Instance Rules
+					invoke UpdateAttributeName
+						resume on error
+
+		UpdateAttributeName is an Instance Action
+			default label is untranslatable
+			restricted
+
+			Action Rules
+				AttributeName = DerivedAttrsName
+
+	StateCycles
+		IDMAdditionalAttributeCycle is a StateCycle
+			state field is Status
+			NotImported is a State
+				Create is a Create Action
+					Entrance Rules
+						include DuplicateAttributeName
+						if (BusinessRelation entered)
+							IDMAdditionalAttributesLines = RelatedBusinessField
+						else
+							IDMAdditionalAttributesLines = HeaderBusinessField
+						if (IDMAdditionalAttributesHeader.Status = 2)
+							invoke Imported.MakeTransitionToNotImported IDMAdditionalAttributesHeader
+					Action Rules
+						if (BusinessRelation entered)
+							initialize HeaderBusinessField
+						if (BusinessRelation not entered)
+							initialize RelatedBusinessField
+							initialize RelatedBusinessClass
+
+						if (AttributeExistsInIDM)
+							confirmation required 
+								"AttributeAlreadyExistsForThisDocumentType.Continue?"
+							Status          = Status.Existing
+
+						ActivateAdditionalAttributes = ActivateAdditionalAttributes.Active
+						TextSearchable		= true
+						AttributeRequired   = false
+						AttributeUnique		= false
+
+				MakeTransitionToImported is an Instance Action
+					restricted
+					Action Rules
+						make transition to Imported
+						
+				Update is an Update Action
+					Action Rules
+						include DuplicateAttributeName
+						if (BusinessRelation entered)
+							initialize HeaderBusinessField
+						if (BusinessRelation not entered)
+							initialize RelatedBusinessField
+							initialize RelatedBusinessClass
+
+			Imported is a State
+				Update is an Update Action
+					restricted
+
+			Existing is a State
+				Update is an Update Action
+					restricted

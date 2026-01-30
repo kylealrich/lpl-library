@@ -1,0 +1,319 @@
+PfiActivity is a BusinessClass
+    owned by pfi
+    prefix is PfiAC
+    default label is "Activity"
+    disable data area copy
+
+    Ontology
+        symbolic key is PfiActivity
+
+    Patterns
+        implements CRUD
+        disable AsOfDateProcessing
+        disable Auditing
+        disable EffectiveDated
+        implements IncrementalReplication
+            indicator field is IsReplicated
+                replicate when false
+                    then set to true
+
+    Persistent Fields
+
+        ActivityName is a PfiActivityName
+        ActivityType is a PfiActivityType
+        ActStatus    is a PfiActivityStatus
+            default label is "ActivityStatus"
+        StartDate    is TimeStamp
+        EndDate      is TimeStamp
+        Log          is Text 
+            disable Auditing
+        IsReplicated is Boolean
+            default label is untranslatable
+
+    Derived Fields
+
+        ActivityID is a DerivedField
+            type is Alpha size 20
+            return ActivityType + PfiActivity
+
+
+
+
+
+        ElapsedTime is a DerivedField   
+            type is Decimal 10.0 
+            if (EndDate != blank)
+                return EndDate - StartDate
+            else
+                return current timestamp - StartDate
+
+        ElapsedTimeAsString is a NativeField
+            type is Alpha size 25
+
+
+
+
+        ActivityStatus is a DerivedField
+            type is Alpha size 10
+            if (ActStatus.NotStarted)
+                return "NotStarted"
+            else
+            if (ActStatus.Started)
+                return "Waiting"
+            else
+            if (ActStatus.Error)
+                return "Error"
+            else
+            if (ActStatus.Completed)
+                return "Completed"
+            else
+                return "Unknown"
+
+        IsCurrentActivity is a DerivedField
+            type is Boolean
+            default label is "CurrentActivity"
+            if (PfiActivity = PfiWorkunit.LastActivity)
+                return true
+            else
+                return false
+
+    Conditions
+
+        IsUserActionOrHRUserAction
+            default label is "ActivityIsUserActionOrHRUserAction"
+            when (ActivityType = "UA" or ActivityType = "HRUA")
+
+        IsStartOrAssignNode
+            default label is "ActivityIsStartOrAssign"
+            when (ActivityType = "START" or ActivityType = "ASSGN")
+
+        IsFailed
+            default label is "Failed"
+            when (ActStatus.Error)
+
+        IsUserActionAndStarted
+            default label is "UserActionActivityHasStarted"
+            when (IsUserActionOrHRUserAction and ActStatus.Started)
+
+    Relations
+
+        PfiQueueRel
+            one-to-one relation to PfiQueue
+            Field Mapping uses symbolic key
+                related.PfiWorkunit = PfiWorkunit
+                related.PfiActivity = PfiActivity
+
+    Sets
+
+        ByWorkunitStartDateActivity
+            sql name is PfiAC01
+            indexed
+            Sort Order
+                PfiWorkunit
+                StartDate
+                PfiActivity
+
+        ByWorkunitActivityNameActivity
+            sql name is PfiAC02
+            indexed
+            Sort Order
+                PfiWorkunit
+                ActivityName
+                PfiActivity
+
+        ByWorkunitActivityTypeActivity
+            sql name is PfiAC03
+            indexed
+            Sort Order
+                PfiWorkunit
+                ActivityType
+                PfiActivity
+
+        ByWorkunitActStatusActivity
+            sql name is PfiAC04
+            indexed
+            Sort Order
+                PfiWorkunit
+                ActStatus
+                PfiActivity
+
+        ByWorkunitEndDateActivity
+            sql name is PfiAC05
+            indexed
+            Sort Order
+                PfiWorkunit
+                EndDate
+                PfiActivity
+
+        ByWorkunitActivityIsUserActionAndStarted
+            sql name is PfiAC06
+            indexed
+            Sort Order
+                PfiWorkunit
+                PfiActivity
+            Instance Selection
+                where (IsUserActionAndStarted)
+
+        ByWorkunitActivityIsUserActionOrHRUserAction
+            sql name is PfiAC07
+            indexed
+            Sort Order
+                PfiWorkunit
+                PfiActivity
+            Instance Selection
+                where (IsUserActionOrHRUserAction)
+
+        ByIsReplicatedUniqueID
+            sql name is PfiAC08
+            indexed
+            Sort Order
+                IsReplicated
+                UniqueID
+                
+    Actions
+
+        Create is a Create Action
+
+        Update is an Update Action
+
+            Exit Rules
+                IsReplicated = false
+
+        Delete is a Delete Action
+
+        DeleteIncludingComparisonActivities is an Instance Action
+            restricted
+
+            Entrance Rules
+                for each PfiComparisonActivity set
+                    invoke Delete each
+
+            Action Rules
+                invoke Delete
+
+        DeleteActivityVariablesAndComparisonActivities is an Instance Action
+            restricted
+
+            Action Rules
+                for each PfiActivityVariable set
+                    invoke Delete each
+                for each PfiComparisonActivity set
+                    invoke Delete each
+
+        Restart is an Instance Action
+            valid when (not IsUserActionOrHRUserAction)
+            Local Fields
+                WorkunitStatus is a PfiWorkunitStatus
+
+            Action Rules
+                constraint (PfiWorkunit.Status != WorkunitStatus.Processing)
+                    "CannotRestartWorkUnitsThatAreInProgress"
+
+        Submit is an Instance Action
+            valid when (IsUserActionOrHRUserAction)
+
+        CreateComparisonActivity is an Instance Action
+
+            Action Rules
+                invoke Create PfiComparisonActivity
+                    fill in fields from this instance
+                    invoked.Actor   = actor 
+
+        Cancel is an Instance Action
+
+            Action Rules
+                ActStatus = ActStatus.Completed
+                EndDate = current timestamp
+                if (PfiQueueRel exists)
+                    invoke Cancel PfiQueueRel
+
+            Exit Rules
+                IsReplicated = false
+
+        TakeAction is an Instance Action
+            restricted
+            manual update
+
+            Parameters
+                Action  is a PfiActionTaken
+                Subject is a PfiComment
+                Message is Text
+
+            Action Rules
+                constraint (IsUserActionOrHRUserAction)
+                    "CannotTakeActionOnActivityUnlessTypeIsUserAction"
+                constraint (ActStatus.Started)
+                    "CannotTakeActionOnActivityUnlessStatusIsWaiting"
+
+        DeleteNonUserActionActivitiesByWorkunit is a Set Action
+            run in background
+            default label is "DeleteNonUserActionActivitiesByWorkUnit"
+
+            Parameters
+                Workunit is a PfiWorkunit
+                    default label is "WorkUnit"
+
+            Instance Selection
+                where (PfiWorkunit = Workunit and (not IsUserActionOrHRUserAction))
+
+            Action Rules
+
+                Instance Rules
+                    invoke Delete
+
+        DeleteActivitiesAndVariables is a Set Action
+            restricted
+            run in background
+
+            Parameters
+                Workunit is a PfiWorkunit
+                    default label is "WorkUnit"
+
+            Instance Selection
+                where (PfiWorkunit = Workunit)
+
+            Action Rules
+
+                Instance Rules
+                    if (not IsUserActionOrHRUserAction)
+                        invoke DeleteIncludingComparisonActivities
+                    else
+                        invoke DeleteActivityVariablesAndComparisonActivities
+
+        PruneActivities is a Set Action
+            restricted
+            run in background
+
+            Parameters
+                Workunit is a PfiWorkunit
+                    default label is "WorkUnit"
+
+            Instance Selection
+                where (PfiWorkunit = Workunit)
+
+            Action Rules
+
+                Instance Rules
+                    if (not IsUserActionOrHRUserAction)
+                        invoke DeleteIncludingComparisonActivities
+                    else
+                        invoke PruneActivityChildren
+
+        PruneActivityChildren is an Instance Action
+            restricted
+
+            Action Rules
+                for each PfiActivityVariable set
+                    invoke Delete each
+                for each PfiComparisonActivity set
+                    invoke Delete each
+                for each PfiTimerQueue set
+                    invoke Delete each
+                for each PfiQueueAction set
+                    invoke Delete each
+                for each PfiQueueReminder set
+                    invoke Delete each
+                for each PfiQueueTask set
+                    invoke Delete each
+                for each PfiTaskReport set
+                    invoke Delete each

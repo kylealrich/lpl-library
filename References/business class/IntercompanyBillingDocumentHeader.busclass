@@ -1,0 +1,4193 @@
+IntercompanyBillingDocumentHeader is a BusinessClass
+	owned by intercobilling
+	prefix is ICBHD
+	sql name is "ICBDocumentHeader"
+
+	Ontology
+		symbolic key is IntercompanyBillingDocumentHeader
+	
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+		ReceivableEntity
+		PayableEntity
+		Description								is Alpha 100
+		InvoiceDate								is an ExchangeDate
+		PostDate								is Date
+		TermsCode
+		DueDate									is Date
+		DocumentCurrency						is a FromCurrency
+		Status									is Numeric 1
+			States
+				Unreleased			value is 0
+				PendingApproval		value is 2
+				Approved			value is 3
+				Released			value is 4
+				Settled				value is 6
+				MarkedAsPaid		value is 7	
+				Cancelled			value is 8	
+		OriginatedFrom							is Numeric 1
+			States
+				ManualEntry				value is 0
+				JournalControl			value is 1
+				PayablesInvoice			value is 2
+				TransferPricing			value is 3
+				ExternalInterface		value is 4
+				ProjectContractInvoice	value is 5
+		RequiresApproval						is Boolean
+		ApprovalRequiredForPayablesAndReceivables		is Boolean
+		ApprovalCode
+		ApprovalLevel							is Numeric 8
+		Approver								is a FinanceResource
+		ApproverTeam							is a FinanceTeam
+		ReassignToApprovalLevel					is an ApprovalCodeResource
+			context of ApprovalCode
+		OriginatingDocument						is BusinessObjectReference
+		IntercompanyBillingInvoice
+			context of ReceivableEntity.Company
+		GeneratedInvoice						is an AlternateAttachment
+		ExtendedAmountTotal						is an InternationalAmount
+		TaxTotal								is an InternationalAmount
+		WithholdingTotal						is an InternationalAmount
+		SecondaryWithholdingTotal				is an InternationalAmount
+		NetDueAmount							is an InternationalAmount
+		SettledAmount							is an InternationalAmount
+		
+
+		IntercompanyBillingInvoiceIDMTemplate is an IDMOutputSettings
+			protected
+			restricted
+
+		ICBInvoiceIDMTemplate					is an IDMTemplate
+			default label is "BillingInvoiceTemplate"
+			
+		IDMJob
+		IDMDocumentSequence						is Numeric size 3
+		IDMDocumentPID							is Alpha size 100
+			protected
+			restricted
+		Printer									is an IDMPrinter
+		PointOfTitleTransfer
+		CrossReferenceType						is AlphaUpper size 1
+			States
+				CreditMemo	value is "C"
+				Invoice		value is "I"
+		CrossReferenceInvoice					is a XrefNbr
+		CrossReferenceICBDocument
+		CrossReferenceAmountToApply				is an InternationalAmount
+		CrossReferenceAutoApply					is Boolean
+		CrossReferenceHasBeenApplied			is Boolean
+		CreditAppliedAmount						is an InternationalAmount
+		CreditDebitMemoReason
+			context of ReceivableEntity.Company
+		ErrorMessage									is Alpha size 200
+		BackgroundProcessing							is Numeric size 1
+			States
+				NotProcessingInBackground				value is 0
+				ReleaseInProcess						value is 1
+				ReleaseFailure							value is 2
+				SuccessfulBackgroundRelease				value is 3
+				TaxProcessing							value is 4
+				ApprovalFailure							value is 5
+				ApprovalInProcess						value is 6
+				ApprovalWasSubmitted					value is 7
+				TaxProcessingFailure					value is 8
+				ProcessingInBackground					value is 9
+		ICBInvoiceEmailRecipient						is Numeric 1
+			default label is "EmailRecipient"
+			States
+				PayablesCompany		value is 0
+				Customer			value is 1
+		InterfaceUnreleasedPayablesInvoice				is Boolean
+		InterfaceUnreleasedReceivableInvoice			is Boolean
+		BatchNumber										is like ReceivableInvoiceBatch
+		ReceivableApprovalCode							is an ApprovalCode
+		ReceivableApprovalLevel							is Numeric 8
+		ReceivableApprover								is a FinanceResource
+		ReceivableApproverTeam							is a FinanceTeam
+		PayablesWorkUnitApproved						is Boolean
+		ReceivablesWorkUnitApproved						is Boolean
+
+	Context Fields
+		IntercompanyBillingSettlementHeader
+		IntercompanyBillingSettlementDetail
+
+
+	Field Rules
+		InvoiceDate
+			default to current corporate date
+
+		PostDate
+			default to InvoiceDate
+			
+			if (ReceivableEntity.Company.CompanySystemClosingControlRel.Control)
+				constraint (PostDate within ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDateIsNotWithinValidEntryDatesForCompany<ReceivableEntity.Company>;ValidDateRangeIs<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+		
+			if (PayableEntity.Company.CompanySystemClosingControlRel.Control)
+				constraint (PostDate within PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDateIsNotWithinValidEntryDatesForCompany<PayableEntity.Company>;ValidDateRangeIs<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+		DocumentCurrency
+			initial value is ReceivableEntity.Company.Currency
+			default to ReceivableEntity.Company.Currency
+
+			if (OriginatedFromInternalInterface)
+				cannot be changed
+					"CannotChangeCurrencyWhenDocumentOriginatedFrom<OriginatedFrom>"
+
+			if (ReceivableEntity.Company.UseBillFromFunctionalCurrency.Yes
+			or (ReceivableEntity.Company.UseBillFromFunctionalCurrency.UseIntercompanyBillingGroupValue
+			and IntercompanyBillingGroup.UseBillFromFunctionalCurrency))
+				constraint (DocumentCurrency = ReceivableEntity.Company.Currency)
+					"DocumentCurrency<DocumentCurrency>MustBeReceivableCompanyFunctionalCurrency<ReceivableEntity.Company.Currency>"
+
+		TermsCode
+			default to ReceivableEntity.CompanyCustomer.TermsCode
+
+			constraint (TermsCode.IsNetTermsWithNoDiscounts)
+				"PaymentTermsMustBeNetTermsWithNoDiscounts"
+			if (TermsCode changed)
+				DueDate = DerivedDueDate
+
+		DueDate
+			default to DerivedDueDate
+
+		RequiresApproval
+			if (IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables)
+				cannot be entered
+					"RequiresApprovalCannotBeEntered;IntercompanyBillingGroupIsSetForPayablesAndReceivablesApproval"
+		
+		ApprovalRequiredForPayablesAndReceivables
+			initial value is IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			default to IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			if (ReceivableApprovalCode entered
+			and ApprovalCode entered)
+				cannot be changed
+					"CannotChangeApprovalRequiredForPayablesAndReceivables"
+
+		ApprovalCode
+			if (!IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			and RequiresApproval)
+				required
+					"ApprovalCodeRequiredWhenDocumentRequiresApproval"
+			initial value is PayableEntity.Company.ApprovalCode
+				when IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			if (IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables)
+				default to PayableEntity.Company.ApprovalCode
+				if (OriginatedFrom.ManualEntry)
+					required
+						"ApprovalCodeIsRequiredForPayables;IntercompanyBillingGroupIsSetForPayablesAndReceivablesApproval"
+
+			constraint (ApprovalCode.HasApprovalLevels)
+				"ApprovalCodeHasNoApprovalLevels"
+			constraint (!ApprovalCode.HasTeamWithNoMembers)
+				"ApprovalCodeHasATeamWithNoMembers"
+			constraint (!ApprovalCode.HasInvalidEscalations)
+				"ApprovalCodeHasInvalidEscalationSettings"
+			constraint (!ApprovalCode.HasInactiveResources)
+				"ApprovalCodeHasInactiveResources"
+
+		IntercompanyBillingInvoice
+
+			default to ReceivableEntity.Company.IntercompanyBillingInvoice
+
+		CrossReferenceType
+			if (CrossReferenceICBDocument.ICBDocument entered)
+				if (CrossReferenceICBDocument.ICBDocument.NetDueAmount > 0)
+					CrossReferenceType = "I"
+				else
+					CrossReferenceType = "C"
+
+		CrossReferenceInvoice
+			if (CrossReferenceICBDocument.ICBDocument entered)
+				CrossReferenceInvoice = CrossReferenceICBDocument.ICBDocument.ReceivableEntity.ReceivableInvoice
+			if (CrossReferenceInvoice entered)
+				constraint (CrossReferenceType entered)
+					"CrossReferenceTypeAndInvoiceMustBothBeEntered"
+				if (CrossReferenceICBDocument.ICBDocument not entered)
+					CrossReferenceICBDocument.ICBDocument = CrossReferencedIntercompanyBillingDocumentRel.IntercompanyBillingDocumentHeader
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.ReceivableInvoiceRel exists)
+					"InvoiceIsInvalid;SearchForValidInvoiceViaDocumentNumber"
+			if (CrossReferenceInvoice not entered)
+				constraint (CrossReferenceType not entered)
+					"CrossReferenceTypeAndInvoiceMustBothBeEntered"
+			if (CrossReferenceICBDocument.ICBDocument entered)
+				constraint (CrossReferenceICBDocument.ICBDocument exists)
+					"DocumentNumberDoesNotReferenceAValidDocument"
+
+		CrossReferenceAmountToApply
+			if (CrossReferenceAmountToApply entered)
+				constraint (CrossReferenceAutoApply)
+					"AmountToApplyIsOnlyValidWhenAutoApplyIsChecked"
+				constraint (CrossReferenceAmountToApply > 0)
+					"CrossReferenceAmountToApplyCannotBeNegative"
+
+		CrossReferenceAutoApply
+			if (CrossReferenceAutoApply)
+				constraint (CrossReferenceInvoice entered)
+					"AutoApplyCanOnlyBeCheckedWhenInvoiceExists"
+
+		PointOfTitleTransfer
+			default to "D"
+
+		GeneratedInvoice
+			if (IntercompanyBillingInvoice changed
+			and IntercompanyBillingInvoice not entered)
+				initialize GeneratedInvoice
+
+		ICBInvoiceIDMTemplate
+			if (IntercompanyBillingGroup.UseIDM)
+				default to ReceivableEntity.Company.BillingInvoiceIDMTemplate
+				constraint (ICBInvoiceIDMTemplate.IDMDocumentType.IntercompanyBillingInvoice)
+					"InvalidTemplate"
+			else
+				initialize
+
+		Printer
+			default to UserDefaultPrinterRel.IDMPrinter
+			if (IntercompanyBillingGroup.IDMAutomaticPrint)
+				required
+
+		ICBInvoiceEmailRecipient
+			initial value is ReceivableEntity.Company.IntercompanyBillingInvoiceEmailRecipient
+			default to ReceivableEntity.Company.IntercompanyBillingInvoiceEmailRecipient
+						
+		InterfaceUnreleasedPayablesInvoice
+			initial value is PayableEntity.Company.InterfaceUnreleasedInvoices
+			if (action type.Create)
+				default to PayableEntity.Company.InterfaceUnreleasedInvoices
+			
+		InterfaceUnreleasedReceivableInvoice
+			initial value is ReceivableEntity.Company.InterfaceUnreleasedInvoices
+			if (action type.Create)
+				default to ReceivableEntity.Company.InterfaceUnreleasedInvoices
+			if (InterfaceUnreleasedReceivableInvoice)
+				constraint(ReceivableEntity.Company.TransBatchNumbering)
+					"AutomaticBatchNumberingShouldBeEnabledInReceivableCompany"
+		
+
+		ReceivableApprovalCode	
+			initial value is ReceivableEntity.Company.ApprovalCode
+				when IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			if (IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables)
+				default to ReceivableEntity.Company.ApprovalCode
+				if (OriginatedFrom.ManualEntry)
+					required
+						"ApprovalCodeIsRequiredForReceivables;IntercompanyBillingGroupIsSetForPayablesAndReceivablesApproval"
+			if (RequiresApproval)
+				cannot be entered
+					"ReceivableApprovalCodeMustBeBlank;HeaderIsSetForRequiresApproval"
+
+			constraint (ReceivableApprovalCode.HasApprovalLevels)
+				"ReceivableApprovalCodeHasNoApprovalLevels"
+			constraint (!ReceivableApprovalCode.HasTeamWithNoMembers)
+				"ReceivableApprovalCodeHasATeamWithNoMembers"
+			constraint (!ReceivableApprovalCode.HasInvalidEscalations)
+				"ReceivableApprovalCodeHasInvalidEscalationSettings"
+			constraint (!ReceivableApprovalCode.HasInactiveResources)
+				"ReceivableApprovalCodeHasInactiveResources"					
+
+			
+	Local Fields
+		LocalTermsCalTrigger			is Alpha size 1
+		CalculateTerms
+		LocalTaxAccount					is a FinanceCodeBlock
+		LocalInvoiceNumber				is Numeric 12
+		LocalApprovalCode				is AlphaUpper 30
+		LocalApprovalLevel				is Numeric 8
+		LocalApprover					is a FinanceResource
+		LocalApproverTeam				is a FinanceTeam
+		LocalApproverList				is Alpha 250
+		LocalFirstApproverAssigned		is Boolean
+		LocalComment					is Alpha size up to 500
+		LocalBackgroundGroup			is AlphaUpper up to 200
+		LocalActor						is an Actor
+		LocalFinanceResource			is a FinanceResource
+		CurrencyWork					is a CurrencyExchange 
+		LocalIsRateDefined				is Boolean
+		LocalCalculateTotalsDone		is Boolean
+		LocalExtendedAmountTotal		is an InternationalAmount
+		LocalTaxTotal					is an InternationalAmount
+		LocalWithholdingTotal			is an InternationalAmount
+		LocalSecondaryWithholdingTotal	is an InternationalAmount
+		LocalNetDueAmount				is an InternationalAmount
+		LocalLineCount					is Numeric 3
+		CalculateTax
+		LocalTaxCalc					is Alpha 1
+		LocalSetAutoApplyInProgress		is Boolean
+		LocalContinueRelease			is Boolean
+		LocalContinueSubmitForApproval	is Boolean
+		IDMGenerateDocument
+		IDMAttributes
+		IDMItem
+		AttributeCtr					is Numeric 2
+		LocalExecute					is Boolean
+		IDMXMLDefinition
+		CreateReceivableInvoiceLineItem	is Boolean
+		UseDetailedDescription			is Boolean 
+		LocalSettledDate				is Date
+		LocalProject					is like Project
+		LocalIntercompanyBillingInvoiceEmailSubject is Alpha 255
+			Text Variables
+				ReceivableCompanyNumber value is ReceivableEntity.Company
+				ReceivableCompanyName	value is ReceivableEntity.Company.Name
+				PayableCompanyNumber	value is PayableEntity.Company
+				PayableCompanyName		value is PayableEntity.Company.Name
+				InvoiceNumber			value is DerivedPrintInvoiceNumber
+				InvoiceDate				value is InvoiceDate
+		LocalAttributeCtr				is Numeric 2
+		LocalCounter 					is Numeric size 3
+		LocalReceivableApprovalCode		is an ApprovalCode
+		LocalReceivableApprovalLevel	is Numeric 8
+		LocalReceivableApprover			is a FinanceResource
+		LocalReceivableApproverTeam		is a FinanceTeam
+		LocalReceivableApproverList		is Alpha 250
+		LocalReceivableCounter 			is Numeric size 3
+		LocalFirstApproverAssignedForReceivable		is Boolean
+
+	Transient Fields
+		CurrencyTable
+		TransactionAmount					is a CurrencyAmount
+		CreatedCashLedgerPayablesPayment	is a CashLedgerPayablesPayment view
+		TransientSettlementDate				is Date
+			default label is "SettlementDate"
+			derive value from SettlementDateDisplay
+		TransientApprovalCode				is a ApprovalCode
+		TransientReceivableApprovalCode		is a ApprovalCode
+
+	Rule Blocks
+		ValidateCompanySystemClosingControl
+			if (ReceivableEntity.Company.CompanySystemClosingControlRel.Control)
+				constraint (PostDate within ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDateIsNotWithinValidEntryDatesForCompany<ReceivableEntity.Company>;ValidDateRangeIs<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+		
+			if (PayableEntity.Company.CompanySystemClosingControlRel.Control)
+				constraint (PostDate within PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+					"PostDateIsNotWithinValidEntryDatesForCompany<PayableEntity.Company>;ValidDateRangeIs<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+		
+		ValidateDocumentCurrency
+			if (ReceivableEntity.Company.UseBillFromFunctionalCurrency.Yes
+			or (ReceivableEntity.Company.UseBillFromFunctionalCurrency.UseIntercompanyBillingGroupValue
+			and IntercompanyBillingGroup.UseBillFromFunctionalCurrency))
+				constraint (DocumentCurrency = ReceivableEntity.Company.Currency)
+					"DocumentCurrency<DocumentCurrency>MustBeReceivableCompanyFunctionalCurrency<ReceivableEntity.Company.Currency>"
+
+		ValidateAutoApplyCredit 
+			if (CrossReferenceInvoice entered)
+				constraint (CrossReferenceType entered)
+					"CrossReferenceTypeAndCrossReferenceInvoiceMustBothBeEntered"
+
+			if (CrossReferenceType entered)
+				constraint (CrossReferenceInvoice entered)
+					"CrossReferenceTypeAndCrossReferenceInvoiceMustBothBeEntered"
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.ReceivableInvoiceRel exists)
+					"InvoiceIsInvalid;SearchForValidInvoiceViaDocumentNumber"
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.ReceivableInvoiceRel.AlternateReceivableInvoiceType = CrossReferenceType)
+					"CrossReferenceTypeAndInvoiceDoNotMatch"
+
+			if (CrossReferenceICBDocument.ICBDocument entered)
+				constraint (CrossReferenceICBDocument.ICBDocument.ReceivableInvoiceRel exists)
+					"InvoiceIsInvalid;SearchForValidInvoiceViaDocumentNumber"
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.IntercompanyBillingDocumentHeader = CrossReferenceICBDocument.ICBDocument.IntercompanyBillingDocumentHeader)
+					"CrossReferenceTypeAndInvoiceDoNotReferToTheSameIntercompanyBillingDocumentHeaderAsDocumentNumber"
+				
+			if (CrossReferenceAutoApply)
+				constraint (CrossReferenceInvoice entered)
+					"CrossReferenceInvoiceMustBeEnteredToUseAutoApply"
+				constraint (NetDueAmount < 0)
+					"CrossReferenceAutoApplyCannotBeCheckedWhenTotalDueAmountIsPositive"
+				constraint (SettledAmount = 0)
+					"CannotUseAutoApplyIfCreditMemoHasBeenUsedInASettlement"
+				constraint (CrossReferenceType = "I")
+					"CrossReferenceTypeMustBe_\I;AutoApply=Y"
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.Status = 4)
+					"CrossReferenceInvoiceMustBeReleased,ButNotSettled,MarkedAsPaid,OrCancelled;TheCurrentStatusIs<CrossReferencedIntercompanyBillingDocumentRel.Status>"
+				constraint (DocumentCurrency = CrossReferencedIntercompanyBillingDocumentRel.DocumentCurrency)
+					"CreditMemoAndInvoiceMustHaveTheSameCurrency"
+				constraint (PayableEntity.Vendor.VendorClass.ZeroPaymentAllowed)
+					"VendorClass<PayableEntity.Vendor.VendorClass>MustHaveZeroPaymentAllowedCheckedToUseAutoApply"
+				constraint (!CrossReferencedIntercompanyBillingDocumentRel.AutoApplyInProgress)
+					"CrossReferenceInvoiceHasAnAutoApplyInProgress;RunAutomaticMemoApplicationBeforeContinuing"
+				constraint (!CrossReferencedIntercompanyBillingDocumentRel.UnreleasedICBSettlementDetailRel exists)
+					"CrossReferenceInvoiceIsPartOfAnUnreleasedSettlement;ResolveThatSettlementBeforeContinuing"
+				constraint (!UnreleasedICBSettlementDetailRel exists)
+					"ThisIntercompanyBillingDocumentIsPartOfAnUnreleasedSettlement;AutoApplyIsNotAllowedIfThisDocumentIsPartOfASettlement"
+				constraint(!CrossReferencedIntercompanyBillingDocumentRel.UnappliedReceivablePaymentRemittanceRel exists)
+					"CrossReferenceInvoiceHasAnUnappliedReceivablePaymentRemittanceRecord;RunAutomaticCashApplicationForCompany<ReceivableEntity.Company>BeforeContinuing"
+				if (CrossReferenceAmountToApply entered)
+					constraint (CrossReferenceAmountToApply > 0)
+						"CrossReferenceAmountToApplyCannotBeNegative"
+					constraint (CrossReferenceAmountToApply <= CrossReferencedIntercompanyBillingDocumentRel.DerivedUnsettledAmount)
+						"CrossReferenceAmountToApplyCannotBeGreaterThanTheUnsettledAmountOfTheCrossReferencedInvoice"
+					constraint (CrossReferenceAmountToApply <= -1 * DerivedUnsettledAmount)
+						"CrossReferenceAmountToApplyCannotBeGreaterThanTheTotalAmountOfThisCreditMemo"
+					if (CrossReferenceAmountToApply < CrossReferencedIntercompanyBillingDocumentRel.DerivedUnsettledAmount)
+						confirmation required
+							"TheCrossReferenceAmountToApplyIsLessThanTheUnsettledAmountOfTheCrossReferencedInvoice.DoYouWishToProceed?"
+				else
+					if (-1 * DerivedUnsettledAmount < CrossReferencedIntercompanyBillingDocumentRel.DerivedUnsettledAmount)
+						confirmation required
+							"TheCrossReferenceAmountThatWillBeAppliedIsLessThanTheUnsettledAmountOfTheCrossReferencedInvoice.DoYouWishToProceed?"
+				LocalSetAutoApplyInProgress = true
+			else
+				constraint (!CrossReferenceAmountToApply entered)
+					"CrossReferenceAmountToApplyCanOnlyBeEnteredWhenCrossReferenceAutoApplyIsChecked"
+
+			if (CreditDebitMemoReason entered)
+				constraint (CreateCreditMemo)
+					"CreditReasonCanOnlyBeEnteredWhenTotalDueAmountIsNegative"
+
+		CreateUpdateRules
+			constraint (ReceivableEntity.Company entered)
+				"ReceivableCompanyRequired"
+
+			constraint (PayableEntity.Company entered)
+				"PayableCompanyRequired"
+
+			constraint (ReceivableEntity.Company != PayableEntity.Company)
+				"ReceivableAnd_PayableCompanyCannotBeTheSame"
+
+			constraint (ReceivableEntity.Company.IsAValidIntercompanyBillingCompany)
+				"ReceivableCompanyNotSetupForIntercompanyBilling;TheGlobalLedgerCompanySetForIntercompanyBilling,TheReceivableCompanyAndItsAssociatedPayablesCompanyMustBeSetupWithDefaultsForIntercompanyBilling"
+
+			constraint (PayableEntity.Company.IsAValidIntercompanyBillingCompany)
+				"PayableCompanyNotSetupForIntercompanyBilling;TheGlobalLedgerCompanySetForIntercompanyBilling,ThePayablesCompanyAndItsAssociatedReceivableCompanyMustBeSetupWithDefaultsForIntercompanyBilling"
+
+			if (ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency entered)
+				constraint (DocumentCurrency = ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency)
+					"Vendor<ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor>-<ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor.VendorName>HasBalanceCurrencySetTo<ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency>;DocumentCurrencyMustBeTheSame"
+
+			if (OriginatedFromInternalInterface)
+				constraint (!ReceivableEntity.Company changed)
+					"CannotChange_ReceivableCompanyWhenDocumentOriginatedFrom<OriginatedFrom>"
+				constraint (!PayableEntity.Company changed)
+					"CannotChange_PayableCompanyWhenDocumentOriginatedFrom<OriginatedFrom>"
+				constraint (!ReceivableEntity.CurrencyTable changed)
+					"CannotChange_ReceivableCurrencyTableWhenDocumentOriginatedFrom<OriginatedFrom>"
+				constraint (!ReceivableEntity.CurrencyExchangeRate changed)
+					"CannotChange_ReceivableExchangeRateWhenDocumentOriginatedFrom<OriginatedFrom>"
+
+
+		UnreleasedReleaseEdits
+			constraint (NetDueAmount != 0)
+				"CannotRelease;TotalDueIsZero"
+
+			constraint (!HasRevenueOrExpenseDistributionsOutOfBalance)
+				"CannotRelease;HasOneOrMoreLinesWithRevenueOrExpenseDistributionsOutOfBalance"
+
+			if (NetDueAmount > 0)
+				constraint (ReceivableEntity.Company.ICBillingInvoicePrefix entered)
+					"ReceivableCompany<ReceivableEntity.Company>DoesNotHaveAnInvoicePrefixDefinedForIntercompanyBilling"
+
+			if (NetDueAmount < 0)
+				constraint (ReceivableEntity.Company.ICBillingCreditMemoPrefix entered)
+					"ReceivableCompany<ReceivableEntity.Company>DoesNotHaveACreditMemoPrefixDefinedForIntercompanyBilling"
+
+			constraint (!TaxableLinesWithNoTaxRel exists)
+				"RechargeItem<first TaxableLinesWithNoTaxRel.RechargeItem>IsTaxableButHasNoTax._UseCalculate_TaxAction."
+
+			include ValidateCompanySystemClosingControl
+			include ValidateDocumentCurrency
+			include ValidateAutoApplyCredit
+
+			initialize LocalLineCount
+
+			for each IntercompanyBillingDocumentLine set
+				LocalLineCount = (LocalLineCount + 1)
+				invoke ReleaseAccountEdits each
+					if (LocalLineCount > 1)
+						invoked.SkipAccrualCodes = true
+
+
+		UnreleasedSubmitForApprovalEdits
+			constraint (NetDueAmount != 0)
+				"CannotSubmitForApproval;TotalDueIsZero"
+
+			constraint (!HasRevenueOrExpenseDistributionsOutOfBalance)
+				"CannotSubmitForApproval;HasOneOrMoreLinesWithRevenueOrExpenseDistributionsOutOfBalance"
+
+			if (NetDueAmount > 0)
+				constraint (ReceivableEntity.Company.ICBillingInvoicePrefix entered)
+					"ReceivableCompany<ReceivableEntity.Company>DoesNotHaveAnInvoicePrefixDefinedForIntercompanyBilling"
+
+			if (NetDueAmount < 0)
+				constraint (ReceivableEntity.Company.ICBillingCreditMemoPrefix entered)
+					"ReceivableCompany<ReceivableEntity.Company>DoesNotHaveACreditMemoPrefixDefinedForIntercompanyBilling"
+
+			constraint (!TaxableLinesWithNoTaxRel exists)
+				"RechargeItem<first TaxableLinesWithNoTaxRel.RechargeItem>IsTaxableButHasNoTax._UseCalculate_TaxAction."
+
+			constraint (ApprovalCode.HasApprovalLevels)
+				"CannotSubmitForApproval;TheApprovalCodeHasNoApprovalLevels"
+			constraint (!ApprovalCode.HasTeamWithNoMembers)
+				"CannotSubmitForApproval;TheApprovalCodeHasATeamWithNoMembers"
+			constraint (!ApprovalCode.HasInvalidEscalations)
+				"CannotSubmitForApproval:TheApprovalCodeHasInvalidEscalationSettings"
+			constraint (!ApprovalCode.HasInactiveResources)
+				"CannotSubmitForApproval;TheApprovalCodeHasInactiveResources"
+
+			include ValidateDocumentCurrency
+			include ValidateAutoApplyCredit
+
+			initialize LocalLineCount
+
+			for each IntercompanyBillingDocumentLine set
+				LocalLineCount = (LocalLineCount + 1)
+				invoke ReleaseAccountEdits each
+					if (LocalLineCount > 1)
+						invoked.SkipAccrualCodes = true
+
+		EditTermsData
+			initialize CalculateTerms
+			if (TermsCode entered)
+				CalculateTerms.TransactionDate		= InvoiceDate
+				CalculateTerms.TransactionAmount	= NetDueAmount
+
+				LocalTermsCalTrigger				= CalculateTerms.TermsCalTrigger
+				constraint (CalculateTerms.OutputErrorNumber not entered)
+					"<CalculateTerms.OutputErrorMessage>"
+
+		ProcessTaxesForRelease
+			include ProcessOneSourceForRelease						
+			include ProcessVertexForRelease
+
+			if (TaxEntityUsesOneSource
+			or  CallVertexByTransaction)
+				if (BackgroundProcessing.ReleaseInProcess)
+					LocalContinueRelease = true
+				else
+					LocalContinueRelease = false
+
+		ProcessOneSourceForRelease
+			if	(TaxEntityUsesOneSource)
+				if (BackgroundProcessing.NotProcessingInBackground
+				or	BackgroundProcessingFailure)
+					ErrorMessage = blank
+					if (HasTaxableLines)
+						invoke EditICBDocumentHeaderForOneSource
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+						invoke CreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= false
+							invoked.PrmCalculateTaxOnly						= false
+					else
+						BackgroundProcessing = BackgroundProcessing.ReleaseInProcess
+				else
+					constraint (!BackgroundProcessing.TaxProcessing)
+						"TaxProcessingIsAlreadyOngoing"
+					constraint (BackgroundProcessing.ReleaseInProcess
+					and			(invoking action = "OneSourceFinishRelease"
+					or			 invoking action = "UpdateFromInterface"))
+						"ReleaseIsStillProcessingInTheBackground"
+
+		ProcessVertexForRelease
+			if	(CallVertexByTransaction)
+				if (BackgroundProcessing.NotProcessingInBackground
+				or	BackgroundProcessingFailure)
+					ErrorMessage = blank
+					if (HasTaxableLines)
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+						invoke VertexCreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= false
+							invoked.PrmCalculateTaxOnly						= false
+					else
+						BackgroundProcessing = BackgroundProcessing.ReleaseInProcess
+				else
+					constraint (!BackgroundProcessing.TaxProcessing)
+						"TaxProcessingIsAlreadyOngoing"
+					constraint (BackgroundProcessing.ReleaseInProcess
+					and			(invoking action = "VertexFinishRelease"
+					or			 invoking action = "UpdateFromInterface"))
+						"ReleaseIsStillProcessingInTheBackground"
+
+		ProcessTaxesForApproval
+			include ProcessOneSourceForApproval						
+			include ProcessVertexForApproval
+
+			if (TaxEntityUsesOneSource
+			or  CallVertexByTransaction)
+				if (BackgroundProcessing.ApprovalInProcess)
+					LocalContinueSubmitForApproval = true
+				else
+					LocalContinueSubmitForApproval = false
+
+		ProcessOneSourceForApproval
+			if	(TaxEntityUsesOneSource)
+				if (BackgroundProcessing.NotProcessingInBackground
+				or	BackgroundProcessingFailure)
+					ErrorMessage = blank
+					if (HasTaxableLines)
+						invoke EditICBDocumentHeaderForOneSource
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+						invoke CreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= true
+							invoked.PrmCalculateTaxOnly						= false
+					else
+						BackgroundProcessing = BackgroundProcessing.ApprovalInProcess
+				else
+					constraint (!BackgroundProcessing.TaxProcessing)
+						"TaxProcessingIsAlreadyOngoing"
+					constraint (BackgroundProcessing.ApprovalInProcess
+					and			invoking action = "OneSourceFinishSubmitForApproval")
+						"SubmitForApprovalIsStillProcessingInTheBackground"
+
+		ProcessVertexForApproval
+			if	(CallVertexByTransaction)
+				if (BackgroundProcessing.NotProcessingInBackground
+				or	BackgroundProcessingFailure)
+					ErrorMessage = blank
+					if (HasTaxableLines)
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+						invoke VertexCreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= true
+							invoked.PrmCalculateTaxOnly						= false
+					else
+						BackgroundProcessing = BackgroundProcessing.ApprovalInProcess
+				else
+					constraint (!BackgroundProcessing.TaxProcessing)
+						"TaxProcessingIsAlreadyOngoing"
+					constraint (BackgroundProcessing.ApprovalInProcess
+					and			invoking action = "VertexFinishSubmitForApproval")
+						"SubmitForApprovalIsStillProcessingInTheBackground"
+
+		UpdateAutoApplyInProgress
+			if (LocalSetAutoApplyInProgress)
+				invoke FastUpdate CrossReferencedIntercompanyBillingDocumentRel
+					invoked.CrossReferenceHasBeenApplied	= true 
+
+		DocumentTotalsCalculation
+			if (!LocalCalculateTotalsDone)
+				for each DocumentLineRel
+					LocalExtendedAmountTotal		+= each.ExtendedAmount
+					LocalTaxTotal					+= each.TaxAmount
+					LocalWithholdingTotal			+= each.WithholdingAmount
+					LocalSecondaryWithholdingTotal	+= each.SecondaryWithholdingAmount
+
+				LocalNetDueAmount = ((LocalExtendedAmountTotal + LocalTaxTotal) - LocalWithholdingTotal - LocalSecondaryWithholdingTotal)
+
+				LocalCalculateTotalsDone = true
+
+		CreateReceivableInvoiceAndDistributions
+
+			CreateReceivableInvoiceLineItem = false
+
+			if (ProjectExistsOnDocument)
+				if (LinesHaveRevenueProject)
+					if (LinesHaveMixedRevenueProjects)
+						CreateReceivableInvoiceLineItem = true
+					else 
+						LocalProject = first DocumentDistributionRevenueProjectRel.GeneralLedgerAccount.Project
+						if (ReceivableWithholdingProjectNotSameRel exists
+						or  ReceivableSecondaryWithholdingProjectNotSameRel exists
+						or  ReceivableTaxProjectNotSameRel exists)
+							CreateReceivableInvoiceLineItem = true
+				else  
+					if (LineWithholdingOrTaxProjectExists)
+						CreateReceivableInvoiceLineItem = true
+
+			if ((CreateReceivableInvoiceLineItem
+			or   IntercompanyBillingGroup.CreateDetailedLineItems)
+			and (HasWithholdingAmountLines
+			or   HasMixedSignRevenueDistributions))
+				ReceivableEntity.ReceivableInvoiceType = "M" 
+				if (AllowSelectDistributionSet) 
+					constraint (ReceivableEntity.CompanyCustomer.ApplyMixedSignedLineItemsAutomatically)
+						"Company<ReceivableEntity.Company>_Customer<ReceivableEntity.Customer>MustHave_Apply_Mixed_Signed_Line_Items_AutomaticallyCheckedToHaveBothPositiveAndNegativeRevenueDistributions"
+				if (CreateInvoice)
+					increment ReceivableEntity.Company.ICBillingInvoiceNumber
+					LocalInvoiceNumber = ReceivableEntity.Company.ICBillingInvoiceNumber
+	
+				if (CreateCreditMemo)
+					increment ReceivableEntity.Company.ICBillingCreditMemoNumber
+					LocalInvoiceNumber = ReceivableEntity.Company.ICBillingCreditMemoNumber
+			else
+				if (CreateInvoice)
+					ReceivableEntity.ReceivableInvoiceType = "I" 
+					increment ReceivableEntity.Company.ICBillingInvoiceNumber
+					LocalInvoiceNumber = ReceivableEntity.Company.ICBillingInvoiceNumber
+	
+				if (CreateCreditMemo)
+					ReceivableEntity.ReceivableInvoiceType = "C" 
+					increment ReceivableEntity.Company.ICBillingCreditMemoNumber
+					LocalInvoiceNumber = ReceivableEntity.Company.ICBillingCreditMemoNumber
+					
+			if (InterfaceUnreleasedReceivableInvoice)
+				invoke Create ReceivableInvoiceBatch
+					assign result to NewReceivableInvoiceBatch
+					invoked.Company						= ReceivableEntity.Company
+					invoked.ReceivableProcessLevel 		= ReceivableEntity.ProcessLevel
+					invoked.BatchDate    				= InvoiceDate
+					invoked.GeneralLedgerDate			= PostDate
+					invoked.ReceivableGeneralLedgerCode	= ReceivableEntity.ReceivableGeneralLedgerCode
+					invoked.OriginalCurrency			= DocumentCurrency
+					invoked.CurrencyTable				= ReceivableEntity.CurrencyTable
+					invoked.CountTotal					= 1
+					if (CreateInvoice)
+						invoked.InvoiceTotal			= NetDueAmount
+					else
+						invoked.CreditTotal				= NetDueAmount * -1
+
+				BatchNumber				=      NewReceivableInvoiceBatch.ReceivableInvoiceBatch
+			else
+				BatchNumber				=      999999
+					
+			invoke Create ReceivableInvoice
+				assign result to ReceivableEntity.ReceivableInvoice
+				invoked.Company						= ReceivableEntity.Company
+				invoked.ReceivableInvoiceType		= ReceivableEntity.ReceivableInvoiceType
+				if (ReceivableEntity.ReceivableInvoiceType = "M")
+					if (CreateInvoice)
+						invoked.AlternateReceivableInvoiceType = "I"
+					else
+						invoked.AlternateReceivableInvoiceType = "C"
+				if (CreateInvoice)
+					invoked.ReceivableInvoice		= DerivedInvoiceNumber
+				else
+					invoked.ReceivableInvoice		= DerivedCreditMemoNumber
+				invoked.BatchNumber				    = BatchNumber
+				invoked.ReceivableProcessLevel		= ReceivableEntity.ProcessLevel
+				invoked.Customer					= ReceivableEntity.Customer
+				invoked.CustomerBillTo				= ReceivableEntity.CustomerBillTo
+				invoked.TransactionDate				= InvoiceDate
+				invoked.GeneralLedgerDate			= PostDate
+				invoked.InvoiceAmount.CurrencyAmount = NetDueAmount
+				invoked.TransientSignedTransactionAmount = NetDueAmount  
+				invoked.OriginalCurrency			= DocumentCurrency
+				invoked.CurrencyTable				= ReceivableEntity.CurrencyTable
+				invoked.InvoiceAmount.FunctionalAmount.EnteredCurrencyRate	= ReceivableEntity.CurrencyExchangeRate
+				invoked.TermsCode					= TermsCode
+				invoked.Description					= Description
+				invoked.ReceivableGeneralLedgerCode	= ReceivableEntity.ReceivableGeneralLedgerCode
+				invoked.Origin						= "N"
+				invoked.System						= "IB"
+				if (CrossReferenceType entered 
+				and CrossReferenceInvoice entered)
+					invoked.ReceivableCrossReference.Company = ReceivableEntity.Company
+					invoked.ReceivableCrossReference.ReceivableInvoiceType = CrossReferenceType
+					invoked.ReceivableCrossReference.ReceivableInvoice = CrossReferenceInvoice
+					invoked.AutomaticCashApplication = CrossReferenceAutoApply
+				if (CreateCreditMemo)
+					if (CreditDebitMemoReason entered) 
+						invoked.CreditDebitMemoReason	= CreditDebitMemoReason
+					else
+						invoked.CreditDebitMemoReason	= ReceivableEntity.Company.ICBillingDefaultCreditMemoReason
+				if (OriginatedFrom.ProjectContractInvoice)
+					invoked.ProjectContract			= OriginatingDocument(ProjectContractInvoice).ProjectContract
+					invoked.ProjectContractInvoice	= OriginatingDocument(ProjectContractInvoice).ProjectContractInvoice
+					invoked.ProjectFundingSource	= OriginatingDocument(ProjectContractInvoice).ProjectFundingSource
+					invoked.FinanceDimension2		= OriginatingDocument(ProjectContractInvoice).FinanceDimension2
+				invoked.ReceivableInvoiceShipToGroup.CustomerShipTo	= ReceivableEntity.CustomerShipTo
+
+			UseDetailedDescription = false 
+			if (CreateReceivableInvoiceLineItem)
+				UseDetailedDescription = true
+			if (IntercompanyBillingGroup.CreateDetailedLineItems)
+				UseDetailedDescription = true
+
+			for each IntercompanyBillingDocumentLine set
+				invoke CreateReceivableDistributions each
+					invoked.PrmCreateReceivableInvoiceLineItem	= CreateReceivableInvoiceLineItem
+
+
+
+		CreatePayablesInvoiceAndDistributions
+
+
+
+			invoke Unreleased.CreateInvoice PayablesInvoice
+				assign result to PayableEntity.PayablesInvoice
+				invoked.Company							= PayableEntity.Company
+				invoked.Vendor							= PayableEntity.Vendor
+				invoked.ProcessLevel					= PayableEntity.ProcessLevel
+				invoked.PurchaseFromLocation			= PayableEntity.VendorLocation
+				invoked.Invoice							= ReceivableEntity.ReceivableInvoice
+				invoked.AuthorityCode					= blank
+				if (Description entered)
+					invoked.Description					= Description
+				else
+					invoked.Description					= blank
+				if (CreateInvoice)
+					invoked.InvoiceType				= blank
+				else
+					invoked.InvoiceType					= "C"
+				invoked.InvoiceAmount.CurrencyAmount							= DerivedNetDueWithInvoiceTax
+				invoked.InvoiceAmount.FunctionalAmount.EnteredCurrencyAmount	= DerivedDueWithInvoiceTaxInPayableCurrency
+				invoked.InvoiceAmount.FunctionalAmount.EnteredCurrencyRate		= PayableEntity.CurrencyExchangeRate
+
+				invoked.InvoiceAmount.FunctionalAmount.ToCurrency				= DocumentCurrency
+				invoked.InvoiceCurrency					= DocumentCurrency
+				invoked.CurrencyTable					= PayableEntity.CurrencyTable
+				invoked.TaxableAmount					= blank
+				invoked.TaxAmount						= blank
+				invoked.VoucherNumber					= blank
+				invoked.AccrualCode						= PayableEntity.PayablesAccrualCode
+				invoked.InvoiceDate						= InvoiceDate
+
+				invoked.DueDate							= DueDate
+				invoked.TermsCode						= TermsCode
+				invoked.DistributionDate				= PostDate
+				invoked.InvoiceSource					= "B"
+				invoked.Operator						= actor
+				invoked.InvoiceReference				= "IN"
+				invoked.TransientReleaseOnInvoiceAdd	= false
+				invoked.Status							= 0
+
+
+
+			for each IntercompanyBillingDocumentLine set
+				invoke CreatePayablesDistributions each
+					invoked.PrmUseDetailedDescription = UseDetailedDescription 
+
+
+
+
+			invoke Update PayableEntity.PayablesInvoice		 
+				invoked.TaxableAmount				= DerivedTaxableTotal
+				invoked.TaxAmount					= DerivedTaxTotal
+				invoked.TotalTaxAmount				= DerivedTaxTotal
+
+			if ((TaxEntityUsesOneSource		
+			or  CallVertexByTransaction)
+			and DerivedTaxTotal entered)
+				invoke Update PayableEntity.PayablesInvoice.PayablesInvoiceTaxRel
+					invoked.TaxDetails.ReturnedTaxAmount = DerivedTaxTotal
+
+			if (TaxEntityUsesOneSource
+			and PayableEntity.PayablesInvoice.TaxCode not entered
+			and PayableEntity.PayablesInvoice.TaxLineItemRel exists)
+				invoke FastUpdate PayableEntity.PayablesInvoice
+					invoked.TaxCode = PayableEntity.PayablesInvoice.first TaxLineItemRel.ShipToTaxCode
+
+		InitiateApprovalProcessFlow
+			initiate IntercompanyBillingDocumentApproval process
+				title is "ApproveIntercompanyBillingDocument<IntercompanyBillingDocumentHeader>-<IntercompanyBillingDocumentHeader.Description>"
+				Variables
+					IntercompanyBillingGroup
+					IntercompanyBillingDocumentHeader
+				URLs
+					"<linkback(webapp is JournalApprover navigation is ProcessFlowForm text is \"ViewIntercompanyBillingDocument\")>"
+		
+		InitiateApprovalProcessFlowForPayables
+			initiate IntercompanyBillingDocumentApproval process
+				title is "ApproveIntercompanyBillingDocumentForPayables<IntercompanyBillingDocumentHeader>-<IntercompanyBillingDocumentHeader.Description>"
+				Variables
+					IntercompanyBillingGroup
+					IntercompanyBillingDocumentHeader
+				URLs
+					"<linkback(webapp is JournalApprover navigation is ProcessFlowForm text is \"ViewIntercompanyBillingDocument\")>"
+		
+		InitiateApprovalProcessFlowForReceivables
+			initiate IntercompanyBillingDocumentApprovalForReceivable process
+				title is "ApproveIntercompanyBillingDocumentForReceivables<IntercompanyBillingDocumentHeader>-<IntercompanyBillingDocumentHeader.Description>"
+				Variables
+					IntercompanyBillingGroup
+					IntercompanyBillingDocumentHeader
+				URLs
+					"<linkback(webapp is JournalApprover navigation is ProcessFlowFormForReceivables text is \"ViewIntercompanyBillingDocument\")>"
+
+
+		GetNextEscalationApprovalLevel
+			LocalApprovalCode		= ApprovalCode
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+			include ApproverEmailNotification  
+			
+		GetNextEscalationApprovalLevelForReceivables
+			LocalReceivableApprovalCode			= ApprovalCode
+			LocalReceivableApprovalLevel		= ReceivableApprovalLevel
+			if (first LocalReceivableApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalReceivableApprovalLevel	= ReceivableApprovalLevel + 1
+				LocalReceivableApprover			= first LocalReceivableApprovalCodeLevelRel.Approver
+				LocalReceivableApproverTeam		= first LocalReceivableApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalReceivableApprovalLevel	= first LocalReceivableApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalReceivableApprover			= first LocalReceivableApprovalCodeLevelRel.Approver
+				LocalReceivableApproverTeam		= first LocalReceivableApprovalCodeLevelRel.ApprovalTeam
+			include ApproverEmailNotificationForReceivables
+		
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalCode		= ApprovalCode
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalCode
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+
+			if (LocalApprovalLevel entered)
+				include ApproverEmailNotification
+
+		GetNextApprovalLevelForReceivables
+			if (ReceivableApprovalLevel < 1)
+				LocalReceivableApprovalLevel	= first ReceivableApprovalCodeResourceRel.ApprovalLevel
+				LocalReceivableApprover		= first ReceivableApprovalCodeResourceRel.Approver
+				LocalReceivableApproverTeam	= first ReceivableApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalReceivableApprovalCode			= ReceivableApprovalCode
+				LocalReceivableApprovalLevel		= ReceivableApprovalLevel + 1
+				if (LocalReceivableApprovalCodeLevelRel exists)
+					LocalReceivableApprovalLevel	= first LocalReceivableApprovalCodeLevelRel.ApprovalLevel
+					LocalReceivableApprover		= first LocalReceivableApprovalCodeLevelRel.Approver
+					LocalReceivableApproverTeam	= first LocalReceivableApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalReceivableApprovalCode
+					initialize LocalReceivableApprovalLevel
+					initialize LocalReceivableApprover
+					initialize LocalReceivableApproverTeam
+			if (LocalReceivableApprovalLevel entered)
+				include ApproverEmailNotificationForReceivables
+		
+		GetNextTransientApprovalLevel
+			if (LocalApprovalLevel < 1)
+				LocalApprovalLevel	= first TransientApprovalCodeLevelRel.ApprovalLevel
+			else
+				LocalApprovalCode		= TransientApprovalCode
+				LocalApprovalLevel		= LocalApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+				else
+					initialize LocalApprovalLevel
+
+		GetNextTransientApprovalLevelForReceivables
+			if (LocalReceivableApprovalLevel < 1)
+				LocalReceivableApprovalLevel	= first TransientReceivableApprovalCodeLevelRel.ApprovalLevel
+			else
+				LocalReceivableApprovalCode		= TransientReceivableApprovalCode
+				LocalReceivableApprovalLevel	= LocalReceivableApprovalLevel + 1
+				if (LocalReceivableApprovalCodeLevelRel exists)
+					LocalReceivableApprovalLevel	= first LocalReceivableApprovalCodeLevelRel.ApprovalLevel
+				else
+					initialize LocalReceivableApprovalLevel
+					
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+
+		BuildTeamApproverActorListForReceivable
+			LocalReceivableApproverList = ""
+			LocalFirstApproverAssignedForReceivable = false
+			for each FinanceTeamMembersFromCurrentReceivableApprovalLevelRel
+				if (LocalFirstApproverAssignedForReceivable)
+					LocalReceivableApproverList = LocalReceivableApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalReceivableApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssignedForReceivable = true
+
+		ApproverEmailNotification
+			if (LocalApprover entered)
+				send email
+					to		LocalApprover.EmailAddress
+					from	actor.agent(Employee).EmployeeWorkEmailAddress
+					subject "<DerivedApprovalReuiredEmailSubject>"
+					Contents
+						"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenSubmittedForYourApproval"
+						"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+						"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+						"Amount:_<NetDueAmount>_<DocumentCurrency>"
+			else
+			if (LocalApproverTeam entered)
+				for each SendToTeamMembersRel
+					send email
+						to		each.FinanceTeamMember.TeamMember.EmailAddress
+						from	actor.agent(Employee).EmployeeWorkEmailAddress
+						subject "<DerivedApprovalReuiredEmailSubject>_-_Team'sApproval"
+						Contents
+							"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenSubmittedForYourTeam'sApproval"
+							"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+							"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+							"Amount:_<NetDueAmount>_<DocumentCurrency>"
+			
+		ApproverEmailNotificationForReceivables
+			if (LocalReceivableApprover entered)
+				send email
+					to		LocalReceivableApprover.EmailAddress
+					from	actor.agent(Employee).EmployeeWorkEmailAddress
+					subject "[Approval_Required]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>For_Receivables"
+					Contents
+						"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenSubmittedForYourApproval"
+						"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+						"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+						"Amount:_<NetDueAmount>_<DocumentCurrency>"
+			else
+			if (LocalReceivableApproverTeam entered)
+				for each SendToReceivableTeamMembersRel
+					send email
+						to		each.FinanceTeamMember.TeamMember.EmailAddress
+						from	actor.agent(Employee).EmployeeWorkEmailAddress
+						subject "[Approval_Required]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>For_Receivables_-_Team'sApproval"
+						Contents
+							"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenSubmittedForYourTeam'sApproval"
+							"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+							"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+							"Amount:_<NetDueAmount>_<DocumentCurrency>"
+
+		RejectionEmailNotification
+			send email
+				to		CreateActorRel.ContactInfo.EmailAddress
+				from	actor.agent(Employee).EmployeeWorkEmailAddress
+				subject "[Rejected]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>"
+				Contents
+					"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenRejected"
+					"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+					"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+					"Amount:_<NetDueAmount>_<DocumentCurrency>"
+					"RejectedOn_<current timestamp>By_<actor.agent(Employee).FirstLastName>"
+					"Comment:<LocalComment>"
+
+		ApprovedEmailNotification
+			send email
+				to		CreateActorRel.ContactInfo.EmailAddress
+				from	actor.agent(Employee).EmployeeWorkEmailAddress
+				subject "[Approved]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>"
+				Contents
+					"Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>_-_<IntercompanyBillingDocumentHeader.Description>HasBeenApproved"
+					"Payable:_Company:_<PayableEntity.Company.RepresentativeText>,_Vendor:_<PayableEntity.Vendor.RepresentativeText>"
+					"Receivable:_Company:_<ReceivableEntity.Company.RepresentativeText>,_Customer:_<ReceivableEntity.Customer.RepresentativeText>"
+					"Amount:_<NetDueAmount>_<DocumentCurrency>"
+					"ApprovedOn_<current timestamp>By_<actor.agent(Employee).FirstLastName>"
+
+		UpdateBillingInvoice
+			if (IntercompanyBillingInvoice entered)
+				initialize GeneratedInvoice.File
+				initialize GeneratedInvoice.Title
+				initialize GeneratedInvoice.MimeType
+				GeneratedInvoice.File		= IntercompanyBillingInvoice.IntercompanyBillingInvoiceTemplate.File document
+				GeneratedInvoice.Title		= "IntercompanyBillingInvoice.rtf"
+				GeneratedInvoice.MimeType	= IntercompanyBillingInvoice.IntercompanyBillingInvoiceTemplate.MimeType
+
+
+		DoCurrencyWork
+			if (ReceivableEntity.Company.Currency = DocumentCurrency
+			and ReceivableEntity.CurrencyExchangeRate entered)
+				constraint (ReceivableEntity.CurrencyExchangeRate = 1)
+					"ReceivableCompanyBaseCurrencyIsTheSameAsDocumentCurrency,TheExchangeRateMustBe1"
+
+			if (Status.Unreleased	
+			and action type.Update)	
+				if (InvoiceDate changed	
+				or DocumentCurrency changed	
+				or ReceivableEntity.CurrencyTable changed	
+				or PayableEntity.CurrencyTable changed)	
+					initialize ReceivableEntity.CurrencyExchangeRate	
+					initialize PayableEntity.CurrencyExchangeRate	
+
+			if (ReceivableEntity.CurrencyExchangeRate not entered)
+				CurrencyTable							= ReceivableEntity.CurrencyTable
+				initialize CurrencyWork
+				CurrencyWork.ToCurrency					= ReceivableEntity.Company.Currency
+				LocalIsRateDefined						= CurrencyWork.IsRateDefined
+				ReceivableEntity.CurrencyExchangeRate	= CurrencyWork.OutputCurrencyRate
+
+			if (PayableEntity.Company.Currency = DocumentCurrency
+			and PayableEntity.CurrencyExchangeRate entered)
+				constraint (PayableEntity.CurrencyExchangeRate = 1)
+					"PayableCompanyBaseCurrencyIsTheSameAsDocumentCurrency,TheExchangeRateMustBe1"
+
+			if (PayableEntity.CurrencyExchangeRate not entered)
+				CurrencyTable						= PayableEntity.CurrencyTable
+				initialize CurrencyWork
+				CurrencyWork.ToCurrency				= PayableEntity.Company.Currency
+				LocalIsRateDefined					= CurrencyWork.IsRateDefined
+				PayableEntity.CurrencyExchangeRate	= CurrencyWork.OutputCurrencyRate
+
+
+	Derived Fields
+		DerivedExtendedAmountTotal is a DerivedField 
+			type is like InternationalAmount
+			include DocumentTotalsCalculation
+			return LocalExtendedAmountTotal
+
+
+		DerivedTaxableTotal is a DerivedField
+			type is like InternationalAmount
+			return (sum TaxableDocumentLinesRel.ExtendedAmount)
+
+		DerivedTaxTotal is a DerivedField
+			type is like InternationalAmount
+			include DocumentTotalsCalculation
+			return LocalTaxTotal
+
+
+		DerivedWithholdingTotal is a DerivedField
+			type is like InternationalAmount
+			include DocumentTotalsCalculation
+			return LocalWithholdingTotal
+
+
+		DerivedSecondaryWithholdingTotal is a DerivedField
+			type is like InternationalAmount
+			include DocumentTotalsCalculation
+			return LocalSecondaryWithholdingTotal
+
+		DerivedNetDueAmount is a DerivedField 
+			type is like InternationalAmount
+			include DocumentTotalsCalculation
+			return LocalNetDueAmount
+
+
+		DerivedNetDueInReceivableCurrency is a DerivedField 
+			type is like InternationalAmount
+			CurrencyTable							= ReceivableEntity.CurrencyTable
+			TransactionAmount						= NetDueAmount
+			initialize CurrencyWork
+			CurrencyWork.ToCurrency					= ReceivableEntity.Company.Currency
+			CurrencyWork.EnteredCurrencyRate		= ReceivableEntity.CurrencyExchangeRate
+			return CurrencyWork.OutputCurrencyAmount
+
+		DerivedNetDueInPayableCurrency is a DerivedField 
+			type is like InternationalAmount
+			CurrencyTable							= PayableEntity.CurrencyTable
+			TransactionAmount						= NetDueAmount
+			initialize CurrencyWork
+			CurrencyWork.ToCurrency					= PayableEntity.Company.Currency
+			CurrencyWork.EnteredCurrencyRate		= PayableEntity.CurrencyExchangeRate
+			return CurrencyWork.OutputCurrencyAmount
+
+		DerivedNetDueWithInvoiceTax is a DerivedField
+			type is like InternationalAmount
+			return ((ExtendedAmountTotal + DerivedTotalInvoicedTax) - WithholdingTotal - SecondaryWithholdingTotal)
+
+		DerivedDueWithInvoiceTaxInPayableCurrency is a DerivedField
+			type is like InternationalAmount
+			CurrencyTable							= PayableEntity.CurrencyTable
+			TransactionAmount						= DerivedNetDueWithInvoiceTax
+			initialize CurrencyWork
+			CurrencyWork.ToCurrency					= PayableEntity.Company.Currency
+			CurrencyWork.EnteredCurrencyRate		= PayableEntity.CurrencyExchangeRate
+			return CurrencyWork.OutputCurrencyAmount
+
+		DerivedTotalInvoicedTax is a DerivedField
+			type is like InternationalAmount
+			return (sum IntercompanyBillingDocumentLine set.DerivedInvoicedTaxAmount)
+
+		DerivedTotalAccruedTax is a DerivedField
+			type is like InternationalAmount
+			return (sum IntercompanyBillingDocumentLine set.DerivedAccruedTaxAmount)
+						
+		DerivedDueDate is a DerivedField
+			type is Date
+			if (TermsCode entered)
+				initialize CalculateTerms
+				CalculateTerms.TransactionDate = InvoiceDate
+				CalculateTerms.TransactionAmount = NetDueAmount
+
+				LocalTermsCalTrigger = CalculateTerms.TermsCalTrigger
+				constraint (CalculateTerms.OutputErrorNumber not entered)
+					"<CalculateTerms.OutputErrorMessage>"
+				return CalculateTerms.CalculateTermsTable.CalculateTermsOutput[1].DueDate
+
+		DerivedInvoiceNumber is a StringField
+			type is AlphaUpper 22
+			ReceivableEntity.Company.ICBillingInvoicePrefix
+			LocalInvoiceNumber
+
+		DerivedCreditMemoNumber is a StringField
+			type is AlphaUpper 22
+			ReceivableEntity.Company.ICBillingCreditMemoPrefix
+			LocalInvoiceNumber
+
+		DerivedCrossReferenceUnsettledAmount is a DerivedField
+			type is like InternationalAmount
+				precision is DocumentCurrency.NumberOfDecimals 
+			return (CrossReferencedIntercompanyBillingDocumentRel.DerivedUnsettledAmount)
+
+		DerivedCrossReferenceNetDueAmount is a DerivedField
+			type is like InternationalAmount
+				precision is DocumentCurrency.NumberOfDecimals
+			return (CrossReferencedIntercompanyBillingDocumentRel.NetDueAmount)
+
+		DerivedCrossReferenceAutoApplyApplicationDate is a DerivedField
+			type is Date
+			return (ReceivableInvoiceRel.first ReceivableCreditApplicationRel.GeneralLedgerDate)
+
+		DerivedType is a DerivedField
+			type is AlphaUpper 1
+			if (CreateInvoice)
+				return "I"
+			else
+				return "C"
+
+		DerivedCreditAppliedAmount is a DerivedField
+			type is like InternationalAmount
+			if (CreditAppliedAmount entered)		
+				return (-1 * CreditAppliedAmount)
+			else
+				return (ReceivableInvoiceRel.first ReceivableCreditApplicationRel.ApplicationAmount.CurrencyAmount)
+
+		DerivedReceivableInvoiceType is a StringField
+			type is AlphaUpper 1
+			CrossReferenceType
+
+		DerivedBillFromTaxCode is a DerivedField
+			type is like TaxCode
+			if (ReceivableEntity.CustomerShipTo entered)
+				return (ReceivableEntity.CustomerShipTo.TaxCode)
+			else
+				return (ReceivableEntity.CompanyCustomer.TaxCode)
+
+		DerivedBillToTaxCode is a DerivedField
+			type is like TaxCode
+			if (PayableEntity.VendorLocation entered)
+				return (PayableEntity.VendorLocation.TaxCode)
+			else
+				return (PayableEntity.Vendor.TaxCode)
+
+		DerivedCreateDate is a DerivedField
+			type is TimeStamp
+			return (create stamp)
+			
+		DerivedCreateActorName is a DerivedField
+			type is Alpha 100
+
+			return (create stamp.actor.PersonName.PreferredSimplePresentationName)
+
+		DerivedSettlementId is a DerivedField
+			type is AlphaUpper 22
+			return (first SettlementDetailRel.IntercompanyBillingSettlementHeader.SettlementID)
+
+		DerivedNumberOfSettlements is a DerivedField
+			type is Numeric 3
+			return (instance count of SettlementDetailRel)
+
+		DerivedSettlementField is a DerivedField
+			type is AlphaUpper 22
+			if (DerivedNumberOfSettlements > 1)
+				return "**MULTIPLES"
+			else
+				return DerivedSettlementId
+
+		SettlementDateDisplay is a DerivedField
+			type is Date
+			default label is "SettlementDate"
+			if (DerivedNumberOfSettlements > 1)
+				LocalSettledDate = first SettlementDetailRel.IntercompanyBillingSettlementHeader.PaymentDate
+				for each SettlementDetailRel
+					if (each.IntercompanyBillingSettlementHeader.PaymentDate > LocalSettledDate)
+						LocalSettledDate = each.IntercompanyBillingSettlementHeader.PaymentDate
+				return LocalSettledDate
+			else
+				return (first SettlementDetailRel.IntercompanyBillingSettlementHeader.PaymentDate)
+
+		DerivedSettlementDate is a DerivedField		
+			type is Date
+			default label is "SettlementDate"
+			if (DerivedNumberOfSettlements > 1)
+				return "**MULTIPLES"
+			else
+				return (first SettlementDetailRel.IntercompanyBillingSettlementHeader.PaymentDate)
+
+		DerivedDraftInvoiceNumber is a StringField
+			type is AlphaUpper 22
+			"DRAFT"
+			IntercompanyBillingDocumentHeader
+
+		DerivedPrintInvoiceNumber is a DerivedField
+			type is AlphaUpper 22
+			if (ReceivableEntity.ReceivableInvoice entered)
+				return ReceivableEntity.ReceivableInvoice
+			else
+				return DerivedDraftInvoiceNumber
+
+		IntercompanyBillingDocumentFormTitle is a DerivedField
+			type is Alpha 60
+			if (IntercompanyBillingDocumentHeader exists)
+				return CreatedDocumentMessage 		 
+			else
+				return NotCreatedDocumentMessage	
+
+		CreatedDocumentMessage is a LabelField		
+			restricted
+			"Intercompany_Billing_Document_for_<IntercompanyBillingDocumentHeader>"
+
+		NotCreatedDocumentMessage is a LabelField   
+			restricted
+			"Intercompany_Billing_Document"
+
+
+
+		DerivedNextApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			LocalApprovalLevel = ApprovalLevel
+			include GetNextApprovalLevel
+			return LocalApprovalLevel
+
+		DerivedNextLocalApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			include GetNextTransientApprovalLevel
+			return LocalApprovalLevel
+
+
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorList
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+			
+		DerivedLocalApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first TransientApprovalCodeLevelRel.EscalationDays > 0)
+				return first TransientApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+
+		DerivedLocalApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first TransientApprovalCodeLevelRel.EscalationHours > 0)
+				return first TransientApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+
+		DisplayByCurrentApproverDesc is a StringField
+			type is Alpha 100
+			"by "
+			DisplayCurrentApproverDesc
+
+		DisplayCurrentApproverDesc is a ConditionalField
+			type is Alpha 100
+			if (Status.PendingApproval)
+				if (Approver entered)
+					Approver.FirstLastName 
+				else
+					ApproverTeam.FinanceTeam.Description
+			else
+				blank
+
+		DerivedAppsValue is a DerivedField
+			type is like PfiAppsValue
+			return "IntercompanyBillingDocumentApproval" + UniqueID
+
+
+
+
+
+		DerivedWithholdingLineCount is a DerivedField
+			type is Numeric 3
+			return (instance count of WithholdingDocumentLinesRel)
+
+		DerivedAccrualCodeAccount is a DerivedField
+			type is AlphaUpper 200
+			return (first PayablesInvoiceDistributionAccrualRel.DistributionAccount)
+
+		DerivedXMLName	is a DerivedField
+			type is like IDMFileName
+			restricted
+			if (IsInvoiceFinal)
+				return "Intercompany Billing Invoice_"+IntercompanyBillingDocumentHeader+"_"+ReceivableEntity.ReceivableInvoice+ICBInvoiceIDMTemplate.DerivedOutputFormat
+			else
+				return "Intercompany Billing Invoice_"+IntercompanyBillingDocumentHeader+"_DRAFT_"+IDMDocumentSequence+ICBInvoiceIDMTemplate.DerivedOutputFormat
+
+		DerivedIDMInvoiceLink	is a DerivedField
+			type is Alpha 2083
+			restricted
+			if (IDMDocumentPID entered) 
+				IDMItem.DocumentType	= "FSM_IntercompanyInvoice"
+				IDMItem.IDMUniqueId		= IDMDocumentPID 
+				return IDMItem.GetLink
+			else
+				if (IDMJob.MDSID entered) 
+					IDMItem.DocumentType	= "FSM_IntercompanyInvoice"
+					IDMItem.IDMUniqueId		= IDMJob.MDSID 
+					return IDMItem.GetLink
+				return blank
+
+		ContextMessageEntityType is a StringField
+			type is Alpha 31
+			restricted
+			"InforIntercompanyBillingInvoice"
+
+		ContextMessageText is a MessageField
+			restricted
+			"IntercompanyBillingDocumentHeader<IntercompanyBillingDocumentHeader>"
+
+		ViewInvoiceMessageText is a MessageField
+			restricted
+			"View_Invoice"
+
+		ViewDraftMessageText is a MessageField
+			restricted
+			"View_Draft"
+
+		DerivedViewButtonName is a DerivedField
+			type is MessageField
+			if (Status.Released)
+				return ViewInvoiceMessageText
+			else
+				return ViewDraftMessageText
+
+		DerivedMarkedAsPaidDate is a DerivedField
+			type is Date
+			default label is "MarkedAsPaidDate"
+			if (Status.MarkedAsPaid)
+				return PayablesInvoiceRel.PaymentsHaveBeenAppliedRel.CheckDate
+
+		CancelMessage is a MessageField		
+			restricted
+			"OriginatingPayablesInvoice<OriginatingDocument(PayablesInvoice).Invoice>HasBeenCancelled"
+
+		DerivedUnsettledAmount is a DerivedField
+			type is like InternationalAmount
+				precision is DocumentCurrency.NumberOfDecimals 
+			return (NetDueAmount - SettledAmount)
+
+		IDMDescriptionMsg is a MessageField
+			restricted
+			"Intercompany_Billing_Invoice"
+			
+			
+		DerivedIntercompanyBillingDocumentHeaderEmailSubject is a MessageField
+			restricted
+			"IntercompanyBillingInvoice<DerivedPrintInvoiceNumber>"
+		
+		EmailNotificationMsg is a MessageField
+			restricted
+			"Intercompany_Billing_Invoice_Was_Emailed"
+		
+		PrintNotificationMsg is a MessageField
+			restricted
+			"Intercompany_Billing_Invoice_Was_Printed"
+		
+		CustomerNotificationMsg is a MessageField
+			restricted
+			"MissingEmailAddressInCustomer"
+				
+		CustomerBillToNotificationMsg is a MessageField
+			restricted
+			"MissingEmailAddressInCustomerBillTo"
+		
+		PayablesCompanyNotificationMsg is a MessageField
+			restricted
+			"MissingEmailAddressInPayablesCompany"
+
+		OneSourceAsyncApprovalErrorPart1Msg is a MessageField
+			restricted
+			"ActionFailedToComplete.Check_\My_\ActionsForTheAction"
+		
+		OneSourceAsyncApprovalErrorPart2Msg is a MessageField
+			restricted
+			"StatusOf_\Terminated_\AbnormallyToFindOutWhy.FixTheIssueAnd_\Submit_\For_\ApprovalAgain."
+
+		OneSourceAsyncReleaseErrorPart1Msg is a MessageField
+			restricted
+			"ActionFailedToComplete.Check_\My_\ActionsForTheAction"
+
+		OneSourceAsyncReleaseErrorPart2Msg is a MessageField
+			restricted
+			"StatusOf_\Terminated_\AbnormallyToFindOutWhy.FixTheIssueAnd_\ReleaseAgain."
+		
+		DerivedIDMEmailSubject is a DerivedField
+			type is Alpha size 255
+			restricted
+			if (ReceivableEntity.Company.IntercompanyBillingInvoiceEmailSubject entered)
+				LocalIntercompanyBillingInvoiceEmailSubject = ReceivableEntity.Company.IntercompanyBillingInvoiceEmailSubject
+			return LocalIntercompanyBillingInvoiceEmailSubject text
+
+		DerivedCustomerBillToAddressLine1 is a DerivedField
+			type is Alpha size 40
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.DeliveryAddress.AddressLine1
+			else
+				return ReceivableEntity.Customer.PostalAddress.DeliveryAddress.AddressLine1
+
+		DerivedCustomerBillToAddressLine2 is a DerivedField
+			type is Alpha size 40
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.DeliveryAddress.AddressLine2
+			else
+				return ReceivableEntity.Customer.PostalAddress.DeliveryAddress.AddressLine2
+
+		DerivedCustomerBillToAddressLine3 is a DerivedField
+			type is Alpha size 40
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.DeliveryAddress.AddressLine3
+			else
+				return ReceivableEntity.Customer.PostalAddress.DeliveryAddress.AddressLine3
+
+		DerivedCustomerBillToAddressLine4 is a DerivedField
+			type is Alpha size 40
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.DeliveryAddress.AddressLine4
+			else
+				return ReceivableEntity.Customer.PostalAddress.DeliveryAddress.AddressLine4
+
+		DerivedCustomerBillToMunicipality is a DerivedField
+			type is Alpha size 58
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.Municipality
+			else
+				return ReceivableEntity.Customer.PostalAddress.Municipality
+
+		DerivedCustomerBillToStateProvince is a DerivedField
+			type is Alpha size 3
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.StateProvince
+			else
+				return ReceivableEntity.Customer.PostalAddress.StateProvince
+
+		DerivedCustomerBillToPostalCode is a DerivedField
+			type is Alpha size 12
+			if (ReceivableEntity.CustomerBillTo entered)
+				return ReceivableEntity.CustomerBillTo.PostalAddress.PostalCode
+			else
+				return ReceivableEntity.Customer.PostalAddress.PostalCode
+
+		NoIntercompanyBillingIDMTemplateMessage is a MessageField
+			restricted
+			"NoAssignedIDMTemplate"
+			
+		DerivedCcEmailAddress is a DerivedField 
+			type is like MultipleEmailAddress
+			holds pii
+			restricted
+			if (ReceivableEntity.Company.IntercompanyBillingInvoiceFromEmailAddress not = config.DefaultFromEmailAddress)
+				return ReceivableEntity.Company.IntercompanyBillingInvoiceFromEmailAddress
+		
+		DerivedToEmailRecipient is a DerivedField 
+			type is like MultipleEmailAddress
+			holds pii
+			if (ICBInvoiceEmailRecipient.PayablesCompany)
+				if (PayableEntity.Company.IntercompanyBillingInvoiceBillToEmailAddress entered)
+					return PayableEntity.Company.IntercompanyBillingInvoiceBillToEmailAddress
+			else
+				if (ICBInvoiceEmailRecipient.Customer)
+					if (ReceivableEntity.CustomerBillTo entered)
+						return ReceivableEntity.CustomerBillTo.EmailAddress
+					else
+						return ReceivableEntity.Customer.EmailAddress
+	
+		DerivedToNotificationMsg is a DerivedField
+			type is MessageField
+			if (ICBInvoiceEmailRecipient.PayablesCompany) 
+				if (PayableEntity.Company.IntercompanyBillingInvoiceBillToEmailAddress not entered)
+					return PayablesCompanyNotificationMsg
+			else
+				if (ICBInvoiceEmailRecipient.Customer) 
+					if (ReceivableEntity.CustomerBillTo entered
+					and	ReceivableEntity.CustomerBillTo.EmailAddress not entered)
+						return CustomerBillToNotificationMsg
+					else
+						if (ReceivableEntity.Customer.EmailAddress not entered)
+							return CustomerNotificationMsg
+
+		ProcessIndicatorNotFoundMessage is a LabelField
+			"ProcessIndicatorNotFound"
+
+		DerivedApprovalJSON is a DerivedField
+			type is Text
+			TransientApprovalCode = ApprovalCode
+			LocalApprovalLevel = ApprovalLevel
+			LocalCounter = LocalApprovalLevel
+			DerivedApprovalJSON = "{ "
+			while (true)
+				DerivedApprovalJSON += "\"" + TransientApprovalCode + "\": {"
+				while (LocalApprovalLevel > 0)
+					if (LocalApprovalLevel > 1)
+						DerivedApprovalJSON += ","
+					DerivedApprovalJSON += "\"" + LocalApprovalLevel + "\": {"
+					DerivedApprovalJSON += "\"Label\": \"Level "+ LocalCounter
+					if (first TransientApprovalCodeLevelRel.Approver entered)
+						DerivedApprovalJSON += " - " + first TransientApprovalCodeLevelRel.Approver.PreferredGivenName
+						DerivedApprovalJSON += " " + first TransientApprovalCodeLevelRel.Approver.PreferredFamilyName
+					else
+					if (first TransientApprovalCodeLevelRel.ApprovalTeam entered)
+						DerivedApprovalJSON += " - " + first TransientApprovalCodeLevelRel.ApprovalTeam.Description
+					DerivedApprovalJSON += "\", "
+					DerivedApprovalJSON += "\"Approver\": \"" + first TransientApprovalCodeLevelRel.Approver + "\", "
+					DerivedApprovalJSON += "\"Actor\": \"" + first TransientApprovalCodeLevelRel.Approver.FinanceResourceActor + "\", "
+					DerivedApprovalJSON += "\"ApprovalTeam\": \"" + first TransientApprovalCodeLevelRel.ApprovalTeam + "\", "
+					DerivedApprovalJSON += "\"TeamActorList\": ["
+					LocalFirstApproverAssigned = false
+					for each FinanceTeamMembersFromTransientApprovalCodeLevelRel
+						if (LocalFirstApproverAssigned)
+							DerivedApprovalJSON += ", \"" + each.FinanceTeamMember.TeamMember.FinanceResourceActor + "\""
+						else
+							DerivedApprovalJSON += "\"" + each.FinanceTeamMember.TeamMember.FinanceResourceActor +"\""
+							LocalFirstApproverAssigned = true
+					DerivedApprovalJSON += "], "
+					DerivedApprovalJSON += "\"EscalationHours\": \"" + DerivedLocalApproverEscalationHours + "\", "
+					DerivedApprovalJSON += "\"EscalationDays\": " + DerivedLocalApproverEscalationDays + "}"
+					LocalApprovalLevel = DerivedNextLocalApprovalLevel
+					increment LocalCounter
+				DerivedApprovalJSON += "}"
+				end while
+			DerivedApprovalJSON += "}"
+			return DerivedApprovalJSON
+
+		DerivedMilestoneLabel is a DerivedField
+			type is Text
+			initialize DerivedMilestoneLabel
+			initialize LocalCounter
+			LocalCounter = ApprovalLevel
+			DerivedMilestoneLabel += "Level " + LocalCounter
+			if (first CurrentApprovalCodeLevelRel.Approver entered)
+				DerivedMilestoneLabel += " - " + first CurrentApprovalCodeLevelRel.Approver.PreferredGivenName
+				DerivedMilestoneLabel += " " + first CurrentApprovalCodeLevelRel.Approver.PreferredFamilyName
+			else
+			if (first CurrentApprovalCodeLevelRel.ApprovalTeam entered)
+				DerivedMilestoneLabel += " - " + first CurrentApprovalCodeLevelRel.ApprovalTeam.Description
+			return DerivedMilestoneLabel
+
+		DerivedNextReceivableApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			LocalReceivableApprovalLevel = ReceivableApprovalLevel
+			include GetNextApprovalLevelForReceivables
+			return LocalReceivableApprovalLevel
+
+		DerivedNextLocalReceivableApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			include GetNextTransientApprovalLevelForReceivables
+			return LocalReceivableApprovalLevel
+
+		DerivedCurrentReceivableApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+			return first CurrentReceivableApprovalCodeLevelRel.Approver
+
+		DerivedCurrentReceivableApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentReceivableApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentReceivableApprovalTeam is a DerivedField
+			type is AlphaUpper 20
+			restricted
+			return first CurrentReceivableApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentReceivableTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorListForReceivable
+			return LocalReceivableApproverList
+
+		DerivedCurrentReceivableApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentReceivableApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentReceivableApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+			
+		DerivedLocalReceivableApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first TransientReceivableApprovalCodeLevelRel.EscalationDays > 0)
+				return first TransientReceivableApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+
+		DerivedCurrentReceivableApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentReceivableApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentReceivableApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+
+		DerivedLocalReceivableApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first TransientReceivableApprovalCodeLevelRel.EscalationHours > 0)
+				return first TransientReceivableApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+
+		DisplayByCurrentReceivableApproverDesc is a StringField
+			type is Alpha 100
+			"by "
+			DisplayCurrentReceivableApproverDesc
+
+		DisplayCurrentReceivableApproverDesc is a ConditionalField
+			type is Alpha 100
+			if (Status.PendingApproval)
+				if (ReceivableApprover entered)
+					ReceivableApprover.FirstLastName 
+				else
+					ReceivableApproverTeam.FinanceTeam.Description
+			else
+				blank
+
+		DerivedReceivableAppsValue is a DerivedField
+			type is like PfiAppsValue
+			return "IntercompanyBillingDocumentApprovalForReceivable" + UniqueID
+
+		DerivedReceivableApprovalJSON is a DerivedField
+			type is Text
+			TransientReceivableApprovalCode = ReceivableApprovalCode
+			LocalReceivableApprovalLevel = ReceivableApprovalLevel
+			LocalReceivableCounter = LocalReceivableApprovalLevel
+			DerivedReceivableApprovalJSON = "{ "
+			while (true)
+				DerivedReceivableApprovalJSON += "\"" + TransientReceivableApprovalCode + "\": {"
+				while (LocalReceivableApprovalLevel > 0)
+					if (LocalReceivableApprovalLevel > 1)
+						DerivedReceivableApprovalJSON += ","
+					DerivedReceivableApprovalJSON += "\"" + LocalReceivableApprovalLevel + "\": {"
+					DerivedReceivableApprovalJSON += "\"Label\": \"Level "+ LocalReceivableCounter
+					if (first TransientReceivableApprovalCodeLevelRel.Approver entered)
+						DerivedReceivableApprovalJSON += " - " + first TransientReceivableApprovalCodeLevelRel.Approver.PreferredGivenName
+						DerivedReceivableApprovalJSON += " " + first TransientReceivableApprovalCodeLevelRel.Approver.PreferredFamilyName
+					else
+					if (first TransientReceivableApprovalCodeLevelRel.ApprovalTeam entered)
+						DerivedReceivableApprovalJSON += " - " + first TransientReceivableApprovalCodeLevelRel.ApprovalTeam.Description
+					DerivedReceivableApprovalJSON += "\", "
+					DerivedReceivableApprovalJSON += "\"Approver\": \"" + first TransientReceivableApprovalCodeLevelRel.Approver + "\", "
+					DerivedReceivableApprovalJSON += "\"Actor\": \"" + first TransientReceivableApprovalCodeLevelRel.Approver.FinanceResourceActor + "\", "
+					DerivedReceivableApprovalJSON += "\"ApprovalTeam\": \"" + first TransientReceivableApprovalCodeLevelRel.ApprovalTeam + "\", "
+					DerivedReceivableApprovalJSON += "\"TeamActorList\": ["
+					LocalFirstApproverAssignedForReceivable = false
+					for each FinanceTeamMembersFromTransientReceivableApprovalCodeLevelRel
+						if (LocalFirstApproverAssignedForReceivable)
+							DerivedReceivableApprovalJSON += ", \"" + each.FinanceTeamMember.TeamMember.FinanceResourceActor + "\""
+						else
+							DerivedReceivableApprovalJSON += "\"" + each.FinanceTeamMember.TeamMember.FinanceResourceActor +"\""
+							LocalFirstApproverAssignedForReceivable = true
+					DerivedReceivableApprovalJSON += "], "
+					DerivedReceivableApprovalJSON += "\"EscalationHours\": \"" + DerivedLocalReceivableApproverEscalationHours + "\", "
+					DerivedReceivableApprovalJSON += "\"EscalationDays\": " + DerivedLocalApproverEscalationDays + "}"
+					LocalApprovalLevel = DerivedNextLocalReceivableApprovalLevel
+					increment LocalReceivableCounter
+				DerivedReceivableApprovalJSON += "}"
+				end while
+			DerivedReceivableApprovalJSON += "}"
+			return DerivedReceivableApprovalJSON
+
+		DerivedReceivableMilestoneLabel is a DerivedField
+			type is Text
+			initialize DerivedReceivableMilestoneLabel
+			initialize LocalReceivableCounter
+			LocalReceivableCounter = ReceivableApprovalLevel
+			DerivedReceivableMilestoneLabel += "Level " + LocalReceivableCounter
+			if (first CurrentReceivableApprovalCodeLevelRel.Approver entered)
+				DerivedReceivableMilestoneLabel += " - " + first CurrentReceivableApprovalCodeLevelRel.Approver.PreferredGivenName
+				DerivedReceivableMilestoneLabel += " " + first CurrentReceivableApprovalCodeLevelRel.Approver.PreferredFamilyName
+			else
+			if (first CurrentReceivableApprovalCodeLevelRel.ApprovalTeam entered)
+				DerivedReceivableMilestoneLabel += " - " + first CurrentReceivableApprovalCodeLevelRel.ApprovalTeam.Description
+			return DerivedReceivableMilestoneLabel
+
+		DerivedApprovalReuiredEmailSubject is a DerivedField
+			type is MessageField
+			restricted
+			if (RequiresApproval)
+				return DerivedApprovalRequiredMsg
+			else
+			if (ApprovalRequiredForPayablesAndReceivables)
+				return DerivedApprovalRequiredMsgForPayables
+		
+		DerivedApprovalRequiredMsg is a MessageField
+			restricted
+			"[Approval_Required]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>" 
+
+		DerivedApprovalRequiredMsgForPayables is a MessageField
+			restricted
+			"[Approval_Required]:_Intercompany_Billing_Document<IntercompanyBillingDocumentHeader>For_Payables"
+		
+		DerivedProcessIndicatorForPayablesLabel is a LabelField
+			"PayablesHistory"
+		
+		DerivedProcessIndicatorForReceivablesLabel is a LabelField
+			"ReceivablesHistory"
+
+	Conditions
+		BlankEmailAddress
+			restricted
+			when (DerivedToEmailRecipient not entered)
+				
+		HasTaxableLines
+			when (TaxableDocumentLinesRel exists)
+
+		CalculateTaxValid
+			when (HasTaxableLines
+			and   Status.Unreleased)
+
+		ReceivableInvoiceExists
+			when (ReceivableEntity.ReceivableInvoice entered)
+
+		PayablesInvoiceExists
+			when (PayableEntity.PayablesInvoice entered)
+
+		ReleaseValid
+
+			when (IntercompanyBillingDocumentLine set exists
+			and  !(RequiresApproval
+			or   IsPayablesAndReceivablesApproval))
+
+		SubmitForApprovalValid
+			when (IntercompanyBillingDocumentLine set exists
+			and  (RequiresApproval
+			or   IsPayablesAndReceivablesApproval))
+
+		DeleteValid
+			when (OriginatedFrom.ManualEntry
+			or	OriginatedFrom.TransferPricing
+			or	OriginatedFrom.ExternalInterface)
+
+		ValidInterfaceStatus
+			when (Status.Released
+			or	Status.Settled)
+
+		SettlementDetailDoesNotExists
+			when (!SettlementDetailRel exists)
+
+		HasApprovalHistory
+			restricted
+			when (IntercompanyBillingDocumentApprovalHistory set exists)
+
+		CreateInvoice
+			restricted
+			when (NetDueAmount > 0)
+
+		CreateCreditMemo
+			restricted
+			when (NetDueAmount < 0)
+
+		CanUpdateCrossReference
+			restricted
+			when (SettledAmount = 0)
+
+		GeneratedInvoiceExists
+			restricted
+			when (GeneratedInvoice entered)
+
+		ReceivableCurrencyNotDocumentCurrency
+			restricted
+			when (!ReceivableEntity.Company.Currency = DocumentCurrency)
+
+		PayableCurrencyNotDocumentCurrency
+			restricted
+			when (!PayableEntity.Company.Currency = DocumentCurrency)
+
+		HasMultipleWithholdingLines
+			restricted
+			when (DerivedWithholdingLineCount > 1)
+
+		HasCashBasisWithholdingLines
+			restricted
+			when (CashBasisWithholdingDocumentLineRel exists)
+
+		HasWithholdingAmountLines		
+			restricted
+			when (DocumentLinesHaveWithholdingEnteredRel exists)
+
+		OriginatedFromInternalInterface
+			restricted
+			when (OriginatedFrom.JournalControl
+			or	OriginatedFrom.PayablesInvoice
+			or	OriginatedFrom.TransferPricing
+			or	OriginatedFrom.ProjectContractInvoice)
+
+		IsOpen
+			restricted
+			when (Status.Unreleased
+			or	Status.PendingApproval
+			or	Status.Released)
+
+		OpenStatus		
+			restricted
+			when (Status.Unreleased
+			or	Status.PendingApproval
+			or	Status.Approved
+			or	Status.Released)
+
+		HasCreditApplied
+			restricted
+			when (CrossReferenceHasBeenApplied
+			and CreateCreditMemo)
+
+		AutoApplyInProgress
+			restricted
+			when ((CreateCreditMemo
+			and CrossReferenceAutoApply
+			and !CrossReferenceHasBeenApplied)
+			or (CreateInvoice
+			and CrossReferenceHasBeenApplied))
+
+		AvailableInvoiceForAutoApply
+			restricted
+			when (Status.Released
+			and SettledAmount != NetDueAmount)
+
+		TaxEntityUsesOneSource
+			restricted
+			when (ReceivableTaxEntityRel.ThirdParty.Sabrix)
+
+		TaxEntityUsesVertex
+			restricted
+			when (ReceivableTaxEntityRel.ThirdParty.VertexOSeries)
+
+		CallVertexByTransaction
+			restricted
+			when (TaxEntityUsesVertex
+			and   ReceivableTaxEntityRel.VertexCallMethod.ByTransaction)
+
+		CallVertexByTransactionAndHasTaxableLines
+			restricted
+			when (CallVertexByTransaction
+			and	  HasTaxableLines)
+		
+		TaxEntityUsesOneSourceAndHasTaxableLines
+			restricted
+			when (TaxEntityUsesOneSource
+			and	  HasTaxableLines)
+
+		BackgroundProcessingInProcess
+			restricted
+			when (BackgroundProcessing.ReleaseInProcess
+			or	  BackgroundProcessing.ApprovalInProcess
+			or	  BackgroundProcessing.TaxProcessing)
+
+		BackgroundProcessingFailure
+			restricted
+			when (BackgroundProcessing.ReleaseFailure
+			or	  BackgroundProcessing.ApprovalFailure
+			or	  BackgroundProcessing.TaxProcessingFailure)
+
+		AllowSelectDistributionSet 
+			restricted
+			when (ReceivableEntity.Company.CustomerBusinessGroup.FinanceEnterpriseGroup.FundAccounting
+			and   ReceivableEntity.Company.SelectFundDistributionSet)
+
+		ValidForIDMGeneration	
+			restricted
+			when (IntercompanyBillingGroup.UseIDM 
+			and   (Status.Unreleased
+			or	  Status.Released
+			or	  Status.Settled
+			or	  Status.Approved
+			or	  Status.PendingApproval
+			or	  Status.MarkedAsPaid)
+			and   ICBInvoiceIDMTemplate entered)
+			
+		ShowOriginatingJournalPanel
+			restricted
+			when (IntercompanyBillingGroup.ShowOriginatingDocument
+			and	 OriginatedFrom.JournalControl)
+
+		ShowOriginatingInvoicePanel
+			restricted
+			when (IntercompanyBillingGroup.ShowOriginatingDocument
+			and	 OriginatedFrom.PayablesInvoice)
+
+		HasUnsettledAmount
+			when (DerivedUnsettledAmount != 0)
+
+		IsPastDue		
+			when (OpenStatus
+			and   current corporate date > DueDate)
+
+		ComesFromPayables
+			when (OriginatedFrom.PayablesInvoice)
+			
+		SecurityGroupAllowsAccess
+			when ((actor.context.CompanySecurityGroup = blank or RecvCompanySecurityGroupMemberRel exists)
+			and (actor.context.CompanySecurityGroup = blank or PayCompanySecurityGroupMemberRel exists))
+
+		ProjectExistsOnDocument
+			restricted
+			when (DocumentDistributionRevenueProjectRel exists
+			or	DocumentLineReceivableWithholdingProjectRel exists
+			or	DocumentLineReceivableSecWithholdingProjectRel exists
+			or	DocumentTaxReceivableProjectRel exists)
+			
+		LinesHaveRevenueProject
+			restricted
+			when (DocumentDistributionRevenueProjectRel exists)
+			
+		LinesHaveMixedRevenueProjects
+			restricted
+			when (DocumentDistributionMultipleRevenueProjectRel exists)
+
+		LineWithholdingOrTaxProjectExists
+			restricted
+			when (DocumentLineReceivableWithholdingProjectRel exists
+			or	DocumentLineReceivableSecWithholdingProjectRel exists
+			or	DocumentTaxReceivableProjectRel exists)
+
+		LineTaxProjectExists
+			restricted
+			when (DocumentTaxReceivableProjectRel exists)
+			
+		HasLinesWithPositiveNetDue
+			restricted
+			when (DocumentLinePositiveNetDueRel exists)
+			
+		HasLinesWithNegativeNetDue
+			restricted
+			when (DocumentLineNegativeNetDueRel exists)
+
+		HasRevenueOrExpenseDistributionsOutOfBalance
+			restricted
+			when (DocumentLineOutOfBalanceRel exists)
+			
+		HasMixedSignRevenueDistributions
+			restricted
+			when (DocumentDistributionRevenuePositiveRel exists
+			and   DocumentDistributionRevenueNegativeRel exists)
+			
+		HasIDMDocument
+			restricted
+			when (IntercompanyBillingGroup.UseIDM
+			and  (IDMDocumentPID entered
+			or	  IDMJob.MDSID entered))
+			
+		IsValidForUpdatePrinter
+			restricted
+			when (IntercompanyBillingGroup.UseIDM
+			and not Status.Unreleased)
+			
+		IsValidForIDMPrintAndEmail
+			restricted
+			when (IntercompanyBillingGroup.UseIDM
+			and IDMDocumentPID entered
+			and IsInvoiceFinal)
+				
+		IsInvoiceFinal
+			restricted
+			when (Status.Released
+			or Status.MarkedAsPaid
+			or Status.Settled)
+			
+		AllowIDMTemplateUpdate
+			restricted
+			when (IntercompanyBillingGroup.UseIDM
+			and not Status.Unreleased)
+
+		NoIntercompanyBillingIDMTemplate
+			restricted
+			when (ICBInvoiceIDMTemplate not entered)
+
+		ProjectContractInvoiceExists
+			restricted
+			when (OriginatingDocument(ProjectContractInvoice) exists)		
+
+		ThisInstanceRelExists
+			restricted
+			when (ThisInstanceRel exists)
+
+		HasCustomerBillTo
+			when (CustomerBillToRel exists)
+		
+		HasUnreleasedInvoices
+			restricted
+			when (ReceivableEntity.ReceivableInvoice.IsUnreleased
+			or PayableEntity.PayablesInvoice.Status.Unreleased
+			or PayableEntity.PayablesInvoice.Status.PendingApproval
+			or PayableEntity.PayablesInvoice.Status.Rejected)
+			
+		IsPayablesAndReceivablesApproval
+			restricted
+			when (ApprovalRequiredForPayablesAndReceivables
+			and !RequiresApproval)
+	
+		DisplayApprovalCodes
+			restricted
+			when (!RequiresApproval
+			and (IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables
+			or ApprovalRequiredForPayablesAndReceivables))
+
+		IsOpenedForEditApprovalHistory
+			restricted
+			when (last IntercompanyBillingDocumentApprovalHistoryRel.ActionTaken.ReopenedForEdit)
+
+		IsOpenedForEditApprovalHistoryForReceivables
+			restricted
+			when (ApprovalRequiredForPayablesAndReceivables
+			and	last IntercompanyBillingDocumentApprovalHistoryForReceivableRel.ActionTaken.ReopenedForEdit)
+
+		DisplayApprovalInformationPanel
+			restricted
+			when (HasApprovalHistory
+			and   (first PfiWorkunitRel.HasProcessIndicator
+			or     first PfiWorkunitForReceivablesRel.HasProcessIndicator)
+			and not (IsOpenedForEditApprovalHistory
+			or     IsOpenedForEditApprovalHistoryForReceivables))
+			
+		DisplayApprovalTrackingPanel
+			restricted
+			when (RequiresApproval
+			and   HasApprovalHistory
+			and (!first PfiWorkunitRel.HasProcessIndicator
+			or (first PfiWorkunitRel.HasProcessIndicator
+			and IsOpenedForEditApprovalHistory)))		
+		
+		IsPayablesAndReceivablesApprovalHistory
+			restricted
+			when (IsPayablesAndReceivablesApproval
+			and HasApprovalHistory)
+		
+		IsSingleApprovalHistory
+			restricted
+			when (RequiresApproval
+			and HasApprovalHistory)
+
+		PayablesApprovalTrackingPanel
+			restricted
+			when (IsPayablesAndReceivablesApprovalHistory
+			and (!first PfiWorkunitRel.HasProcessIndicator
+			or (first PfiWorkunitRel.HasProcessIndicator
+			and IsOpenedForEditApprovalHistory)))	
+		
+		ReceivablesApprovalTrackingPanel
+			restricted
+			when (IsPayablesAndReceivablesApprovalHistory
+			and (!first PfiWorkunitForReceivablesRel.HasProcessIndicator
+			or (first PfiWorkunitForReceivablesRel.HasProcessIndicator
+			and IsOpenedForEditApprovalHistoryForReceivables)))
+			
+		ShowReceivablesAndPayablesHistoryPanel
+			restricted
+			when (DisplayApprovalInformationPanel
+			and   IsPayablesAndReceivablesApproval)
+
+		ShowSingleApprovalHistoryPanel
+			restricted
+			when (DisplayApprovalInformationPanel
+			and   RequiresApproval)
+		
+		DisplayRequiresApprovalFlag
+			restricted
+            when ((not (ApprovalRequiredForPayablesAndReceivables
+            or IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables)
+            and ThisInstanceRel exists)
+            or ThisInstanceRel.RequiresApproval)
+		
+		DisplayRequiresApprovalForCreate
+		 	restricted
+            when (ThisInstanceRel not exists
+            and not (ApprovalRequiredForPayablesAndReceivables
+            or IntercompanyBillingGroup.ApprovalRequiredForPayablesAndReceivables))
+
+	Relations
+		TaxableDocumentLinesRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.Taxable)
+
+		TaxableLinesWithNoTaxRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.TaxableHasNoTax)
+
+		DocumentLineRel is a IntercompanyBillingDocumentLine set
+
+		DocumentLinesHaveWithholdingSetupRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.ItemHasWithholdingSetup)
+
+		DocumentLinesHaveWithholdingEnteredRel is a IntercompanyBillingDocumentLine set		
+			Instance Selection
+				where (related.HasWithholdingAmountEntered)
+
+		WithholdingDocumentLinesRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.HasWithholdingAmount)
+
+		CashBasisWithholdingDocumentLineRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.HasCashBasisAccount)
+
+		ReceivableTaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.TaxEntity				= ReceivableEntity.Company.AccountingEntity
+
+		TaxAttributesRel
+			one-to-one relation to TaxAttribute
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup	 
+				related.TaxAttribute			= ReceivableTaxEntityRel.TaxAttributeCode
+
+		PayableTaxEntityRel
+			one-to-one relation to TaxEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.TaxEntity				= PayableEntity.Company.AccountingEntity
+
+		TaxLineItemsRel	
+			one-to-many relation to TaxLineItem
+			valid when (!action type.Create)
+			Field Mapping uses ByUniqueIdOfRelatedObject		 
+				related.FinanceEnterpriseGroup				= IntercompanyBillingGroup
+				related.TaxLineItem.UniqueIdOfRelatedObject	= UniqueID
+		
+		EntityTaxCodeRel
+			one-to-one relation to EntityTaxCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.TaxEntity				= PayableEntity.Company.AccountingEntity
+				related.TaxCode					= PayableEntity.TaxCode
+
+		TaxConfigurationRel
+			one-to-one relation to TaxConfiguration
+			Field Mapping uses symbolic key
+				related.TaxConfiguration		= IntercompanyBillingGroup
+
+		OneSourceCleanUpNeededTriggerRel
+			one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerByStatusCreateStamp
+				related.Status = 7
+			Instance Selection
+				where (related.AsyncActionRequest.ImplementingClass		= "IntercompanyBillingDocumentHeader"
+				and   (related.AsyncActionRequest.AsyncAction			= "OneSourceFinishRelease"
+				or	   related.AsyncActionRequest.AsyncAction			= "OneSourceFinishSubmitForApproval")
+				and	   related.AsyncActionRequest.BackgroundGroupName	= LocalBackgroundGroup)
+
+		VertexCleanUpNeededTriggerRel
+			one-to-many relation to AsyncActionTrigger
+			Field Mapping uses AsyncActionTriggerByStatusCreateStamp
+				related.Status = 7
+			Instance Selection
+				where (related.AsyncActionRequest.ImplementingClass		= "IntercompanyBillingDocumentHeader"
+				and   (related.AsyncActionRequest.AsyncAction			= "VertexFinishRelease"
+				or	   related.AsyncActionRequest.AsyncAction			= "VertexFinishSubmitForApproval")
+				and	   related.AsyncActionRequest.BackgroundGroupName	= LocalBackgroundGroup)
+
+		SettlementDetailRel
+			one-to-many relation to IntercompanyBillingSettlementDetail		
+			Field Mapping uses ByBillingDocument
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection		
+				where (related.NotReversed)		
+
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= ApprovalCode
+
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= LocalApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+		
+		TransientApprovalCodeLevelRel	
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= TransientApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+
+		FinanceTeamMembersFromTransientApprovalCodeLevelRel	
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam				= first TransientApprovalCodeLevelRel.ApprovalTeam
+
+		PfiWorkunitRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByAppsKeyAppsValueWorkunit
+				related.AppsKey		= "ICBDOCUMENTHEADER"
+				related.AppsValue	= DerivedAppsValue
+
+		SendToTeamMembersRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam			= LocalApproverTeam	
+
+		CreateActorRel
+			one-to-one relation to Actor
+			Field Mapping uses symbolic key
+				related.Actor				= create stamp.actor
+
+
+		FinanceResourceActorRel
+			one-to-many relation to FinanceResource
+			Field Mapping uses symbolic key
+				related.HROrganization	= IntercompanyBillingGroup.FinanceEnterpriseGroup.HROrganization
+			Instance Selection
+				where (related.FinanceResourceActor = LocalActor)
+
+		BillingDocumentDistributionRel
+			one-to-many relation to IntercompanyBillingDocumentDistribution
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+
+		TemporaryLineDistributionRel
+			one-to-many relation to IntercompanyBillingTemporaryLineDistribution
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+
+		PayablesInvoiceDistributionAccrualRel
+			one-to-many relation to PayablesInvoiceDistribution
+			Field Mapping uses Set9
+				related.Company				= PayableEntity.Company
+				related.Vendor				= PayableEntity.Vendor
+				related.PayablesInvoice		= PayableEntity.PayablesInvoice
+			Instance Selection
+				where (related.DistributionType.ExpenseAccrual)
+
+		IntercompanyBillingGroupIDMRel
+			one-to-one relation to IntercompanyBillingGroup
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup = IntercompanyBillingGroup
+
+		PayablesInvoiceRel
+			one-to-one relation to PayablesInvoice
+			Field Mapping uses symbolic key
+				related.Company				= PayableEntity.Company
+				related.PayablesInvoice		= PayableEntity.PayablesInvoice
+
+		ReceivableInvoiceRel
+			one-to-one relation to ReceivableInvoice
+			Field Mapping uses symbolic key
+				related.Company					= ReceivableEntity.Company
+				related.ReceivableInvoiceType	= ReceivableEntity.ReceivableInvoiceType
+				related.ReceivableInvoice		= ReceivableEntity.ReceivableInvoice
+
+		CrossReferencedIntercompanyBillingDocumentRel
+			one-to-one relation to IntercompanyBillingDocumentHeader
+			Field Mapping uses ByReceivableInvoice
+				related.IntercompanyBillingGroup			 = ReceivableEntity.Company.CustomerBusinessGroup.FinanceEnterpriseGroup
+				related.ReceivableEntity.Company			 = ReceivableEntity.Company
+				related.ReceivableEntity.ReceivableInvoice	 = CrossReferenceInvoice
+
+		AvailableICBDocumentsForCrossReferenceRel
+			one-to-many relation to IntercompanyBillingDocumentHeader
+			Field Mapping uses ByPayableReceivableCompanies
+				related.IntercompanyBillingGroup			= ReceivableEntity.Company.CustomerBusinessGroup.FinanceEnterpriseGroup
+				related.PayableEntity.Company				= PayableEntity.Company
+				related.ReceivableEntity.Company			= ReceivableEntity.Company
+
+		UnreleasedICBSettlementDetailRel
+			one-to-many relation to IntercompanyBillingSettlementDetail
+			Field Mapping uses ByBillingDocument
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (related.IntercompanyBillingSettlementHeader.Status.Unreleased)
+
+		UnappliedReceivablePaymentRemittanceRel
+			one-to-many relation to ReceivablePaymentRemittance
+			Field Mapping uses Set4
+				related.Company								= ReceivableEntity.Company
+				related.ReceivableInvoiceType				= ReceivableEntity.ReceivableInvoiceType
+				related.ReceivableInvoice					= ReceivableEntity.ReceivableInvoice
+
+		CashLedgerPayablesPaymentRel
+			classic name is CBCHECK
+			one-to-one relation to CashLedgerPayablesPayment
+			Field Mapping uses symbolic key
+				related.CashManagementGroup						  = PayableEntity.Company.ICBillingDefaultCashCode.CashManagementGroup
+				related.CashCode									  = PayableEntity.Company.ICBillingDefaultCashCode
+				related.CashLedgerSourceRecord						  = "CHK"
+				related.CashLedgerPayablesPayment.BankTransactionCode = PayableEntity.Company.ICBillingDefaultBankTransactionCode
+				related.CashLedgerPayablesPayment.TransactionIDNumber = CreatedCashLedgerPayablesPayment.CashLedgerPayablesPayment.TransactionIDNumber
+
+		OriginatingJournalControlRel
+			one-to-one relation to GeneralLedgerJournalControl
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= IntercompanyBillingGroup
+				related.AccountingEntity			= OriginatingDocument(GeneralLedgerJournalControl).AccountingEntity
+				related.GeneralLedgerClosePeriod	= OriginatingDocument(GeneralLedgerJournalControl).GeneralLedgerClosePeriod
+				related.GeneralLedgerJournalControl = OriginatingDocument(GeneralLedgerJournalControl).GeneralLedgerJournalControl
+
+		OriginatingInvoiceRel
+			one-to-one relation to PayablesInvoice
+			Field Mapping uses symbolic key
+				related.Company				= OriginatingDocument(PayablesInvoice).Company
+				related.PayablesInvoice		= OriginatingDocument(PayablesInvoice).PayablesInvoice
+				
+		TransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= IntercompanyBillingGroup
+			Instance Selection
+				where (related.FromCompany			= ReceivableEntity.Company
+				and	related.ToCompany			= PayableEntity.Company 
+				and	related.TransferPricing		= OriginatingDocument(TransferPricingRun).TransferPricing
+				and	related.TransferPricingRun	= OriginatingDocument(TransferPricingRun).TransferPricingRun)
+				
+		RecvCompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company					 = ReceivableEntity.Company
+				
+		PayCompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company					 = PayableEntity.Company
+
+		DocumentLineRevenueProjectRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.ReceivablesRevenueAccount.Project entered)
+				
+		DocumentDistributionRevenueProjectRel is a IntercompanyBillingDocumentDistribution set
+			Instance Selection
+				where (related.Type.Receivables
+				and	related.GeneralLedgerAccount.Project entered)
+				
+		DocumentDistributionRevenuePositiveRel is a IntercompanyBillingDocumentDistribution set
+			Instance Selection
+				where (related.Type.Receivables
+				and	related.IsPositiveDistribution)
+				
+		DocumentDistributionRevenueNegativeRel is a IntercompanyBillingDocumentDistribution set
+			Instance Selection
+				where (related.Type.Receivables
+				and	related.IsNegativeDistribution)
+				
+		DocumentLineReceivableWithholdingProjectRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.ReceivableWithholdingAccount.Project entered)
+				
+		DocumentLineReceivableSecWithholdingProjectRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.SecondaryReceivableWithholdingAccount.Project entered)
+				
+		DocumentTaxReceivableProjectRel
+			one-to-many relation to IntercompanyBillingDocumentTax
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (related.CalculatedFor.ReceivableInvoice
+				and	related.TaxCodeAccount.Project entered)
+
+		DocumentLineMultipleRevenueProjectRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.OtherLinesHaveDifferentProjectOnRevenueAccount)
+
+		DocumentDistributionMultipleRevenueProjectRel is a IntercompanyBillingDocumentDistribution set
+			Instance Selection
+				where (related.Type.Receivables
+				and	related.OtherDistribsHaveDifferentProjectOnRevenueAccount)
+
+		ReceivableWithholdingProjectNotSameRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.HasWithholdingAmount
+				and	related.ReceivableWithholdingAccount.Project != LocalProject)
+				
+		ReceivableSecondaryWithholdingProjectNotSameRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.HasSecondaryWithholdingAmount
+				and	related.SecondaryReceivableWithholdingAccount.Project != LocalProject)
+				
+		ReceivableTaxProjectNotSameRel
+			one-to-many relation to IntercompanyBillingDocumentTax
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup			= IntercompanyBillingGroup
+				related.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (related.CalculatedFor.ReceivableInvoice
+				and	related.TaxCodeAccount.Project != LocalProject)
+				
+		DocumentLinePositiveNetDueRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.LineNetDueIsPositive)
+
+		DocumentLineNegativeNetDueRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.LineNetDueIsNegative)
+
+		DocumentLineOutOfBalanceRel is a IntercompanyBillingDocumentLine set
+			Instance Selection
+				where (related.RevenueOrExpenseDistribsOutOfBalance)
+				
+		UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor	= actor
+
+		ThisInstanceRel	
+			one-to-one relation to IntercompanyBillingDocumentHeader
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup				= IntercompanyBillingGroup  
+				related.IntercompanyBillingDocumentHeader		= IntercompanyBillingDocumentHeader
+
+		CustomerBillToRel	
+			one-to-many relation to CustomerBillTo
+			Field Mapping uses symbolic key
+				related.CustomerGroup	= ReceivableEntity.Company.CustomerGroupField.CustomerGroup 
+				related.Customer		= ReceivableEntity.Customer
+
+		IDMAdditionalAttributesLinesRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader = "FSM_IntercompanyInvoice"
+			Instance Selection
+				where(related.IDMAdditionalAttributesHeader.ActivateAdditionalAttributes
+				and	  related.ActivateAdditionalAttributes.Active)
+
+		ReceivableApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= ReceivableApprovalCode
+
+		LocalReceivableApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= LocalReceivableApprovalCode
+				related.ApprovalLevel			= LocalReceivableApprovalLevel
+
+		CurrentReceivableApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= ReceivableApprovalCode
+				related.ApprovalLevel			= ReceivableApprovalLevel
+
+		FinanceTeamMembersFromCurrentReceivableApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam				= first CurrentReceivableApprovalCodeLevelRel.ApprovalTeam
+		
+		TransientReceivableApprovalCodeLevelRel	
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.ApprovalCode			= TransientReceivableApprovalCode
+				related.ApprovalLevel			= LocalReceivableApprovalLevel
+
+		FinanceTeamMembersFromTransientReceivableApprovalCodeLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam				= first TransientReceivableApprovalCodeLevelRel.ApprovalTeam
+
+		PfiWorkunitForReceivablesRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByAppsKeyAppsValueWorkunit
+				related.AppsKey		= "ICBDOCUMENTHEADER"
+				related.AppsValue	= DerivedReceivableAppsValue
+
+		SendToReceivableTeamMembersRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= IntercompanyBillingGroup
+				related.FinanceTeam				= LocalReceivableApproverTeam
+
+		IntercompanyBillingDocumentApprovalHistoryRel is a IntercompanyBillingDocumentApprovalHistory set
+			Instance Selection
+				where (related.ActionSource.SingleOrPayablesApproval
+				or    (related.ActionSource not entered
+				and   related.ActionTaken.ReopenedForEdit))
+
+		IntercompanyBillingDocumentApprovalHistoryForReceivableRel is a IntercompanyBillingDocumentApprovalHistory set
+			Instance Selection
+				where (related.ActionSource.ReceivablesApproval
+				or    (related.ActionSource not entered
+				and   related.ActionTaken.ReopenedForEdit))	
+
+		ParentAgentRel
+			one-to-one relation to ParentAgent
+			Field Mapping uses ActorSet
+				related.Actor = LocalActor
+
+		AgentRel
+			one-to-many relation to Agent
+			Field Mapping uses ParentSet
+				related.ParentAgent = ParentAgentRel.ParentAgent
+			Instance Selection
+				where (related.BusinessObjectRef.BusinessClassName = "Employee")
+		
+	Sets
+		ByReceivableInvoice
+			Sort Order
+				IntercompanyBillingGroup
+				ReceivableEntity.Company
+				ReceivableEntity.ReceivableInvoice
+			Instance Selection
+				where (ValidInterfaceStatus)
+
+		ByPayablesInvoice
+			Sort Order
+				IntercompanyBillingGroup
+				PayableEntity.Company
+				PayableEntity.PayablesInvoice
+			Instance Selection
+				where (ValidInterfaceStatus)
+
+		ByPayableReceivableCompanies
+			Sort Order
+				IntercompanyBillingGroup
+				PayableEntity.Company
+				ReceivableEntity.Company
+				Status
+				IntercompanyBillingDocumentHeader
+
+		OpenDocumentsByCustomer
+			Sort Order
+				IntercompanyBillingGroup
+				ReceivableEntity.Customer
+				IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (IsOpen)
+
+		OpenDocumentsByVendor
+			Sort Order
+				IntercompanyBillingGroup
+				PayableEntity.Vendor
+				IntercompanyBillingDocumentHeader
+			Instance Selection
+				where (IsOpen)
+
+		ByInvoiceDate
+			Sort Order
+				IntercompanyBillingGroup
+				InvoiceDate
+				IntercompanyBillingDocumentHeader
+
+	Create Rules
+		include IDM.CreateRules 
+			replace AttachmentField with GeneratedInvoice
+
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with GeneratedInvoice
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with GeneratedInvoice
+
+	StateCycles
+		BillingDocumentLifeCycle is a StateCycle
+			state field is Status
+
+			Unreleased is a State
+				Entrance Rules
+					initialize BackgroundProcessing
+					if (CrossReferencedIntercompanyBillingDocumentRel exists)
+						invoke FastUpdate CrossReferencedIntercompanyBillingDocumentRel
+							invoked.CrossReferenceHasBeenApplied	= false 
+
+				Create is a Create Action
+					Field Rules
+						IntercompanyBillingInvoice
+							default to ReceivableEntity.Company.IntercompanyBillingInvoice
+
+					Action Rules
+						include CreateUpdateRules
+
+						ReceivableEntity.Customer	= PayableEntity.Company.ReceivableCompany.ICBillingDefaultCustomer
+						ReceivableEntity.TaxCode	= DerivedBillFromTaxCode
+						PayableEntity.Vendor		= ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor
+						PayableEntity.TaxCode		= DerivedBillToTaxCode
+
+					Exit Rules
+						include DoCurrencyWork
+						include UpdateBillingInvoice
+
+
+				Update is an Update Action
+					Action Rules
+						include CreateUpdateRules
+
+						if (PayableEntity.Company changed
+						or  ReceivableEntity.Company changed)
+							confirmation required
+								"ChangingOneOrBothCompaniesWillCauseExistingLinesAndDefaultableFieldsToBeReset.Continue?"
+
+						if (PayableEntity.Company changed)
+							ReceivableEntity.Customer	= PayableEntity.Company.ReceivableCompany.ICBillingDefaultCustomer
+							ReceivableEntity.TaxCode	= DerivedBillFromTaxCode
+
+							initialize PayableEntity.ProcessLevel
+							initialize PayableEntity.PayablesAccrualCode
+							initialize PayableEntity.CurrencyTable
+							initialize PayableEntity.CurrencyExchangeRate
+
+							InterfaceUnreleasedPayablesInvoice = PayableEntity.Company.InterfaceUnreleasedInvoices
+
+						if (ReceivableEntity.Company changed)
+							PayableEntity.Vendor		= ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor
+							PayableEntity.TaxCode		= DerivedBillToTaxCode
+
+							initialize ReceivableEntity.ProcessLevel
+							initialize ReceivableEntity.ReceivableGeneralLedgerCode
+							initialize ReceivableEntity.CurrencyTable
+							initialize ReceivableEntity.CurrencyExchangeRate
+							initialize ReceivableEntity.CustomerBillTo
+							initialize ReceivableEntity.CustomerShipTo
+							initialize ReceivableEntity.ShipTerm
+							initialize DocumentCurrency
+							initialize TermsCode
+							initialize DueDate
+							initialize IntercompanyBillingInvoice
+							initialize ICBInvoiceIDMTemplate
+							initialize ICBInvoiceEmailRecipient
+							initialize CreditDebitMemoReason
+
+							InterfaceUnreleasedReceivableInvoice = ReceivableEntity.Company.InterfaceUnreleasedInvoices
+						
+					Exit Rules
+						if (PayableEntity.Company changed
+						or  ReceivableEntity.Company changed)
+							invoke ResetLine DocumentLineRel
+							invoke SetAccrualCodes first DocumentLineRel
+
+						invoke UpdateHeaderTotalsAndAmounts
+
+						include DoCurrencyWork
+						include UpdateBillingInvoice
+
+
+				Delete is a Delete Action
+					valid when (DeleteValid)
+					Action Rules
+						if (OriginatedFrom.TransferPricing)
+							invoke Processed.SetUnprocessed TransferPricingTransactionRel
+
+
+				Release is an Instance Action
+					valid when (ReleaseValid)
+					Local Fields
+						NewReceivableInvoiceBatch is a ReceivableInvoiceBatch view
+					Action Rules
+						LocalContinueRelease = true
+						
+						include ProcessTaxesForRelease
+
+						if (LocalContinueRelease)						
+							
+							include UnreleasedReleaseEdits				
+
+							include CreateReceivableInvoiceAndDistributions
+							include CreatePayablesInvoiceAndDistributions
+
+					Exit Rules
+						if (LocalContinueRelease)						
+
+							if (BackgroundProcessing.ReleaseInProcess)
+								BackgroundProcessing = BackgroundProcessing.SuccessfulBackgroundRelease
+							
+							invoke Purge TemporaryLineDistributionRel
+							
+							if (!InterfaceUnreleasedPayablesInvoice)
+								invoke Unreleased.Release PayableEntity.PayablesInvoice
+							
+							if (!InterfaceUnreleasedReceivableInvoice)
+								invoke Unreleased.Release ReceivableEntity.ReceivableInvoice
+
+							include UpdateBillingInvoice
+							include UpdateAutoApplyInProgress
+
+							make transition to Released
+							if (IntercompanyBillingGroup.UseIDM 
+							and ICBInvoiceIDMTemplate entered)
+								invoke GenerateIDMDocument
+
+				
+				SubmitForApproval is an Instance Action
+					valid when (SubmitForApprovalValid)
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize ReceivableApprovalLevel
+						initialize ReceivableApprover
+						initialize ReceivableApproverTeam
+						initialize PayablesWorkUnitApproved
+						initialize ReceivablesWorkUnitApproved
+
+						LocalContinueSubmitForApproval = true
+						
+						include ProcessTaxesForApproval
+
+						if (LocalContinueSubmitForApproval)						
+
+							include UnreleasedSubmitForApprovalEdits	
+
+
+							if (!ApprovalRequiredForPayablesAndReceivables
+							and RequiresApproval)
+								include GetNextApprovalLevel
+
+								ApprovalLevel	= LocalApprovalLevel
+								Approver		= LocalApprover
+								ApproverTeam	= LocalApproverTeam
+								include InitiateApprovalProcessFlow
+
+							if (IsPayablesAndReceivablesApproval)
+								if (ApprovalCode entered)
+									include GetNextApprovalLevel
+									
+									ApprovalLevel	= LocalApprovalLevel
+									Approver		= LocalApprover
+									ApproverTeam	= LocalApproverTeam
+									include InitiateApprovalProcessFlowForPayables
+									
+								if (ReceivableApprovalCode entered)
+									
+									include GetNextApprovalLevelForReceivables
+
+									ReceivableApprovalLevel	= LocalReceivableApprovalLevel
+									ReceivableApprover		= LocalReceivableApprover
+									ReceivableApproverTeam	= LocalReceivableApproverTeam
+									include InitiateApprovalProcessFlowForReceivables
+
+					Exit Rules
+						if (LocalContinueSubmitForApproval)						
+
+							if (BackgroundProcessing.ApprovalInProcess)
+								BackgroundProcessing = BackgroundProcessing.ApprovalWasSubmitted
+
+							invoke Purge TemporaryLineDistributionRel
+
+							invoke Create IntercompanyBillingDocumentApprovalHistory
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.ActionTaken							= 3 
+								invoked.ActionTakenBy						= actor.agent(Employee).Employee
+								invoked.ActionSource						= "P"
+
+							if (IsPayablesAndReceivablesApproval)
+
+								invoke Create IntercompanyBillingDocumentApprovalHistory
+									invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+									invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+									invoked.ActionTaken							= 3 
+									invoked.ActionTakenBy						= actor.agent(Employee).Employee
+									invoked.ActionSource						= "R"
+
+							include UpdateAutoApplyInProgress
+
+							make transition to PendingApproval
+
+
+				OneSourceCalculateTax is an Instance Action
+					default label is "ProcessOneSource"
+					valid when (TaxEntityUsesOneSourceAndHasTaxableLines)
+					Action Rules
+						constraint (BackgroundProcessing.NotProcessingInBackground
+						or			BackgroundProcessingFailure)
+							"WaitForCurrentBackgroundProcessingToFinish,ThenTryAgain"
+
+						invoke EditICBDocumentHeaderForOneSource
+
+						ErrorMessage = blank
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+
+						invoke CreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= false
+							invoked.PrmCalculateTaxOnly						= true
+
+
+				ProcessVertex is an Instance Action
+					valid when (CallVertexByTransactionAndHasTaxableLines)
+					Action Rules
+						constraint (BackgroundProcessing.NotProcessingInBackground
+						or			BackgroundProcessingFailure)
+							"WaitForCurrentBackgroundProcessingToFinish,ThenTryAgain"
+
+						ErrorMessage = blank
+						BackgroundProcessing = BackgroundProcessing.TaxProcessing
+
+						invoke VertexCreateTaxLineItems IntercompanyBillingDocumentLine
+							invoked.PrmIntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.PrmIntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.PrmNeedsApproval						= false
+							invoked.PrmCalculateTaxOnly						= true
+
+
+				OneSourceCleanUpOnError is an Instance Action
+					restricted
+					Parameters
+						PrmNeedsApproval		is Boolean
+						PrmBackgroundGroup		is AlphaUpper up to 200
+					Action Rules
+						LocalBackgroundGroup = PrmBackgroundGroup
+
+						if (last OneSourceCleanUpNeededTriggerRel.ErrorMessage entered)
+							invoke TransitionBackgroundProcessing
+								if (PrmNeedsApproval)
+									invoked.PrmBackgroundProcessing	= 5 
+									invoked.PrmErrorMessage			= last OneSourceCleanUpNeededTriggerRel.ErrorMessage
+								else
+									invoked.PrmBackgroundProcessing	= 2 
+									invoked.PrmErrorMessage			= last OneSourceCleanUpNeededTriggerRel.ErrorMessage
+						else
+							invoke TransitionBackgroundProcessing
+								if (PrmNeedsApproval)
+									invoked.PrmBackgroundProcessing	= 5 
+									invoked.PrmErrorMessage			= OneSourceAsyncApprovalErrorPart1Msg + " OneSourceFinishSubmitForApproval with a " + OneSourceAsyncApprovalErrorPart2Msg
+								else
+									invoked.PrmBackgroundProcessing	= 2 
+									invoked.PrmErrorMessage			= OneSourceAsyncReleaseErrorPart1Msg + " OneSourceFinishRelease with a " + OneSourceAsyncReleaseErrorPart2Msg
+
+
+				VertexCleanUpOnError is an Instance Action
+					restricted
+					Parameters
+						PrmNeedsApproval		is Boolean
+						PrmBackgroundGroup		is AlphaUpper up to 200
+					Action Rules
+						LocalBackgroundGroup = PrmBackgroundGroup
+
+						if (last VertexCleanUpNeededTriggerRel.ErrorMessage entered)
+							invoke TransitionBackgroundProcessing
+								if (PrmNeedsApproval)
+									invoked.PrmBackgroundProcessing	= 5 
+									invoked.PrmErrorMessage			= last VertexCleanUpNeededTriggerRel.ErrorMessage
+								else
+									invoked.PrmBackgroundProcessing	= 2 
+									invoked.PrmErrorMessage			= last VertexCleanUpNeededTriggerRel.ErrorMessage
+						else
+							invoke TransitionBackgroundProcessing
+								if (PrmNeedsApproval)
+									invoked.PrmBackgroundProcessing	= 5 
+									invoked.PrmErrorMessage			= OneSourceAsyncApprovalErrorPart1Msg + " VertexFinishSubmitForApproval with a " + OneSourceAsyncApprovalErrorPart2Msg
+								else
+									invoked.PrmBackgroundProcessing	= 2 
+									invoked.PrmErrorMessage			= OneSourceAsyncReleaseErrorPart1Msg + " VertexFinishRelease with a " + OneSourceAsyncReleaseErrorPart2Msg
+
+				
+				EditRelease is an Instance Action
+					restricted
+					Action Rules
+						include UnreleasedReleaseEdits
+
+
+				EditSubmitForApproval is an Instance Action
+					restricted
+					Action Rules
+						include UnreleasedSubmitForApprovalEdits
+
+
+			PendingApproval is a State
+
+				PflowApprove is an Instance Action  
+					restricted
+					Parameters
+						PrmPayablesWorkUnitApproved	is Boolean
+						PrmReceivablesWorkUnitApproved	is Boolean
+					Action Rules
+
+						if (IsPayablesAndReceivablesApproval)
+							if (PrmPayablesWorkUnitApproved)
+								PayablesWorkUnitApproved = PrmPayablesWorkUnitApproved 
+							if (PrmReceivablesWorkUnitApproved)
+								ReceivablesWorkUnitApproved = PrmReceivablesWorkUnitApproved
+							if (PayablesWorkUnitApproved
+							and ReceivablesWorkUnitApproved)
+								make transition to Approved
+						else
+							make transition to Approved
+
+				ManualApprove is an Instance Action
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+						cancel IntercompanyBillingDocumentApproval process
+
+						invoke Create IntercompanyBillingDocumentApprovalHistory
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.ActionTaken							= 1 
+							invoked.ActionTakenBy						= actor.agent(Employee).Employee
+							invoked.ActionSource						= "P"
+
+						if (IsPayablesAndReceivablesApproval)
+							initialize ReceivableApprovalLevel
+							initialize ReceivableApprover
+							initialize ReceivableApproverTeam
+
+							cancel IntercompanyBillingDocumentApprovalForReceivable process
+
+							invoke Create IntercompanyBillingDocumentApprovalHistory
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.ActionTaken							= 1 
+								invoked.ActionTakenBy						= actor.agent(Employee).Employee
+								invoked.ActionSource						= "R"
+
+						make transition to Approved
+
+				PflowReject is an Instance Action  
+					restricted
+					action comment required
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+						LocalComment = action comment
+						include RejectionEmailNotification
+
+						invoke Create IntercompanyBillingDocumentApprovalHistory
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.ActionTaken							= 2 
+							invoked.ActionTakenBy						= actor.agent(Employee).Employee
+							invoked.Comment								= action comment
+							invoked.ActionSource						= "P"
+
+						if (IsPayablesAndReceivablesApproval)
+							initialize ReceivableApprovalLevel
+							initialize ReceivableApprover
+							initialize ReceivableApproverTeam
+
+							cancel IntercompanyBillingDocumentApprovalForReceivable process
+
+							invoke Create IntercompanyBillingDocumentApprovalHistory
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.ActionTaken							= 2 
+								invoked.ActionTakenBy						= actor.agent(Employee).Employee
+								invoked.ActionSource						= "R"
+						make transition to Unreleased
+
+				PflowRejectReceivables is an Instance Action  
+					restricted
+					action comment required
+					Action Rules
+						initialize ReceivableApprovalLevel
+						initialize ReceivableApprover
+						initialize ReceivableApproverTeam
+						
+						LocalComment = action comment
+						include RejectionEmailNotification
+
+						invoke Create IntercompanyBillingDocumentApprovalHistory
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.ActionTaken							= 2 
+							invoked.ActionTakenBy						= actor.agent(Employee).Employee
+							invoked.Comment								= action comment
+							invoked.ActionSource						= "R"
+
+						if (IsPayablesAndReceivablesApproval)
+							initialize ApprovalLevel
+							initialize Approver
+							initialize ApproverTeam
+
+							cancel IntercompanyBillingDocumentApproval process
+
+							invoke Create IntercompanyBillingDocumentApprovalHistory
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.ActionTaken							= 2 
+								invoked.ActionTakenBy						= actor.agent(Employee).Employee
+								invoked.Comment								= action comment
+								invoked.ActionSource						= "P"
+
+						make transition to Unreleased
+
+				ManualReject is an Instance Action
+					Parameters
+						PrmComment		is Alpha size up to 500
+
+					Action Rules
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+						cancel IntercompanyBillingDocumentApproval process
+
+						LocalComment = PrmComment
+
+						invoke Create IntercompanyBillingDocumentApprovalHistory
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.ActionTaken							= 2 
+							invoked.ActionTakenBy						= actor.agent(Employee).Employee
+							invoked.Comment								= PrmComment
+							invoked.ActionSource						= "P"
+
+						if (IsPayablesAndReceivablesApproval)
+							initialize ReceivableApprovalLevel
+							initialize ReceivableApprover
+							initialize ReceivableApproverTeam
+							cancel IntercompanyBillingDocumentApprovalForReceivable process
+
+							invoke Create IntercompanyBillingDocumentApprovalHistory
+								invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+								invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+								invoked.ActionTaken							= 2 
+								invoked.ActionTakenBy						= actor.agent(Employee).Employee
+								invoked.Comment								= PrmComment
+								invoked.ActionSource						= "R"
+
+						include RejectionEmailNotification
+						
+						make transition to Unreleased
+
+
+			Approved is a State	
+				OpenForEdit is an Instance Action
+					confirmation required
+						"ThisWillPutTheDocumentInAn_UnreleasedStatusAndRequireItToBeSubmittedForApprovalAgain.DoYouWantToContinue?"
+					Parameters
+						PrmComment		is Alpha size up to 500
+
+					Action Rules
+						invoke Create IntercompanyBillingDocumentApprovalHistory
+							invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+							invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+							invoked.ActionTaken							= 4 
+							invoked.ActionTakenBy						= actor.agent(Employee).Employee
+							invoked.Comment								= PrmComment
+
+						make transition to Unreleased
+
+				Release is an Instance Action
+					Local Fields
+						NewReceivableInvoiceBatch is a ReceivableInvoiceBatch view
+					Action Rules
+						constraint (!HasRevenueOrExpenseDistributionsOutOfBalance)
+							"CannotRelease;HasOneOrMoreLinesWithRevenueOrExpenseDistributionsOutOfBalance"
+
+						include ValidateCompanySystemClosingControl
+						include ValidateDocumentCurrency
+
+						include CreateReceivableInvoiceAndDistributions
+						include CreatePayablesInvoiceAndDistributions
+
+					Exit Rules
+							if (!InterfaceUnreleasedPayablesInvoice)
+								invoke Unreleased.Release PayableEntity.PayablesInvoice
+							
+							if (!InterfaceUnreleasedReceivableInvoice)
+								invoke Unreleased.Release ReceivableEntity.ReceivableInvoice
+
+						include UpdateBillingInvoice
+
+						make transition to Released
+						if (IntercompanyBillingGroup.UseIDM 
+						and ICBInvoiceIDMTemplate entered)
+							invoke GenerateIDMDocument					
+			
+			Released is a State
+
+				UpdateCrossReferenceInvoice is an Instance Action 
+					valid when (CanUpdateCrossReference)
+					Parameters
+						PrmCrossReferenceType					is AlphaUpper size 1
+							States
+								CreditMemo value is "C"
+								Invoice  value is "I"	
+						PrmCrossReferenceInvoice			is a XrefNbr
+						PrmCrossReferenceICBDocument		is a CrossReferenceICBDocument
+						PrmCrossReferenceAmountToApply		is an InternationalAmount
+						PrmCrossReferenceAutoApply			is Boolean
+					
+					Parameter Rules
+						PrmCrossReferenceType
+							initial value is CrossReferenceType
+						PrmCrossReferenceInvoice
+							initial value is CrossReferenceInvoice
+						PrmCrossReferenceAmountToApply
+							initial value is CrossReferenceAmountToApply
+						PrmCrossReferenceAutoApply
+							initial value is CrossReferenceAutoApply
+
+					Action Rules
+						invoke FastUpdate CrossReferencedIntercompanyBillingDocumentRel
+							invoked.CrossReferenceHasBeenApplied	= false 
+						
+						if (PrmCrossReferenceICBDocument.ICBDocument entered)
+							constraint (PrmCrossReferenceICBDocument.ICBDocument.ReceivableInvoiceRel exists)
+								"InvoiceDoesNotExistForTheChosenDocumentNumber"
+
+							if (PrmCrossReferenceType entered
+							and PrmCrossReferenceInvoice entered)
+								CrossReferenceType		= PrmCrossReferenceType
+								CrossReferenceInvoice	= PrmCrossReferenceInvoice
+								constraint (CrossReferencedIntercompanyBillingDocumentRel.IntercompanyBillingDocumentHeader = PrmCrossReferenceICBDocument.ICBDocument.IntercompanyBillingDocumentHeader)
+									"CrossReferenceTypeAndInvoiceDoNotReferToTheSameIntercompanyBillingDocumentHeaderAsDocumentNumber"
+
+							CrossReferenceType			= PrmCrossReferenceICBDocument.ICBDocument.DerivedType
+							CrossReferenceInvoice		= PrmCrossReferenceICBDocument.ICBDocument.ReceivableEntity.ReceivableInvoice
+
+							if (PrmCrossReferenceType entered
+							and !PrmCrossReferenceInvoice entered)
+								constraint (CrossReferenceType = PrmCrossReferenceType)
+									"ThereIsATypeMismatchBetweenCrossReferenceTypeAndDocumentNumber"
+						else
+							CrossReferenceType				= PrmCrossReferenceType
+							CrossReferenceInvoice			= PrmCrossReferenceInvoice
+
+						CrossReferenceICBDocument.ICBDocument = CrossReferencedIntercompanyBillingDocumentRel.IntercompanyBillingDocumentHeader
+
+						CrossReferenceAmountToApply		= PrmCrossReferenceAmountToApply
+						CrossReferenceAutoApply			= PrmCrossReferenceAutoApply
+						include ValidateAutoApplyCredit
+						include UpdateAutoApplyInProgress
+						invoke UpdateCrossReferenceInvoiceFromICB ReceivableInvoiceRel
+							invoked.PrmCrossReferenceType		= CrossReferenceType
+							invoked.PrmCrossReferenceInvoice	= CrossReferenceInvoice
+							invoked.PrmCrossReferenceAutoApply	= CrossReferenceAutoApply
+
+	Actions
+		UpdateHeaderTotalsAndAmounts is an Instance Action
+			restricted
+			Action Rules
+				LocalCalculateTotalsDone = false
+				
+				ExtendedAmountTotal			= DerivedExtendedAmountTotal
+				TaxTotal					= DerivedTaxTotal
+				WithholdingTotal			= DerivedWithholdingTotal
+				SecondaryWithholdingTotal	= DerivedSecondaryWithholdingTotal
+				NetDueAmount				= DerivedNetDueAmount
+
+
+		UpdateHeaderTotalsAndAmountsAndInitializeFields is an Instance Action
+			restricted
+			Action Rules
+				invoke UpdateHeaderTotalsAndAmounts
+				initialize LocalExtendedAmountTotal
+				initialize LocalTaxTotal
+				initialize LocalWithholdingTotal
+				initialize LocalSecondaryWithholdingTotal
+				initialize LocalCalculateTotalsDone
+
+
+
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+
+
+		UpdateApprovalLevelForReceivable is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevelForReceivables
+					ReceivableApprovalLevel		= LocalReceivableApprovalLevel
+					ReceivableApprover			= LocalReceivableApprover
+					ReceivableApproverTeam		= LocalReceivableApproverTeam
+				else
+					include GetNextApprovalLevelForReceivables
+					ReceivableApprovalLevel		= LocalReceivableApprovalLevel
+					ReceivableApprover			= LocalReceivableApprover
+					ReceivableApproverTeam		= LocalReceivableApproverTeam
+
+
+
+		UpdateApprovalHistory is an Instance Action
+			restricted
+			Parameters
+				ParmActor		is an Actor
+				ParmAction		is Numeric 2
+				ParmApproved	is Boolean
+			Action Rules
+				LocalActor				= ParmActor
+
+				if (ParmActor = actor)
+					LocalFinanceResource = actor.agent(Employee).Employee
+				else
+					LocalFinanceResource = first AgentRel.BusinessObjectRef(Employee).Employee
+				if (ParmApproved)
+					include ApprovedEmailNotification
+					
+				invoke Create IntercompanyBillingDocumentApprovalHistory
+					invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+					invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+					invoked.ActionTaken							= ParmAction
+					invoked.ActionTakenBy						= LocalFinanceResource
+					invoked.ActionSource						= "P"
+
+
+		UpdateApprovalHistoryForReceivables is an Instance Action
+			restricted
+			Parameters
+				ParmActor		is an Actor
+				ParmAction		is Numeric 2
+				ParmApproved	is Boolean
+			Action Rules
+				LocalActor				= ParmActor
+
+				if (ParmActor = actor)
+					LocalFinanceResource = actor.agent(Employee).Employee
+				else
+					LocalFinanceResource = first AgentRel.BusinessObjectRef(Employee).Employee
+				if (ParmApproved)
+					include ApprovedEmailNotification
+					
+				invoke Create IntercompanyBillingDocumentApprovalHistory
+					invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+					invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+					invoked.ActionTaken							= ParmAction
+					invoked.ActionTakenBy						= LocalFinanceResource
+					invoked.ActionSource						= "R"
+
+		AddToSettlement is an Instance Action
+			Parameters
+				PrmSettlement	is a IntercompanyBillingSettlementHeader
+				
+			Action Rules
+				invoke AddDocument IntercompanyBillingSettlementDetail
+					invoked.IntercompanyBillingGroup			= IntercompanyBillingGroup
+					invoked.IntercompanyBillingSettlementHeader	= PrmSettlement
+					invoked.IntercompanyBillingDocumentHeader	= IntercompanyBillingDocumentHeader
+					invoked.PayableEntity						= PayableEntity
+					invoked.ReceivableEntity					= ReceivableEntity
+
+
+		UpdateFromSettlement is an Instance Action
+			restricted
+			Parameters
+				PrmJournalizeGroup		is like JournalizeGroup
+				PrmSettlementAmount		is an InternationalAmount
+
+			Action Rules
+				
+				SettledAmount = SettledAmount + PrmSettlementAmount
+				
+				if (SettledAmount = NetDueAmount)
+					if (HasCashBasisWithholdingLines)
+						for each CashBasisWithholdingDocumentLineRel
+							invoke CreateCashBasisDistributions each
+								invoked.PrmJournalizeGroup	= PrmJournalizeGroup
+					Status = Status.Settled
+
+		UpdateFromCreditApplied is an Instance Action 
+			restricted
+			Parameters
+				PrmCreditAppliedAmount		is an InternationalAmount
+
+			Action Rules
+				SettledAmount += PrmCreditAppliedAmount
+				if (SettledAmount = NetDueAmount)
+					Status = Status.Settled
+
+		ReverseSettledStatus is an Instance Action		
+			restricted
+			Parameters
+				PrmJournalizeGroup		is like JournalizeGroup
+				PrmSettlementAmount		is an InternationalAmount
+
+			Action Rules
+				SettledAmount = SettledAmount - PrmSettlementAmount
+				
+				if (HasCashBasisWithholdingLines)
+					for each CashBasisWithholdingDocumentLineRel
+						invoke CreateReversalCashBasisDistributions each
+							invoked.PrmJournalizeGroup	= PrmJournalizeGroup
+
+				Status = Status.Released
+
+
+		UpdateStatusToMarkedAsPaid is an Instance Action	
+			restricted
+			Action Rules
+				Status = Status.MarkedAsPaid
+
+
+		TransitionBackgroundProcessing is an Instance Action
+			restricted
+			Parameters
+				PrmBackgroundProcessing		is Numeric 1
+				PrmErrorMessage				is Alpha 200
+			Action Rules
+				BackgroundProcessing	= PrmBackgroundProcessing
+				ErrorMessage			= PrmErrorMessage
+
+
+		OneSourceFinishRelease is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					invoke Purge TemporaryLineDistributionRel
+					if (!BackgroundProcessing.ReleaseInProcess)
+						BackgroundProcessing = BackgroundProcessing.ReleaseFailure
+					invoke Unreleased.Release
+					invoke TransitionBackgroundProcessing
+						invoked.PrmBackgroundProcessing	= 3	
+
+
+		OneSourceFinishSubmitForApproval is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					invoke Purge TemporaryLineDistributionRel
+					if (!BackgroundProcessing.ApprovalInProcess)
+						BackgroundProcessing = BackgroundProcessing.ApprovalFailure
+					invoke Unreleased.SubmitForApproval
+					invoke TransitionBackgroundProcessing
+						invoked.PrmBackgroundProcessing	= 7 
+
+
+		VertexFinishRelease is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					invoke Purge TemporaryLineDistributionRel
+					if (!BackgroundProcessing.ReleaseInProcess)
+						BackgroundProcessing = BackgroundProcessing.ReleaseFailure
+					invoke Unreleased.Release
+					invoke TransitionBackgroundProcessing
+						invoked.PrmBackgroundProcessing	= 3	
+
+
+		VertexFinishSubmitForApproval is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					invoke Purge TemporaryLineDistributionRel
+					if (!BackgroundProcessing.ApprovalInProcess)
+						BackgroundProcessing = BackgroundProcessing.ApprovalFailure
+					invoke Unreleased.SubmitForApproval
+					invoke TransitionBackgroundProcessing
+						invoked.PrmBackgroundProcessing	= 7 
+
+		
+		EditICBDocumentHeaderForOneSource is an Instance Action
+			restricted
+			Action Rules
+
+				constraint (ReceivableEntity.Company.AccountingEntity.TaxEntity.ThirdParty = PayableEntity.Company.AccountingEntity.TaxEntity.ThirdParty)
+					"BothCompanyTaxEntitiesNeedToUseTheSameTaxSystem"
+
+				constraint (ReceivableEntity.Company.AccountingEntity.TaxEntity.TaxAttributeCode = PayableEntity.Company.AccountingEntity.TaxEntity.TaxAttributeCode)
+					"BothCompanyTaxEntitiesNeedToUseTheSameTaxAttributeCode"
+				
+				constraint (TaxConfigurationRel.OneSourceVersionType.Generic)
+					"One_\Source_\Version_\TypeMustBe_\Generic"
+				
+				constraint (PayableEntity.VendorLocation.CurrentAddressRel.PostalAddress entered
+				or			PayableEntity.Vendor.CurrentAddressRel.PostalAddress entered)
+					"Vendor_\AddressIsRequiredIf_\Vendor_\LocationIsNotEntered"
+				
+				constraint (ReceivableEntity.CustomerShipTo.ShipToAddress entered
+				or			ReceivableEntity.Customer.PostalAddress entered)
+					"Customer_\AddressIsRequiredIf_\Customer_\Ship_\ToIsNotEntered"
+				
+
+		CallOneSource is an Instance Action
+			restricted
+			Action Rules
+				initialize CalculateTax
+				CalculateTax.CallingModule				= "Intercompany_Billing"
+				CalculateTax.System						= "IB"
+				CalculateTax.IntercompanyBilling		= true
+				CalculateTax.InFinanceEnterpriseGroup	= IntercompanyBillingGroup
+				CalculateTax.TaxEntity					= ReceivableEntity.Company.AccountingEntity
+				CalculateTax.InvoiceCompany				= ReceivableEntity.Company
+				CalculateTax.ProcessLevel				= ReceivableEntity.ProcessLevel
+				CalculateTax.TaxCode					= ReceivableEntity.TaxCode
+				CalculateTax.Customer					= ReceivableEntity.Customer
+				CalculateTax.VendorCustomerName			= ReceivableEntity.Customer.Name
+				CalculateTax.Invoice					= IntercompanyBillingDocumentHeader
+
+				CalculateTax.InvoiceAmount				= NetDueAmount
+				CalculateTax.InvoiceDate				= InvoiceDate
+				CalculateTax.ShipmentDate				= InvoiceDate
+				CalculateTax.PaymentDate				= InvoiceDate
+				CalculateTax.TaxDate					= InvoiceDate
+				CalculateTax.GeneralLedgerDate			= PostDate
+
+				if (NetDueAmount < 0)
+					CalculateTax.InvoicedOrCreditMemo	= "C" 
+				else
+					CalculateTax.InvoicedOrCreditMemo	= "I"
+				
+				CalculateTax.TransactionSource			= "O"	
+				CalculateTax.TransactionType			= "S"
+				CalculateTax.LineNumber					= (1 + instance count of DocumentLineRel)
+				CalculateTax.DeliveryTerms				= ReceivableEntity.ShipTerm
+				CalculateTax.PointOfTitleTransfer		= PointOfTitleTransfer
+				
+				if (ReceivableEntity.CompanyCustomer.VATRegistrationNumber entered)
+					CalculateTax.VATRegistrationCountry				= ReceivableEntity.CompanyCustomer.VATRegistrationCountry
+					CalculateTax.VATRegistrationNumber				= ReceivableEntity.CompanyCustomer.VATRegistrationNumber
+				if (PayableEntity.Vendor.VATRegistrationNumber entered)
+					CalculateTax.FromVATRegistrationCountry		= PayableEntity.Vendor.VATRegistrationCountry
+					CalculateTax.FromVATRegistrationNumber			= PayableEntity.Vendor.VATRegistrationNumber
+				
+				CalculateTax.TransactionCurrency				= DocumentCurrency	
+				CalculateTax.UniqueIdOfRelatedObject			= UniqueID
+				CalculateTax.BypassEditing						= true
+				
+
+				if (PayableEntity.VendorLocation.CurrentAddressRel.PostalAddress entered)
+					CalculateTax.FromPostalAddress					= PayableEntity.VendorLocation.CurrentAddressRel.PostalAddress
+				else
+					CalculateTax.FromPostalAddress					= IntercompanyBillingDocumentHeader.PayableEntity.Vendor.CurrentAddressRel.PostalAddress
+
+
+				if (ReceivableEntity.CustomerShipTo.ShipToAddress entered)
+					CalculateTax.PostalAddress					= ReceivableEntity.CustomerShipTo.ShipToAddress
+				else
+					CalculateTax.PostalAddress					= ReceivableEntity.Customer.PostalAddress
+
+				CalculateTax.SendMultLineItems			= true
+				CalculateTax.UpdateLineItems			= true
+
+				CalculateTax.Function	= "C"
+				LocalTaxCalc			= CalculateTax.ExecuteCalculateTax
+
+				if (CalculateTax.OutputErrorNumber = 700
+				or  CalculateTax.OutputErrorNumber = 701
+				or  CalculateTax.OutputErrorNumber = 702
+				or  CalculateTax.OutputErrorNumber = 703
+				or  CalculateTax.OutputErrorNumber = 704
+				or  CalculateTax.OutputErrorNumber = 705)
+					constraint(false)
+						"OneSourceTaxServerOrWebserviceError;ContactAdministrator"
+
+
+		CallVertex is an Instance Action
+			restricted
+			Action Rules
+				if (HasTaxableLines)
+					initialize CalculateTax
+					CalculateTax.CallingModule				= "Intercompany_Billing"
+					CalculateTax.System						= "IB"
+					CalculateTax.IntercompanyBilling		= true
+					CalculateTax.InFinanceEnterpriseGroup	= IntercompanyBillingGroup
+					CalculateTax.TaxEntity					= ReceivableEntity.Company.AccountingEntity
+					CalculateTax.InvoiceCompany				= ReceivableEntity.Company
+					CalculateTax.ProcessLevel				= ReceivableEntity.ProcessLevel
+					CalculateTax.TaxCode					= ReceivableEntity.TaxCode
+					CalculateTax.Customer					= ReceivableEntity.Customer
+					CalculateTax.Vendor						= ReceivableEntity.Customer 
+					CalculateTax.VendorCustomerName			= ReceivableEntity.Customer.Name
+					CalculateTax.Invoice					= IntercompanyBillingDocumentHeader
+					CalculateTax.InvoiceAmount				= NetDueAmount
+					CalculateTax.InvoiceDate				= InvoiceDate
+					CalculateTax.ShipmentDate				= InvoiceDate
+					CalculateTax.PaymentDate				= InvoiceDate
+					CalculateTax.TaxDate					= InvoiceDate
+					CalculateTax.GeneralLedgerDate			= PostDate
+					
+					CalculateTax.TransactionSource			= "O"	
+					CalculateTax.DeliveryTerms				= ReceivableEntity.ShipTerm
+					CalculateTax.PointOfTitleTransfer		= PointOfTitleTransfer
+					
+					if (ReceivableEntity.CompanyCustomer.VATRegistrationNumber entered)
+						CalculateTax.VATRegistrationCountry			= ReceivableEntity.CompanyCustomer.VATRegistrationCountry
+						CalculateTax.VATRegistrationNumber				= ReceivableEntity.CompanyCustomer.VATRegistrationNumber
+					if (PayableEntity.Vendor.VATRegistrationNumber entered)
+						CalculateTax.FromVATRegistrationCountry		= PayableEntity.Vendor.VATRegistrationCountry
+						CalculateTax.FromVATRegistrationNumber			= PayableEntity.Vendor.VATRegistrationNumber
+					
+					CalculateTax.TransactionCurrency				= DocumentCurrency	
+					CalculateTax.BypassEditing						= true
+					
+
+					if (PayableEntity.VendorLocation.CurrentAddressRel.PostalAddress entered)
+						CalculateTax.FromPostalAddress					= PayableEntity.VendorLocation.CurrentAddressRel.PostalAddress
+					else
+						CalculateTax.FromPostalAddress					= IntercompanyBillingDocumentHeader.PayableEntity.Vendor.CurrentAddressRel.PostalAddress
+
+
+					if (ReceivableEntity.CustomerShipTo.ShipToAddress entered)
+						CalculateTax.PostalAddress					= ReceivableEntity.CustomerShipTo.ShipToAddress
+					else
+						CalculateTax.PostalAddress					= ReceivableEntity.Customer.PostalAddress
+
+					CalculateTax.SendMultLineItems					= true
+					CalculateTax.UpdateLineItems					= true
+					CalculateTax.UniqueIdOfRelatedObject			= UniqueID
+					CalculateTax.InputReturnVertexTaxIn				= "D"
+					CalculateTax.TaxCode							= "00" 
+					CalculateTax.AppendToJurisFile					= true					
+					CalculateTax.JurisdictionResultsKey				= "IB:" + IntercompanyBillingGroup + ":" + IntercompanyBillingDocumentHeader + ":" + current timestamp
+					CalculateTax.RelatedObjectReference				= reference to this instance
+
+					CalculateTax.Function	= "C"
+					LocalTaxCalc			= CalculateTax.ExecuteCalculateTax
+
+
+
+
+
+
+
+
+
+
+
+		Cancel is an Instance Action		
+			restricted
+			Action Rules
+				if (Status.Unreleased)
+					Status = Status.Cancelled
+				if (Status.PendingApproval)
+					invoke PendingApproval.ManualReject
+						invoked.PrmComment = CancelMessage
+					Status = Status.Cancelled
+				if (Status.Approved)
+					invoke Approved.OpenForEdit
+						invoked.PrmComment = CancelMessage
+					Status = Status.Cancelled
+
+
+		CompletePayablesWorkForICBCreditAutoApply is an Instance Action 
+			restricted
+			Parameters
+				PrmAppliedAmount							is like InternationalAmount
+				PrmPostDate									is Date
+				PrmCrossReferenceApplyPayablesTransNbr		is AlphaUpper 12
+				PrmCreditSequence							is a CrPymntSeq
+				PrmInvoiceSequence							is a CrPymntSeq
+
+			Local Fields
+				LocalCreditMemoOpenAmount			is like InternationalAmount
+				LocalInvoiceOpenAmount				is like InternationalAmount
+				LocalCreditAppliedAmount			is like InternationalAmount
+				LocalDocumentPaymentAmount			is like InternationalAmount
+				LocalRemainingToBePaidAmount		is like InternationalAmount
+				LocalPayablesInvoicePaymentAmount	is like InternationalAmount
+
+			Action Rules
+
+				constraint (Status = 4)
+					"StatusMustBeReleased"
+
+				constraint (PayableEntity.PayablesInvoice.Status.Released)
+					"Payables_Invoice_<PayableEntity.PayablesInvoice.Invoice>_StatusMustBe_Released"
+
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.Status = 4)
+					"CrossReferencedIntercompanyBillingDocumentStatusMustBeReleased"
+
+				constraint (CrossReferencedIntercompanyBillingDocumentRel.PayableEntity.PayablesInvoice.Status.Released)
+					"Payables_Invoice_<CrossReferencedIntercompanyBillingDocumentRel.PayableEntity.PayablesInvoice.Invoice>_StatusMustBe_Released"
+
+
+				if (ReceivableEntity.Company.CompanySystemClosingControlRel.Control)
+					constraint (PrmPostDate within ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+						"PostDateIsNotWithinValidEntryDatesForCompany<ReceivableEntity.Company>;ValidDateRangeIs<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<ReceivableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+
+				if (PayableEntity.Company.CompanySystemClosingControlRel.Control)
+					constraint (PrmPostDate within PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate)
+						"PostDateIsNotWithinValidEntryDatesForCompany<PayableEntity.Company>;ValidDateRangeIs<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<PayableEntity.Company.CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+				constraint (PayableEntity.Vendor.VendorClass.ZeroPaymentAllowed)
+					"VendorClass<PayableEntity.Vendor.VendorClass>MustHaveZeroPaymentAllowedCheckedToUseAutoApply"
+				
+				LocalCreditAppliedAmount = PrmAppliedAmount
+
+
+
+
+				invoke Create CashLedgerPayablesPayment
+					assign result to CreatedCashLedgerPayablesPayment
+					invoked.VendorGroup											= PayableEntity.Company.VendorGroup
+					invoked.PayGroup											= PayableEntity.PayablesInvoice.PayGroup
+					invoked.PaidVendor											= ReceivableEntity.Company.PayablesCompany.ICBillingDefaultVendor
+					invoked.CashCode											= PayableEntity.Company.ICBillingDefaultCashCode
+					invoked.CashManagementGroup									= PayableEntity.Company.ICBillingDefaultCashCode.CashManagementGroup
+					invoked.CashLedgerPayablesPayment.BankTransactionCode		= PayableEntity.Company.ICBillingDefaultBankTransactionCode
+					invoked.TransactionNumber									= PrmCrossReferenceApplyPayablesTransNbr + PrmCreditSequence + PrmInvoiceSequence
+					invoked.PaymentDate											= PrmPostDate
+					invoked.PaymentAmount										= 0
+					invoked.BasePaymentAmount.ToCurrency						= PayableEntity.Company.Currency
+					invoked.BasePaymentAmount.EnteredCurrencyAmount				= 0
+					invoked.BasePaymentAmount.EnteredCurrencyRate				= PayableEntity.CurrencyExchangeRate
+					invoked.PayablesCompanyProcessLevel.PayablesProcessLevel	= PayableEntity.PayablesInvoice.ProcessLevel
+					invoked.PayablesCompanyProcessLevel.PayablesCompany			= PayableEntity.Company
+					invoked.RemitToCode											= PayableEntity.PayablesInvoice.RemitToCode
+					invoked.PayCurrency											= DocumentCurrency
+					invoked.CurrencyTable										= PayableEntity.Company.DerivedCurrencyTable
+					invoked.CheckType											= "M"
+					invoked.Status												= 0
+					invoked.FromICBBypassEdit									= true
+
+
+				LocalDocumentPaymentAmount = -1 * LocalCreditAppliedAmount
+				for each PayablesInvoiceRel.OpenPayablesInvoicePaymentRel
+
+					if (LocalDocumentPaymentAmount > each.PaymentAmount.CurrencyAmount)
+
+						LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+						invoke Update each.PayablesInvoicePayment
+							invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+							invoked.TransientBypassUpdateEdit		= true
+
+						invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+							invoked.PrmCashLedgerSourceRecord		= "CHK"
+							invoked.PrmCashCode						= CashLedgerPayablesPaymentRel.CashCode
+							invoked.PrmCashLedgerPayablesPayment	= CashLedgerPayablesPaymentRel.CashLedgerPayablesPayment
+
+						if (AllowSelectDistributionSet) 
+							invoke ProratePayablesFundApplyDistributions each.PayablesInvoicePayment
+
+						LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+						invoke Create PayablesInvoicePayment
+							invoked.Company							= PayableEntity.Company
+							invoked.PayablesInvoice				= PayableEntity.PayablesInvoice
+							invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+
+						LocalDocumentPaymentAmount = 0
+					else
+						LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+						invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+							invoked.PrmCashLedgerSourceRecord		= "CHK"
+							invoked.PrmCashCode						= CashLedgerPayablesPaymentRel.CashCode
+							invoked.PrmCashLedgerPayablesPayment	= CashLedgerPayablesPaymentRel.CashLedgerPayablesPayment
+
+						if (AllowSelectDistributionSet) 
+							invoke ProratePayablesFundApplyDistributions each.PayablesInvoicePayment
+
+						LocalDocumentPaymentAmount -= LocalPayablesInvoicePaymentAmount
+
+					if (LocalDocumentPaymentAmount = 0)
+						end for each
+
+
+				LocalDocumentPaymentAmount = LocalCreditAppliedAmount
+				for each CrossReferencedIntercompanyBillingDocumentRel.PayablesInvoiceRel.OpenPayablesInvoicePaymentRel
+
+					if (LocalDocumentPaymentAmount < each.PaymentAmount.CurrencyAmount)
+
+						LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+						invoke Update each.PayablesInvoicePayment
+							invoked.PaymentAmount.CurrencyAmount	= LocalDocumentPaymentAmount
+							invoked.TransientBypassUpdateEdit		= true
+
+						invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+							invoked.PrmCashLedgerSourceRecord		= "CHK"
+							invoked.PrmCashCode						= CashLedgerPayablesPaymentRel.CashCode
+							invoked.PrmCashLedgerPayablesPayment	= CashLedgerPayablesPaymentRel.CashLedgerPayablesPayment
+
+						if (AllowSelectDistributionSet) 
+							invoke ProratePayablesFundApplyDistributions each.PayablesInvoicePayment
+
+						LocalRemainingToBePaidAmount = LocalPayablesInvoicePaymentAmount - LocalDocumentPaymentAmount
+						invoke Create PayablesInvoicePayment
+							invoked.Company							= CrossReferencedIntercompanyBillingDocumentRel.PayableEntity.Company
+							invoked.PayablesInvoice				= CrossReferencedIntercompanyBillingDocumentRel.PayableEntity.PayablesInvoice
+							invoked.PaymentAmount.CurrencyAmount	= LocalRemainingToBePaidAmount
+
+						LocalDocumentPaymentAmount = 0
+					else
+						LocalPayablesInvoicePaymentAmount = each.PaymentAmount.CurrencyAmount
+						invoke ApplySelectedPayablesToCheck each.PayablesInvoicePayment
+							invoked.PrmCashLedgerSourceRecord		= "CHK"
+							invoked.PrmCashCode						= CashLedgerPayablesPaymentRel.CashCode
+							invoked.PrmCashLedgerPayablesPayment	= CashLedgerPayablesPaymentRel.CashLedgerPayablesPayment
+
+						if (AllowSelectDistributionSet) 
+							invoke ProratePayablesFundApplyDistributions each.PayablesInvoicePayment
+
+						LocalDocumentPaymentAmount -= LocalPayablesInvoicePaymentAmount
+
+					if (LocalDocumentPaymentAmount = 0)
+						end for each
+
+				invoke Unreleased.Release CashLedgerPayablesPaymentRel
+
+
+				SettledAmount					-= LocalCreditAppliedAmount
+				CreditAppliedAmount			-= LocalCreditAppliedAmount
+				if (SettledAmount = NetDueAmount)
+					Status = Status.Settled
+
+
+				invoke UpdateFromCreditApplied CrossReferencedIntercompanyBillingDocumentRel
+					invoked.PrmCreditAppliedAmount		= LocalCreditAppliedAmount
+
+
+				if (CrossReferenceAmountToApply entered)
+					if ((-1 * CreditAppliedAmount) = CrossReferenceAmountToApply)
+						CrossReferenceHasBeenApplied	= true 
+						invoke FastUpdate CrossReferencedIntercompanyBillingDocumentRel
+							invoked.CrossReferenceHasBeenApplied	= false 
+				else
+					if (Status.Settled 
+					or CrossReferencedIntercompanyBillingDocumentRel.Status.Settled)
+						CrossReferenceHasBeenApplied	= true 
+						invoke FastUpdate CrossReferencedIntercompanyBillingDocumentRel
+							invoked.CrossReferenceHasBeenApplied	= false 
+
+
+		RegenerateBillingInvoice is an Instance Action
+			restricted
+			Action Rules
+				include UpdateBillingInvoice
+
+		
+		UpdateFromInterface is an Instance Action
+			restricted
+			Action Rules
+				if (TaxEntityUsesOneSource)
+					invoke ProcessOneSourceInterfaceDocument
+				if (CallVertexByTransaction)
+					invoke ProcessVertexInterfaceDocument
+
+				invoke UpdateHeaderTotalsAndAmounts
+				invoke RegenerateBillingInvoice
+
+				if ((OriginatedFrom.JournalControl
+				and  IntercompanyBillingGroup.AutoReleaseDocumentsFromGL)
+				or  (OriginatedFrom.PayablesInvoice
+				and  IntercompanyBillingGroup.AutoReleaseDocumentsFromAP)
+				or  (OriginatedFrom.TransferPricing
+				and  IntercompanyBillingGroup.AutoReleaseDocumentsFromTP)
+				or  (OriginatedFrom.ProjectContractInvoice
+				and  IntercompanyBillingGroup.AutoReleaseDocumentsFromProjects)
+				or  (OriginatedFrom.ExternalInterface
+				and  IntercompanyBillingGroup.AutoReleaseDocumentsFromExternal))
+					
+					if (TaxEntityUsesOneSource
+					or  CallVertexByTransaction)
+						BackgroundProcessing = BackgroundProcessing.ReleaseInProcess
+					
+					if (IntercompanyBillingDocumentLine set exists
+					and IsPayablesAndReceivablesApproval
+					and ApprovalCode entered
+					and ReceivableApprovalCode entered)
+						invoke SubmitForApproval
+					else
+						invoke Release
+					
+		
+		ProcessOneSourceInterfaceDocument is an Instance Action
+			restricted
+			Action Rules
+				if (HasTaxableLines)
+					invoke UpdateHeaderTotalsAndAmountsAndInitializeFields
+
+					invoke EditICBDocumentHeaderForOneSource
+					invoke CallOneSource
+					invoke OneSourceCreateDocumentTax DocumentLineRel
+
+
+		ProcessVertexInterfaceDocument is an Instance Action
+			restricted
+			Action Rules
+				if (HasTaxableLines)
+					invoke UpdateHeaderTotalsAndAmountsAndInitializeFields
+
+					invoke CallVertex
+					invoke VertexCreateDocumentTax DocumentLineRel
+
+		
+		GenerateIDMDocument	is an Instance Action
+			valid when (ValidForIDMGeneration)
+			default label is "GenerateDocument"
+			
+			Local Fields
+				IDMJobView	is an IDMJob view
+			
+			Action Rules
+				increment IDMDocumentSequence by 1				
+				
+				initialize IDMGenerateDocument								
+				IDMGenerateDocument.IDMXMLDefinition.Busclass		= reference to this instance
+				IDMGenerateDocument.IDMXMLDefinition.ListName		= "IntercompanyBillingDocumentForIDMList"
+				IDMGenerateDocument.IDMXMLDefinition.DocumentName	= "IntercompanyBillingInvoice"
+   
+				IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName			= "DocumentLineRel"
+				IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName			= "IntercompanyBillingDocumentLineForIDMList"
+				IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1		= 1
+				IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag				= "Lines"
+				IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag				= "Line"
+				
+				initialize IDMAttributes
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName	= "IntercompanyBillingGroup"
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue	= IntercompanyBillingGroup
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName	= "Document"
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue	= IntercompanyBillingDocumentHeader		
+				
+				if (IDMAdditionalAttributesLinesRel exists)
+					AttributeCtr = 3
+					include IDM.IDMAdditionalAttributes	
+				
+				IDMGenerateDocument.IDMAttributes	 = IDMAttributes
+				IDMGenerateDocument.TemplateUniqueId = ICBInvoiceIDMTemplate.IDMUniqueId
+				IDMGenerateDocument.DocumentType	 = "FSM_IntercompanyInvoice"
+				IDMGenerateDocument.FileName		 = DerivedXMLName
+				
+				IDMGenerateDocument.IDMAccessControlList = "CSFDefined"
+				
+				if (IsInvoiceFinal)
+					if (IntercompanyBillingGroup.IDMAutomaticEmail
+					and DerivedToEmailRecipient entered)
+
+						if (ReceivableEntity.Company.IntercompanyBillingInvoiceEmailSubject entered)
+							IDMGenerateDocument.IDMEmail.Subject = DerivedIDMEmailSubject
+						else
+							IDMGenerateDocument.IDMEmail.Subject = DerivedIntercompanyBillingDocumentHeaderEmailSubject
+
+						if (ReceivableEntity.Company.IntercompanyBillingInvoiceEmailTemplate entered)
+							IDMGenerateDocument.EmailTemplateUniqueID	 = ReceivableEntity.Company.IntercompanyBillingInvoiceEmailTemplate.IDMUniqueId
+						else
+							IDMGenerateDocument.IDMEmail.Body	= blank
+							
+						IDMGenerateDocument.IDMEmail.From		 = ReceivableEntity.Company.IntercompanyBillingInvoiceFromEmailAddress
+						IDMGenerateDocument.IDMEmail.To			 = DerivedToEmailRecipient
+
+					if (IntercompanyBillingGroup.IDMAutomaticPrint)
+						IDMGenerateDocument.IDMPrinter					= Printer
+						
+				invoke CreateFromGenerateDocument IDMJob
+					assign result to IDMJobView
+					invoked.Actor				= actor
+					invoked.Description			= IDMDescriptionMsg
+					invoked.IDMGenerateDocument	= IDMGenerateDocument
+				
+				IDMJob = IDMJobView.IDMJob
+				
+				invoke UpdateIDMDocumentPID in background
+					run after IDMJob.AsyncId
+		
+		UpdateIDMDocumentPID is an Instance Action
+			restricted
+			Action Rules
+				if(IDMJob.GenerationStatus.Finished)
+					invoke FastUpdate
+						invoked.IDMDocumentPID = IDMJob.MDSID
+					
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+			
+		UpdatePrinter is an Instance Action
+			valid when (IsValidForUpdatePrinter)
+			Parameters
+				NewPrinter is an IDMPrinter
+
+			Action Rules
+				invoke FastUpdate
+					invoked.Printer = NewPrinter
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				
+		ManualPrint is an Instance Action
+			valid when (IsValidForIDMPrintAndEmail)
+			default label is "PrintInvoice"
+			Parameters
+				IDMPrinter
+				
+			Parameter Rules
+				IDMPrinter
+					initial value is Printer
+					required
+
+			Action Rules
+			
+				initialize IDMItem
+				IDMItem.DocumentType = "FSM_IntercompanyInvoice"
+				IDMItem.IDMUniqueId	 = IDMDocumentPID
+				IDMItem.IDMPrinter	 = IDMPrinter
+
+				constraint (IDMItem.GetItemDetails)
+					"DocumentDoesNotExistInIDM"
+
+				IDMItem.IDMPID = IDMItem.IDMItemDetails.PID
+				IDMItem.IDMUniqueId = IDMItem.IDMItemDetails.MdsId
+
+				invoke SendToPrinter IDMJob
+					invoked.Description = PrintNotificationMsg
+					invoked.FileName	= IDMItem.IDMItemDetails.FileName
+					invoked.IDMItem		= IDMItem
+					
+		ManualEmail	is an Instance Action
+			valid when (IsValidForIDMPrintAndEmail)
+			default label is "EmailInvoice"
+			
+			Local Fields
+				IDMJobView	is an IDMJob view
+				
+			Parameters
+				EmailFrom	is an EmailAddress
+					default label is "From"
+				EmailTo		is an MultipleEmailAddress 
+					holds pii
+					default label is "To"
+				EmailCc		is an MultipleEmailAddress 
+					holds pii
+					default label is "Cc"
+			Parameter Rules
+				EmailFrom
+					initial value is ReceivableEntity.Company.IntercompanyBillingInvoiceFromEmailAddress
+					required
+				EmailTo
+					initial value is DerivedToEmailRecipient
+					required
+				EmailCc
+					initial value is DerivedCcEmailAddress
+			Action Rules
+				
+				initialize IDMItem
+				
+				IDMItem.IDMXMLDefinition.Busclass		= reference to this instance
+				IDMItem.IDMXMLDefinition.ListName		= "IntercompanyBillingDocumentForIDMList"
+				IDMItem.IDMXMLDefinition.DocumentName	= "IntercompanyBillingInvoice"
+   
+				IDMItem.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName			= "DocumentLineRel"
+				IDMItem.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName				= "IntercompanyBillingDocumentLineForIDMList"
+				IDMItem.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1		= 1
+				IDMItem.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag				= "Lines"
+				IDMItem.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag				= "Line"
+				
+				IDMItem.DocumentType		 = "FSM_IntercompanyInvoice"
+				IDMItem.IDMUniqueId			 = IDMDocumentPID
+				IDMItem.IDMEmail.From		 = EmailFrom
+				IDMItem.IDMEmail.To			 = EmailTo
+				IDMItem.IDMEmail.Cc			 = EmailCc
+				
+
+				if (ReceivableEntity.Company.IntercompanyBillingInvoiceEmailSubject entered)
+					IDMItem.IDMEmail.Subject = DerivedIDMEmailSubject
+				else
+					IDMItem.IDMEmail.Subject = DerivedIntercompanyBillingDocumentHeaderEmailSubject
+		
+
+				if (ReceivableEntity.Company.IntercompanyBillingInvoiceEmailTemplate entered)
+					IDMItem.EmailTemplateUniqueID	 = ReceivableEntity.Company.IntercompanyBillingInvoiceEmailTemplate.IDMUniqueId
+				else
+					IDMItem.IDMEmail.Body	= blank
+				
+				constraint (IDMItem.GetItemDetails)
+					"DocumentDoesNotExistInIDM"
+
+				IDMItem.IDMPID = IDMItem.IDMItemDetails.PID
+				IDMItem.IDMUniqueId = IDMItem.IDMItemDetails.MdsId
+
+				invoke SendToEmail IDMJob
+					invoked.Description	 = EmailNotificationMsg
+					invoked.FileName	 = IDMItem.IDMItemDetails.FileName
+					invoked.IDMItem		 = IDMItem
+					
+		UploadToIDM is an Instance Action  
+			valid when (GeneratedInvoice.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField with GeneratedInvoice
+
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (GeneratedInvoice.IsLocal)
+	
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField with GeneratedInvoice				
+					
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+

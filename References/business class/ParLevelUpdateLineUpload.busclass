@@ -1,0 +1,102 @@
+ParLevelUpdateLineUpload is a BusinessClass
+    prefix is MSPUL
+
+    Ontology
+        symbolic key is ParLevelUpdateLineUpload
+
+    Persistent Fields
+        Item
+        OldPar                  is like Quantity 
+        NewPar                  is like Quantity
+        CountTime               is TimeStamp
+        Status                  is Numeric size 1
+            States 
+                NotStarted      value is 0
+                HasError        value is 8
+                Completed       value is 9
+        Notes                   is Text
+
+    Relations
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.InventoryLocation       = ParLevelUpdateUpload.InventoryLocation
+                related.Item                    = Item 
+
+    Conditions
+        IsParLevelDivisibleByNumberOfBins
+            restricted
+            when (NewPar % ItemLocationRel.KanbanNumberOfBins = 0)
+
+    Derived Fields
+        DerivedIsParLevelDivisibleMessage is a MessageField
+            "ParLevelShouldBeEquallyDivisibleInWholeNumbersByTheNumberOfBinsForAKanbanItem."
+
+    Actions
+        Create is a Create Action
+            restricted
+        Update is an Update Action
+            restricted
+        Delete is a Delete Action
+            restricted
+
+        ProcessParLevelUpdate is a Set Action
+            restricted
+            Parameters
+                PrmFinanceEnterpriseGroup   is a FinanceEnterpriseGroup
+                    default label is "FinanceEnterpriseGroup"
+                PrmMobileSupplyChainUpload               is an MobileSupplyChainUpload
+                    default label is "MobileSupplyChainUpload"
+
+            Sort Order
+                Company
+                InventoryLocation
+                ParLevelUpdateUpload
+                
+            Local Fields
+                HeaderErrorOccured      is Boolean
+                LineErrorOccured        is Boolean
+                
+            Instance Selection
+                where (ParLevelUpdateUpload.MobileSupplyChainUpload = PrmMobileSupplyChainUpload)
+
+            Action Rules
+                ParLevelUpdateUpload Set Rules
+                    Entrance Rules
+                        initialize HeaderErrorOccured
+                        invoke Update ParLevelUpdateUpload
+                            invoked.Status = ParLevelUpdateUpload.Status.Processing
+                        
+                    Exit Rules
+                        invoke Update ParLevelUpdateUpload
+                            if (HeaderErrorOccured)
+                                invoked.Status = ParLevelUpdateUpload.Status.ProcessedWithErrors
+                            else
+                                invoked.Status = ParLevelUpdateUpload.Status.Completed
+
+                Instance Rules
+                    initialize LineErrorOccured
+                    OldPar  = ItemLocationRel.ReorderPoint
+
+                    if (OldPar != NewPar)
+                        if (ItemLocationRel.UseKanban
+                        and not IsParLevelDivisibleByNumberOfBins)
+                            Notes               = DerivedIsParLevelDivisibleMessage
+                            LineErrorOccured    = true
+
+                        else
+                            invoke Update ItemLocationRel
+                                invoked.ReorderPoint    = NewPar
+                                
+                            if (ParLevelUpdateUpload.MobileSupplyChainPrinter entered)
+                                invoke PrintLabel ItemLocationRel
+                                    invoked.PrmMobileSupplyChainConfiguration  = PrmFinanceEnterpriseGroup
+                                    invoked.PrmMobileSupplyChainPrinter        = ParLevelUpdateUpload.MobileSupplyChainPrinter
+                                    invoked.PrmTransactionType                 = MobileSupplyChainPrintingTransactionType.NewParLevel
+                    
+                    if (LineErrorOccured)
+                        Status              = Status.HasError
+                        HeaderErrorOccured  = true
+                    else
+                        Status              = Status.Completed

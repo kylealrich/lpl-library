@@ -1,0 +1,171 @@
+CashLedgerJobResult is a BusinessClass
+	owned by cb
+	prefix is CLJR
+
+	Ontology
+		symbolic key is CashLedgerJobResult
+
+	Patterns
+		disable AuditIndex
+		disable Auditing 
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		RunTime								is TimeStamp
+		JobType								is Numeric 2
+			States
+				CashLedgerCompanyPeriodClose	value is 1
+				BankPeriodClose					value is 2
+				OpenPaymentReport 				value is 3
+		Status								is Numeric 1
+			States
+				Created							value is 1
+				Completed						value is 2
+		PeriodEndDate						is Date		
+		ReportDate 							is Date
+		CashCode
+		CashCodeGroup
+		Company								is a GeneralLedgerCompany
+    	CompanyGroup						is a GeneralLedgerCompanyGroup
+		UpdateUnreleasedAndPendingApprovals	is Boolean			
+		NewPostDate							is Date
+		UpdateOption						is AlphaUpper size 1	
+			default label is "Update"
+			States
+				Yes	value is "Y"
+				No	value is "N"	
+		BackgroundGroupAsyncId				is an AsyncActionRequest
+			delete ignored
+
+	Local Fields
+		BackgroundGroup			is AlphaUpper up to 60
+		LocalActor				is Actor
+
+	Derived Fields
+		NoRecordsToProcessMsg is a MessageField
+			restricted
+			"NoRecordsToProcess"
+
+		InProcessMessage is a MessageField
+			restricted
+			"InProcess"
+		
+		CompleteMessage is a DerivedField
+			type is Alpha 150
+			restricted
+			if (JobType.CashLedgerCompanyPeriodClose)
+				return "CashLedgerCompanyPeriodClose"
+			if(JobType.OpenPaymentReport)
+				return "OpenPaymentReport"
+
+		DerivedCurrentPeriodEndDate is a DerivedField
+			type is Date
+			restricted
+			return PeriodEndDate
+						
+	Field Rules
+		RunTime
+			default to current timestamp
+
+		Status
+			initial value is 1	
+			default to 1
+			
+		CashManagementGroup
+			if (CashManagementGroup not entered)
+				required
+					"CashManagementGroupRequired"
+
+	Conditions
+		IsJobTypeCashLedgerCompanyPeriodClose
+			restricted
+			when (JobType.CashLedgerCompanyPeriodClose)
+		IsJobTypeOpenPaymentReport
+			restricted
+			when (JobType.OpenPaymentReport)
+			
+		SecurityGroupAllowsAccess
+			restricted
+	        when (Company !entered
+	        or   (Company entered
+	        and   Company.SecurityGroupAllowsAccess))
+			
+			
+	Rule Blocks
+
+					
+    Relations
+		CashLedgerCompanyPeriodCloseDetailsRel
+			one-to-many relation to CashLedgerJobResultDetail
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashLedgerJobResult		= CashLedgerJobResult	
+			
+		CashLedgerCompanyPeriodCloseErrorsRel
+			one-to-many relation to CashLedgerJobResultError
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		= CashManagementGroup
+				related.CashLedgerJobResult		= CashLedgerJobResult	
+		
+		CashLedgerJobResultDetailRel is a CashLedgerJobResultDetail set
+		
+	Sets
+   		ByPeriodEndDate
+			indexed
+			Instance Selection
+                where (IsJobTypeCashLedgerCompanyPeriodClose)
+            Sort Order
+            	CashManagementGroup
+                PeriodEndDate descending
+    			CashLedgerJobResult
+    	
+    	ByJobType
+			indexed
+            Sort Order
+            	CashManagementGroup
+				JobType
+                PeriodEndDate descending
+    			CashLedgerJobResult		
+    			   				
+	Actions
+
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action	
+			restricted
+						
+		Delete is a Delete Action
+			restricted
+			
+		Purge is a Purge Action
+			restricted
+			
+		DeleteCompanyPeriodCloseJobResults is an Instance Action	
+			valid when (IsJobTypeCashLedgerCompanyPeriodClose)	
+			Action Rules
+				if (CashLedgerJobResultError set exists) 
+					invoke DeleteCompanyPeriodCloseErrors CashLedgerJobResultError
+						invoked.PrmCashManagementGroup			= CashManagementGroup
+						invoked.PrmCashLedgerJobResult			= CashLedgerJobResult
+				else
+					if (CashLedgerJobResultDetail set exists)
+						invoke DeleteCompanyPeriodCloseDetails CashLedgerJobResultDetail	
+							invoked.PrmCashManagementGroup		= CashManagementGroup
+							invoked.PrmCashLedgerJobResult		= CashLedgerJobResult
+					else
+						invoke Delete		
+
+		UpdateStatusOnResult is an Instance Action
+			default label is untranslatable
+			restricted
+			Action Rules
+				Status = 2
+				LocalActor = actor
+				send notification
+					to LocalActor
+					description is "<CompleteMessage>"
+					priority is high
+					detail is "ResultsCanBeSeenInCashLedgerJobResult"			
+

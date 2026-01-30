@@ -1,0 +1,197 @@
+MatchInvoiceReference is a BusinessClass
+    owned by ma
+    prefix is MRF
+    classic name is MAINVREF
+
+    Ontology
+        symbolic key is MatchInvoiceReference
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements Archivable
+
+    Persistent Fields
+		OriginalInvoice		is a PayablesInvoice
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Derived Fields
+		DerivedInvoiceDetailsPanelTitle is a DerivedField
+			type is Alpha size up to 200
+			restricted
+			if (PayablesInvoiceDetailsRel exists)
+				return "Invoice Details (" + instance count of PayablesInvoiceDetailsRel + ")"
+			else
+				return "Invoice Details"
+
+		DerivedInvoiceAddOnChargesPanelTitle is a DerivedField
+			type is Alpha size up to 200
+			restricted
+			if (PayablesInvoiceLineAddOnChargeRel exists)
+				return "Invoice Charges And Allowances (" + instance count of PayablesInvoiceLineAddOnChargeRel + ")"
+			else
+				return "Invoice Charges And Allowances"
+
+		AbsoluteValueCreditMemo is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if  (PayablesInvoice.InvoiceAmount.CurrencyAmount > 0)
+				return PayablesInvoice.InvoiceAmount.CurrencyAmount 
+			else
+				return PayablesInvoice.InvoiceAmount.CurrencyAmount * -1
+
+    Conditions
+
+		MatchInvoice
+			restricted
+			when (PayablesInvoice.MatchProcessType.ReceiptMatch
+			or    PayablesInvoice.MatchProcessType.Service
+			or    PayablesInvoice.MatchProcessType.DropShip
+			or    PayablesInvoice.MatchProcessType.AOCOnly
+			or    PayablesInvoice.MatchProcessType.ServiceContract)
+
+		OriginalInvoiceIsMatchInvoice
+			restricted
+			when (OriginalInvoice.MatchProcessType.ReceiptMatch
+			or    OriginalInvoice.MatchProcessType.Service
+			or    OriginalInvoice.MatchProcessType.DropShip
+			or    OriginalInvoice.MatchProcessType.AOCOnly
+			or    OriginalInvoice.MatchProcessType.ServiceContract)
+
+		AllowCreditRebillMatch
+			when (PayablesInvoice.InvoiceSource.CreditForRebill
+			and   PayablesInvoice.IsNotMatched)
+			
+		ShowAOCMemo
+			when (!PayablesInvoice.MatchProcessType.ServiceContract
+			and   !PayablesInvoice.InvoiceSource.CreditForRebill)
+			
+		ShowAOCCreditRebill
+			when (!PayablesInvoice.MatchProcessType.ServiceContract
+			and    PayablesInvoice.InvoiceSource.CreditForRebill)
+			
+    Relations
+		PayablesInvoiceDetailsRel
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= PayablesInvoice
+
+		PayablesInvoiceAddOnChargesRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= PayablesInvoice
+
+		OriginalInvoiceDetailsRel
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= OriginalInvoice
+
+		OriginalInvoiceAddOnChargesRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= OriginalInvoice
+			Instance Selection
+				where (related.PurchaseOrderLine entered)
+
+		PayablesInvoiceLineAddOnChargeRel
+			one-to-many relation to PayablesInvoiceAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.PayablesInvoice		= PayablesInvoice
+			Instance Selection
+				where (related.PurchaseOrderLine entered)
+
+        MatchCompanyRel
+            one-to-one relation to MatchCompany
+            required
+            Field Mapping uses symbolic key
+                related.Company 				= Company
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                Vendor
+                OriginalInvoice
+                PayablesInvoice
+
+	Field Rules
+		OriginalInvoice
+			required
+			
+	Create Rules
+		constraint (PayablesInvoice.CreditOrDebitMemo)
+			"InvoiceMustBe_\DebitOr_\CreditWhen_\Original_\InvoiceEntered"
+		constraint (!OriginalInvoice.CreditOrDebitMemo)
+			"OriginalInvoiceCannotBeDebitOrCredit"
+		constraint (MatchInvoice)
+			"MustBeMatchInvoice"
+		constraint (OriginalInvoiceIsMatchInvoice)
+			"OriginalInvoiceMustBeMatchInvoice"
+		if  (!PayablesInvoice.InvoiceType.MatchPrepayment)
+			constraint (PayablesInvoice.MatchStatus < 1)
+				"MemoInvoiceHasAlreadyBeenMatched"
+			constraint (PayablesInvoice.Status.Unreleased)
+				"InvoiceHasBeenReleased"
+		if (!MatchCompanyRel.MatchMemoDelayHardEdits)
+			if  (!OriginalInvoice.MatchProcessType.ServiceContract
+			and  !OriginalInvoice.MatchProcessType.Service)
+				constraint (OriginalInvoice.MatchLevel.DetailMatch)
+					"OriginalInvoiceMustHaveBeenDetailMatched"		
+			constraint (OriginalInvoice.MatchStatus > 1)
+				"OriginalInvoiceMustBeMatched"
+
+			if  (PayablesInvoice.InvoiceType.CreditMemo)
+				constraint (AbsoluteValueCreditMemo <= OriginalInvoice.InvoiceAmount.CurrencyAmount)
+					"CreditMemoAmountCannotExceedOriginalInvoice<OriginalInvoice.Invoice>Amount<OriginalInvoice.InvoiceAmount.CurrencyAmount>" 
+
+    Actions
+        Create is a Create Action
+        	restricted
+
+        Update is an Update Action
+        	restricted
+
+        Delete is a Delete Action
+        	restricted
+        	
+        Purge is a Purge Action
+        	restricted
+        	bypass relational integrity rules
+
+		CreditRebillMatch is an Instance Action
+			default label is "Match"
+			valid when (AllowCreditRebillMatch)
+			Action Rules
+				constraint (AllowCreditRebillMatch)	
+					"MatchActionIsNotValid"
+					
+				if  (PayablesInvoice.Status.Unreleased)
+					invoke Unreleased.Match PayablesInvoice
+				else        
+				if  (PayablesInvoice.Status.Approved)
+					invoke Approved.Match PayablesInvoice
+				else        
+				if  (PayablesInvoice.Status.Released)
+					invoke Released.Match PayablesInvoice						

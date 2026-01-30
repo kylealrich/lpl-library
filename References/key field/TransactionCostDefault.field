@@ -1,0 +1,282 @@
+TransactionCostDefault is a Field
+    Representation
+        Group Fields
+        	InputItem						is an Item
+        	InputUOM						is a UnitOfMeasure
+        	InputItemType					is an ItemType
+	        InputFromCompanyLocation        is a FromCompanyLocation
+	        InputRequestingLocation			is a RequestingLocation
+			InputRequisition				is a Requisition
+			InputCompany 					is like InventoryCompany
+
+	Local Fields
+		UOMCalculation
+		LocalTransactionCost				is an InternationalCost
+		LocalVendorItem             		is a VendorItem
+		Execute								is Boolean
+		LocalCreatePurchaseOrder			is Boolean
+		LocalPurchaseFromLocation			is like PurchaseFromLocation
+    	VendorPurchaseFromLocationDefaulting
+		LocalVendorLocationFromContract		is Boolean
+		
+	Derived Fields
+		DefaultFromCompany	is a DerivedField
+			type is like InventoryCompany
+			if (InputFromCompanyLocation.FromCompany entered)
+				return InputFromCompanyLocation.FromCompany
+				
+			if (RequestingLocationRel.FromCompanyLocation.FromCompany entered)
+				return RequestingLocationRel.FromCompanyLocation.FromCompany
+				
+			return RequesterRel.Company
+			
+		DefaultFromLocation	is a DerivedField
+			type is like InventoryLocation
+			if (InputFromCompanyLocation.FromLocation entered)
+				return InputFromCompanyLocation.FromLocation
+				
+			if (RequestingLocationRel.FromCompanyLocation.FromLocation entered)
+				return RequestingLocationRel.FromCompanyLocation.FromLocation
+			
+			return RequesterRel.RequestingLocation
+			
+		DerivedRequestingLocation is a DerivedField
+			type is like RequestingLocation
+			if (InputRequestingLocation entered)
+				return InputRequestingLocation
+			else
+				return RequesterRel.RequestingLocation
+
+		DerivedCompany is a DerivedField
+			type is like InventoryCompany
+			restricted
+			if (InputCompany entered)
+				return InputCompany
+			else
+				return RequesterRel.Company
+			
+		DefaultItemType	is a DerivedField
+			type is like ItemType
+
+			if (InputItemType entered)
+				return InputItemType
+				
+			if  (RequestingLocationRel.ParOrExchangeLocation 
+			and (DefaultFromLocation not entered 
+			or   ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.ReplenishFrom.ReplenishFromLocation not entered)
+			and (ItemAtRequestingLocationRel.InventoryTracked))
+				return ItemType.Inventoried
+			else
+				if (ItemAtFromLocationRel exists and ItemAtFromLocationRel.InventoryTracked)
+					return ItemType.Inventoried
+				else
+					return ItemType.NonStock
+
+		DefaultVendor	is a DerivedField
+			type is like Vendor
+            	
+            if (PurchasingCompanyRel.CostOrVendorDefaultingOrder.VendorFirstThenCost)
+                if  ((not ParItem
+                and (not DefaultItemType.Inventoried
+                or   LocalCreatePurchaseOrder))       
+				or  (DefaultItemType.Special
+				or  DefaultItemType.Service))
+                	InputItemType												= DefaultItemType
+                	initialize VendorPurchaseFromLocationDefaulting
+                	
+                	VendorPurchaseFromLocationDefaulting.InCompany				= DefaultFromCompany
+                	VendorPurchaseFromLocationDefaulting.InRequestingLocation 	= DerivedRequestingLocation
+                    VendorPurchaseFromLocationDefaulting.InRequestingCompany    = DerivedCompany
+                		
+					if (RequestingLocationRel.InventoryTransactionType.DirectTransfer)
+						VendorPurchaseFromLocationDefaulting.InFromLocation 	= RequesterRel.RequestingLocation
+					else
+						VendorPurchaseFromLocationDefaulting.InFromLocation		= DefaultFromLocation
+		        	VendorPurchaseFromLocationDefaulting.InSystem				= "RQ"
+		        	VendorPurchaseFromLocationDefaulting.InDefaultType			= 8
+		        	Execute														= VendorPurchaseFromLocationDefaulting.InitializeDefaultOrder					
+					LocalPurchaseFromLocation 									= VendorPurchaseFromLocationDefaulting.OutPurchaseFromLocation
+					LocalVendorLocationFromContract								= VendorPurchaseFromLocationDefaulting.LocalVendorLocationFromContract
+					return VendorPurchaseFromLocationDefaulting.OutVendor
+                else
+					if (DefaultItemType.Inventoried
+					or  DefaultItemType.NonStock)
+						if (ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.ReplenishFrom entered
+						or  ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.Vendor entered)
+							return ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.Vendor
+						else
+							return ItemAtFromLocationRel.ItemReplenishmentSourcesRel.Vendor
+					else
+						return ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.Vendor
+
+		DefaultPurchaseFromLocation	is a DerivedField
+			type is like PurchaseFromLocation
+					   	
+            if  ((not ParItem
+            and (not DefaultItemType.Inventoried
+            or   LocalCreatePurchaseOrder))
+			or  (DefaultItemType.Special
+			or  DefaultItemType.Service))
+            	return LocalPurchaseFromLocation
+            else
+    	        if (DefaultItemType.Inventoried
+				or  DefaultItemType.NonStock)
+					if (ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.ReplenishFrom entered
+					or  ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.Vendor entered)
+						return ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.PurchaseFromLocation
+					else
+						return ItemAtFromLocationRel.ItemReplenishmentSourcesRel.PurchaseFromLocation
+				else
+					return ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.PurchaseFromLocation
+
+		DefaultVendorItem	is a DerivedField
+			type is like VendorItem
+			
+		   	if (PurchasingCompanyRel.CostOrVendorItemDefaultingOrder.VendorItemBeforeCost)
+				return first VendorItemDefaultRel.VendorItem
+
+		DefaultUOM	is a DerivedField
+			type is like UnitOfMeasure
+
+			if (InputUOM entered)
+				return InputUOM 
+			
+			if (InputItem not entered)
+				return
+			
+			if (DefaultItemType.Inventoried)
+				if (ItemAtFromLocationRel.IsCatchWeightItem)
+					return ItemAtFromLocationRel.ItemRel.SecondaryUOM
+				else 
+				if (ItemAtFromLocationRel.DefaultTransactionUOM.UnitOfMeasure entered)
+					return ItemAtFromLocationRel.DefaultTransactionUOM.UnitOfMeasure
+				else
+					return InputItem.DefaultTransactionUOM
+			else
+				if (ItemAtFromLocationRel.DefaultSourceUOM.UnitOfMeasure entered)
+					return ItemAtFromLocationRel.DefaultSourceUOM.UnitOfMeasure
+				
+				LocalVendorItem = first VendorItemDefaultRel.VendorItem
+				if (LocalVendorItem.VendorBuyUOM entered)
+					return LocalVendorItem.VendorBuyUOM
+					
+				if (InputItem.DefaultBuyUOM entered)
+					return InputItem.DefaultBuyUOM
+				else
+					return InputItem.StockUOM
+
+		GetTransactionCost is a DerivedField
+			type is like InternationalCost
+			
+			if (InputItem not entered)
+				return
+			if (DefaultItemType.Inventoried
+			or (RequesterRel.Company = RequestingLocationRel.FromCompanyLocation.FromCompany
+			and RequesterRel.RequestingLocation not = RequestingLocationRel.FromCompanyLocation.FromLocation))
+				if (InventoryCompanyRel.CostingMethod.StandardCosting)
+					LocalTransactionCost = ItemAtFromLocationRel.StandardCost
+        	    if (InventoryCompanyRel.CostingMethod.AverageCosting)
+            		LocalTransactionCost = ItemAtFromLocationRel.DerivedItemAverageCost
+		   		if (InventoryCompanyRel.CostingMethod.FirstInFirstOut)
+		   			LocalTransactionCost = first InventoryCostHistoryFIFORel.UnitCost
+		   			if (LocalTransactionCost not entered)
+		   				LocalTransactionCost = ItemAtFromLocationRel.DerivedItemAverageCost
+		   		if (InventoryCompanyRel.CostingMethod.LastInFirstOut)
+		   			LocalTransactionCost = first InventoryCostHistoryLIFORel.UnitCost
+					if (LocalTransactionCost not entered)
+		   				LocalTransactionCost = ItemAtFromLocationRel.LastReceiptCost
+			if (LocalTransactionCost entered
+			and DefaultUOM entered
+	        and InputItem.StockUOM != DefaultUOM)
+	            initialize UOMCalculation
+			   	UOMCalculation.InputUOM			= InputItem.StockUOM
+				UOMCalculation.InputToUOM		= DefaultUOM
+				UOMCalculation.InputUnitCost	= LocalTransactionCost
+				UOMCalculation.DoRounding		= true
+				UOMCalculation.Method			= UOMCalculation.Method.ConvertToAlternate	
+			    LocalTransactionCost = UOMCalculation.OutputUnitCost
+			    
+			return LocalTransactionCost
+		
+		DefaultLocalVendorLocationFromContract is a DerivedField
+			type is Boolean
+			if (LocalVendorLocationFromContract)
+				return true
+			else
+				return false
+	
+	Conditions
+		ParItem
+			restricted
+			when (RQOrRequesterRequestingLocationRel.ParOrExchangeLocation 
+			and (ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.ReplenishFrom entered							
+			or ItemAtRequestingLocationRel.ItemReplenishmentSourcesRel.Vendor entered
+			or ItemAtFromLocationRel.ItemReplenishmentSourcesRel.Vendor entered))
+
+    Relations
+    	RequesterRel
+            one-to-one relation to Requester
+            Field Mapping uses symbolic key
+            	related.HROrganization = actor.agent(Employee).HROrganization
+                related.Requester = actor.agent(Employee).Employee.Requester.Requester
+
+       	InventoryCompanyRel     
+            one-to-one relation to InventoryCompany
+            Field Mapping uses symbolic key
+                related.Company = RequesterRel.Company
+
+        PurchasingCompanyRel
+            one-to-one relation to PurchasingCompany
+            required
+            Field Mapping uses symbolic key
+                related.Company = DefaultFromCompany
+                
+		RequestingLocationRel 
+			one-to-one relation to RequestingLocation
+			Field Mapping uses symbolic key
+				related.Company     		= RequesterRel.Company
+				related.RequestingLocation  = RequesterRel.RequestingLocation
+
+		ItemAtFromLocationRel
+			one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+				related.Company				= DefaultFromCompany
+				related.InventoryLocation  	= DefaultFromLocation
+				related.Item				= InputItem
+
+		ItemAtRequestingLocationRel
+			one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+				related.Company				= RequesterRel.Company
+				related.InventoryLocation  	= RequesterRel.RequestingLocation
+				related.Item				= InputItem
+
+    	InventoryCostHistoryFIFORel
+    		one-to-many relation to InventoryCostHistory
+    		Field Mapping uses Set3
+    			related.Company				= DefaultFromCompany
+    			related.InventoryLocation	= DefaultFromLocation
+    			related.Item				= InputItem
+    			
+    	InventoryCostHistoryLIFORel
+    		one-to-many relation to InventoryCostHistory
+    		Field Mapping uses Set5
+    			related.Company				= DefaultFromCompany
+    			related.InventoryLocation	= DefaultFromLocation
+    			related.Item				= InputItem
+
+        VendorItemDefaultRel
+            one-to-many relation to VendorItem
+            Field Mapping uses symbolic key
+                related.ProcurementGroup 	= RequesterRel.Company.ItemGroup
+                related.Item             	= InputItem
+                related.Vendor				= DefaultVendor
+        	Instance Selection
+        		where (related.UseAsDefault)
+
+		RQOrRequesterRequestingLocationRel
+			one-to-one relation to RequestingLocation
+			Field Mapping uses symbolic key
+				related.Company     		= DerivedCompany
+				related.RequestingLocation  = DerivedRequestingLocation
+        

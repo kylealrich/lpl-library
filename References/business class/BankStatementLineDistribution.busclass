@@ -1,0 +1,832 @@
+BankStatementLineDistribution is a BusinessClass
+	owned by cashmgmt
+	prefix is CBLD
+
+	Ontology
+		symbolic key is BankStatementLineDistribution
+
+	Persistent Fields								
+		StatementDate				is a snapshot of BankStatement.StatementDate
+		PostingDate
+		DistributionAccount			is a FinanceCodeBlock	 	
+			default label is "AccountInformation"
+		DistributionAmount			is an InternationalAmount	
+		Status						is Numeric 1
+    		States
+    			Entered			value is 0
+    			Released		value is 1
+    			Posted			value is 2
+    			PendingApproval	value is 3    
+    	Comment						is Text
+		BankStatementLineReference
+    	FinanceJournalInterface
+    		delete ignored
+    	FinanceJournalInterfaceLine
+    		delete ignored
+    	StatementLineCategory		is a CashTransactionCategory
+    	CashAccountDistribution		is Boolean
+		BankStatementLineDetail
+		
+	Context Fields
+		StatementDateRange			is a DateRange
+		PostingDateRange
+		SearchAmountRange
+		
+	Transient Fields
+		TransientFromCurrency		is a FromCurrency
+			derive value from BankStatementLine.LineCurrency
+    	GLFromEntity			 	is an AccountingEntity
+    		derive value from CashManagementAccount.LegalEntity.AccountingEntity
+		GLFinanceCodeBlock		 	is a TransactionCodeBlock				 		
+			derive value from GLTransactionDetailRel.FinanceCodeBlock 
+			default label is "DistributionAccount"
+		GLTransactionAmount		 	is a CurrencyAmount			
+			derive value from GLTransactionDetailRel.TransactionAmount 
+			default label is "DistributionAmount"
+        GLBaseAmount				is a FinanceCurrencyAmount
+        	derive value from GLTransactionDetailRel.ReportCurrencyAmount
+		TransientRunGroup 			is AlphaUpper size 30
+			derive value from GLTransactionDetailRel.JournalizeGroup
+		TransientReferenceToThisInstance	is BusinessObjectReference
+			derive value from reference to this instance
+		BypassBudgetEditing							is Boolean
+		BypassBudgetAndCommitmentProcessing			is Boolean
+		DefaultJournalDescription	is Alpha up to 60
+            Text Variables
+                CashAccount		value is CashManagementAccount
+                Category        value is BankStatementLine.CashTransactionCategory
+		BypassNegativeRateEdit
+		BypassUnpostBankStatement	is Boolean		
+
+	Derived Fields
+		DerivedCommentLinkName is a DerivedField
+			type is Alpha 12
+			restricted
+			if (Comment entered)
+				return ViewCommentMessage
+			else
+				return AddCommentMessage
+
+		AddCommentMessage is a MessageField
+			restricted
+			"AddComment"		
+
+		ViewCommentMessage is a MessageField
+			restricted
+			"ViewComment"	
+
+		BankStatementLineDistributionPostingMessage is a MessageField 
+			restricted
+			"BankStatementLineDistributionPosting"
+
+		FinalJournalDescription is a DerivedField
+            type is Alpha up to 60
+            return DefaultJournalDescription text
+ 
+ 		DerivedPeriodEndDate	is a DerivedField 
+			type is Date
+			restricted
+			return CurrentGeneralLedgerCalendarPeriodRel.Date
+		
+	Local Fields
+		LocalDocumentCurrencyTotals		is a DocumentCurrencyTotals
+		LocalKeepRateOnly				is Boolean
+		OldGLTransactionAmount			is an InternationalAmount
+		BypassUnitAndAmountEdit
+		LocalJournalDescription			is Alpha up to 60
+		BypassStructureRelationEdit
+		LocalExchangeDate			 	is an ExchangeDate
+				
+	Field Rules
+		PostingDate
+			default to BankStatement.CashLedgerPostingDate
+					
+		DistributionAccount
+			force default to GLTransactionDetailRel.FinanceCodeBlock
+		
+		DistributionAmount
+			force default to GLTransactionAmount
+			
+		BankStatementLineReference
+			initial value is BankStatementLine.RelatedReference
+			default to BankStatementLine.RelatedReference
+
+		GLFinanceCodeBlock		
+			LocalExchangeDate		= StatementDate	
+			DistributionAccount 	= GLFinanceCodeBlock	
+
+        GLBaseAmount
+        	required
+        	TransientFromCurrency	= BankStatementLine.LineCurrency
+			LocalExchangeDate		= StatementDate
+        	BypassNegativeRateEdit	= true
+	
+		StatementLineCategory
+			default to BankStatementLineDetail.OverrideCategory	
+			default to BankStatementLine.CashTransactionCategory
+            
+	Delete Rules
+		if (GLTransactionDetailRel exist) 
+			invoke Delete GLTransactionDetailRel
+		invoke DeleteCBCommitment
+															
+	Rule Blocks
+		SaveDocumentCurrencyTotals
+			LocalDocumentCurrencyTotals 				  = BankStatementLine.BaseTotalDistributionAmount
+			LocalDocumentCurrencyTotals.OldCurrencyAmount = GLTransactionDetailRel.ReportCurrencyAmount
+
+		CreateGLTransactionDetail
+
+			DefaultJournalDescription = CashManagementAccount.DefaultJournalDescription
+            LocalJournalDescription = FinalJournalDescription
+                    
+            invoke Create GLTransactionDetail
+            	fill in user fields from this instance	
+				invoked.OriginatingTransaction 	= reference to this instance
+				invoked.FinanceEnterpriseGroup	= CashManagementGroup  
+				invoked.CurrencyCode			= BankStatementLine.LineCurrency
+				invoked.System					= "CB"
+				invoked.TransactionAmount		= GLTransactionAmount
+				invoked.FinanceCodeBlock		= GLFinanceCodeBlock
+				invoked.ReportCurrencyAmount 	= GLBaseAmount
+
+				if (CashAccountDistribution)
+					invoked.Description			= CashManagementAccount.JournalDescription
+				else
+					invoked.Description			= LocalJournalDescription		
+            	if (StatementLineCategory.OverrideEventCode entered)	
+            		invoked.GeneralLedgerEvent 	= StatementLineCategory.OverrideEventCode
+            	else	
+            		invoked.GeneralLedgerEvent 	= "BT"
+				invoked.AccountingEntity		= CashManagementAccount.LegalEntity.AccountingEntity
+				invoked.TransactionDate			= StatementDate
+				invoked.PostingDate				= PostingDate 
+				invoked.ControlDocumentNumber 	= BankStatement
+				invoked.DocumentNumber		  	= BankStatement
+				invoked.AutoReverse 			= false
+				invoked.ReportCurrencyAmount.KeepRateOnly = true
+
+		UpdateGLTransactionDetail
+
+			invoke Update GLTransactionDetailRel
+				fill in user fields from this instance	
+
+
+				invoked.TransactionAmount					= GLTransactionAmount
+				invoked.FinanceCodeBlock					= GLFinanceCodeBlock
+				invoked.ReportCurrencyAmount 				= GLBaseAmount
+				invoked.TransactionDate						= StatementDate
+				invoked.PostingDate							= PostingDate 
+				invoked.ReportCurrencyAmount.KeepRateOnly	= LocalKeepRateOnly
+
+		ProcessBudgetAndCommitments
+			if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	        or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+				if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+
+		       		invoke PerformBudgetEdit
+				invoke CreateCommitment
+
+	Relations
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction		 
+
+				related.OriginatingTransaction	= reference to this instance			
+
+		GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup          = CashManagementGroup
+				related.GeneralLedgerSystemCode         = "CB"
+
+		GLCommitRel
+			one-to-one relation to GLCommit
+      		valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction  = reference to this instance
+
+		BudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup              = CashManagementGroup
+				related.BudgetEditError.BudgetEditGroup     = UniqueID  
+
+		CurrentGeneralLedgerCalendarPeriodRel	
+			one-to-one relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= CashManagementGroup
+				related.GeneralLedgerCalendarPeriod			= CashManagementAccount.LegalEntity.AccountingEntity.CurrentPeriod.GeneralLedgerCalendarPeriod	
+																		
+	Sets
+		ByDistributionStatus
+			Sort Order
+				CashManagementGroup
+				CashManagementAccount
+				BankStatement
+				Status
+				PostingDate
+				StatementDate
+				BankStatementLine
+				BankStatementLineDistribution
+				
+		ByDistributionStatusByAccount
+			Sort Order
+				CashManagementGroup
+				CashManagementAccount
+				Status
+				PostingDate
+				StatementDate
+				BankStatement
+				BankStatementLine
+				BankStatementLineDistribution
+		
+		ByDistributionStatusByCashManagementGroup
+			Sort Order
+				CashManagementGroup
+				Status
+				CashManagementAccount
+				BankStatement
+				BankStatementLine
+				BankStatementLineDistribution
+				
+		ByDefaultSearchOrder
+			Sort Order
+				CashManagementGroup
+				CashManagementAccount
+				BankStatement
+				BankStatementLine.LineNumber
+				BankStatementLine.SequenceNumber
+				BankStatementLineDistribution
+				StatementDate
+				Status
+				StatementLineCategory
+				DistributionAccount.Ledger
+				DistributionAccount.ToAccountingEntity
+				DistributionAccount.AccountingUnit
+				DistributionAccount.GeneralLedgerChartAccount
+				DistributionAccount.Project
+				DistributionAmount
+				
+	Conditions
+		DistributionSearchCondition
+			restricted
+			when (((!StatementDateRange entered
+            and	    !PostingDateRange entered)
+            or	   (!PostingDateRange entered
+            and		StatementDateRange entered
+            and     StatementDate within StatementDateRange)
+			or	   (!StatementDateRange entered
+			and		PostingDateRange entered
+            and     PostingDate within PostingDateRange)
+            or	   (StatementDateRange entered
+            and     StatementDate within StatementDateRange
+			and     PostingDateRange entered
+            and     PostingDate within PostingDateRange))
+            and	   (!SearchAmountRange entered
+            or		SearchAmountRange entered
+            and     DistributionAmount within SearchAmountRange))
+            
+		CanViewCommentLink
+			restricted
+			when (DistributionExists
+			and  (Status.Entered
+			or    Comment entered))
+			
+		DistributionExists
+			when (BankStatementLineDistribution exists)
+
+		BudgetErrorExists
+			restricted
+			when (BudgetEditErrorRel exists)
+			
+		CommitmentExists
+			restricted
+			when (GLCommitRel exists)
+			
+		ReleasedCommitmentExists
+			restricted
+			when (CommitmentExists
+			and   GLCommitRel.Status = 3)
+
+
+
+
+
+		IsUnpostedForPeriodClose	
+			restricted
+			when (Status.Released
+			and   PostingDate <= CurrentGeneralLedgerCalendarPeriodRel.Date) 
+
+		IsPendingApprovalForPeriodClose	
+			restricted
+			when (Status.PendingApproval
+			and   PostingDate <= CurrentGeneralLedgerCalendarPeriodRel.Date) 
+									
+		OutstandingBankStatementLineDistributionsExist	
+			restricted
+			when (IsUnpostedForPeriodClose
+			or    IsPendingApprovalForPeriodClose)
+
+  	Actions
+		RejectAllStatementDistributions is a Set Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup
+				PrmCashManagementAccount	is a CashManagementAccount
+				PrmBankStatement			is a BankStatement
+					
+			Parameter Rules
+				PrmCashManagementAccount	required
+				PrmBankStatement			required
+				
+			Instance Selection
+				where (CashManagementGroup			= PrmCashManagementGroup
+				and    CashManagementAccount		= PrmCashManagementAccount
+				and    BankStatement				= PrmBankStatement
+				and    Status.PendingApproval)
+			
+			Action Rules
+				Instance Rules
+					invoke RejectDistributionRelease PendingApproval BankStatementLineDistribution
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		ApplyRoundingAdjustment is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				FunctionalAmountAdjustment			is an InternationalAmount
+			Action Rules
+				GLBaseAmount 											 = GLTransactionDetailRel.ReportCurrencyAmount 
+				GLBaseAmount.FunctionalAmount.EnteredCurrencyAmount		+= FunctionalAmountAdjustment
+				include SaveDocumentCurrencyTotals
+				LocalKeepRateOnly	= false
+				BypassNegativeRateEdit	= true	
+				include UpdateGLTransactionDetail
+				LocalDocumentCurrencyTotals.NewCurrencyAmount	= GLTransactionDetailRel.ReportCurrencyAmount												        			
+				LocalDocumentCurrencyTotals.PerformUpdate		= true
+				if (LocalDocumentCurrencyTotals.UpdateTotals)
+					invoke UpdateDocumentTotals BankStatementLine	 											 
+						invoked.PrmDocumentCurrencyTotals = LocalDocumentCurrencyTotals
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke PurgeValidSubLedgerTrx GLTransactionDetailRel					
+
+			
+		JournalizeDistributions is a Set Action		
+			completion message is "<CompletionMessage>"
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup
+					default label is "CashManagementGroup"
+				PrmCashManagementAccount	is a CashManagementAccount
+					default label is "CashAccount"					
+				PrmPostThruDate				is Date
+					default label is "PostThruDate"
+				PrmDescription			is a Description
+					default label is "Description"
+
+			Parameter Rules
+
+
+				PrmPostThruDate		 
+					required
+				PrmDescription
+					initial value is BankStatementLineDistributionPostingMessage
+
+			Local Fields
+				CompletionMessage			is Alpha 150
+				LocalJournalizeGroup		is a JournalizeGroup
+				LocalSystemCode            	is a GeneralLedgerSystemCode
+				LocalCashManagementGroup	is like CashManagementGroup
+				
+			Instance Selection
+				where (Status.Released
+				and   (CashManagementAccount	= PrmCashManagementAccount
+				or     PrmCashManagementAccount not entered)
+				and    StatementDate		   <= PrmPostThruDate)
+				
+			Sort Order  
+				CashManagementGroup
+				Status
+				StatementDate
+				CashManagementAccount
+
+			Accumulators
+
+			Action Rules								
+				Empty Set Rules
+					CompletionMessage = "BankStatementLineDistributionPostingCompleteForJournalizeGroup...:NoRecordsFoundToJournalize<LocalJournalizeGroup>"
+
+				Set Rules
+					Entrance Rules
+						LocalSystemCode 		 = "CB" 
+    					increment LocalSystemCode.LastJournalizeGroup
+            			LocalJournalizeGroup	 = LocalSystemCode.DerivedJournalizeGroup
+						
+						LocalCashManagementGroup = PrmCashManagementGroup					
+
+
+
+
+
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmCashManagementGroup.FinanceEnterpriseGroup in background
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							invoked.PrmJournalizeGroupDescription	= PrmDescription
+						
+						LocalCashManagementGroup = PrmCashManagementGroup
+						CompletionMessage = "BankStatementLineDistributionPostingCompleteForJournalizeGroup...:<LocalJournalizeGroup>"
+
+
+				CashManagementAccount Set Rules
+					Exit Rules
+						invoke UpdateStatementPostedStatus CashManagementAccount
+
+				Instance Rules
+					if (GLTransactionDetailRel exist)
+						invoke UpdateJournalizeGroup GLTransactionDetailRel	 
+							invoked.PrmJournalizeGroup = LocalJournalizeGroup  
+
+  						make transition to Posted
+ 
+ 		CreateCommitment is an Instance Action
+			default label is untranslatable
+			restricted
+			Exit Rules
+				invoke CreateCommitment GLCommit
+					invoked.HeaderUniqueID 					= BankStatementLine.UniqueID
+					invoked.AccountingEntity				= CashManagementAccount.LegalEntity.AccountingEntity
+					invoked.FinanceEnterpriseGroup			= CashManagementGroup
+					invoked.System							= "CB"
+					invoked.FinanceCodeBlock				= GLFinanceCodeBlock
+					invoked.CurrencyCode					= BankStatementLine.LineCurrency
+					invoked.TransactionAmount				= GLTransactionAmount
+					invoked.ReportCurrencyAmount			= GLBaseAmount     
+					invoked.TransactionDate					= BankStatement.StatementDate
+					invoked.OriginatingTransaction			= reference to this instance
+					invoked.DimensionCode					= GLFinanceCodeBlock.DimensionCode
+					invoked.TransBusinessObjectRef			= reference to BankStatementLine
+					invoked.PrmAllowRebuild                 = true		
+
+		RecalculateCommitmentAmounts is an Instance Action				
+			default label is untranslatable
+			restricted
+			Action Rules			
+				invoke Purge GLCommitRel
+					invoked.PrmPurgeRecalculate = true					
+				invoke CreateCommitment
+
+		PerformBudgetEdit is an Instance Action
+			default label is untranslatable
+			restricted			
+			Action Rules
+				invoke CheckTransaction BudgetTemplate		
+					invoked.PrmFinanceEnterpriseGroup   		= CashManagementGroup
+					invoked.PrmBudgetEditGroup					= UniqueID	
+					invoked.PrmHeaderUniqueID                   = BankStatementLine.UniqueID
+					invoked.PrmTransactionCodeBlock				= GLFinanceCodeBlock
+					invoked.PrmDate								= BankStatement.StatementDate
+					invoked.PrmReportAmounts.FunctionalAmount 	= GLBaseAmount.FunctionalAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount1      = GLBaseAmount.ReportAmount1.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount2      = GLBaseAmount.ReportAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount3      = GLBaseAmount.ReportAmount3.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount4      = GLBaseAmount.ReportAmount4.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.ReportAmount5      = GLBaseAmount.ReportAmount5.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount    = GLBaseAmount.AlternateAmount.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount2   = GLBaseAmount.AlternateAmount2.EnteredCurrencyAmount
+					invoked.PrmReportAmounts.AlternateAmount3   = GLBaseAmount.AlternateAmount3.EnteredCurrencyAmount
+    			if (BudgetErrorExists)
+					confirmation required   
+                    	"Warning:BudgetsHaveBeenExceeded;ViewDetailsInBudgetErrorPanel;IfNotAddressed,ReleaseWillNotBeAllowed;Continue?"
+
+
+		MaintainUnreleasedCommitment is an Instance Action
+			default label is untranslatable
+			restricted
+			Exit Rules
+				invoke MaintainUnreleasedCommitment GLCommitRel
+					invoked.TransactionAmount        = GLTransactionAmount
+					invoked.ReportCurrencyAmount     = GLBaseAmount
+					invoked.TransactionDate          = BankStatement.StatementDate
+					invoked.AccountingEntity         = CashManagementAccount.LegalEntity.AccountingEntity
+					invoked.FinanceCodeBlock         = GLFinanceCodeBlock
+					invoked.CurrencyCode             = BankStatementLine.LineCurrency
+
+		DeleteCBCommitment is an Instance Action 
+			default label is untranslatable
+			restricted
+			Action Rules
+				if (CommitmentExists)
+					invoke Purge GLCommitRel
+				if (BudgetErrorExists)
+					invoke Delete BudgetEditErrorRel
+
+		FastUpdate is an Update Action	
+			restricted
+			bypass field rules
+			
+  	StateCycles
+		StatementDistributionLifeCycle is a StateCycle
+			state field is Status
+		
+			Entered is a State
+		  		CreateFromReclassification is a Create Action
+		  			default label is untranslatable
+		  			restricted
+					Entrance Rules
+						include SaveDocumentCurrencyTotals
+					Action Rules
+						BypassStructureRelationEdit = true
+
+
+		  			Exit Rules
+						include CreateGLTransactionDetail
+						LocalDocumentCurrencyTotals.NewCurrencyAmount	= GLTransactionDetailRel.ReportCurrencyAmount	 
+						LocalDocumentCurrencyTotals.PerformUpdate		= true
+						increment BankStatementLine.LineDistributionAmount by GLTransactionAmount
+						if (LocalDocumentCurrencyTotals.UpdateTotals)
+							invoke UpdateDocumentTotals BankStatementLine	 											 
+								invoked.PrmDocumentCurrencyTotals = LocalDocumentCurrencyTotals
+						if (!BypassBudgetAndCommitmentProcessing)
+							include ProcessBudgetAndCommitments										
+
+
+						invoke UnpostBankStatement BankStatement	
+						
+		  		Create is a Create Action
+		  			valid when (BankStatementLine.DistributionsRequired)
+					Entrance Rules
+						include SaveDocumentCurrencyTotals
+					Action Rules
+
+
+		  			Exit Rules
+						invoke FastUpdate	
+		        			fill in user fields from BankStatementLine.CashTransactionCategory
+							fill in user fields from BankStatement
+							fill in user fields from BankStatementLine
+						include CreateGLTransactionDetail
+						if (!CashAccountDistribution)
+							LocalDocumentCurrencyTotals.NewCurrencyAmount	= GLTransactionDetailRel.ReportCurrencyAmount	 
+							LocalDocumentCurrencyTotals.PerformUpdate		= true
+							increment BankStatementLine.LineDistributionAmount by GLTransactionAmount
+							if (LocalDocumentCurrencyTotals.UpdateTotals)
+								invoke UpdateDocumentTotals BankStatementLine	 											 
+									invoked.PrmDocumentCurrencyTotals = LocalDocumentCurrencyTotals
+						if (!BypassBudgetAndCommitmentProcessing)
+							include ProcessBudgetAndCommitments
+
+
+
+
+						if (!BypassUnpostBankStatement)		
+							invoke UnpostBankStatement BankStatement	
+						invoke UpdateLineExceptionStatus BankStatementLine
+						
+		  		Update is an Update Action
+					Entrance Rules
+						constraint (!BankStatementLine.BudgetEditInProgress)		
+							"CannotUpdate;BudgetEditInProgress"
+						include SaveDocumentCurrencyTotals
+						OldGLTransactionAmount	= GLTransactionDetailRel.TransactionAmount
+					Action Rules
+						LocalKeepRateOnly = true
+
+
+		  			Exit Rules
+						include UpdateGLTransactionDetail
+						LocalDocumentCurrencyTotals.NewCurrencyAmount	= GLTransactionDetailRel.ReportCurrencyAmount	 
+						LocalDocumentCurrencyTotals.PerformUpdate		= true
+						increment BankStatementLine.LineDistributionAmount by (GLTransactionAmount - OldGLTransactionAmount)
+						if (LocalDocumentCurrencyTotals.UpdateTotals)
+							invoke UpdateDocumentTotals BankStatementLine	 											 
+								invoked.PrmDocumentCurrencyTotals = LocalDocumentCurrencyTotals
+						if (CommitmentExists)
+							if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit)
+								if (GLFinanceCodeBlock	!= GLCommitRel.FinanceCodeBlock
+								or  GLTransactionAmount != GLCommitRel.TransactionAmount
+								or  GLBaseAmount 		!= GLCommitRel.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount)
+									invoke Delete BudgetEditErrorRel
+									invoke PerformBudgetEdit
+							invoke MaintainUnreleasedCommitment				  			
+		  				invoke UpdateLineExceptionStatus BankStatementLine
+		
+		  		Delete is a Delete Action
+					Entrance Rules
+						constraint (!BankStatementLine.BudgetEditInProgress)		
+							"CannotDelete;BudgetEditInProgress"
+						include SaveDocumentCurrencyTotals
+						decrement BankStatementLine.LineDistributionAmount by GLTransactionAmount
+						LocalDocumentCurrencyTotals.PerformUpdate		= true
+						if (LocalDocumentCurrencyTotals.UpdateTotals)
+							invoke UpdateDocumentTotals BankStatementLine	 											 
+								invoked.PrmDocumentCurrencyTotals = LocalDocumentCurrencyTotals
+
+
+
+
+		  			Exit Rules
+		  				invoke UpdatePostedStatus BankStatement
+		  				invoke UpdateLineExceptionStatus BankStatementLine
+		  		
+		  		ReleaseDistribution is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+						if (GLTransactionDetailRel exist)
+							invoke Release GLTransactionDetailRel
+		  				make transition to Released
+		  		
+		  		SetToPendingApproval is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to PendingApproval
+		  	
+
+		  	PendingApproval is a State
+	  		
+		  		ReleaseDistribution is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+						if (GLTransactionDetailRel exist)
+							invoke Release GLTransactionDetailRel
+		  				make transition to Released
+
+		  		RejectDistributionRelease is an Instance Action
+		  			default label is untranslatable
+		  			restricted
+		  			Action Rules
+		  				make transition to Entered
+
+		  	Released is a State
+		  	
+
+
+
+
+
+
+
+
+
+		  				
+
+		  	Posted is a State
+		  	
+
+
+
+
+
+
+
+
+
+
+

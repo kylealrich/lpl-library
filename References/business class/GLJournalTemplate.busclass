@@ -1,0 +1,274 @@
+GLJournalTemplate is a BusinessClass
+    owned by GeneralLedger
+    prefix is GLJT
+    representative text is "<GLJournalTemplate>-<Description>"
+    default label is "GlobalLedgerJournalTemplate"
+
+    Ontology
+    	symbolic key is GLJournalTemplate
+
+    Patterns
+
+    Persistent Fields
+    	Description
+        Active
+        Ledger
+        AccountingEntity
+        GeneralLedgerEvent
+        	default label is "GlobalLedgerEvent"
+        AllowMultiplePerDay					is Boolean
+        LastUsedDate						is Date
+        UseCurrentDateForPostingDate		is Boolean
+		AutoReverse							is Boolean
+		JournalType							is Numeric 1
+            States
+                Normal					value is 0
+                InterEntity				value is 1
+		Currency		
+
+	Transient Fields
+
+	Local Fields
+		LocalCloseYear					is like GeneralLedgerCloseYear
+		LocalClosePeriod				is a GeneralLedgerClosePeriod
+		LocalJournalControl 			is like GeneralLedgerJournalControl
+		LocalUniqueJournalID			is a UniqueJournalID
+
+    Derived Fields
+    	YearMessage					is a MessageField
+    		restricted
+			"Year"
+		PeriodMessage				is a MessageField
+			restricted
+			"Period"
+		JournalMessage				is a MessageField	
+			restricted
+			"Journal"
+		NewJournalInfo				is a StringField
+			type is Alpha 60
+			restricted
+			YearMessage
+			"- "
+			LocalClosePeriod.GeneralLedgerCloseYear
+			" "
+			PeriodMessage
+			"- "
+			LocalClosePeriod
+			" "
+			JournalMessage
+			"# "
+			LocalJournalControl
+		DerivedWorkTransactionDebitAmount	is a DerivedField
+			type is like InternationalAmount
+			return (sum GLJournalTemplateWorkDebitRel.TransactionAmount)
+		DerivedWorkTransactionCreditAmount	is a DerivedField
+			type is like InternationalAmount
+			return (sum GLJournalTemplateWorkCreditRel.TransactionAmount)
+		DerivedWorkTransactionUnitAmount 	is a DerivedField
+			type is like UnitsAmount
+			return (sum GLJournalTemplateWorkRel.UnitsAmount)
+		DerivedWorkNetDifferenceAmount		is a DerivedField
+			type is like InternationalAmount
+			return (DerivedWorkTransactionDebitAmount + DerivedWorkTransactionCreditAmount)
+		DerivedTemplateTransactionDebitAmount	is a DerivedField
+			type is like InternationalAmount
+			return (sum GLJournalTemplateDetailDebitRel.TransactionAmount)
+		DerivedTemplateTransactionCreditAmount	is a DerivedField
+			type is like InternationalAmount
+			return (sum GLJournalTemplateDetailCreditRel.TransactionAmount)
+		DerivedTemplateTransactionUnitAmount 	is a DerivedField
+			type is like UnitsAmount
+			return (sum GLJournalTemplateDetailRel.UnitsAmount)
+		DerivedTemplateNetDifferenceAmount		is a DerivedField
+			type is like InternationalAmount
+			return (DerivedTemplateTransactionDebitAmount + DerivedTemplateTransactionCreditAmount)
+    
+    Sets
+    
+    Relations
+    	GLJournalTemplateDetailRel is a GLJournalTemplateDetail set
+    	GLJournalTemplateWorkRel is a GLJournalTemplateWork set
+    	GLJournalTemplateDetailDebitRel is a GLJournalTemplateDetail set
+    		Instance Selection
+    			where (related.TransactionAmount > 0)
+    	GLJournalTemplateDetailCreditRel is a GLJournalTemplateDetail set
+    		Instance Selection
+    			where (related.TransactionAmount < 0)
+    	GLJournalTemplateWorkDebitRel is a GLJournalTemplateWork set
+    		Instance Selection
+    			where (related.TransactionAmount > 0)
+    	GLJournalTemplateWorkCreditRel is a GLJournalTemplateWork set
+    		Instance Selection
+    			where (related.TransactionAmount < 0)
+ 		UniqueJournalIDRel
+			one-to-one relation to GeneralLedgerJournalControl
+			Field Mapping uses ByUniqueJournalID
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.UniqueJournalID		   = LocalUniqueJournalID
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntityGroup	= actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity		= AccountingEntity
+				   
+    Conditions
+    	TemplateExists
+    		restricted
+    		when (GLJournalTemplate exists)
+    	OkToProcess
+    		restricted
+    		when (LastUsedDate not entered
+    		or   (!AllowMultiplePerDay
+    		and   LastUsedDate < current corporate date))
+    	WorkExists
+    		restricted
+    		when (DetailExists
+    		and   GLJournalTemplateWorkRel exists)
+    	DetailExists
+    		restricted
+    		when (GLJournalTemplateDetailRel exists)
+    	NeedPostDate
+    		restricted
+    		when (!UseCurrentDateForPostingDate)
+    	OkToCreateJournal
+    		restricted
+    		when (DerivedWorkNetDifferenceAmount = 0)
+    	ApprovalUsed
+    		restricted
+    		when (!AccountingEntity.JournalApproval.None)
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+    		
+    Field Rules
+    	Ledger
+    		required
+    	AccountingEntity
+    		required
+    	Description
+    		required
+    	GeneralLedgerEvent
+    		force default to "JT"
+    	Active
+    		initial value is true
+    		default to true
+    	AllowMultiplePerDay
+    		initial value is true
+    		default to true
+    	UseCurrentDateForPostingDate
+    		initial value is true
+    		default to true
+    	JournalType
+    		default to JournalType.Normal
+    		
+    Actions  
+    	CreateWorkingLines is an Instance Action
+    		completion message is "WorkingLinesCreatedForTemplate"
+    		run in foreground
+    		valid when (!WorkExists)
+    		
+    		Local Fields
+    		
+    		Action Rules
+    			for each GLJournalTemplateDetailRel
+    				invoke Create GLJournalTemplateWork
+    					fill in fields from each
+    		
+    		Exit Rules
+    		  	
+    	CreateJournalFromTemplate is an Instance Action
+			valid when (WorkExists)
+			run in foreground
+			completion message is "JournalCreatedFor<NewJournalInfo>"
+			Parameters
+				PrmDescription					is like Description
+					default label is "Description"
+				PrmTransactionDate				is Date
+					default label is "TransactionDate"
+				PrmPostingDate					is a PostingDate
+					default label is "PostingDate"
+        		PrmUniqueJournalID				is a UniqueJournalID
+        			default label is "UniqueJournalID"
+        	Parameter Rules
+        		PrmDescription
+        			required
+        			if (!AllowMultiplePerDay)
+        				constraint (OkToProcess)
+        					"CannotCreateJournal,TemplateAlreadyUsedToday"
+        		PrmTransactionDate
+        			default to current corporate date
+        		PrmPostingDate
+
+        			if (UseCurrentDateForPostingDate)
+        				default to current corporate date
+        			else
+        				required
+        		PrmUniqueJournalID
+        			if (FinanceEnterpriseGroup.RequireUniqueJournalID)
+        				required
+					LocalUniqueJournalID = PrmUniqueJournalID
+					constraint (!UniqueJournalIDRel exists)
+						"UniqueJournalIDAlreadyExists"
+						        			
+        	Local Fields
+        		LocalJournalView					is a GeneralLedgerJournalControl view
+        		LocalPostingDate					is Date
+        	
+        	Action Rules
+        		constraint (OkToCreateJournal)
+        			"CannotCreateJournal,TotalDebitsDoNotEqualTotalCredits"
+        		constraint (Active)
+        			"CannotCreateJournal,TemplateIsNotActive"
+        		invoke Create Unreleased GeneralLedgerJournalControl
+        			assign result to LocalJournalView
+        			fill in fields from this instance
+        			invoked.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+        			invoked.AccountingEntity					= AccountingEntity
+        			invoked.Ledger								= Ledger
+        			invoked.TransactionDate						= PrmTransactionDate
+        			invoked.PostingDate							= PrmPostingDate
+        			invoked.Description							= PrmDescription
+        			invoked.JournalType							= JournalType
+        			invoked.System								= "GL"
+        			invoked.AutoReverse							= AutoReverse
+        			invoked.Currency							= Currency
+        			invoked.UniqueJournalID						= PrmUniqueJournalID
+					
+
+				LocalClosePeriod					= LocalJournalView.GeneralLedgerClosePeriod
+				LocalJournalControl					= LocalJournalView.GeneralLedgerJournalControl
+        	
+        	Exit Rules
+        		if (LastUsedDate < current corporate date)
+        			LastUsedDate					= current corporate date
+        		for each GLJournalTemplateWorkRel
+        			if (each.TransactionAmount entered
+        			or  each.UnitsAmount entered)
+        				invoke Create Unreleased GeneralLedgerTransaction
+        					fill in fields from each
+        					invoked.AccountingEntity				= LocalJournalView.AccountingEntity
+
+							invoked.GeneralLedgerClosePeriod		= LocalJournalView.GeneralLedgerClosePeriod
+							invoked.GeneralLedgerJournalControl		= LocalJournalView.GeneralLedgerJournalControl
+							invoked.PostingDate						= LocalJournalView.PostingDate
+							invoked.TransactionDate					= LocalJournalView.TransactionDate
+							invoked.Reference						= each.Reference
+							invoked.Description						= each.Description
+							invoked.FinanceCodeBlock				= each.FinanceCodeBlock
+							invoked.TransactionAmount				= each.TransactionAmount
+							invoked.UnitsAmount						= each.UnitsAmount
+							invoked.AutoReverse						= each.AutoReverse
+							initialize invoked.Status
+							invoked.GeneralLedgerCalendarPeriod		= LocalJournalView.GeneralLedgerCalendarPeriod
+							invoked.PrimaryLedger					= LocalJournalView.PrimaryLedger
+							
+				for each GLJournalTemplateWorkRel
+					invoke Delete each
+        	
+    	Create is a Create Action
+    	
+    	Update is an Update Action
+    	
+    	Delete is a Delete Action
+    	

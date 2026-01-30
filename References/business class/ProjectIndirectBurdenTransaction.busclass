@@ -1,0 +1,1282 @@
+ProjectIndirectBurdenTransaction is a BusinessClass
+	sql name is "ProjectIndBurdenTrans"
+	owned by Projects
+	prefix is PJIBT
+	
+	Ontology
+		part of Project
+			relative key is SequenceNumber
+	
+	Patterns
+		disable Auditing
+	
+	Persistent Fields
+		ProjectIndirectBurdenCode
+		BurdenEffectiveDate				is Date
+		OriginalGLTransactionDetail		is a GLTransactionDetail
+		Status							is Numeric size 1
+			States
+				Created					value is 0
+				Journalized				value is 1
+		Amount							is a CurrencyAmount
+			precision is Project.Currency.NumberOfDecimals
+		GeneratedGLTransactionDetail	is a GLTransactionDetail
+		RunGroup						is a ProjectIndirectBurdenRunGroup
+		AccountingEntity
+		ErrorMessage					is Text
+			disable Auditing
+		OverrideFD2						is like FinanceDimension2
+		PartialStatus					is Numeric size 1
+			States
+				Limited					value is 1
+				Reallocated				value is 2
+	Transient Fields
+		BypassStructureRelationEdit
+		BypassActiveCodeBlockEdit
+		BypassProjectDateEdit
+		SkipFESUpdate					is Boolean
+
+	Local Fields
+		LocalFinanceEnterpriseGroup		is like FinanceEnterpriseGroup
+		LocalAccountingEntity			is like AccountingEntity
+		LocalAccountingEntityGroup		is like AccountingEntityGroup
+		LocalRunGroup					is Numeric size 8
+		LocalProject					is like Project
+		LocalFinanceDimension2			is like FinanceDimension2
+		LocalProjectStructureValidationResult is a ProjectStructureValidationResult
+		LocalCodeBlock					is a FinanceCodeBlock
+
+	Derived Fields
+		FESFD2							is a DerivedField
+			type is like FinanceDimension2
+
+			if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2 entered)
+				return ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2
+			else
+			if (OverrideFD2 entered)
+				return OverrideFD2
+			else
+				return OriginalGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+				
+					
+	Rule Blocks
+		AddToTable
+			LocalProjectStructureValidationResult = ProjectStructureValidationResultView.ProjectStructureValidationResult
+			if (ProjectStructureValidationLineOTORel not exists)
+				LineCount += 1
+				invoke Create ProjectStructureValidationLine
+					invoked.FinanceEnterpriseGroup				 = FinanceEnterpriseGroup
+					invoked.ProjectStructureValidationResult	 = LocalProjectStructureValidationResult
+					invoked.SequenceNumber						 = LineCount
+					invoked.ValidationCodeBlock.AccountingEntity = LocalAccountingEntity
+					invoked.ValidationCodeBlock.FinanceCodeBlock = LocalCodeBlock
+				if (TranCount = 50)
+					commit transaction
+					initialize TranCount
+				TranCount += 1
+
+	Conditions
+		OriginalAPHold
+			when (OriginalGLTransactionDetail.APPaid.HoldForBilling)
+		GeneratedAPHold
+			when (GeneratedGLTransactionDetail.APPaid.HoldForBilling)
+		ErrorMessageEntered
+			when (ErrorMessage entered)
+		OverrideFD2Entered
+			when (OverrideFD2 entered)
+		JournalizeGroupEntered
+			restricted
+			when (GeneratedGLTransactionDetail.JournalizeGroup entered)
+		PendingFESBurdenTransactions
+			when (Project.ParentDisplayContract entered
+			and	  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled	
+			and   !Project.ExcludeFromFES
+			and   FESFD2 != blank
+			and   Status.Created)
+
+	Relations
+		OtherBurdenTransactionRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByOriginalGLTransactionDetail
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.Project						= Project
+				related.OriginalGLTransactionDetail = OriginalGLTransactionDetail
+			Instance Selection
+    			where (related.UniqueID != UniqueID)
+
+		GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup          = LocalFinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode         = "PS"				
+
+		ProjectIndirectBurdenCodeRel
+			one-to-one relation to ProjectIndirectBurdenCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.ProjectIndirectBurdenCode	= ProjectIndirectBurdenCode
+				related.EffectiveDate				= BurdenEffectiveDate
+
+		CreatedTransactionsRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByRunGroup
+				related.FinanceEnterpriseGroup	= LocalFinanceEnterpriseGroup
+				related.RunGroup				= LocalRunGroup
+			Instance Selection
+				where (related.Status.Created)
+				
+		CreatedProjectTransactionsRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByRunGroup
+				related.FinanceEnterpriseGroup	= LocalFinanceEnterpriseGroup
+				related.RunGroup				= LocalRunGroup
+				related.Project					= LocalProject
+			Instance Selection
+				where (related.Status.Created)
+
+		JournalizedTransactionsRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByRunGroup
+				related.FinanceEnterpriseGroup	= LocalFinanceEnterpriseGroup
+				related.RunGroup				= LocalRunGroup
+			Instance Selection
+				where (related.Status.Journalized)
+				
+		JournalizedProjectTransactionsRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByRunGroup
+				related.FinanceEnterpriseGroup	= LocalFinanceEnterpriseGroup
+				related.RunGroup				= LocalRunGroup
+				related.Project					= LocalProject
+			Instance Selection
+				where (related.Status.Journalized)
+
+		JournalizedNoRunGroupTransactionsRel
+			one-to-many relation to ProjectIndirectBurdenTransaction
+			Field Mapping uses ByOriginalGLTransactionDetail
+				related.FinanceEnterpriseGroup	= LocalFinanceEnterpriseGroup
+				related.Project					= LocalProject
+			Instance Selection
+				where (related.Status.Journalized)
+				
+		AccountingEntityGroupMemberRel
+			one-to-many relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup          = LocalFinanceEnterpriseGroup
+				related.AccountingEntityGroup			= LocalAccountingEntityGroup
+		SystemClosingControlRel
+			one-to-one relation to SystemClosingControl
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= LocalFinanceEnterpriseGroup
+				related.AccountingEntity				= LocalAccountingEntity
+				related.GeneralLedgerSystemCode			= "PS"
+		AccountingEntityGroupMemberOTORel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup          = FinanceEnterpriseGroup
+				related.AccountingEntityGroup			= LocalAccountingEntityGroup
+				related.AccountingEntity				= AccountingEntity
+
+		ProjectFundingSourceRel
+			one-to-one relation to ProjectFundingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= Project.ParentDisplayContractRel.Project
+				related.FinanceDimension2		= LocalFinanceDimension2	
+
+		JournalizeGroupResultRel
+			one-to-one relation to JournalizeGroupResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.JournalizeGroupResult	= GeneratedGLTransactionDetail.JournalizeGroup
+
+		ProjectStructureValidationLineOTORel
+			one-to-many relation to ProjectStructureValidationLine
+			Field Mapping uses ByValidationCodeBlock
+				related.FinanceEnterpriseGroup				 = FinanceEnterpriseGroup
+				related.ProjectStructureValidationResult	 = LocalProjectStructureValidationResult
+				related.ValidationCodeBlock.AccountingEntity = LocalAccountingEntity
+				related.ValidationCodeBlock.FinanceCodeBlock = LocalCodeBlock
+				
+		ProjectStructureValidationLineRel
+			one-to-many relation to ProjectStructureValidationLine
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup				 = LocalFinanceEnterpriseGroup
+				related.ProjectStructureValidationResult	 = LocalProjectStructureValidationResult
+
+	Sets
+		ByOriginalGLTransactionDetail
+			Sort Order
+				FinanceEnterpriseGroup
+				Project
+				OriginalGLTransactionDetail
+				SequenceNumber
+
+		ByRunGroup
+			Sort Order
+				FinanceEnterpriseGroup
+				RunGroup descending
+				Project
+				SequenceNumber
+				
+	Field Rules
+		SequenceNumber
+			autosequence
+			
+
+	Delete Rules
+		if (OtherBurdenTransactionRel not exists)
+			invoke UpdateIndirectBurden OriginalGLTransactionDetail
+				invoked.PrmIndirectBurden = 0	
+
+	Actions
+		Create is a Create Action
+			restricted
+			Exit Rules
+				if (OriginalGLTransactionDetail.IndirectBurden.Unprocessed)
+					invoke UpdateIndirectBurden OriginalGLTransactionDetail
+						invoked.PrmIndirectBurden = 1
+				if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2 entered)
+					LocalFinanceDimension2 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2
+				else
+				if (OverrideFD2 entered)
+					LocalFinanceDimension2 = OverrideFD2
+				else
+					LocalFinanceDimension2 = OriginalGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+				if  (LocalFinanceDimension2 entered
+				and  FinanceEnterpriseGroup.FrontEndSplits
+				and  FinanceEnterpriseGroup.UseFundedAmounts
+				and !Project.ExcludeFromFES
+				and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+				and  Amount entered)
+					invoke UpdateFESExpenditures ProjectFundingSourceRel
+						invoked.Commitment = true
+						invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+						invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+						invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+						invoked.Amount = Amount
+
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			valid when (Status.Created)
+			Exit Rules
+				if (!SkipFESUpdate)
+					if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2 entered)
+						LocalFinanceDimension2 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2
+					else
+					if (OverrideFD2 entered)
+						LocalFinanceDimension2 = OverrideFD2
+					else
+						LocalFinanceDimension2 = OriginalGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+					if  (LocalFinanceDimension2 entered
+					and  FinanceEnterpriseGroup.FrontEndSplits
+					and  FinanceEnterpriseGroup.UseFundedAmounts
+					and !Project.ExcludeFromFES
+					and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+					and  Amount entered)
+						invoke UpdateFESExpenditures ProjectFundingSourceRel
+							invoked.Commitment = true
+							invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+							invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+							invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+							invoked.Amount = Amount * -1
+
+		DeleteRunGroup is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmRunGroup					is a ProjectIndirectBurdenRunGroup
+					default label is "RunGroup"
+				PrmProject					is a Project
+					default label is "<actor.context.FinanceEnterpriseGroup.ProjectLabel>"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmRunGroup
+					required
+						LocalFinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+						LocalRunGroup				= PrmRunGroup
+						constraint (CreatedTransactionsRel exists)
+							"NoCreatedTransactionsExistForRunGroup<LocalRunGroup>"					
+				PrmProject
+					LocalProject = PrmProject
+					constraint (PrmProject.ProjectType.Posting)
+						"MustBePostingProject"
+					constraint (CreatedProjectTransactionsRel exists)
+							"NoCreatedTransactionsExistForRunGroup<LocalRunGroup>AndProject<PrmProject>"					
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    RunGroup				  = PrmRunGroup
+				and   (Project				  = PrmProject
+				or     PrmProject not entered)
+				and    Status.Created)
+
+			Action Rules
+				Set Rules
+					Exit Rules
+						if (PrmProject not entered
+						and JournalizedTransactionsRel not exists)
+							invoke Delete PrmRunGroup
+				Instance Rules
+					invoke Delete
+
+		ReverseJournalizedIndirectBurdens is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				ContractGroup				is a ProjectContract group					
+				PrmRunGroup					is a ProjectIndirectBurdenRunGroup
+					default label is "RunGroup"
+				PrmProject					is a Project
+					default label is "<actor.context.FinanceEnterpriseGroup.ProjectLabel>"
+				ProjectGroup				is a Project group
+					default label is "<actor.context.FinanceEnterpriseGroup.ProjectLabel>Group"
+				IndirectBurdenCode			is a ProjectIndirectBurdenCode
+				PostingDateRange			is a DateRange
+				TransactionDateRange		is a DateRange
+				PostingDate					is Date
+				PrmDelete					is Boolean
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmRunGroup
+					LocalFinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+					LocalRunGroup				= PrmRunGroup
+					constraint (JournalizedTransactionsRel exists)
+						"NoJournalizedTransactionsExistForRunGroup<LocalRunGroup>"					
+				PrmProject
+					LocalProject = PrmProject
+					constraint (PrmProject.ProjectType.Posting)
+						"MustBePostingProject"
+					if (PrmRunGroup entered)
+						constraint (JournalizedProjectTransactionsRel exists)
+							"NoJournalizedTransactionsExistForRunGroup<LocalRunGroup>AndProject<PrmProject>"
+					else
+						constraint (JournalizedNoRunGroupTransactionsRel exists)
+							"NoJournalizedTransactionsExistForProject<PrmProject>"
+				PostingDateRange
+					required
+						"RecordSelectionPostingDateRangeRequired"
+					if (PostingDateRange.Begin entered)
+						constraint (PostingDateRange.End entered)	
+							"EndPostingDateRequired"
+					if (PostingDateRange.End entered)
+						constraint (PostingDateRange.Begin entered)	
+							"BeginPostingDateRequired"
+					if (PrmRunGroup not entered
+					and PrmProject not entered
+					and IndirectBurdenCode not entered)
+						confirmation required
+							"AllJournalizedIndirectBurdenTransactionsForTheEnteredDateRangeWillBeReversed"
+				TransactionDateRange
+					if (TransactionDateRange.Begin entered)
+						constraint (TransactionDateRange.End entered)	
+							"EndTransactionDateRequired"
+					if (TransactionDateRange.End entered)
+						constraint (TransactionDateRange.Begin entered)	
+							"BeginTransactionDateRequired"
+				PostingDate
+					required
+					initial value is PrmRunGroup.PostingDate
+				PrmDelete
+					confirmation required
+						"DeleteDraftIndirectBurdenTransactionsAfterReversing?"
+			Local Fields
+        		LocalJournalizeGroup	is a JournalizeGroup
+				TotalAmount				is an InternationalAmount
+				OffsetTable				is a RevenueTable
+					do not save in checkpoint
+				OffsetCounter			is Numeric size 4
+				LocalOffsetCodeBlock	is a FinanceCodeBlock
+				ErrorFound				is Boolean
+				LocalErrorMessage		is Text	
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingEntity
+				Project
+				ProjectIndirectBurdenCode
+				BurdenEffectiveDate
+				SequenceNumber
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and   (Project.ParentDisplayContractRel.Project.ProjectContract within ContractGroup
+				or     ContractGroup not entered)
+				and   (RunGroup				  = PrmRunGroup
+				or     PrmRunGroup not entered)
+				and   (Project				  = PrmProject
+				or     PrmProject not entered)
+				and   (Project within ProjectGroup
+				or     ProjectGroup not entered)
+				and   (ProjectIndirectBurdenCode = IndirectBurdenCode
+				or     IndirectBurdenCode not entered)
+				and   (OriginalGLTransactionDetail.PostingDate within PostingDateRange
+				or     PostingDateRange not entered)
+				and   (OriginalGLTransactionDetail.TransactionDate within TransactionDateRange
+				or     PostingDateRange not entered)
+				and    Status.Journalized)
+			Action Rules
+				Set Rules
+					Entrance Rules
+						LocalFinanceEnterpriseGroup	= FinanceEnterpriseGroup					
+			            increment GeneralLedgerSystemCodeRel.LastJournalizeGroup
+						LocalJournalizeGroup		= GeneralLedgerSystemCodeRel.DerivedJournalizeGroup
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmFinanceEnterpriseGroup in background
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup		
+				BurdenEffectiveDate Set Rules
+					Entrance Rules
+						initialize TotalAmount
+						initialize OffsetTable
+						initialize OffsetCounter
+					Exit Rules
+						BypassStructureRelationEdit = true
+						BypassActiveCodeBlockEdit	= true
+						BypassProjectDateEdit		= true
+						if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+							OffsetCounter = 1
+							while (OffsetCounter < 1000)
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+									OffsetCounter = 1000
+								else
+								if (OffsetTable.RevenueLine[OffsetCounter].Amount entered)
+									invoke Released.Create GLTransactionDetail
+				        				resume on error
+										invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+										invoked.JournalizeGroup			= LocalJournalizeGroup
+										invoked.PostingDate				= PostingDate
+										invoked.AccountingEntity		= AccountingEntity
+										invoked.TransactionAmount		= OffsetTable.RevenueLine[OffsetCounter].Amount
+										invoked.FinanceCodeBlock		= OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock
+										invoked.System					= "PS"
+										invoked.GeneralLedgerEvent		= "OS"
+										invoked.TransactionDate			= PostingDate
+										invoked.CurrencyCode			= Project.Currency
+										invoked.Reference				= "ProjectIndirectBurdenReversalOffset"
+										invoked.IndirectBurden			= 2
+										invoked.BypassActiveCodeBlockEdit = true
+								OffsetCounter +=1
+						else
+						if (TotalAmount entered)
+							invoke Released.Create GLTransactionDetail
+								resume on error
+								invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.JournalizeGroup			= LocalJournalizeGroup
+								invoked.PostingDate				= PostingDate
+								invoked.AccountingEntity		= AccountingEntity
+								invoked.TransactionAmount		= TotalAmount
+								invoked.FinanceCodeBlock		= ProjectIndirectBurdenCodeRel.OffsetCodeBlock
+								invoked.System					= "PS"
+								invoked.GeneralLedgerEvent		= "OS"
+								invoked.TransactionDate			= PostingDate
+								invoked.CurrencyCode			= Project.Currency
+								invoked.Reference				= "ProjectIndirectBurdenReversalOffset"
+								invoked.IndirectBurden			= 2
+								invoked.BypassActiveCodeBlockEdit = true
+				Instance Rules
+					BypassStructureRelationEdit = true
+					BypassActiveCodeBlockEdit	= true
+					BypassProjectDateEdit		= true
+					if (OriginalGLTransactionDetail.IndirectBurden.Processed)
+						invoke UpdateIndirectBurden OriginalGLTransactionDetail
+							invoked.PrmIndirectBurden = 1
+					initialize ErrorFound
+					invoke Released.Create GLTransactionDetail
+						resume on error
+							ErrorFound = true
+							LocalErrorMessage = error message  
+						fill in fields from GeneratedGLTransactionDetail
+							except invoked.ReportCurrencyAmount
+							except invoked.OriginatingTransaction
+							except invoked.UnitsAmount	
+							except invoked.AutoReverse						
+						invoked.JournalizeGroup			= LocalJournalizeGroup
+						invoked.PostingDate				= PostingDate
+						invoked.TransactionAmount		= GeneratedGLTransactionDetail.TransactionAmount * -1
+						invoked.GeneralLedgerEvent		= "RB"
+						invoked.Reference				= "ProjectIndirectBurdenReversal"
+						invoked.Billed					= 0
+						invoked.RevenueRecognized		= 0
+						invoked.LaborDistribution		= 0
+						invoked.Capitalize				= 0
+						invoked.BypassActiveCodeBlockEdit = true
+					TotalAmount += GeneratedGLTransactionDetail.TransactionAmount
+					if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+						LocalOffsetCodeBlock		= OriginalGLTransactionDetail.FinanceCodeBlock
+						LocalOffsetCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+							LocalOffsetCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+							LocalOffsetCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+							LocalOffsetCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+							LocalOffsetCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+							LocalOffsetCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+							LocalOffsetCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+							LocalOffsetCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+							LocalOffsetCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+							LocalOffsetCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+							LocalOffsetCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+							LocalOffsetCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+							LocalOffsetCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+							LocalOffsetCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+						if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+							LocalOffsetCodeBlock.Project = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project
+						OffsetCounter = 1
+						while (OffsetCounter < 1000)
+							if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+								OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock
+								OffsetTable.RevenueLine[OffsetCounter].Amount = GeneratedGLTransactionDetail.TransactionAmount
+								OffsetCounter = 1000
+							else
+							if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock)
+								OffsetTable.RevenueLine[OffsetCounter].Amount += GeneratedGLTransactionDetail.TransactionAmount
+								OffsetCounter = 1000
+							else
+								OffsetCounter +=1
+					if (PrmDelete)
+						SkipFESUpdate = true
+						invoke Delete
+					else
+						LocalFinanceDimension2 = GeneratedGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+						initialize Status
+						initialize GeneratedGLTransactionDetail
+						if (ErrorFound)
+							ErrorMessage = LocalErrorMessage
+						else
+							initialize ErrorMessage
+						if  (LocalFinanceDimension2 entered
+						and  FinanceEnterpriseGroup.FrontEndSplits
+						and  FinanceEnterpriseGroup.UseFundedAmounts
+						and !Project.ExcludeFromFES
+						and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+						and  Amount entered)
+							invoke UpdateFESExpenditures ProjectFundingSourceRel
+								invoked.Commitment = true
+								invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+								invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+								invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+								invoked.Amount = Amount
+					
+		Reverse is an Instance Action
+			valid when (Status.Journalized)
+			Parameters
+				PostingDate 				is Date
+				DeleteReversedTransaction	is Boolean
+			Parameter Rules
+				PostingDate
+					required
+					initial value is GeneratedGLTransactionDetail.PostingDate
+				DeleteReversedTransaction
+					confirmation required
+						"DeleteDraftIndirectBurdenTransaction(s)AfterReversing?"
+			Local Fields
+        		LocalJournalizeGroup	is a JournalizeGroup
+				LocalOffsetCodeBlock	is a FinanceCodeBlock
+        	Entrance Rules
+				LocalFinanceEnterpriseGroup	= FinanceEnterpriseGroup					
+	            increment GeneralLedgerSystemCodeRel.LastJournalizeGroup
+				LocalJournalizeGroup		= GeneralLedgerSystemCodeRel.DerivedJournalizeGroup
+				BypassStructureRelationEdit = true
+				BypassActiveCodeBlockEdit	= true
+			Action Rules
+				if (OriginalGLTransactionDetail.IndirectBurden.Processed)
+					invoke UpdateIndirectBurden OriginalGLTransactionDetail
+						invoked.PrmIndirectBurden = 1
+				invoke Released.Create GLTransactionDetail
+					fill in fields from GeneratedGLTransactionDetail
+						except invoked.ReportCurrencyAmount
+						except invoked.OriginatingTransaction
+						except invoked.UnitsAmount	
+						except invoked.AutoReverse						
+					invoked.JournalizeGroup			= LocalJournalizeGroup
+					invoked.PostingDate				= PostingDate
+					invoked.TransactionAmount		= GeneratedGLTransactionDetail.TransactionAmount * -1
+					invoked.GeneralLedgerEvent		= "RB"
+					invoked.Reference				= "ProjectIndirectBurdenReversal"
+					invoked.Billed					= 0
+					invoked.RevenueRecognized		= 0
+					invoked.LaborDistribution		= 0
+					invoked.Capitalize				= 0
+					invoked.BypassActiveCodeBlockEdit = true
+				if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+					LocalOffsetCodeBlock		= OriginalGLTransactionDetail.FinanceCodeBlock
+					LocalOffsetCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+						LocalOffsetCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+						LocalOffsetCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+						LocalOffsetCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+						LocalOffsetCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+						LocalOffsetCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+						LocalOffsetCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+						LocalOffsetCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+						LocalOffsetCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+						LocalOffsetCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+						LocalOffsetCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+						LocalOffsetCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+						LocalOffsetCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+						LocalOffsetCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+					if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+						LocalOffsetCodeBlock.Project = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project
+				else
+					LocalOffsetCodeBlock = ProjectIndirectBurdenCodeRel.OffsetCodeBlock
+				invoke Released.Create GLTransactionDetail
+					fill in fields from GeneratedGLTransactionDetail
+						except invoked.ReportCurrencyAmount
+						except invoked.OriginatingTransaction
+						except invoked.UnitsAmount
+						except invoked.AutoReverse
+					invoked.JournalizeGroup			= LocalJournalizeGroup
+					invoked.PostingDate				= PostingDate
+					invoked.TransactionAmount		= GeneratedGLTransactionDetail.TransactionAmount
+					invoked.FinanceCodeBlock		= LocalOffsetCodeBlock
+					invoked.GeneralLedgerEvent		= "OS"
+					invoked.Reference				= "ProjectIndirectBurdenReversalOffset"
+					invoked.BypassActiveCodeBlockEdit = true
+				if (DeleteReversedTransaction)
+					SkipFESUpdate = true
+					invoke Delete
+				else
+					LocalFinanceDimension2 = GeneratedGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+					initialize Status
+					initialize GeneratedGLTransactionDetail
+					if  (LocalFinanceDimension2 entered
+					and  FinanceEnterpriseGroup.FrontEndSplits
+					and  FinanceEnterpriseGroup.UseFundedAmounts
+					and !Project.ExcludeFromFES
+					and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+					and  Amount entered)
+						invoke UpdateFESExpenditures ProjectFundingSourceRel
+							invoked.Commitment = true
+							invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+							invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+							invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+							invoked.Amount = Amount
+
+				for each OtherBurdenTransactionRel
+					invoke Released.Create GLTransactionDetail
+						fill in fields from each.GeneratedGLTransactionDetail
+							except invoked.ReportCurrencyAmount
+							except invoked.OriginatingTransaction
+							except invoked.UnitsAmount	
+							except invoked.AutoReverse						
+						invoked.JournalizeGroup			= LocalJournalizeGroup
+						invoked.PostingDate				= PostingDate
+						invoked.TransactionAmount		= each.GeneratedGLTransactionDetail.TransactionAmount * -1
+						invoked.GeneralLedgerEvent		= "RB"
+						invoked.Reference				= "ProjectIndirectBurdenReversal"
+						invoked.Billed					= 0
+						invoked.RevenueRecognized		= 0
+						invoked.LaborDistribution		= 0
+						invoked.Capitalize				= 0
+						invoked.BypassActiveCodeBlockEdit = true
+					if (each.ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+						LocalOffsetCodeBlock		= each.OriginalGLTransactionDetail.FinanceCodeBlock
+						LocalOffsetCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+							LocalOffsetCodeBlock.ToAccountingEntity = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+							LocalOffsetCodeBlock.AccountingUnit = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+							LocalOffsetCodeBlock.GeneralLedgerChartAccount = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+							LocalOffsetCodeBlock.FinanceDimension1 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+							LocalOffsetCodeBlock.FinanceDimension2 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+							LocalOffsetCodeBlock.FinanceDimension3 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+							LocalOffsetCodeBlock.FinanceDimension4 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+							LocalOffsetCodeBlock.FinanceDimension5 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+							LocalOffsetCodeBlock.FinanceDimension6 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+							LocalOffsetCodeBlock.FinanceDimension7 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+							LocalOffsetCodeBlock.FinanceDimension8 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+							LocalOffsetCodeBlock.FinanceDimension9 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+							LocalOffsetCodeBlock.FinanceDimension10 = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+						if (each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+							LocalOffsetCodeBlock.Project = each.ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project
+					else
+						LocalOffsetCodeBlock = each.ProjectIndirectBurdenCodeRel.OffsetCodeBlock
+					invoke Released.Create GLTransactionDetail
+						fill in fields from each.GeneratedGLTransactionDetail
+							except invoked.ReportCurrencyAmount
+							except invoked.OriginatingTransaction
+							except invoked.UnitsAmount
+							except invoked.AutoReverse
+						invoked.JournalizeGroup			= LocalJournalizeGroup
+						invoked.PostingDate				= PostingDate
+						invoked.TransactionAmount		= each.GeneratedGLTransactionDetail.TransactionAmount
+						invoked.FinanceCodeBlock		= LocalOffsetCodeBlock
+						invoked.GeneralLedgerEvent		= "OS"
+						invoked.Reference				= "ProjectIndirectBurdenReversalOffset"
+						invoked.BypassActiveCodeBlockEdit = true
+					invoke DeleteOrUpdateReversal each
+						if (DeleteReversedTransaction)
+							invoked.DoDelete = true
+			Exit Rules
+				invoke InitiateJournalizeForRunGroup FinanceEnterpriseGroup in background
+					invoked.PrmJournalizeGroup	= LocalJournalizeGroup		
+
+		DeleteOrUpdateReversal is an Instance Action
+			restricted
+			Parameters
+				DoDelete	is Boolean
+			Action Rules
+				if (DoDelete)
+					SkipFESUpdate = true
+					invoke Delete
+				else
+					LocalFinanceDimension2 = GeneratedGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+					invoke Update
+						invoked.Status = 0
+						invoked.GeneratedGLTransactionDetail = blank
+					if  (LocalFinanceDimension2 entered
+					and  FinanceEnterpriseGroup.FrontEndSplits
+					and  FinanceEnterpriseGroup.UseFundedAmounts
+					and !Project.ExcludeFromFES
+					and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+					and  Amount entered)
+						invoke UpdateFESExpenditures ProjectFundingSourceRel
+							invoked.Commitment = true
+							invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+							invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+							invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+							invoked.Amount = Amount
+
+		ValidateIndirectBurdenJournalEntries is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+        		PrmAccountingEntity			is an AccountingEntity
+        			default label is "AccountingEntity"
+        		PrmAccountingEntityGroup	is an AccountingEntityGroup
+        			default label is "AccountingEntityGroup"				
+				PrmRunGroup					is a ProjectIndirectBurdenRunGroup
+					default label is "RunGroup"
+				PostingDate					is Date
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+        		PrmAccountingEntity
+        			if (PrmAccountingEntityGroup entered)
+	        			cannot be entered
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"
+	        		else
+	        			required
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"	        			
+        		PrmAccountingEntityGroup
+        			if (PrmAccountingEntity entered)
+	        			cannot be entered
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"	        			
+	        		else
+	        			required
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"
+				PrmRunGroup
+					required
+				PostingDate
+					required
+					LocalFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+					LocalAccountingEntityGroup	= PrmAccountingEntityGroup
+					if (PrmAccountingEntity entered)
+						LocalAccountingEntity		= PrmAccountingEntity
+						if (SystemClosingControlRel exists
+						and SystemClosingControlRel.Control)
+							constraint (PostingDate within SystemClosingControlRel.ValidEntryDate)
+								"PostingDateMustBeWithinSystemClosingControlValidDateRange"
+					else
+						for each AccountingEntityGroupMemberRel
+							LocalAccountingEntity		= each.AccountingEntity
+							if (each.AccountingEntity.Status.Active)							
+								if (SystemClosingControlRel exists
+								and SystemClosingControlRel.Control)
+									constraint (PostingDate within SystemClosingControlRel.ValidEntryDate)
+										"PostingDateMustBeWithinSystemClosingControlValidDateRange"
+			Local Fields
+				TotalAmount				is an InternationalAmount
+				OffsetTable				is a RevenueTable
+					do not save in checkpoint
+				OffsetCounter			is Numeric size 4
+				LocalOffsetCodeBlock	is a FinanceCodeBlock
+				ErrorFound				is Boolean
+				LocalErrorMessage		is Text
+				TranCount				is Numeric size 2
+				LocalAccountingEntity	is like AccountingEntity
+				ProjectStructureValidationTestView		is a ProjectStructureValidationTest view
+				ProjectStructureValidationResultView	is a ProjectStructureValidationResult view
+				ErrorCounter			is like SequenceNumber
+				LineCount				is like SequenceNumber
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingEntity
+				Project
+				ProjectIndirectBurdenCode
+				BurdenEffectiveDate
+				SequenceNumber
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and   (AccountingEntity = PrmAccountingEntity
+				or     PrmAccountingEntity not entered)
+				and    RunGroup = PrmRunGroup
+				and    Status.Created)
+			Action Rules
+				Set Rules
+					Entrance Rules
+						invoke Create ProjectStructureValidationResult
+							assign result to ProjectStructureValidationResultView
+							invoked.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+							invoked.RunTime				   	= current timestamp
+							invoked.TestType				= 4
+							invoked.RunGroup				= PrmRunGroup
+					Exit Rules
+						LocalFinanceEnterpriseGroup			  = PrmFinanceEnterpriseGroup
+						LocalProjectStructureValidationResult = ProjectStructureValidationResultView.ProjectStructureValidationResult
+						for each ProjectStructureValidationLineRel
+							initialize ErrorFound
+							invoke Create ProjectStructureValidationTest
+								assign result to ProjectStructureValidationTestView
+								resume on error
+									ErrorFound = true
+									LocalErrorMessage = error message
+								invoked.FinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+								invoked.PostingDate				= PostingDate
+								invoked.AccountingEntity		= each.ValidationCodeBlock.AccountingEntity
+								invoked.FinanceCodeBlock		= each.ValidationCodeBlock.FinanceCodeBlock
+								invoked.System					= "PS"
+								invoked.TransactionDate			= PostingDate
+								invoked.BypassUnitAndAmountEdit	= true
+								invoked.ValidateProjectFinanceStructure = true
+							if (ErrorFound)
+								ErrorCounter += 1
+								invoke Create ProjectStructureValidationError
+									fill in fields from ProjectStructureValidationResultView.ProjectStructureValidationResult
+									invoked.Error				= ErrorCounter
+									invoked.ErrorMessage 		= LocalErrorMessage
+									invoked.FinanceCodeBlock	= each.ValidationCodeBlock.FinanceCodeBlock
+							else
+								invoke Purge ProjectStructureValidationTestView.ProjectStructureValidationTest
+							invoke Purge each
+							if (TranCount = 50)
+								commit transaction
+								initialize TranCount
+							TranCount += 1
+									
+				BurdenEffectiveDate Set Rules
+					Entrance Rules
+						initialize TotalAmount
+						initialize OffsetTable
+						initialize OffsetCounter
+					Exit Rules
+						if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+							OffsetCounter = 1
+							while (OffsetCounter < 1000)
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+									OffsetCounter = 1000
+								else
+								if (OffsetTable.RevenueLine[OffsetCounter].Amount entered)
+									LocalCodeBlock		  = OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock
+									LocalAccountingEntity = AccountingEntity
+									include AddToTable
+								OffsetCounter +=1
+						else
+						if (TotalAmount entered)
+							LocalCodeBlock 		  = ProjectIndirectBurdenCodeRel.OffsetCodeBlock
+							LocalAccountingEntity = AccountingEntity
+							include AddToTable
+								
+				Instance Rules
+					LocalAccountingEntityGroup = PrmAccountingEntityGroup
+					if ((AccountingEntity = PrmAccountingEntity
+					or   AccountingEntityGroupMemberOTORel exists)
+					and  Amount entered)
+						if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+							LocalOffsetCodeBlock		= OriginalGLTransactionDetail.FinanceCodeBlock
+							LocalOffsetCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+								LocalOffsetCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+								LocalOffsetCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+								LocalOffsetCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+								LocalOffsetCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+								LocalOffsetCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+								LocalOffsetCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+								LocalOffsetCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+								LocalOffsetCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+								LocalOffsetCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+								LocalOffsetCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+								LocalOffsetCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+								LocalOffsetCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+								LocalOffsetCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+								LocalOffsetCodeBlock.Project = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project
+							OffsetCounter = 1
+							while (OffsetCounter < 1000)
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+									OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock
+									OffsetTable.RevenueLine[OffsetCounter].Amount = Amount
+									OffsetCounter = 1000
+								else
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock)
+									OffsetTable.RevenueLine[OffsetCounter].Amount += Amount
+									OffsetCounter = 1000
+								else
+									OffsetCounter +=1
+
+						LocalCodeBlock		  = OriginalGLTransactionDetail.FinanceCodeBlock
+						LocalCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+						if (OverrideFD2 entered)
+							LocalCodeBlock.FinanceDimension2 = OverrideFD2
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.ToAccountingEntity entered)
+							LocalCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.ToAccountingEntity
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.AccountingUnit entered)
+							LocalCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.AccountingUnit
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.GeneralLedgerChartAccount entered)
+							LocalCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.GeneralLedgerChartAccount
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension1 entered)
+							LocalCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension1
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2 entered)
+							LocalCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension3 entered)
+							LocalCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension3
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension4 entered)
+							LocalCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension4
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension5 entered)
+							LocalCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension5
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension6 entered)
+							LocalCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension6
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension7 entered)
+							LocalCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension7
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension8 entered)
+							LocalCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension8
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension9 entered)
+							LocalCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension9
+						if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension10 entered)
+							LocalCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension10
+						LocalCodeBlock.Project	= Project
+						LocalAccountingEntity	= AccountingEntity
+						include AddToTable
+
+		JournalizeIndirectBurdenTransactions is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+        		PrmAccountingEntity			is an AccountingEntity
+        			default label is "AccountingEntity"
+        		PrmAccountingEntityGroup	is an AccountingEntityGroup
+        			default label is "AccountingEntityGroup"				
+				PrmRunGroup					is a ProjectIndirectBurdenRunGroup
+					default label is "RunGroup"
+				PostingDate					is Date
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+        		PrmAccountingEntity
+        			if (PrmAccountingEntityGroup entered)
+	        			cannot be entered
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"
+	        		else
+	        			required
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"	        			
+        		PrmAccountingEntityGroup
+        			if (PrmAccountingEntity entered)
+	        			cannot be entered
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"	        			
+	        		else
+	        			required
+	        				"MustEnterEitherAccountingEntityOrAccountingEntityGroup"
+				PrmRunGroup
+					required
+				PostingDate
+					required
+					LocalFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+					LocalAccountingEntityGroup	= PrmAccountingEntityGroup
+					if (PrmAccountingEntity entered)
+						LocalAccountingEntity		= PrmAccountingEntity
+						if (SystemClosingControlRel exists
+						and SystemClosingControlRel.Control)
+							constraint (PostingDate within SystemClosingControlRel.ValidEntryDate)
+								"PostingDateMustBeWithinSystemClosingControlValidDateRange"
+					else
+						for each AccountingEntityGroupMemberRel
+							LocalAccountingEntity		= each.AccountingEntity
+							if (each.AccountingEntity.Status.Active)							
+								if (SystemClosingControlRel exists
+								and SystemClosingControlRel.Control)
+									constraint (PostingDate within SystemClosingControlRel.ValidEntryDate)
+										"PostingDateMustBeWithinSystemClosingControlValidDateRange"
+			Local Fields
+        		LocalJournalizeGroup	is a JournalizeGroup
+				NewGLTransactionDetail	is a GLTransactionDetail view
+				TotalAmount				is an InternationalAmount
+				OffsetTable				is a RevenueTable
+					do not save in checkpoint
+				OffsetCounter			is Numeric size 4
+				SavedCounter			is Numeric size 4				
+				LocalOffsetCodeBlock	is a FinanceCodeBlock
+				ErrorFound				is Boolean
+				LocalErrorMessage		is Text	
+			Sort Order
+				FinanceEnterpriseGroup
+				AccountingEntity
+				Project
+				ProjectIndirectBurdenCode
+				BurdenEffectiveDate
+				SequenceNumber
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and   (AccountingEntity = PrmAccountingEntity
+				or     PrmAccountingEntity not entered)
+				and    RunGroup = PrmRunGroup
+				and    Status.Created)
+			Action Rules
+				Empty Set Rules
+					if (PrmRunGroup.ProjectIndirectBurdenTransaction set not exists)
+						invoke Delete PrmRunGroup
+				Set Rules
+					Entrance Rules
+						LocalFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+						LocalAccountingEntityGroup	= PrmAccountingEntityGroup						
+			            increment GeneralLedgerSystemCodeRel.LastJournalizeGroup
+						LocalJournalizeGroup = GeneralLedgerSystemCodeRel.DerivedJournalizeGroup
+						invoke Update PrmRunGroup
+							invoked.PostingDate = PostingDate
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmFinanceEnterpriseGroup in background
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+				BurdenEffectiveDate Set Rules
+					Entrance Rules
+						initialize TotalAmount
+						initialize OffsetTable
+						initialize OffsetCounter
+					Exit Rules
+						if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+							OffsetCounter = 1
+							while (OffsetCounter < 1000)
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+									OffsetCounter = 1000
+								else
+								if (OffsetTable.RevenueLine[OffsetCounter].Amount entered)
+									invoke Released.Create GLTransactionDetail
+				        				resume on error
+										invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+										invoked.JournalizeGroup			= LocalJournalizeGroup
+										invoked.PostingDate				= PostingDate
+										invoked.AccountingEntity		= AccountingEntity
+										invoked.TransactionAmount		= OffsetTable.RevenueLine[OffsetCounter].Amount * -1								
+										invoked.FinanceCodeBlock		= OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock
+										invoked.System					= "PS"
+										invoked.GeneralLedgerEvent		= "OS"
+										invoked.TransactionDate			= PostingDate
+										invoked.CurrencyCode			= Project.Currency
+										invoked.Reference				= "ProjectIndirectBurdenOffset"
+										invoked.IndirectBurden			= 2
+								OffsetCounter +=1
+						else
+						if (TotalAmount entered)
+							invoke Released.Create GLTransactionDetail
+								resume on error
+								invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+								invoked.JournalizeGroup			= LocalJournalizeGroup
+								invoked.PostingDate				= PostingDate
+								invoked.AccountingEntity		= AccountingEntity
+								invoked.TransactionAmount		= TotalAmount * -1
+								invoked.FinanceCodeBlock		= ProjectIndirectBurdenCodeRel.OffsetCodeBlock
+								invoked.System					= "PS"
+								invoked.GeneralLedgerEvent		= "OS"
+								invoked.TransactionDate			= PostingDate
+								invoked.CurrencyCode			= Project.Currency
+								invoked.Reference				= "ProjectIndirectBurdenOffset"
+								invoked.IndirectBurden			= 2
+								
+				Instance Rules
+					LocalAccountingEntityGroup = PrmAccountingEntityGroup
+					if ((AccountingEntity = PrmAccountingEntity
+					or   AccountingEntityGroupMemberOTORel exists)
+					and  Amount entered)
+						if (ProjectIndirectBurdenCodeRel.OffsetCodeBlockOption.PartialStructure)
+							LocalOffsetCodeBlock		= OriginalGLTransactionDetail.FinanceCodeBlock
+							LocalOffsetCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity entered)
+								LocalOffsetCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.ToAccountingEntity
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit entered)
+								LocalOffsetCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.AccountingUnit
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount entered)
+								LocalOffsetCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.GeneralLedgerChartAccount
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1 entered)
+								LocalOffsetCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension1
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2 entered)
+								LocalOffsetCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension2
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3 entered)
+								LocalOffsetCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension3
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4 entered)
+								LocalOffsetCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension4
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5 entered)
+								LocalOffsetCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension5
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6 entered)
+								LocalOffsetCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension6
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7 entered)
+								LocalOffsetCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension7
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8 entered)
+								LocalOffsetCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension8
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9 entered)
+								LocalOffsetCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension9
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10 entered)
+								LocalOffsetCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.FinanceDimension10
+							if (ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project entered)
+								LocalOffsetCodeBlock.Project = ProjectIndirectBurdenCodeRel.OffsetPartialCodeBlock.Project
+							OffsetCounter = 1
+							initialize SavedCounter
+							while (OffsetCounter < 1000)
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock not entered)
+									OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock
+									OffsetTable.RevenueLine[OffsetCounter].Amount = Amount
+									SavedCounter  = OffsetCounter
+									OffsetCounter = 1000
+								else
+								if (OffsetTable.RevenueLine[OffsetCounter].FinanceCodeBlock = LocalOffsetCodeBlock)
+									OffsetTable.RevenueLine[OffsetCounter].Amount += Amount
+									SavedCounter  = OffsetCounter
+									OffsetCounter = 1000
+								else
+									OffsetCounter +=1
+						initialize ErrorFound
+						invoke Released.Create GLTransactionDetail
+	        				resume on error
+								ErrorFound = true
+								LocalErrorMessage = error message  
+							assign result to NewGLTransactionDetail
+							fill in fields from OriginalGLTransactionDetail
+								except invoked.ReportCurrencyAmount
+								except invoked.OriginatingTransaction
+								except invoked.UnitsAmount	
+								except invoked.AutoReverse						
+							invoked.JournalizeGroup			= LocalJournalizeGroup
+							invoked.PostingDate				= PostingDate
+							invoked.TransactionAmount		= Amount
+							invoked.AccountingEntity		= AccountingEntity
+							invoked.FinanceCodeBlock.Ledger = FinanceEnterpriseGroup.CoreLedger
+							if (OverrideFD2 entered)
+								invoked.FinanceCodeBlock.FinanceDimension2 = OverrideFD2
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.ToAccountingEntity entered)
+								invoked.FinanceCodeBlock.ToAccountingEntity = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.ToAccountingEntity
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.AccountingUnit entered)
+								invoked.FinanceCodeBlock.AccountingUnit = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.AccountingUnit
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.GeneralLedgerChartAccount entered)
+								invoked.FinanceCodeBlock.GeneralLedgerChartAccount = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.GeneralLedgerChartAccount
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension1 entered)
+								invoked.FinanceCodeBlock.FinanceDimension1 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension1
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2 entered)
+								invoked.FinanceCodeBlock.FinanceDimension2 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension2
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension3 entered)
+								invoked.FinanceCodeBlock.FinanceDimension3 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension3
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension4 entered)
+								invoked.FinanceCodeBlock.FinanceDimension4 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension4
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension5 entered)
+								invoked.FinanceCodeBlock.FinanceDimension5 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension5
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension6 entered)
+								invoked.FinanceCodeBlock.FinanceDimension6 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension6
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension7 entered)
+								invoked.FinanceCodeBlock.FinanceDimension7 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension7
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension8 entered)
+								invoked.FinanceCodeBlock.FinanceDimension8 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension8
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension9 entered)
+								invoked.FinanceCodeBlock.FinanceDimension9 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension9
+							if (ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension10 entered)
+								invoked.FinanceCodeBlock.FinanceDimension10 = ProjectIndirectBurdenCodeRel.FinanceCodeBlock.FinanceDimension10
+							invoked.FinanceCodeBlock.Project	= Project
+							invoked.System						= "PS"
+							invoked.GeneralLedgerEvent			= "IB"
+							invoked.CurrencyCode				= Project.Currency
+							invoked.Reference					= "ProjectIndirectBurden"
+							invoked.IndirectBurden				= 2
+							invoked.Billed						= 0
+							invoked.RevenueRecognized			= 0
+							invoked.LaborDistribution			= 0
+							invoked.Capitalize					= 0
+						if (!ErrorFound)
+							Status = 1
+							if (OriginalGLTransactionDetail.IndirectBurden.Draft)
+								invoke UpdateIndirectBurden OriginalGLTransactionDetail
+									invoked.PrmIndirectBurden = 2
+							TotalAmount += Amount
+							GeneratedGLTransactionDetail = NewGLTransactionDetail.GLTransactionDetail
+							initialize ErrorMessage
+							LocalFinanceDimension2 = NewGLTransactionDetail.FinanceCodeBlock.FinanceDimension2
+							if  (LocalFinanceDimension2 entered
+							and  FinanceEnterpriseGroup.FrontEndSplits
+							and  FinanceEnterpriseGroup.UseFundedAmounts
+							and !Project.ExcludeFromFES
+							and  Project.ParentDisplayContractRel.Project.ProjectContract.FrontEndSplitsEnabled
+							and  Amount entered)
+								invoke UpdateFESExpenditures ProjectFundingSourceRel
+									invoked.Commitment = true
+									invoked.TransactionDate = OriginalGLTransactionDetail.TransactionDate
+									invoked.FinanceCodeBlock = OriginalGLTransactionDetail.FinanceCodeBlock
+									invoked.FinanceCodeBlock.FinanceDimension2 = LocalFinanceDimension2
+									invoked.Amount = Amount * -1							
+						else
+							ErrorMessage = LocalErrorMessage
+							if (SavedCounter entered)
+								OffsetTable.RevenueLine[SavedCounter].Amount -= Amount
+						
+		RemoveBurdenAPHold is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    Status.Journalized
+				and    GeneratedAPHold
+				and   !OriginalAPHold)
+			Action Rules
+				Instance Rules
+					invoke RemoveAPPaid GeneratedGLTransactionDetail
+
+						

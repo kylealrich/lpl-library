@@ -1,0 +1,183 @@
+GMDNCategoryTermLink is a BusinessClass
+    owned by ic
+    prefix is GMTL
+
+    Ontology
+        symbolic key is GMDNCategoryTermLink
+
+	Patterns
+        disable AuditIndex
+	
+	Persistent Fields
+
+	Local Fields 
+
+		LocalOriginatingCategory		is like GMDNCategory
+		LocalGMDNCategorySpend          is like GMDNCategorySpend
+		LocalCurrencyExchange			is a CurrencyExchange
+		LocalCurrency                   is a Currency
+		LocalTransactionAmount          is an InternationalAmount
+
+	Transient Fields 
+
+		SavedFromCurrency   		    is a FromCurrency
+		SavedCurrencyTable     		    is a CurrencyTable
+		SavedTransactionAmount  		is a CurrencyAmount
+		SavedExchangeDate				is a ExchangeDate
+		SavedExchangeAmt				is an InternationalCost	
+
+	Derived Fields
+
+		SpendCurrency is a DerivedField 
+			type is AlphaUpper size 5
+			return ProcurementGroupRel.Currency 
+	
+	Conditions
+		
+ 	Relations
+
+		ProcurementGroupRel 
+			one-to-one relation to ProcurementGroup 
+			Field Mapping uses symbolic key 
+				related.ProcurementGroup	= ItemGroup 
+		
+		ItemRel 
+			one-to-many relation to Item 
+			Field Mapping uses ByGMDNTerm 
+				related.ItemGroup       = ItemGroup 
+				related.GMDNPTCode 		= GMDNPTCode	
+
+		ContractLineRel 
+			one-to-many relation to ContractLine 
+			Field Mapping uses ByGMDNTerm  
+				related.ContractGroup     = ItemGroup
+				related.GMDNPTCode        = GMDNPTCode 
+			Instance Selection 
+				where (related.LineNotClosed)
+
+		ContractLineSpecialRel 
+			one-to-many relation to ContractLine 
+			Field Mapping uses ByGMDNTerm  
+				related.ContractGroup     = ItemGroup
+				related.GMDNPTCode        = GMDNPTCode 
+			Instance Selection 
+				where (related.ItemType.Special)	
+
+		GMDNCategorySpendRel
+			one-to-many relation to GMDNCategorySpend 
+			Field Mapping uses symbolic key 
+				related.ItemGroup         = ItemGroup 
+				related.GMDNCategory      = LocalOriginatingCategory	
+				related.GMDNCategorySpend = LocalGMDNCategorySpend
+
+	Sets 
+
+		ByCategory 
+			Sort Order 
+				ItemGroup
+				GMDNCategory 
+				GMDNPTCode
+	
+	Field Rules 
+	
+	Rule Blocks
+
+		ConvertCurrencyAmount
+
+			SavedFromCurrency     					= LocalCurrency
+			SavedCurrencyTable      				= ItemGroup.BusinessGroup.FinanceEnterpriseGroup.CurrencyTable
+			SavedTransactionAmount      			= LocalTransactionAmount
+			SavedExchangeDate		 	 			= current corporate date
+			LocalCurrencyExchange.ToCurrency 		= SpendCurrency
+			SavedExchangeAmt					    = LocalCurrencyExchange.OutputCurrencyAmount			
+	
+	Actions
+		Create is a Create Action
+    		Action Rules
+  			
+    	Update is an Update Action
+    		Action Rules
+    			
+    	Delete is a Delete Action
+     	
+		CalculateSpend is an Instance Action 
+			restricted 
+			Parameters 
+				OriginatingCategory		is a GMDNCategory
+				GMDNCategorySpend     
+				DateRange
+				CalculatePOSpend        is Boolean
+				CalculateInvoiceSpend   is Boolean  
+
+			Action Rules 
+
+				invoke CalculateSpendSet 
+					invoked.ParmItemGroup			= ItemGroup 
+					invoked.ParmGMDNPTCode			= GMDNPTCode
+					invoked.ParmGMDNCategory    	= GMDNCategory
+					invoked.OriginatingCategory		= OriginatingCategory
+					invoked.GMDNCategorySpend		= GMDNCategorySpend
+					invoked.DateRange               = DateRange
+					invoked.CalculatePOSpend        = CalculatePOSpend
+					invoked.CalculateInvoiceSpend   = CalculateInvoiceSpend			
+		
+		CalculateSpendSet is a Set Action 
+			restricted 
+			Parameters 
+				ParmItemGroup           is an ItemGroup
+				ParmGMDNPTCode          is a GMDNPTCode
+				ParmGMDNCategory        is a GMDNCategory
+				OriginatingCategory		is a GMDNCategory
+				GMDNCategorySpend     
+					context of OriginatingCategory	
+				DateRange
+				CalculatePOSpend        is Boolean
+				CalculateInvoiceSpend   is Boolean  
+			
+			Instance Selection 
+				where (ParmItemGroup	= ItemGroup
+				and    ParmGMDNPTCode   = GMDNPTCode
+				and    ParmGMDNCategory = GMDNCategory)
+			
+			Action Rules 
+			
+				Instance Rules 
+					LocalOriginatingCategory	= OriginatingCategory
+					LocalGMDNCategorySpend      = GMDNCategorySpend
+					for each ItemRel 
+						if (each.PurchaseOrderLineRel exists)
+							if (CalculatePOSpend)
+								for each each.PurchaseOrderLineRel 
+									if (each.EarlyDeliveryDate within DateRange)
+										if each.PurchaseOrder.Currency = SpendCurrency		
+											increment GMDNCategorySpendRel.TotalSpend by (each.ExtendedAmount)
+										else 
+											LocalCurrency 			= each.PurchaseOrder.Currency
+											LocalTransactionAmount	= each.ExtendedAmount
+											include ConvertCurrencyAmount 
+											increment GMDNCategorySpendRel.TotalSpend by SavedExchangeAmt 
+
+							if (CalculateInvoiceSpend)
+								for each each.PurchaseOrderLineRel
+									if (each.EarlyDeliveryDate within DateRange)
+										if (each.HasPayablesInvoiceDetails)
+											increment GMDNCategorySpendRel.InvoiceSpend by (each.DerivedInvoiceDetailTotals)
+
+					for each ContractLineSpecialRel
+						if (CalculateInvoiceSpend
+						and	each.PayablesInvoiceDetailRel exists)
+							for each each.PayablesInvoiceDetailRel 
+								if (each.PayablesInvoice.InvoiceDate within DateRange)
+									increment GMDNCategorySpendRel.InvoiceSpend by (each.TotalBaseAmount)
+						if (CalculatePOSpend
+						and	each.PoLineRel exists)
+							for each each.PoLineRel 
+								if (each.EarlyDeliveryDate within DateRange)
+									if each.PurchaseOrder.Currency = SpendCurrency
+										increment GMDNCategorySpendRel.TotalSpend by (each.ExtendedAmount) 
+									else 
+										LocalCurrency 			= each.PurchaseOrder.Currency
+										LocalTransactionAmount	= each.ExtendedAmount
+										include ConvertCurrencyAmount 
+										increment GMDNCategorySpendRel.TotalSpend by SavedExchangeAmt 
+

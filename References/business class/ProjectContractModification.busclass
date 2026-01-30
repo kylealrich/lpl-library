@@ -1,0 +1,235 @@
+ProjectContractModification is a BusinessClass
+	owned by Projects
+	
+	prefix is PCMD
+	
+	Ontology
+		symbolic key is ProjectContractModification
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+		ChangeRequestDate			is Date		
+		Date						is Date		
+		OriginalContractAmount		is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		NewContractAmount		    is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		UpdateProjectContractAmount is Boolean
+		UpdateFD2Amount			    is Boolean
+		Scenario
+		BudgetChangeOrder				
+    	Comment						is Text
+#ifdef module idm
+    	Attachment			is an AlternateAttachment
+#endif
+#ifndef module idm
+		Attachment
+#endif
+   		DocumentURL					is URL  			
+	
+	Local Fields
+		LocalAttributeCtr   is Numeric 2	
+
+	Field Rules
+	
+		Description
+			required
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"		
+			
+		Date
+			required
+			default to current corporate date	
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"			
+		OriginalContractAmount 
+			initial value is ProjectContract.ContractAmount
+			default to ProjectContract.ContractAmount
+				
+		UpdateProjectContractAmount
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"				
+
+		UpdateFD2Amount
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"				
+
+		Scenario
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"				
+				
+		BudgetChangeOrder				
+			if (!EligibleToUpdate)
+				cannot be changed
+					"CannotChange;ReleasedLinesExists"			
+	Rule Blocks
+
+	Transient Fields
+		TransientStatus			is Alpha 15
+			default label is "Status"
+			derive value from DerivedStatus
+    Derived Fields
+
+		DerivedStatus is a DerivedField
+			type is Alpha 15
+			if (AllContractLineModificationsAreReleased)
+				return "Released"
+			else
+				return "Unreleased"
+
+		LineErrorsExistMF is a MessageField
+			"Contract_Modification_Line_Errors_Exist"
+			
+		UnreleasedMF is a MessageField
+			restricted
+			"Unreleased"
+
+		ReleasedMF is a MessageField
+			restricted
+			"Released"
+			
+		DerivedStatusMessage is a ConditionalField
+			type is Alpha size 20
+			if (AllContractLineModificationsAreReleased)
+				ReleasedMF
+			else
+				UnreleasedMF
+			
+	Conditions
+		
+		AllContractLineModificationsAreReleased
+			restricted
+			when (EnteredProjectContractLineModificationRel not exists)
+		
+		EligibleToUpdate
+			restricted
+			when (ReleasedProjectContractLineModificationRel not exists)
+			
+		EligibleToRelease
+			restricted
+			when (EnteredProjectContractLineModificationRel exists)
+			
+		HasLineErrors
+			restricted	
+			when (ProjectContractLineModificationErrorsRel exists)			
+
+	Relations	
+	
+		ReleasedProjectContractLineModificationRel
+			one-to-many relation to ProjectContractLineModification
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	    = FinanceEnterpriseGroup
+				related.ProjectContract             = ProjectContract
+				related.ProjectContractModification	= ProjectContractModification
+			Instance Selection
+				where (related.Status.Released)		
+
+		EnteredProjectContractLineModificationRel
+			one-to-many relation to ProjectContractLineModification
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	    = FinanceEnterpriseGroup
+				related.ProjectContract             = ProjectContract				
+				related.ProjectContractModification = ProjectContractModification
+			Instance Selection
+				where (related.Status.Entered)		
+
+		ProjectContractLineModificationErrorsRel
+			one-to-many relation to ProjectContractLineModification
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	    = FinanceEnterpriseGroup
+				related.ProjectContract             = ProjectContract				
+				related.ProjectContractModification = ProjectContractModification
+			Instance Selection
+				where (related.Status.Entered
+				and    related.ErrorMessage entered)		
+
+		ProjectFundingSourceRel
+			one-to-many relation to ProjectFundingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.ProjectContract             = ProjectContract
+
+		ProjectContractRel
+			one-to-one relation to ProjectContract
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	    = FinanceEnterpriseGroup
+				related.ProjectContract             = ProjectContract
+	
+	Sets
+	
+		ByProjectContract
+			Sort Order
+				FinanceEnterpriseGroup			
+				ProjectContract	
+				ProjectContractModification descending
+
+#ifdef module idm	
+	Create Rules   
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment	
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment			
+
+#endif				
+    Actions
+    
+		Create is a Create Action
+			restricted
+		
+		CreateUsingWizard is a Create Action
+			Action Rules
+				OriginalContractAmount = ProjectContract.ContractAmount
+		
+		Update is an Update Action
+
+		Delete is a Delete Action
+			valid when (EligibleToUpdate)
+
+		Release is an Instance Action
+			valid when (EligibleToRelease)
+			confirmation required
+				"AllModificationsEntered?NoFurtherUpdatesCanBeMadeToReleasedModifications."			
+			Action Rules
+				invoke ReleaseModification EnteredProjectContractLineModificationRel
+			Exit Rules
+
+#ifdef module idm		
+		UploadToIDM is an Instance Action
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+	
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+						
+#endif			

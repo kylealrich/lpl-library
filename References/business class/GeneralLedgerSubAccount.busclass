@@ -1,0 +1,223 @@
+GeneralLedgerSubAccount is a BusinessClass
+	default label is "GlobalLedgerSubAccount"
+	owned by GeneralLedger
+	representative text is "<GeneralLedgerSubAccount>-<Description>"
+	
+	prefix is Gene
+	
+	Ontology
+		symbolic key is GeneralLedgerSubAccount
+		
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+		Active
+		
+	Context Fields
+		Account
+		
+	Local Fields
+		LocalChartAccount	is a GeneralLedgerChartAccount
+		LocalChartAccountFromContext is a GeneralLedgerChartAccount
+		LocalAccount		is like Account
+		
+	Derived Fields
+		DerivedChartAccountFromContext is a DerivedField
+			type is Alpha 26
+			return (Account + "-" + GeneralLedgerSubAccount)
+
+		DerivedChartAccount is a DerivedField 
+			type is Alpha 26
+			restricted
+
+
+			return (LocalAccount + "-" + GeneralLedgerSubAccount)
+						
+		ChartAccountFromContextExists is a DerivedField
+			type is Boolean
+			LocalChartAccount = DerivedChartAccountFromContext
+			display "LocalChartAccount=<LocalChartAccount>"
+			if (LocalChartAccount exists)
+				return true
+			else
+				display "ChartAccountDoesNotExist"
+				
+		ChartAccountExists is a DerivedField
+			type is Boolean
+			LocalChartAccount = DerivedChartAccount
+			if (LocalChartAccount exists)
+				return true
+	
+	Conditions
+		NoChartAccountsExist
+			restricted
+			when (!GeneralLedgerChartAccount set exists)
+	
+	Relations
+		AccountsWithSubAccountGroupsRel
+			one-to-many relation to Account
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.ValidSubAccounts entered)
+
+							
+	Attach Rules
+		constraint (Active)
+			"SubAccountIsInactive"
+
+	Field Rules
+		GeneralLedgerSubAccount
+			if (action type.Create)
+				if (FinanceEnterpriseGroup.SubAccounRegularExpression entered)
+					constraint (GeneralLedgerSubAccount matches FinanceEnterpriseGroup.SubAccounRegularExpression)
+						"InvalidFormatForSub<FinanceEnterpriseGroup.AccountLabel>"
+	
+		Description
+			required
+			
+	Actions
+	
+		Create is an Action
+		Update is an Action
+		
+			Action Rules
+			Exit Rules
+				invoke Update GeneralLedgerChartAccount set
+					fill in user fields from this instance
+
+
+					if (Active changed)
+						invoked.Active = Active
+					if (Description changed)
+						invoked.AccountDescription = Description
+						invoked.UpdatedByAccount   = true
+							
+		Delete is an Action
+			Entrance Rules
+				constraint (!GeneralLedgerSubAccount		= FinanceEnterpriseGroup.SystemSubAccount)
+					"CannotDeleteSystemSubAccount"
+		
+		CreateChartAccount is an Instance Action
+
+		
+    		Parameters
+    			PrmAccount			is an Account
+    				default label is "Account"
+    			LikeChartAccount	is a GeneralLedgerChartAccount			
+				
+			Parameter Rules
+				PrmAccount
+					default to Account
+					required
+						"AccountNotInContext"
+					
+				LikeChartAccount
+					constraint (LikeChartAccount.ChartSection = PrmAccount.ChartSection)
+						"ChartSectionsDoNotMatch"
+												
+			Action Rules
+				LocalAccount	= PrmAccount
+				invoke Create GeneralLedgerChartAccount
+					fill in fields from PrmAccount
+					fill in user fields from this instance
+					invoked.GeneralLedgerChartAccount = DerivedChartAccount
+					invoked.DisplayAccount			  = DerivedChartAccount
+					invoked.AccountDescription	      = PrmAccount.AccountDescription + "-" + Description
+					invoked.GeneralLedgerSubAccount   = GeneralLedgerSubAccount 
+					invoked.ChartType				  = ChartType.Posting
+				LocalChartAccount = DerivedChartAccount	
+				if (LikeChartAccount entered)
+					invoke AddAccountToCharts LocalChartAccount
+						invoked.LikeChartAccount = LikeChartAccount 					
+				else
+					invoke AddAccountToUnusedChart FinanceEnterpriseGroup.UnusedAccountChart
+						invoked.GeneralLedgerChartAccount = LocalChartAccount	
+
+		CreateChartAccountForGroup is a Set Action
+			restricted
+		
+    		Parameters
+    			PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAccount				  is an Account
+    				default label is "Account"
+    			PrmLikeChartAccount		  is a GeneralLedgerChartAccount
+    				default label is "LikeChartAccount"    			
+    			PrmValidSubAccounts		  is a GeneralLedgerSubAccount group			
+					default label is "ValidSubAccounts"
+									
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmAccount
+					default to Account
+					required
+						"AccountNotInContext"
+				PrmLikeChartAccount
+					constraint (PrmLikeChartAccount.ChartSection = PrmAccount.ChartSection)
+						"ChartSectionsDoNotMatch"
+				PrmValidSubAccounts
+					required
+		
+			Instance Selection
+				where (FinanceEnterpriseGroup  = PrmFinanceEnterpriseGroup
+				and	   GeneralLedgerSubAccount within PrmValidSubAccounts)
+			
+			Set Is
+				PrmFinanceEnterpriseGroup
+				PrmAccount
+				PrmValidSubAccounts
+											
+			Action Rules
+			
+				Instance Rules
+					LocalAccount	= PrmAccount
+					if (!ChartAccountExists)					
+						invoke Create GeneralLedgerChartAccount
+							fill in fields from PrmAccount
+							fill in user fields from this instance
+							invoked.GeneralLedgerChartAccount = DerivedChartAccount
+							invoked.DisplayAccount			  = DerivedChartAccount
+							invoked.AccountDescription	      = PrmAccount.AccountDescription + "-" + Description
+							invoked.GeneralLedgerSubAccount   = GeneralLedgerSubAccount 
+							invoked.ChartType				  = ChartType.Posting
+						LocalChartAccount = DerivedChartAccount	
+						if (PrmLikeChartAccount entered)
+							if (PrmLikeChartAccount.first ReportingChartAccount(GeneralLedgerChartAccount) set.ReportingChart.UnusedDimensionStructure)
+								invoke AddAccountToUnusedChart FinanceEnterpriseGroup.UnusedAccountChart
+									invoked.GeneralLedgerChartAccount = LocalChartAccount
+							else 
+								invoke AddAccountToCharts LocalChartAccount
+									invoked.LikeChartAccount = PrmLikeChartAccount 				
+						else
+							invoke AddAccountToUnusedChart FinanceEnterpriseGroup.UnusedAccountChart
+								invoked.GeneralLedgerChartAccount = LocalChartAccount
+															
+		PropagateUnusedSubAccounts is a Set Action
+		
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+					
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    NoChartAccountsExist)
+						
+			Action Rules
+				Instance Rules
+					for each AccountsWithSubAccountGroupsRel
+						if (GeneralLedgerSubAccount within each.ValidSubAccounts)
+							LocalAccount = each.Account
+							invoke CreateChartAccount
+								invoked.PrmAccount		 = each.Account
+								if (each.GeneralLedgerChartAccount set exists)
+									invoked.LikeChartAccount = each.first GeneralLedgerChartAccount set.GeneralLedgerChartAccount									
+				
+							

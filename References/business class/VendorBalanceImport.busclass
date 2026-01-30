@@ -1,0 +1,263 @@
+VendorBalanceImport is a BusinessClass
+	owned by ap
+	prefix is CVB
+	classic name is APCVENBAL
+
+	Ontology
+		symbolic key is VendorBalanceImport
+			classic set name is CVBSET1
+			classic name for VendorBalanceImport.VendorLocation is LOCATION-CODE
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		disable Auditing
+		disable EffectiveDated
+
+	Persistent Fields
+		RunGroup
+		RecordInError                is Boolean
+		ErrorMessage				 is Alpha 150
+
+		LastPaymentDate              is Date
+			classic name is LAST-PMT-DATE
+		LastPurchaseDate             is Date
+			classic name is LAST-PUR-DATE
+
+
+
+		HighestBalance               is an InternationalAmount
+			classic name is HIGHEST-BAL
+		CurrentBalance               is an InternationalAmount
+			classic name is CURRENT-BAL
+
+
+		CurrentYearIncomeWithholding is an InternationalAmount
+			classic name is CY-INC-WH
+		LastYearIncomeWithholding    is an InternationalAmount
+			classic name is LY-INC-WH
+		CurrentPeriodPurchases       is a CpPurchX14InApcvenbal
+			classic name is CP-PURCH
+		LastYearPeriodPurchases      is a LyPurchX13InApcvenbal
+			classic name is LY-PURCH
+		CurrentPeriodPayments        is a CpPaymentX14InApcvenbal
+			classic name is CP-PAYMENT
+		LastYearPeriodPayments       is a LyPaymentX13InApcvenbal
+			classic name is LY-PAYMENT
+		CurrentPeriodDiscountTaken   is a CpDsctakeX14InApcvenbal
+			classic name is CP-DSCTAKE
+		LastYearDiscountsTaken       is a LyDsctakeX13InApcvenbal
+			classic name is LY-DSCTAKE
+		CurrentPeriodDiscountLost    is a CpDsclostX14InApcvenbal
+			classic name is CP-DSCLOST
+		LastYearDiscountsLost        is a LyDsclostX13InApcvenbal
+			classic name is LY-DSCLOST
+		CurrentPeriodGainLoss        is a CpGainlosX14InApcvenbal
+			classic name is CP-GAINLOS
+		LastYearGainLoss             is a LyGainlosX13InApcvenbal
+			classic name is LY-GAINLOS
+		CurrentPeriodNbrOfPayments   is a CpNbrPmtsX14InApcvenbal
+			classic name is CP-NBR-PMTS
+			default label is "CurrentPeriodNumberOfPayments"
+		LastYearNbrOfPayments        is a LyNbrPmtsX13InApcvenbal
+			classic name is LY-NBR-PMTS
+			default label is "LastYearNumberOfPayments"
+
+		VendorConversionResult
+
+	Local Fields
+		ErrorOccurred					is Boolean
+		LocalErrorMessage				is Alpha 150
+		LocalVendor						is like Vendor
+	
+	Conditions
+		RecordExists
+			restricted
+			when (VendorBalanceImport exists)
+
+	Sets
+		ByVendorImport
+			indexed
+			Sort Order
+				VendorGroup
+				VendorBalanceImport.Vendor
+				VendorBalanceImport.OldVendor
+				VendorBalanceImport.VendorLocation
+				Company
+
+		ByVendorConversionResult
+			indexed
+			Sort Order
+				VendorConversionResult
+				VendorGroup
+				VendorBalanceImport
+				Company
+
+	Relations
+		VendorBalanceRel
+			one-to-one relation to VendorBalance
+			Field Mapping uses symbolic key
+				related.VendorGroup						= VendorGroup
+				related.Vendor							= LocalVendor
+				related.VendorLocation					= VendorBalanceImport.VendorLocation
+				related.Company							= Company
+
+		VendorMappingTableInterfaceRel
+			one-to-one relation to VendorMappingTableInterface
+			Field Mapping uses symbolic key
+				related.VendorGroup									= VendorGroup
+				related.VendorMappingTableInterface.OldVendor		= VendorBalanceImport.OldVendor
+				related.VendorMappingTableInterface.VendorLocation	= VendorBalanceImport.VendorLocation
+
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+
+		VendorBalanceInterface is a Set Action
+			run in background
+			Parameters
+				PrmRunGroup					is a RunGroup
+					default label is "RunGroup"
+				PrmVendorGroup				is a VendorGroup
+					default label is "VendorGroup"
+				AddToVendorBalance			is AlphaUpper size 1
+					States
+						Yes value is "Y"
+						No  value is "N"
+
+			Parameter Rules
+				PrmRunGroup
+					required
+				PrmVendorGroup
+					required
+				AddToVendorBalance
+					initial value is "N"
+
+			Local Fields
+				LocalInstanceCount				is Numeric 10
+				LocalResultView					is a VendorConversionResult view
+				LocalVendorConversionResult		is like VendorConversionResult
+
+			Instance Selection
+				where (RunGroup		= PrmRunGroup
+				and    VendorGroup	= PrmVendorGroup)
+
+			Sort Order
+				RunGroup
+				VendorGroup
+				VendorBalanceImport.Vendor
+				VendorBalanceImport.OldVendor
+				VendorBalanceImport.VendorLocation
+				Company
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						invoke Create VendorConversionResult
+							assign result to LocalResultView
+							invoked.VendorInterfaceType			= 2
+							invoked.VendorGroup					= PrmVendorGroup
+							invoked.RunTime						= current timestamp
+							invoked.Status						= 2
+							invoked.RunGroup					= PrmRunGroup
+							invoked.AddToVendorBalance			= AddToVendorBalance
+
+					Exit Rules
+						invoke Update LocalResultView.VendorConversionResult
+							invoked.RecordsProcessed			= LocalInstanceCount
+							invoked.Status						= 1
+
+				Instance Rules
+					LocalVendorConversionResult 	= LocalResultView.VendorConversionResult
+
+
+					if (VendorBalanceImport.Vendor entered)
+						LocalVendor	= VendorBalanceImport.Vendor
+					else
+						LocalVendor	= VendorMappingTableInterfaceRel.Vendor
+
+					if (VendorBalanceRel not exists)
+						invoke Create VendorBalanceRel
+							resume on error
+								ErrorOccurred		= true
+								LocalErrorMessage	= error message
+							fill in fields from this instance
+							invoked.VendorBalanceDate.LastPaymentDate		= LastPaymentDate
+							invoked.VendorBalanceDate.LastPurchaseDate		= LastPurchaseDate
+							invoked.VendorConversionResult					= LocalVendorConversionResult
+							invoked.CurrentPeriodPurchases 					= CurrentPeriodPurchases	
+							invoked.LastYearPeriodPurchases 				= LastYearPeriodPurchases
+							invoked.CurrentPeriodPayments 					= CurrentPeriodPayments
+							invoked.LastYearPeriodPayments 					= LastYearPeriodPayments
+							invoked.CurrentPeriodDiscountTaken 				= CurrentPeriodDiscountTaken
+							invoked.LastYearDiscountsTaken 					= LastYearDiscountsTaken
+							invoked.CurrentPeriodDiscountLost 				= CurrentPeriodDiscountLost
+							invoked.LastYearDiscountsLost 					= LastYearDiscountsLost
+							invoked.CurrentPeriodGainLoss 					= CurrentPeriodGainLoss
+							invoked.LastYearGainLoss 						= LastYearGainLoss
+							invoked.CurrentPeriodNbrOfPayments 				= CurrentPeriodNbrOfPayments
+							invoked.LastYearNbrOfPayments 					= LastYearNbrOfPayments									
+					else
+						if (AddToVendorBalance.No)
+							invoke Update VendorBalanceRel
+								resume on error
+									ErrorOccurred		= true
+									LocalErrorMessage	= error message
+								invoked.VendorBalanceDate.LastPaymentDate	= LastPaymentDate
+								invoked.VendorBalanceDate.LastPurchaseDate	= LastPurchaseDate
+								invoked.HighestBalance						= HighestBalance
+								invoked.CurrentBalance						= CurrentBalance
+								invoked.CurrentYearIncomeWithholding		= CurrentYearIncomeWithholding
+								invoked.LastYearIncomeWithholding			= LastYearIncomeWithholding
+								invoked.VendorConversionResult				= LocalVendorConversionResult
+								invoked.CurrentPeriodPurchases 				= CurrentPeriodPurchases	
+								invoked.LastYearPeriodPurchases 			= LastYearPeriodPurchases
+								invoked.CurrentPeriodPayments 				= CurrentPeriodPayments
+								invoked.LastYearPeriodPayments 				= LastYearPeriodPayments
+								invoked.CurrentPeriodDiscountTaken 			= CurrentPeriodDiscountTaken
+								invoked.LastYearDiscountsTaken 				= LastYearDiscountsTaken
+								invoked.CurrentPeriodDiscountLost 			= CurrentPeriodDiscountLost
+								invoked.LastYearDiscountsLost 				= LastYearDiscountsLost
+								invoked.CurrentPeriodGainLoss 				= CurrentPeriodGainLoss
+								invoked.LastYearGainLoss 					= LastYearGainLoss
+								invoked.CurrentPeriodNbrOfPayments 			= CurrentPeriodNbrOfPayments
+								invoked.LastYearNbrOfPayments 				= LastYearNbrOfPayments										
+						else
+							invoke VendorImportUpdate VendorBalanceRel
+								resume on error
+									ErrorOccurred		= true
+									LocalErrorMessage	= error message
+								invoked.PrmCurrentBalance					= CurrentBalance
+								invoked.PrmCurrentYearIncomeWithholding		= CurrentYearIncomeWithholding
+								invoked.PrmLastYearIncomeWithholding		= LastYearIncomeWithholding
+								invoked.PrmHighestBalance					= HighestBalance
+								invoked.PrmLastPaymentDate					= LastPaymentDate
+								invoked.PrmLastPurchaseDate 				= LastPurchaseDate
+								invoked.PrmVendorConversionResult			= LocalVendorConversionResult
+
+							invoke UpdateVendorBalanceFields VendorBalanceRel	
+								resume on error
+									ErrorOccurred		= true
+									LocalErrorMessage	= error message	
+								invoked.PrmCurrentPeriodPurchases 			= CurrentPeriodPurchases
+								invoked.PrmLastYearPeriodPurchases 			= LastYearPeriodPurchases
+								invoked.PrmCurrentPeriodPayments 			= CurrentPeriodPayments
+								invoked.PrmLastYearPeriodPayments 			= LastYearPeriodPayments
+								invoked.PrmCurrentPeriodDiscountTaken 		= CurrentPeriodDiscountTaken
+								invoked.PrmLastYearDiscountsTaken 			= LastYearDiscountsTaken
+								invoked.PrmCurrentPeriodDiscountLost 		= CurrentPeriodDiscountLost
+								invoked.PrmLastYearDiscountsLost 			= LastYearDiscountsLost
+								invoked.PrmCurrentPeriodGainLoss 			= CurrentPeriodGainLoss
+								invoked.PrmLastYearGainLoss 				= LastYearGainLoss
+								invoked.PrmCurrentPeriodNbrOfPayments 		= CurrentPeriodNbrOfPayments
+								invoked.PrmLastYearNbrOfPayments 			= LastYearNbrOfPayments			
+
+					if (ErrorOccurred)
+						RecordInError					= true
+						ErrorMessage					= LocalErrorMessage
+						VendorConversionResult			= LocalVendorConversionResult
+					else
+						invoke Delete
+
+					LocalInstanceCount			+= 1

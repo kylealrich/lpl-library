@@ -1,0 +1,187 @@
+BillingInvoiceAttachment is a BusinessClass
+	owned by bl
+	prefix is BIAT
+	
+	Ontology
+		symbolic key is BillingInvoiceAttachment
+		
+	Patterns
+		implements StaticJava
+		implements Archivable
+		
+	Conditions
+		HasAttachment
+			when (Attachment entered) 
+
+		HasPDFStitchAttachment
+			restricted
+			when (EmailDistributionOption.StitchToBillingInvoice
+			and   Attachment.MimeType = "application/pdf"
+			and   DerivedIDMInvoiceOutputFormatNotInPDF)
+
+	Persistent Fields
+		Name				is a CommentName
+			default label is "Title"
+		Type				is AlphaUpper 1
+		Comment				is a NewCommentText
+		Attachment			is a AlternateAttachment	
+		EmailDistributionOption		is Numeric 1
+			States
+				StitchToBillingInvoice   value is 1
+				IncludeAsEmailAttachment value is 2
+
+	Local Fields
+		IDMAttributes
+		LocalAttributeCtr   is Numeric 2	
+		
+	Field Rules
+		EmailDistributionOption
+			if (Company.FinanceEnterpriseGroup.EnableIDMForAttachments)
+				if (EmailDistributionOption.StitchToBillingInvoice)
+					if (BillingInvoice.Company.BillingInvoiceTemplate.OutputFormat.WordDocument)
+						if (not Attachment.MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+							initialize
+					else
+						if (not Attachment.MimeType = "application/pdf"
+						and not Attachment.MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+							initialize				
+			else
+				initialize
+
+			if (Attachment.IsExternal
+			and EmailDistributionOption changed)
+				invoke UpdateIDMAttributes
+					invoked.AttrsSearch.IDMAttribute[1].IDMAttributeName	= "Company"
+					invoked.AttrsSearch.IDMAttribute[1].IDMAttributeValue	= DerivedBillingCompany
+					invoked.AttrsSearch.IDMAttribute[2].IDMAttributeName  	= "InvoiceNumber"
+					invoked.AttrsSearch.IDMAttribute[2].IDMAttributeValue  	= DerivedInvoiceNumber
+					invoked.AttrsSearch.IDMAttribute[3].IDMAttributeName  	= "InvoicePrefix"
+					invoked.AttrsSearch.IDMAttribute[3].IDMAttributeValue  	= DerivedInvoicePrefix
+					invoked.AttrsSearch.IDMAttribute[4].IDMAttributeName  	= "Customer"
+					invoked.AttrsSearch.IDMAttribute[4].IDMAttributeValue  	= DerivedCustomer
+					invoked.AttrsSearch.IDMAttribute[5].IDMAttributeName  	= "BillingInvoiceAttachment"
+					invoked.AttrsSearch.IDMAttribute[5].IDMAttributeValue	= BillingInvoiceAttachment
+	Derived Fields
+		DerivedBillingCompany is a DerivedField
+			type is like BillingCompany
+			restricted
+			return BillingInvoice.Company
+		
+		DerivedBillingCompanyName is a DerivedField
+			type is like Name
+			restricted
+			return BillingInvoice.Company.Name
+
+		DerivedInvoiceNumber is a DerivedField
+			type is like InvoiceNumber
+			restricted
+			return BillingInvoice.InvoiceNumber
+
+		DerivedInvoicePrefix is a DerivedField
+			type is like InvoicePrefix
+			restricted
+			return BillingInvoice.InvoicePrefix
+
+		DerivedCustomer is a DerivedField
+			type is like Customer
+			restricted
+			return BillingInvoice.Customer
+
+		DerivedCustomerName is a DerivedField
+			type is like VendorName
+			restricted
+			return BillingInvoice.Customer.Name	
+
+		IncludeAsEmailAttachment is a DerivedField
+            type is Boolean
+            if (EmailDistributionOption.IncludeAsEmailAttachment)
+                return true
+
+		DerivedIDMInvoiceOutputFormatNotInPDF is a DerivedField
+            type is Boolean
+            restricted
+			if (BillingInvoice.BillingInvoiceType.BillingInvoiceTypeIDMTemplate entered)
+				if(not BillingInvoice.BillingInvoiceType.BillingInvoiceTypeIDMTemplate.OutputFormat.PDF)
+					return true
+			else
+			if (BillingInvoice.BillingProcessLevel.BillingInvoiceProcessLevelIDMTemplate entered)
+				if(not BillingInvoice.BillingProcessLevel.BillingInvoiceProcessLevelIDMTemplate.OutputFormat.PDF)
+					return true
+			else
+			if (Company.BillingInvoiceTemplate entered)
+				if(not Company.BillingInvoiceTemplate.OutputFormat.PDF)
+                	return true
+			else
+				return false
+
+		AlertTag is a MessageField
+			"FileTypeIsNotValidForStitching"
+
+	Create Rules   
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment 
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+
+		Delete is a Delete Action	
+
+		Purge is a Purge Action
+			restricted
+			
+
+		UploadToIDM is an Instance Action
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment
+						
+						
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+
+
+		UpdateIDMAttributes is an Instance Action
+			run in background
+			restricted
+			Parameters
+				AttrsSearch							is an IDMAttributeOccurs
+   				Result								is Boolean
+
+			Action Rules
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName  		= "IncludeAsEmailAttachment"
+				
+				if (EmailDistributionOption.IncludeAsEmailAttachment)
+					IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue  	= true
+				else
+					IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue  	= false
+				
+				if (AttrsSearch entered)
+					IDMAttributes.IDMDocumentType = "FSM_BillingInvoiceAttachment"
+					IDMAttributes.AttributeSearch = AttrsSearch
+					Result = IDMAttributes.ExecuteUpdateAttribute

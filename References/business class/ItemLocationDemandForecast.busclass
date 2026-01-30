@@ -1,0 +1,186 @@
+ItemLocationDemandForecast is a BusinessClass
+    owned by ic
+    prefix is ILDF
+
+    Ontology
+        symbolic key is ItemLocationDemandForecast
+
+    Patterns
+
+        implements StaticJava
+        disable Auditing
+        
+	Persistent Fields
+        ForecastDate                                is Date
+		DemandForecastQuantity
+
+    Local Fields
+        LocalCompany                                is like InventoryCompany
+        LocalRequestingLocation                     is like RequestingLocation
+        LocalPreferenceCard                         is like PreferenceCard
+        LocalScheduledProcedure                     is like ScheduledProcedure
+        LocalToProcedureDate                        is Date
+
+    Derived Fields
+        DerivedAvailableQuantity                    is a DerivedField
+			type is like Quantity
+            return ItemLocationRel.AvailableQuantity
+
+        DerivedReservedQuantity                     is a DerivedField
+            type is like Quantity
+            return ItemLocationRel.ReservedQuantity
+ 
+        DerivedUnreservedQuantity                    is a DerivedField
+			type is like Quantity
+            return ItemLocationRel.UnreservedQuantity 
+
+    Relations
+        ScheduledProcedureLinesForForecastRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses ByItemLocationProcedureDate
+                related.FromCompanyLocation.FromCompany         = Company
+                related.FromCompanyLocation.FromLocation        = InventoryLocation
+                related.Item                                    = Item
+                related.ProcedureDate                           = LocalToProcedureDate
+            Instance Selection
+                where (related.HasUnreservedQuantity)
+
+        ScheduledProcedureLinesForForecastBeyondRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses ByItemLocationProcedureDate
+                related.FromCompanyLocation.FromCompany         = Company
+                related.FromCompanyLocation.FromLocation        = InventoryLocation
+                related.Item                                    = Item
+                related.ProcedureDate                           >= LocalToProcedureDate
+            Instance Selection
+                where (related.HasUnreservedQuantity)
+
+        ScheduledProcedureLineForReservationRel
+            one-to-many relation to ScheduledProcedureLine
+            Field Mapping uses ByItemLocationProcedureDate
+                related.FromCompanyLocation.FromCompany         = Company
+                related.FromCompanyLocation.FromLocation        = InventoryLocation
+                related.Item                                    = Item
+            Instance Selection
+                where (related.HasActiveReservation
+                and    related.DerivedUnreservedQuantity entered
+                and   (LocalCompany             not entered or LocalCompany             = related.Company)
+                and   (LocalRequestingLocation  not entered or LocalRequestingLocation  = related.RequestingLocation)
+                and   (LocalPreferenceCard      not entered or LocalPreferenceCard      = related.PreferenceCard)
+                and   (LocalScheduledProcedure  not entered or LocalScheduledProcedure  = related.ScheduledProcedure))
+            
+        ItemLocationRel is an ItemLocation set
+
+
+    Actions
+        Create is a Create Action
+            restricted
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+            Entrance Rules
+                display "ITLDF:Delete:ItemLocation:<ItemLocation>"
+
+        DemandForecasting is a Set Action
+            default label is "RunDemandForecast"
+            Parameters
+                PrmForecastDate                 is Date
+
+            Local Fields
+                LocalDemandForecastCounter      is Numeric size 1
+
+            Parameter Rules
+                PrmForecastDate
+                    initial value is current corporate date
+                    default to current corporate date
+
+            Action Rules
+                Instance Rules
+
+                    ForecastDate = PrmForecastDate
+
+                    initialize DemandForecastQuantity
+                    initialize LocalDemandForecastCounter
+
+                    for each DemandForecastQuantity.QuantityPerDay
+                        LocalToProcedureDate = PrmForecastDate + LocalDemandForecastCounter
+                        LocalDemandForecastCounter += 1
+                        if (LocalDemandForecastCounter < 7)
+                            for each ScheduledProcedureLinesForForecastRel
+                                DemandForecastQuantity.QuantityPerDay[LocalDemandForecastCounter] += each.DerivedUnreservedQuantity
+                        else 
+                            for each ScheduledProcedureLinesForForecastBeyondRel
+                                DemandForecastQuantity.QuantityPerDay[LocalDemandForecastCounter] += each.DerivedUnreservedQuantity
+
+        ReserveForScheduledProcedures is a Set Action
+            default label is "MassReservation"
+            Parameters
+                PrmItemGroup                    is an ItemGroup
+                    default label is "ItemGroup"
+                PrmFromCompany                  is a InventoryCompany
+                    default label is "FromCompany"
+                PrmFromLocation                 is a InventoryLocation
+                    default label is "FromLocation"
+                    context of PrmFromCompany
+                PrmCompany                      is a InventoryCompany
+                    default label is "Company"
+                PrmRequestingLocation           is a RequestingLocation
+                    default label is "RequestingLocation"
+                    context of PrmCompany
+                PrmPreferenceCard               is a PreferenceCard
+                    default label is "PreferenceCard"
+                    context of PrmItemGroup
+                PrmScheduledProcedure           is a ScheduledProcedure
+                    default label is "ScheduledProcedure"
+                    context of PrmFromCompany
+                PrmItem                         is an Item
+                    default label is "Item"
+                    context of PrmItemGroup
+
+			Local Fields
+				LocalActor 							is an Actor
+
+			Instance Selection
+				where (Company.ItemGroup    = PrmItemGroup
+                and    Company              = PrmFromCompany 
+                and    InventoryLocation    = PrmFromLocation
+                and   (PrmItem not entered or PrmItem = Item))
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+                    send notification
+						to LocalActor
+						description is "ReserveForScheduledProcedures"
+						priority is high
+						detail is "No_Book_records_to_process"
+				Set Rules
+					Entrance Rules
+						LocalActor = actor
+
+					Exit Rules
+						send notification
+							to LocalActor
+							description is "ReserveForScheduledProcedures"
+							detail is "MassReservationFor<PrmCompany><PrmFromLocation>IsNowCompleted"
+
+                Instance Rules
+                    LocalCompany            = PrmCompany
+                    LocalRequestingLocation = PrmRequestingLocation
+                    LocalPreferenceCard     = PrmPreferenceCard
+                    LocalScheduledProcedure = PrmScheduledProcedure
+                    if (DerivedAvailableQuantity > 0)
+                        for each ScheduledProcedureLineForReservationRel
+                            invoke ReserveRemaining each
+
+                        if (DerivedUnreservedQuantity <= 0) 
+                            invoke Delete
+                                
+                    
+
+
+
+

@@ -1,0 +1,198 @@
+FaxConfiguration is a BusinessClass
+	owned by fax
+	prefix is faxc
+	
+	Ontology
+        symbolic key is FaxConfiguration
+	
+	Patterns
+        disable AuditIndex
+	
+	Persistent Fields
+		Configuration				is Numeric 1
+			default label is "FaxService"
+			States
+				Efax				value is 0
+				Consensus			value is 1									
+		Description
+        Default 					is Boolean
+        AccountID					is Alpha size 100
+        UserName					is Alpha size 100
+        FaxPassword					is Alpha size 100
+        ConfirmPassword				is Alpha size 100           
+        NoDuplicates				is an EnableDisable
+        SelfBusy					is an EnableDisable
+        Resolution					is Alpha size 8
+        	States
+        		Standard			value is "STANDARD"
+        		Fine				value is "FINE"            		
+        Priority					is Alpha size 6
+        	States
+        		Normal				value is "NORMAL"
+        		High				value is "HIGH"
+        RecipientName				is a Name	 
+        	holds pii
+        RecipientEmail				is EmailAddressField 
+        	holds pii
+        Level						is Alpha size 7
+        	States
+        		None				value is "NONE"
+        		Error				value is "ERROR"
+        		Success				value is "SUCCESS"
+        		Both				value is "BOTH"           		
+        Method						is Alpha size 5
+        	States
+        		None		value is "NONE"
+        		Email		value is "EMAIL"
+        Language			is Alpha size 2
+        	States
+        		English		value is "en"
+        		German		value is "de"
+        		Spanish		value is "es"
+        		French		value is "fr"
+        		Italian		value is "it"
+        		Dutch		value is "nl"
+        		Polish		value is "pl"
+        		Portuguese	value is "pt"
+        NotificationType			is Numeric 1
+        	States
+        		None				value is 0
+        		User				value is 1
+        		Email				value is 2
+        		Both				value is 3
+        NotificationLevel			is Numeric 1
+        	States
+        		Error				value is 0
+        		Success				value is 1
+        		Both				value is 2
+        FromNotificationEmail		is EmailAddressField 
+        	holds pii
+        ToNotificationEmail			is EmailAddressField 
+        	holds pii
+        BearerToken				is Text
+        BearerTokenExpiresIn	is Numeric 10
+        BearerTokenTimestamp	is TimeStamp
+        JSONResponse			is JSONObject				
+        
+    Local Fields
+    	MyHTTPInfo is a HTTPInfo
+    
+    Conditions
+    	EmailNotification
+    		when (NotificationType.Email or NotificationType.Both)
+    		
+    	WebserviceError
+    		restricted
+    		when MyHTTPInfo.Failed
+
+    Relations
+        OtherDefaultFaxConfigurationRel
+            one-to-many relation to FaxConfiguration
+        	Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup             	
+        	Instance Selection
+				where (related.Default
+				and    related.FaxConfiguration != FaxConfiguration)
+
+        OtherFaxConfigurationRel
+            one-to-many relation to FaxConfiguration
+        	Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup             	
+        	Instance Selection
+				where (related.FaxConfiguration != FaxConfiguration)
+				
+	Field Rules
+        Description
+            required
+
+		Default	
+			if (OtherDefaultFaxConfigurationRel exists)
+				if (Default)
+					invoke ResetDefault OtherDefaultFaxConfigurationRel
+			else
+				if (OtherFaxConfigurationRel not exists)
+					force default to true
+				else
+					constraint(Default)
+						"OneDefaultFaxConfigurationMustExist"
+  		UserName
+			if (FaxPassword entered)
+				required
+  	
+  		ConfirmPassword
+			constraint (FaxPassword = ConfirmPassword) 
+		    	"ConfirmPasswordDoesNotMatchPassword" 
+  	
+  	  	NoDuplicates
+  	  		initial value is NoDuplicates.Disable
+  	  		default to NoDuplicates.Disable
+  	  		
+  	  	SelfBusy
+  	  		initial value is SelfBusy.Enable
+  	  		default to SelfBusy.Enable
+  	  	
+  	  	Resolution
+  	  		initial value is Resolution.Standard
+  	  		default to Resolution.Standard
+  	  		
+  	  	Priority
+  	  		initial value is Priority.Normal
+  	  		default to Priority.Normal 
+						
+  	  	Level
+  	  		initial value is Level.None
+  	  		default to Level.None
+  	  		
+  	  	Method
+  	  		initial value is Method.None
+  	  		default to Method.None
+  	  		
+  	  	Language
+  	  		initial value is Language.English
+  	  		default to Language.English
+  	  		
+  	  	NotificationType
+  	  		initial value is NotificationType.None
+  	  		
+  	  	FromNotificationEmail
+  	  		if (EmailNotification)
+  	  			required
+  	  			
+  	  	ToNotificationEmail
+  	  		if (EmailNotification)
+  	  			required								
+				
+ 	Delete Rules
+  	 	if (OtherFaxConfigurationRel exists)
+  	 		constraint (!Default)
+	  	 		"CannotDeleteDefaultFaxConfiguration"
+
+	Actions
+		Create is a Create Action
+	
+		Update is an Update Action
+
+		ResetDefault is an Update Action
+  	 		restricted
+			bypass field rules
+  	 		Action Rules
+				Default = false
+	
+		Delete is a Delete Action
+		
+		CalloutWithOAuth2Token is an Instance Action
+			Action Rules
+				invoke GetOAuth2Token ConsensusOAuth
+					invoked.CONSENSUSOAUTHWSIHTTPHEADERAccept			= "application/json"
+					invoked.CONSENSUSOAUTHWSIHTTPHEADERContentType		= "application/x-www-form-urlencoded"
+					invoked.CONSENSUSOAUTHWSIHTTPHEADERtransactionid	= ""
+					invoked.GrantType									= "client_credentials"
+					MyHTTPInfo											= result.HTTPResult
+					JSONResponse										= result.JSONResponse	
+				
+				if (WebserviceError)
+					JSONResponse = MyHTTPInfo.ResponseBody
+				else
+					BearerToken					= JSONResponse select "$.access_token"
+					BearerTokenExpiresIn		= JSONResponse select "$.expires_in"
+					BearerTokenTimestamp 		= current timestamp

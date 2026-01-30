@@ -1,0 +1,855 @@
+CashLedgerBatchApproval is a BusinessClass
+    owned by cb
+    prefix is CPBA
+
+    Ontology
+        symbolic key is CashLedgerBatchApproval
+
+    Patterns
+        disable AuditIndex
+
+    Persistent Fields
+    	BatchApprovalType					is Numeric 1
+    		States
+    			CashLedgerPayment			value is 1
+    			CashLedgerReceipt			value is 2
+    			ElectronicFundsTransaction	value is 3
+    			CashLedgerTransaction		value is 4 			
+		CashLedgerPaymentGroup				is a CashLedgerPayment group
+		CashLedgerReceiptGroup				is a CashLedgerCashReceiptHeader group
+		CashLedgerEFTTransactionGroup		is a CashLedgerElectronicFundsTransferTransaction group
+		CashLedgerTransactionGroup			is a CashLedgerTransaction group 		
+    	CashManagementAccount
+		CashCode
+		BankTransactionCode
+        GeneralLedgerSourceCode				is a GeneralLedgerEvent
+			default label is "SourceCode"
+		ApprovalCostCenter					is like AccountingUnit
+		ApprovalCategory					
+		DateRange
+		SearchAmountRange
+		CommentText
+		BatchDate							is Date
+        Status                              is Numeric size 2
+            States
+                Open		               	value is 0
+				PendingApproval			 	value is 1
+                Rejected				 	value is 2
+                Approved               		value is 3
+		Processing							is Boolean
+		ApprovalCode
+		ApprovalLevel						is Numeric 8
+		ReassignToApprovalLevel				is an ApprovalCodeResource
+		Approver							is a FinanceResource
+		ApproverTeam						is a FinanceTeamField
+		AutoApprove							is Boolean
+
+			
+	Local Fields
+		LocalCashManagementGroup				is like CashManagementGroup
+		LocalCashLedgerBatchApproval			is a CashLedgerBatchApproval
+		LocalApprovalLevel						is Numeric 8
+		LocalApprover							is a FinanceResource
+		LocalApproverTeam						is a FinanceTeamField		
+		LocalApproverList						is Alpha 250
+		LocalFirstApproverAssigned				is Boolean
+		LocalRejectReason						is AlphaUpper 20
+		LocalRejectComment						is Alpha size up to 500
+						 		                  			
+	Context Fields
+				
+	Rule Blocks
+
+		InitiateApprovalProcessFlow
+			LocalCashManagementGroup		= CashManagementGroup
+			LocalCashLedgerBatchApproval	= CashLedgerBatchApproval
+			
+			initiate CashLedgerBatchApproval process
+				title is "CashLedgerBatch<CashLedgerBatchApproval>WaitingForApproval" 
+				Variables
+					LocalCashManagementGroup
+					LocalCashLedgerBatchApproval
+				URLs
+					"<linkback(webapp is CashManager navigation is ProcessFlowForm text is \"ViewCashLedgerBatchApproval\")>"
+
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+		
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+
+
+	Derived Fields
+		BatchTotalAmount is a DerivedField
+			type is like InternationalAmount
+			if (BatchApprovalType.CashLedgerPayment)
+				return sum CashLedgerPayment set.BankCheckAmount
+			if (BatchApprovalType.CashLedgerReceipt)
+				return sum CashLedgerCashReceiptHeader set.DepositAmount
+			if (BatchApprovalType.ElectronicFundsTransaction)
+				return sum CashLedgerElectronicFundsTransferTransaction set.ReceiptAmount
+			if (BatchApprovalType.CashLedgerTransaction) 	
+				return sum CashLedgerTransaction set.IssuedBankAmount
+
+		BatchRecordCount is a DerivedField
+			type is Numeric 10	
+			if (BatchApprovalType.CashLedgerPayment)
+				return instance count of CashLedgerPayment set
+			if (BatchApprovalType.CashLedgerReceipt)
+				return instance count of CashLedgerCashReceiptHeader set
+			if (BatchApprovalType.ElectronicFundsTransaction)
+				return instance count of CashLedgerElectronicFundsTransferTransaction set
+			if (BatchApprovalType.CashLedgerTransaction) 	
+				return instance count of CashLedgerTransaction set
+
+
+		DerivedNextApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			LocalApprovalLevel = ApprovalLevel
+			include GetNextApprovalLevel
+			return LocalApprovalLevel
+			
+		DerivedCurrentApprovalResource is a DerivedField
+			type is like FinanceResource
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is like FinanceTeam
+			restricted
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorList
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays	
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+				
+		DisplayCurrentApproverDesc is a ConditionalField
+			type is Alpha 100
+			restricted
+			if (Approver entered)
+				Approver.PreferredSimplePresentationName
+			else
+				ApproverTeam.FinanceTeam.Description
+
+		DerivedAppsValue	is a DerivedField
+			type is like PfiAppsValue
+			return "CashLedgerBatchApproval" + UniqueID			
+
+		UserActionRoutingAsHtml	is a DerivedField
+			type is RichText
+			return first PfiWorkunitRel.UserActionRoutingAsHtml
+
+		MyPFIApprovals is a DerivedField
+            type is Boolean
+            restricted
+            for each PfiWorkunitRel
+                for each each.PfiMetricsRel
+                    if (each.PfiMetrics.PfiUserProfile = actor)
+                        return true 
+                        
+		GeneralLedgerSourceCodeName is a MessageField
+			default label is "SourceCode"
+			"<GeneralLedgerSourceCode>_-_<GeneralLedgerSourceCode.Description>"
+
+		ProcessingMessage is a MessageField
+			"Processing"
+
+		IsProcessing is a DerivedField
+			type is Alpha 20
+			if (Processing)
+				return ProcessingMessage
+
+	Transient Fields
+		TransientFromCurrency						is a FromCurrency
+			derive value from CashCode.Currency
+			
+    Conditions
+ 		RejectReasonCodeRequired
+ 			restricted
+			when ((BatchApprovalType.CashLedgerPayment
+			and   CashManagementGroup.RejectCashLedgerPaymentReasonCodeRequired)
+			or   (BatchApprovalType.CashLedgerReceipt
+			and   CashManagementGroup.RejectCashLedgerReceiptReasonCodeRequired)
+			or   (BatchApprovalType.ElectronicFundsTransaction
+			and   CashManagementGroup.RejectCashLedgerEFTReasonCodeRequired)
+			or    (BatchApprovalType.CashLedgerTransaction 	
+			and    CashManagementGroup.RejectLedgerTransactionReasonCodeRequired))
+
+		CurrentActorApprovals
+            restricted
+            when (MyPFIApprovals = true)
+		
+		HasApprovalComments
+			restricted
+			when (CashLedgerBatchApprovalReasonCodeUsage set exists)
+
+		RecordsAreSelected		
+			restricted
+			when (CashLedgerPayment set exists
+			or    CashLedgerCashReceiptHeader set exists
+			or    CashLedgerElectronicFundsTransferTransaction set exists
+			or    CashLedgerTransaction set exists) 	
+
+		ApprovalRequired
+			restricted
+			when ((BatchApprovalType.CashLedgerPayment
+			and    CashManagementGroup.CashLedgerPaymentApprovalRequired)
+			or    (BatchApprovalType.CashLedgerReceipt
+			and    CashManagementGroup.CashLedgerReceiptApprovalRequired)
+			or    (BatchApprovalType.ElectronicFundsTransaction
+			and    CashManagementGroup.CashLedgerEFTApprovalRequired)
+			or    (BatchApprovalType.CashLedgerTransaction 	 
+			and    CashManagementGroup.CashLedgerTransactionApprovalRequired))
+
+		SubmitForApprovalValid		
+			restricted
+			when (ApprovalRequired
+			and   RecordsAreSelected
+			and   !Processing)
+
+		ReleaseRecordsValid		
+			restricted
+			when (!ApprovalRequired
+			and   RecordsAreSelected
+			and   !Processing)
+
+		CancelRecordsValid		
+			restricted
+			when (BatchApprovalType.CashLedgerPayment
+			and   Status.Open
+			and   !Processing
+			and   UnreleasedCashLedgerPaymentsRel	exists)
+
+		ApprovedPaymentBatchWithReleaseErrors		
+			when (Status.Approved
+			and   UnreleasedCashLedgerPaymentsRel	exists)
+
+		ApprovalCodeRequired
+			restricted
+			when ((BatchApprovalType.CashLedgerPayment
+			and    CashManagementGroup.CashLedgerPaymentApprovalRequired
+			and    !CashManagementGroup.ApprovalCodesNotUsedForPayments)
+			or    (BatchApprovalType.CashLedgerReceipt
+			and    CashManagementGroup.CashLedgerReceiptApprovalRequired
+			and    !CashManagementGroup.ApprovalCodesNotUsedForReceipts)
+			or    (BatchApprovalType.ElectronicFundsTransaction
+			and    CashManagementGroup.CashLedgerEFTApprovalRequired
+			and    !CashManagementGroup.ApprovalCodesNotUsedForEFTTransactions)
+			or    (BatchApprovalType.CashLedgerTransaction  	
+			and    CashManagementGroup.CashLedgerTransactionApprovalRequired
+			and    !CashManagementGroup.ApprovalCodesNotUsedForCashTransactions))
+
+		HasWorkunit
+			restricted
+			when (PfiWorkunitRel exists)
+
+
+
+
+
+
+
+
+
+
+		CurrentActorIsOnApproverTeam
+        	restricted
+			when (FinanceTeamMemberRel exists)
+
+		CurrentActorIsApprover
+        	restricted
+			when (Approver	entered
+			and	  CashManagementGroup.HROrganization = actor.agent(Employee).HROrganization
+			and	  Approver = actor.agent(Employee).Employee)
+
+		CurrentActorCanApprove
+        	restricted
+			when (CurrentActorIsApprover
+			or	  CurrentActorIsOnApproverTeam)
+
+		AllowUpdateOnApprove
+        	restricted
+			when (Status.PendingApproval
+			and	  CurrentActorCanApprove)
+
+
+    Relations
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+		
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		FinanceTeamMemberRel
+			one-to-one relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup			= CashManagementGroup
+				related.FinanceTeam						= ApproverTeam
+				related.FinanceTeamMember.TeamMember	= actor.agent(Employee).Employee
+
+		PfiWorkunitRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByAppsKeyAppsValueWorkunit
+				related.AppsKey		= "CASHLEDGERBATCHAPPROVAL"			
+				related.AppsValue	= DerivedAppsValue
+
+		UnreleasedCashLedgerPaymentsRel is a CashLedgerPayment set	
+			Instance Selection
+				where (related.Status.Unreleased
+				or     related.Status.PendingApproval)
+
+    Sets
+				
+    Field Rules
+    	BatchApprovalType
+    		required
+    		
+    	BatchDate
+			initial value is current corporate date
+			default to current corporate date
+    		
+		ApprovalCode
+			if (!ApprovalRequired)
+				cannot be entered
+			constraint (!ApprovalCode.ApprovalCodeUsesMaximumAmounts)
+				"CannotSelectApprovalCodesSetUpForNonBatchedCashLedgerPayments"
+						            	
+					
+	Actions
+		CompleteProcessing is an Instance Action
+			restricted
+			run in background
+			Action Rules
+				Processing = false
+
+
+		UpdateApprovalLevel is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+
+
+		UpdateApprovalFields is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				PrmCurrentApprover	is a FinanceResource
+				PrmCurrentTeam		is a FinanceTeam
+				PrmApprovalLevel	is Numeric 8
+			Action Rules
+				Approver		= PrmCurrentApprover
+				ApproverTeam	= PrmCurrentTeam
+				ApprovalLevel	= PrmApprovalLevel
+
+							
+	StateCycles
+		BatchApprovalProcessing is a StateCycle
+		
+			state field is Status
+			
+			Open is a State
+				Create is a Create Action
+					Exit Rules
+						if (AutoApprove)
+							make transition to Approved
+							
+				Update is an Update Action
+						
+				Delete is a Delete Action
+					Entrance Rules
+						if (BatchApprovalType.CashLedgerPayment)	
+
+							invoke RemoveFromDeletedBatch CashLedgerPayment set 				
+						if (BatchApprovalType.CashLedgerReceipt)
+							invoke RemoveFromBatch CashLedgerCashReceiptHeader set
+						if (BatchApprovalType.ElectronicFundsTransaction)
+							invoke RemoveFromBatch CashLedgerElectronicFundsTransferTransaction set
+						if (BatchApprovalType.CashLedgerTransaction) 	 
+							invoke RemoveFromDeletedBatch CashLedgerTransaction set
+			
+				ClearAllRecords is an Instance Action
+					valid when (RecordsAreSelected)		
+					Action Rules
+						constraint (RecordsAreSelected)		
+							"Cannot_\Clear_\All_\Records;NoRecordsHaveBeenSelected"
+						if (BatchApprovalType.CashLedgerPayment)
+							if (CashManagementGroup.CashLedgerPaymentApprovalRequired)
+								invoke PendingApproval.RemoveFromBatch CashLedgerPayment set
+							else
+								invoke Unreleased.RemoveFromBatch CashLedgerPayment set
+						if (BatchApprovalType.CashLedgerReceipt)
+							invoke RemoveFromBatch CashLedgerCashReceiptHeader set
+						if (BatchApprovalType.ElectronicFundsTransaction)
+							invoke RemoveFromBatch CashLedgerElectronicFundsTransferTransaction set
+						if (BatchApprovalType.CashLedgerTransaction) 	
+							if (CashManagementGroup.CashLedgerTransactionApprovalRequired)
+								invoke PendingApproval.RemoveFromBatch CashLedgerTransaction set
+							else
+								invoke Unreleased.RemoveFromBatch CashLedgerTransaction set
+
+				SelectRecords is an Instance Action
+					Action Rules
+						constraint (!Processing)
+							"Select_\RecordsIsAlreadyProcessing"
+						invoke SelectRecordsToProcess in background
+						
+				SelectRecordsToProcess is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						Processing = true					
+						if (BatchApprovalType.CashLedgerPayment)
+							if (CashManagementGroup.CashLedgerPaymentApprovalRequired)
+								invoke PendingApproval.RemoveFromBatch CashLedgerPayment set
+							else
+								invoke Unreleased.RemoveFromBatch CashLedgerPayment set
+							invoke CreateBatchApproval CashLedgerPayment
+	    						invoked.PrmCashManagementGroup		= CashManagementGroup
+	    						invoked.PrmCashLedgerPaymentGroup	= CashLedgerPaymentGroup
+	    						invoked.PrmCashManagementAccount	= CashManagementAccount
+								invoked.PrmCashCode					= CashCode
+								invoked.PrmBankTransactionCode		= BankTransactionCode
+	        					invoked.PrmGeneralLedgerSourceCode	= GeneralLedgerSourceCode
+								invoked.PrmApprovalCostCenter		= ApprovalCostCenter
+								invoked.PrmApprovalCategory			= ApprovalCategory
+								invoked.PrmDateRange				= DateRange
+								invoked.PrmSearchAmountRange		= SearchAmountRange
+								invoked.PrmCommentText				= CommentText
+								invoked.PrmApprovalCode				= ApprovalCode
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.CashLedgerReceipt)
+							invoke RemoveFromBatch CashLedgerCashReceiptHeader set
+							invoke CreateBatchApproval CashLedgerCashReceiptHeader
+	    						invoked.PrmCashManagementGroup		= CashManagementGroup
+	    						invoked.PrmCashLedgerReceiptGroup	= CashLedgerReceiptGroup
+								invoked.PrmCashCode					= CashCode
+								invoked.PrmBankTransactionCode		= BankTransactionCode
+	        					invoked.PrmGeneralLedgerSourceCode	= GeneralLedgerSourceCode
+								invoked.PrmApprovalCostCenter		= ApprovalCostCenter
+								invoked.PrmApprovalCategory			= ApprovalCategory
+								invoked.PrmDateRange				= DateRange
+								invoked.PrmSearchAmountRange		= SearchAmountRange
+								invoked.PrmCommentText				= CommentText
+								invoked.PrmApprovalCode				= ApprovalCode
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.ElectronicFundsTransaction)
+							invoke RemoveFromBatch CashLedgerElectronicFundsTransferTransaction set
+							invoke CreateBatchApproval CashLedgerElectronicFundsTransferTransaction
+	    						invoked.PrmCashManagementGroup				= CashManagementGroup
+	    						invoked.PrmCashLedgerEFTTransactionGroup	= CashLedgerEFTTransactionGroup
+	    						invoked.PrmCashManagementAccount			= CashManagementAccount
+								invoked.PrmCashCode							= CashCode
+								invoked.PrmBankTransactionCode				= BankTransactionCode
+	        					invoked.PrmGeneralLedgerSourceCode			= GeneralLedgerSourceCode
+								invoked.PrmApprovalCostCenter				= ApprovalCostCenter
+								invoked.PrmApprovalCategory					= ApprovalCategory
+								invoked.PrmDateRange						= DateRange
+								invoked.PrmSearchAmountRange				= SearchAmountRange
+								invoked.PrmCommentText						= CommentText
+								invoked.PrmApprovalCode						= ApprovalCode
+								invoked.PrmCashLedgerBatchApproval			= CashLedgerBatchApproval			
+
+						if (BatchApprovalType.CashLedgerTransaction) 	
+							if (CashManagementGroup.CashLedgerTransactionApprovalRequired)
+								invoke PendingApproval.RemoveFromBatch CashLedgerTransaction set
+							else
+								invoke Unreleased.RemoveFromBatch CashLedgerTransaction set
+							invoke CreateBatchApproval CashLedgerTransaction
+	    						invoked.PrmCashManagementGroup				= CashManagementGroup
+	    						invoked.PrmCashLedgerTransactionGroup	    = CashLedgerTransactionGroup
+	    						invoked.PrmCashManagementAccount			= CashManagementAccount
+								invoked.PrmCashCode							= CashCode
+								invoked.PrmBankTransactionCode				= BankTransactionCode
+	        					invoked.PrmGeneralLedgerSourceCode			= GeneralLedgerSourceCode
+								invoked.PrmDateRange						= DateRange
+								invoked.PrmSearchAmountRange				= SearchAmountRange
+								invoked.PrmCommentText						= CommentText
+								invoked.PrmApprovalCode						= ApprovalCode
+								invoked.PrmCashLedgerBatchApproval			= CashLedgerBatchApproval
+						invoke CompleteProcessing in background
+							run outside of action background group
+							run after current action background group
+
+				SubmitForApproval is an Instance Action
+					completion message is "ApproveCashLedgerBatchHasBeenSubmittedToTheQueueForProcessing"
+			 		valid when (SubmitForApprovalValid)		
+					Parameters
+						PrmAutoApprove		is Boolean
+							default label is "AutoApprove"
+						PrmApprovalCode		is a ApprovalCode
+							default label is "ApprovalCode"
+						PrmCommentText		is a CommentText
+							default label is "Comment"
+
+					Parameter Rules
+						PrmAutoApprove
+							if (ApprovalCodeRequired
+							and PrmApprovalCode not entered)
+								required
+									"MustEnterAnApprovalCodeOrSelectAutoApprove"
+						PrmApprovalCode
+							initial value is ApprovalCode
+							if (PrmAutoApprove)
+								cannot be entered
+		     						"ApprovalCodeCannotBeEnteredWhenAutoApproveSelected"
+							else
+								default to ApprovalCode
+							constraint (!PrmApprovalCode.ApprovalCodeUsesMaximumAmounts)
+								"CannotSelectApprovalCodesSetUpForNonBatchedCashLedgerPayments"
+							
+				    Entrance Rules
+
+					Action Rules
+						constraint (SubmitForApprovalValid)		
+							"Cannot_\Submit_\For_\Approval;NoRecordsHaveBeenSelected"
+						constraint (!Processing)
+							"Cannot_\Submit_\For_\Approval;RecordsAreProcessing"
+						CommentText			+= PrmCommentText
+						ApprovalCode		= PrmApprovalCode
+						AutoApprove			= PrmAutoApprove
+						if (PrmAutoApprove)
+							if (BatchApprovalType.CashLedgerPayment)
+
+								invoke PendingApproval.BatchApprovalApprove CashLedgerPayment		
+									invoked.PrmCashManagementGroup		= CashManagementGroup
+									invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+							if (BatchApprovalType.CashLedgerReceipt)
+
+								invoke BatchApprovalApprove CashLedgerCashReceiptHeader		
+									invoked.PrmCashManagementGroup		= CashManagementGroup
+									invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+							if (BatchApprovalType.ElectronicFundsTransaction)
+
+								invoke BatchApprovalApprove CashLedgerElectronicFundsTransferTransaction		
+									invoked.PrmCashManagementGroup		= CashManagementGroup
+									invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+							if (BatchApprovalType.CashLedgerTransaction)  	
+								invoke PendingApproval.BatchApprovalApprove CashLedgerTransaction		
+									invoked.PrmCashManagementGroup		= CashManagementGroup
+									invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+							make transition to Approved
+						else
+							if (ApprovalCodeRequired)
+								ApprovalCode	= PrmApprovalCode
+								constraint (ApprovalCode.HasApprovalLevels) 
+									"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+								constraint (!ApprovalCode.HasTeamWithNoMembers) 
+									"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+								constraint (!ApprovalCode.HasInvalidEscalations)
+									"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+								constraint (!ApprovalCode.HasInactiveResources)
+									"CannotComplete;TheApprovalCodeHasInactiveResources"
+				
+								initialize ApprovalLevel
+								initialize Approver
+								initialize ApproverTeam	
+								include GetNextApprovalLevel
+								if (ApprovalCode.InitialApproverSelectionMethod.SpecificApprovalLevel)
+									ApprovalLevel = ApprovalCode.InitialApprovalLevel.ApprovalLevel
+								else
+									ApprovalLevel = LocalApprovalLevel
+								Approver = LocalApprover
+								ApproverTeam = LocalApproverTeam
+							include InitiateApprovalProcessFlow
+						
+							make transition to PendingApproval
+
+				ReleaseRecords is an Instance Action
+					valid when (ReleaseRecordsValid)		
+					Action Rules
+						constraint (ReleaseRecordsValid)		
+							"Cannot_\Release_\Records;NoRecordsHaveBeenSelected"
+						constraint (!Processing)
+							"Cannot_\Release_\Records;RecordsAreProcessing"
+						invoke ReleaseRecordsToProcess in background
+
+				ReleaseRecordsToProcess is an Instance Action
+					default label is untranslatable
+			 		restricted
+					Action Rules
+						Processing = true
+						make transition to Approved
+						if (BatchApprovalType.CashLedgerPayment)
+
+							invoke Unreleased.BatchApprovalRelease CashLedgerPayment		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.CashLedgerReceipt)
+
+							invoke BatchApprovalRelease CashLedgerCashReceiptHeader		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.ElectronicFundsTransaction)
+
+							invoke BatchApprovalRelease CashLedgerElectronicFundsTransferTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.CashLedgerTransaction)  	
+							invoke Unreleased.BatchApprovalRelease CashLedgerTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+												
+						invoke CompleteProcessing in background
+							run outside of action background group
+							run after current action background group
+
+				CancelRecords is an Instance Action					
+					valid when (CancelRecordsValid)
+					confirmation required
+						"ThisWillPermenantlyCancelAllPaymentRecords;DoYouWantToContinue?"
+					Parameters
+						PrmMoveBatchToRejected	is Boolean
+							default label is "MoveBatchToRejectedStatus"
+						PrmCommentText			is a CommentText
+					Action Rules
+						invoke CancelRecordsToProcess in background
+							invoked.PrmMoveBatchToRejected	= PrmMoveBatchToRejected
+							invoked.PrmCommentText			= PrmCommentText
+							
+				CancelRecordsToProcess is an Instance Action		
+					default label is untranslatable
+					restricted
+					Parameters
+						PrmMoveBatchToRejected	is Boolean
+						PrmCommentText			is a CommentText
+					Action Rules
+						Processing = true
+						if (PrmMoveBatchToRejected)
+							Status	= Status.Rejected
+						invoke CancelFromCashLedgerBatchApproval CashLedgerPayment
+							invoked.PrmCashManagementGroup			= CashManagementGroup
+							invoked.PrmCashLedgerBatchApproval		= CashLedgerBatchApproval
+							invoked.PrmCommentText					= PrmCommentText
+						invoke CompleteProcessing in background
+							run outside of action background group
+							run after current action background group
+
+
+			PendingApproval is a State
+				Approve is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						make transition to Approved
+
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+						if (BatchApprovalType.CashLedgerPayment)
+
+							invoke PendingApproval.BatchApprove CashLedgerPayment		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+								invoked.PrmApprovalCode				= ApprovalCode
+						if (BatchApprovalType.CashLedgerReceipt)
+
+							invoke BatchApprove CashLedgerCashReceiptHeader		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+								invoked.PrmApprovalCode				= ApprovalCode
+						if (BatchApprovalType.ElectronicFundsTransaction)
+
+							invoke BatchApprove CashLedgerElectronicFundsTransferTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+								invoked.PrmApprovalCode				= ApprovalCode
+								
+						if (BatchApprovalType.CashLedgerTransaction) 	
+							invoke PendingApproval.BatchApprove CashLedgerTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+								invoked.PrmApprovalCode				= ApprovalCode
+				
+						
+				Reject is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						make transition to Open
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+				RejectWithReasonCode is an Instance Action
+					default label is untranslatable
+					restricted
+					subject is RejectCashLedgerBatchApproval
+					reason code required
+					action comment required
+		
+					Action Rules
+						make transition to Open
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+					Exit Rules
+						invoke Create CashLedgerBatchApprovalReasonCodeUsage
+							invoked.CashManagementGroup			= CashManagementGroup
+							invoked.CashLedgerBatchApproval		= CashLedgerBatchApproval
+							invoked.ReasonCode					= reason code
+							invoked.Description					= reason code.Description
+							invoked.Type						= 1 
+							invoked.Comment						= action comment	
+						
+				ManualApprove is an Instance Action
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Action Rules
+						make transition to Approved
+
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam	
+
+						cancel CashLedgerBatchApproval process
+						if (BatchApprovalType.CashLedgerPayment)			
+
+							invoke PendingApproval.BatchApprovalApprove CashLedgerPayment		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.CashLedgerReceipt)			
+
+							invoke BatchApprovalApprove CashLedgerCashReceiptHeader		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.ElectronicFundsTransaction)	
+
+							invoke BatchApprovalApprove CashLedgerElectronicFundsTransferTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+						if (BatchApprovalType.CashLedgerTransaction)		
+							invoke PendingApproval.BatchApprovalApprove CashLedgerTransaction		
+								invoked.PrmCashManagementGroup		= CashManagementGroup
+								invoked.PrmCashLedgerBatchApproval	= CashLedgerBatchApproval
+
+
+				ManualReject is an Instance Action
+					subject is RejectCashLedgerBatchApproval
+					Parameters
+						PrmComment		is Alpha size up to 500
+					Action Rules
+						if (BatchApprovalType.CashLedgerPayment and CashManagementGroup.RejectCashLedgerPaymentReasonCodeRequired)
+							constraint (reason code entered)
+								"ReasonCodeIsRequiredForRejectingCashLedgerPaymentRequests"
+						if (BatchApprovalType.CashLedgerTransaction and CashManagementGroup.RejectLedgerTransactionReasonCodeRequired) 	
+							constraint (reason code entered)
+								"ReasonCodeIsRequiredForRejectingCashLedgerTransactionRequests"
+						make transition to Open
+					
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+
+						cancel CashLedgerBatchApproval process
+		
+					Exit Rules
+						invoke Create CashLedgerBatchApprovalReasonCodeUsage
+							invoked.CashManagementGroup			= CashManagementGroup
+							invoked.CashLedgerBatchApproval		= CashLedgerBatchApproval
+							invoked.ReasonCode					= reason code
+							invoked.Description					= reason code.Description
+							invoked.Type						= 1 
+							invoked.Comment						= PrmComment	
+
+
+			Approved is a State
+
+

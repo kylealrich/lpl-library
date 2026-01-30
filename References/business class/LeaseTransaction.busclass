@@ -1,0 +1,310 @@
+LeaseTransaction is a BusinessClass
+    owned by lm
+    prefix is LMT
+    classic name is LMTRANS
+
+    Ontology
+        symbolic key is LeaseTransaction
+            classic set name is LMTSET1
+            classic name is SEQ-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+
+
+        TransactionAmount              is a CurrencyAmount
+            classic name is TRAN-AMT
+        BaseAmount                     is an InternationalAmount
+            classic name is BASE-AMT
+        ToBaseCurrency                 is a FromCurrency
+            classic name is TO-BASE-CURR
+        ToBaseCurrencyNumberOfDecimals is a CurrencyNumberOfDecimals
+            classic name is TO-BASE-ND
+        ToBaseRate                     is a CurrencyRate
+        JournalEntryTransactionObjID is an ObjId
+            classic name is GLT-OBJ-ID
+        TransactionDate                is a ExchangeDate
+            classic name is TRAN-DATE
+        Status                         is Numeric size 1
+            States
+                Unposted value is 0
+                Posted   value is 9
+        Reference
+        LeaseAllocationCode
+            classic name is ALLOC-CD
+        Type                           is AlphaUpper size 3
+            States
+                DeferredRent 	value is "DFR"
+                AccruedRent  	value is "ACR"
+                Terminate	 	value is "TRM"
+                AssetROU	 	value is "ROU"
+				LeaseLiabilty 	value is "LEL"
+				GainLoss		value is "GOL"
+        Process                        is AlphaUpper size 3
+        	States
+        		DebitExpense 		value is "ACC"
+        		ZeroAmountInvoice 	value is "RHL"
+        		Terminate 			value is "TRM"
+        		Impairment			value is "IMP"
+        		LeasePeriodClose    value is "LPC"
+				ConversionToSTLiability   value is "CON"
+        Reverse                        is Boolean
+        Vendor
+            classic name is PMT-VENDOR
+        LeaseInvoice
+            classic name for LeaseInvoice.PaymentNumber is PMT-NBR
+            classic name for LeaseInvoice.CancelSequence is CANCEL-SEQ
+        CreationDate                   is TimeStamp
+        CreatedBy                      is an Operator 
+        	holds pii
+            classic name is CREATOR-ID
+        LeaseTransactionAccount        is a FinanceCodeBlock
+            classic name for LeaseTransactionAccount.ToAccountingEntity is PT-COMPANY
+            classic name for LeaseTransactionAccount.AccountingUnit is ACCT-UNIT
+            classic name for LeaseTransactionAccount.GeneralLedgerChartAccount is ACCOUNT
+            classic name for LeaseTransactionAccount.Project is ACTIVITY
+        LeasePaymentNumber				is Numeric size 6
+
+    Conditions
+
+        IsAccruedRentType	
+        	restricted
+            when (Type.AccruedRent)
+
+        IsAccrueExists  
+        	restricted
+            when (Type.AccruedRent)
+
+        IsDeferredRentType
+        	restricted
+            when (Type.DeferredRent)
+
+		IsTerminateType
+        	restricted
+            when (Type.Terminate)
+            
+
+
+
+
+        IsPostedTran
+        	restricted
+            when (Status.Posted)
+            
+        IsTerminateProcess
+        	restricted
+        	when (Process.Terminate)
+		
+		IsConversionProcess
+			restricted
+			when (Process.ConversionToSTLiability)
+
+    Relations
+
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction	= reference to this instance
+
+        LminvoiceRel
+            one-to-one relation to LeaseInvoice
+            required
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.Lease                       = Lease
+                related.Vendor                      = Vendor
+                related.LeaseInvoice.PaymentNumber  = LeaseInvoice.PaymentNumber
+                related.LeaseInvoice.CancelSequence = LeaseInvoice.CancelSequence
+               
+	Local Fields
+	               
+       	NewGLTransactionDetail	is a GLTransactionDetail view
+		LocalCurrencyExchange	is a CurrencyExchange
+		LocalGLEvent			is AlphaUpper 2
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                Lease
+                Type
+                Process
+                Status
+                LeaseTransaction
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                Lease
+                LeaseTransaction descending
+
+        Set4
+            indexed
+            Sort Order
+                Company
+                Status
+                Lease
+                LeaseInvoice.PaymentNumber
+                LeaseTransaction
+
+        Set5
+            indexed
+            Instance Selection
+                where (IsAccrueExists)  
+            Sort Order
+                Company
+                Lease
+                LeaseInvoice.PaymentNumber
+                Vendor
+                LeaseInvoice.CancelSequence
+                LeaseTransaction
+		
+	Field Rules
+		CreationDate
+			default to current timestamp
+		
+		CreatedBy
+			default to actor
+		
+
+	Actions
+	
+	
+		Create 			is a Create Action
+			
+			Exit Rules
+				if (IsDeferredRentType
+				or IsConversionProcess
+				or IsTerminateProcess)
+					initialize 	LocalCurrencyExchange	
+					LocalCurrencyExchange.ToCurrency		  	= Lease.BaseCurrency
+					LocalCurrencyExchange.EnteredCurrencyRate 	= ToBaseRate
+					BaseAmount 								  	= LocalCurrencyExchange.OutputCurrencyAmount
+					LocalGLEvent 								= "LD"	
+					invoke Create GLTransactionDetail
+						assign result to NewGLTransactionDetail
+						fill in fields from this instance
+						invoked.OriginatingTransaction 	            = reference to this instance
+						invoked.FinanceEnterpriseGroup	            = Company.FinanceEnterpriseGroup   
+						invoked.System					            = "LM"
+						invoked.AccountingEntity		            = Company.AccountingEntity
+						invoked.TransactionAmount		            = TransactionAmount
+						invoked.CurrencyCode			            = ToBaseCurrency
+						invoked.PostingDate				            = TransactionDate
+						invoked.FinanceCodeBlock		            = LeaseTransactionAccount
+						invoked.GeneralLedgerEvent 		            = LocalGLEvent
+                        invoked.Reference							= "Lease_" + Lease
+                        invoked.Description			  				= "LeaseTerminationPosting"		
+                        invoked.TransactionDate						= TransactionDate
+
+
+
+
+
+					invoke Unreleased.Release NewGLTransactionDetail.GLTransactionDetail	
+
+		Purge is a Purge Action
+			restricted					
+			Entrance Rules
+				if (GLTransactionDetailRel exist) 
+					invoke PurgeValidSubLedgerTrx GLTransactionDetailRel
+
+		Update			is an Update Action
+		
+		Delete 			is a Delete Action
+
+		UpdateStatusFromLeaseInvoice is an Instance Action
+			restricted
+			Parameters
+				PrmStatus  is Numeric size 1
+            		States
+                		Unposted value is 0
+                		Posted   value is 9
+		
+			Action Rules
+				Status   = PrmStatus				
+
+		PostTransactions is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Unposted)
+					initialize 	LocalCurrencyExchange	
+					LocalCurrencyExchange.ToCurrency		  	= Lease.BaseCurrency
+					LocalCurrencyExchange.EnteredCurrencyRate 	= ToBaseRate
+					BaseAmount 								  	= LocalCurrencyExchange.OutputCurrencyAmount
+					LocalGLEvent 								= "LD"	
+					invoke Create GLTransactionDetail
+						assign result to NewGLTransactionDetail
+						fill in fields from this instance
+						invoked.OriginatingTransaction 	= reference to this instance
+						invoked.FinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup   
+						invoked.System					= "LM"
+						invoked.AccountingEntity		= Company.AccountingEntity
+						invoked.TransactionAmount		= TransactionAmount
+						invoked.CurrencyCode			= ToBaseCurrency
+						invoked.PostingDate				= TransactionDate
+						invoked.FinanceCodeBlock		= LeaseTransactionAccount
+						invoked.GeneralLedgerEvent 		= LocalGLEvent
+					invoke Release NewGLTransactionDetail.GLTransactionDetail
+					
+		JournalizeSet is a Set Action		
+			restricted
+			completion message is "<CompletionMessage>"
+			Parameters
+				PrmCompany					is a PayablesCompany		
+					default label is "Company"
+				PrmLease					is a Lease
+                PrmProcess                  is AlphaUpper size 3
+				PrmDescription				is a Description
+					default label is "Description"			
+
+			Parameter Rules
+				PrmCompany
+					required
+					
+			Local Fields
+				CompletionMessage			is Alpha 150
+				LocalJournalizeGroup		is a JournalizeGroup
+				LocalSystemCode            	is a GeneralLedgerSystemCode
+				
+			Instance Selection
+				where (Company = PrmCompany
+				and	   Lease = PrmLease
+				and	   Status.Unposted
+                and    Process = PrmProcess)
+				
+			Sort Order  
+				Company
+                Lease
+				Status
+
+			Action Rules								
+				Empty Set Rules
+					CompletionMessage = "TerminationTransactionPostingCompletedForJournalizeGroup...:NoRecordsFoundToJournalize<LocalJournalizeGroup>"
+
+				Set Rules
+					Entrance Rules
+						LocalSystemCode = "LM" 
+    					increment LocalSystemCode.LastJournalizeGroup
+            			LocalJournalizeGroup = LocalSystemCode.DerivedJournalizeGroup
+						CompletionMessage = "TerminationTransactionPostingCompletedForJournalizeGroup...:<LocalJournalizeGroup>"                       
+						
+					Exit Rules
+						invoke InitiateJournalizeForRunGroup PrmCompany.FinanceEnterpriseGroup in background
+							invoked.PrmJournalizeGroup				= LocalJournalizeGroup
+							invoked.PrmJournalizeGroupDescription	= PrmDescription
+						
+				Instance Rules
+					if (GLTransactionDetailRel exist)
+						invoke UpdateJournalizeGroup GLTransactionDetailRel	 
+							invoked.PrmJournalizeGroup	= LocalJournalizeGroup
+							  
+  						Status = Status.Posted

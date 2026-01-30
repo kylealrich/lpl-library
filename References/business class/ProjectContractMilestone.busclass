@@ -1,0 +1,497 @@
+ProjectContractMilestone is a BusinessClass
+	owned by Projects
+	prefix is PRCMS
+	
+	Ontology
+		symbolic key is ProjectContractMilestone
+	
+	Patterns
+	
+	Persistent Fields
+		MilestoneType				is a ProjectMilestoneType
+		Description
+    	Amount						is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		MilestoneDate				is Date
+			default label is "Date"
+		Status						is Numeric size 1
+			States
+				ToProcess			value is 1
+				Processed			value is 2
+				Hold				value is 3
+				Draft				value is 4
+				Historical			value is 5 
+		PercentComplete				is Percent size 5.2
+		PostingProject				is a Project
+		
+	Transient Fields
+		RevenueFullAccount			is a FinanceCodeBlockFullNoProjectFD2
+			default label is "FullRevenueFinanceStructure"
+		BypassAmountEdit			is Boolean
+
+	Local Fields
+		LocalAmount					is like InternationalAmount
+		LocalRemaining				is like InternationalAmount
+
+    Derived Fields
+    	TotalDistributionPercent is a DerivedField
+    		type is Percent size 5.2
+    		return sum ProjectContractMilestoneDistribution set.Percent
+
+    	RecordCount is a DerivedField
+    		type is Percent size 5.2
+    		restricted
+    		return instance count of ProjectContractMilestoneDistribution set
+    		
+		MilestoneLabel is a ConditionalField
+			type is Alpha size 50
+			restricted 
+			if (IsInstallmentType)
+				InstallmentMF
+			else
+				MilestoneMF
+				
+		InstallmentMF is a MessageField
+			restricted
+			"Installment"
+			
+		MilestoneMF is a MessageField
+			restricted
+			"Milestone"
+		    		
+	Conditions
+		HasProjectContractMilestoneComments
+			restricted
+			when (ProjectContractMilestoneComment set exists)
+
+		IsInstallmentType
+			restricted
+			when ((ProjectContract.BillingMethod.Installment
+			and    MilestoneType.Billing)
+			or    (ProjectContract.RevenueMethod.Installment
+			and    MilestoneType.Revenue))
+			
+		RevenueOverridesValid
+			restricted
+			when (ProjectContract.RevenueOverridesValid
+			and   MilestoneType.Revenue)
+			
+		BillingOverridesValid
+			restricted
+			when (ProjectContract.BillingOverridesValid
+			and   MilestoneType.Billing)
+
+		RevenueOverridesExist
+			restricted
+			when (ProjectContractMilestoneDistribution set exists)
+
+		CopyRevenueDistributionsOK
+			restricted
+			when ((RevenueOverridesValid
+			or     BillingOverridesValid)
+			and    RevenueOverridesExist)
+
+		RevenueAccountEntered
+			restricted
+			when (ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+			or    ProjectFundingSource.RevenueCodeBlockOption.None
+			or    TotalDistributionPercent = 1
+			or   (MilestoneType.Billing
+			and   ProjectContract.RevenueRecognition.Separate))
+
+		RevenueAccountRequired
+			restricted
+			when (!RevenueAccountEntered
+			and  (Status.ToProcess
+			or    Status.Hold
+			or    Status.Draft))
+
+		MilestoneToBeProcessed
+			restricted
+			when (Status.ToProcess
+			or    Status.Hold)
+
+		IsProcessedBillingMilestones
+			restricted
+			when (MilestoneType.Billing
+			and   Status.Processed)
+
+		IsProcessedRevenueMilestones
+			restricted
+			when (MilestoneType.Revenue
+			and   Status.Processed)
+
+		ProjectContractMilestoneNotCreated
+			restricted
+			when (ProjectContractMilestone not exists)
+			
+		RevenueAccountAllowed
+			restricted
+			when ((MilestoneType.Billing
+			and    ProjectContract.RevenueRecognition.Combined
+			and   !ProjectContract.BillingMethod.Milestone
+			and   !ProjectContract.BillingMethod.Installment)
+			or    (MilestoneType.Revenue
+			and   !ProjectContract.RevenueMethod.Milestone
+			and   !ProjectContract.RevenueMethod.PercentageOfCompletion
+			and   !ProjectContract.RevenueMethod.Installment))
+
+	Relations
+		ShadowPostingDescendantRel
+			one-to-one relation to ProjectShadow
+			Field Mapping uses BySummaryProject
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.SummaryProject   	   = ProjectContract
+				related.Project				   = PostingProject
+
+		OtherMilestoneRel
+			one-to-many relation to ProjectContractMilestone
+			Field Mapping uses ByMilestoneType
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+				related.ProjectContract			= ProjectContract
+				related.FinanceDimension2		= FinanceDimension2
+				related.MilestoneType			= MilestoneType
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and   !related.Status.Processed
+				and   !related.Status.Historical)
+
+
+		ProjectContractInvoiceLineRel is a ProjectContractInvoiceLine set
+		
+		ProjectContractInvoiceRel
+			one-to-one relation to ProjectContractInvoice
+			Field Mapping uses symbolic key	
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.ProjectContract				= ProjectContract
+				related.FinanceDimension2			= FinanceDimension2
+				related.ProjectContractInvoice		= first ProjectContractInvoiceLineRel.ProjectContractInvoice
+
+	Sets
+		ByMilestoneType
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract
+				FinanceDimension2
+    			MilestoneType
+    			MilestoneDate
+    			ProjectContractMilestone
+
+	Field Rules
+		MilestoneType
+			required
+			cannot be changed
+			
+		Description
+			required
+			
+		MilestoneDate
+			required
+			constraint (MilestoneDate within ProjectContract.Project.ProjectDateRange)		
+				"DateMustBeWithinContractDateRange"
+			constraint (MilestoneDate within FinanceDimension2.DateRange)
+				"DateMustBeWithin<FinanceEnterpriseGroup.FinanceDimension2Label>DateRange"
+			
+
+
+
+
+
+
+
+
+
+
+			if (ProjectContractInvoiceLine set exists)
+				cannot be changed
+					"DateCannotBeChanged;_InvoiceExists"
+
+    	Amount
+   			required
+			if (Status.Processed)
+				cannot be changed
+					"AmountCannotBeChanged;_MilestoneHasBeenProcessed"
+			if (Status.Historical)
+				cannot be changed
+					"HistoricalAmountCannotBeChanged;_DeleteAndRecreateMilestoneIntead"
+			if (ProjectContractInvoiceLine set exists)
+				cannot be changed
+					"AmountCannotBeChanged;_InvoiceExists"
+
+		Status
+			default to Status.ToProcess
+			if (Status changed)
+				if (old Status.Processed)								
+					constraint (Status.Processed)
+						"CannotChangeFromProcessedStatus"
+				if (old Status.ToProcess
+				or  old Status.Hold)								
+					constraint (!Status.Processed)
+						"CannotChangeStatusToProcessed"
+					constraint (!Status.Draft)
+						"CannotChangeStatusToDraft"
+					constraint (!Status.Historical)
+						"CannotChangeStatusToHistorical"
+				if (old Status.Draft)								
+					constraint (Status.Draft)
+						"CannotChangeFromDraftStatus"
+				if (old Status.Draft
+				or  old Status.Hold)								
+					constraint (!Status.Draft)
+						"CannotChangeStatusToDraft"
+					constraint (!Status.Historical)
+						"CannotChangeStatusToHistorical"
+				if (old Status.Historical)		
+					constraint (Status.Historical)
+						"CannotChangeFromHistoricalStatus"
+
+		PercentComplete
+			constraint (PercentComplete <= 1)
+				"PercentCompleteCannotExceed100"
+
+
+			
+		PostingProject
+			if (ProjectFundingSource.PostingProject not entered)
+				required
+					"DefaultMilestone<FinanceEnterpriseGroup.ProjectLabel>OrMilestoneOverride<FinanceEnterpriseGroup.ProjectLabel>Required"
+			constraint (ShadowPostingDescendantRel.Project.ProjectType.Posting)
+				"Posting<FinanceEnterpriseGroup.ProjectLabel>MustBeAPostingDescendantOf<ProjectContract.DisplayContract>"
+			constraint (PostingProject.IsBillable)
+				"Posting<FinanceEnterpriseGroup.ProjectLabel>MustBeBillableAndProjectStatusMustBeBillable"
+
+		RevenueFullAccount
+			if ((MilestoneType.Billing
+			and  ProjectContract.RevenueRecognition.Combined)
+			or   MilestoneType.Revenue)
+				if  (ProjectFundingSource.MilestoneAccountRequired
+				and !ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+				and  ProjectContractMilestoneNotCreated
+				and  ProjectContractMilestoneDistribution set not exists)
+					required
+						"FullRevenueFinanceStructureRequired"
+				
+	Actions
+		Create is a Create Action
+			Action Rules
+				if (MilestoneType.Billing)
+					if (!BypassAmountEdit)
+						LocalRemaining = ProjectFundingSource.BilledRemaining - ProjectFundingSource.TotalUnprocessedMilestoneBillingAmount
+						if (ProjectContract.BillingMethod.Installment)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedInstallmentAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedMilestoneAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+				else
+					constraint (ProjectContract.RevenueRecognition.Separate)
+						"CannotCreateRevenueMilestone;_ContractRevenueRecognitionIsCombined"
+					if (!BypassAmountEdit)
+						LocalRemaining = ProjectFundingSource.RevenueRemaining - ProjectFundingSource.TotalUnprocessedMilestoneRevenueAmount
+						if (ProjectContract.RevenueMethod.PercentageOfCompletion)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedPercentageOfCompletionAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+						if (ProjectContract.RevenueMethod.Installment)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedInstallmentAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedMilestoneAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+				constraint (!Status.Processed)
+					"CannotAddAMilestoneOrInstallmentWithAProcessedStatus"
+				constraint (!Status.Draft)
+					"CannotAddAMilestoneOrInstallmentWithADraftStatus"
+					
+			Exit Rules
+				if (Status.Historical)
+					if (MilestoneType.Billing)
+						invoke UpdateTotalBilledAmount ProjectFundingSource
+							invoked.BilledAmount = Amount
+						invoke UpdateTotalBilledAmount ProjectContract
+							invoked.BilledAmount = Amount
+					if (MilestoneType.Revenue
+					or 	ProjectContract.RevenueRecognition.Combined)
+						invoke UpdateTotalRecognizedAmount ProjectFundingSource
+							invoked.RecognizedAmount = Amount
+						invoke UpdateTotalRecognizedAmount ProjectContract
+							invoked.RecognizedAmount = Amount
+				if (ProjectFundingSource.MilestoneAccountRequired
+				and RevenueFullAccount entered)
+					invoke Create ProjectContractMilestoneDistribution set
+						invoked.Percent = 1
+						invoked.RevenueCodeBlockOption = 1
+						invoked.RevenueFullAccount = RevenueFullAccount
+							
+		Update is an Update Action
+			valid when (!Status.Processed)
+			Action Rules
+				constraint (!Status.Processed)
+					"CannotChangeAProcessedMilestoneOrInstallment"
+				if (MilestoneType.Billing)
+					if (!ProjectContract.BillingMethod.Milestone
+					and !ProjectContract.BillingMethod.Installment
+					and  ProjectContract.RevenueRecognition.Combined)
+						if (ProjectFundingSource.IsInternalFund)
+							constraint (ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+							or          ProjectFundingSource.RevenueCodeBlockOption.None
+							or          TotalDistributionPercent = 1)
+								"FundingSourceRevenueStructureOptionMustBe_FullOr_None;_OrOverrideRevenueDistributionsTotalling100%MustBeCreated"
+						else
+							constraint (ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+							or          TotalDistributionPercent = 1)
+								"FundingSourceRevenueStructureOptionMustBe_Full;_OrOverrideRevenueDistributionsTotalling100%MustBeCreated"
+				else
+					if (!ProjectContract.RevenueMethod.Milestone
+					and !ProjectContract.RevenueMethod.PercentageOfCompletion					
+					and !ProjectContract.RevenueMethod.Installment)
+						if (ProjectFundingSource.IsInternalFund)
+							constraint (ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+							or          ProjectFundingSource.RevenueCodeBlockOption.None
+							or          TotalDistributionPercent = 1)
+								"FundingSourceRevenueStructureOptionMustBe_FullOr_None;_OrOverrideRevenueDistributionsTotalling100%MustBeCreated"
+						else
+							constraint (ProjectFundingSource.RevenueCodeBlockOption.FullStructure
+							or          TotalDistributionPercent = 1)
+								"FundingSourceRevenueStructureOptionMustBe_Full;_OrOverrideRevenueDistributionsTotalling100%MustBeCreated"
+				if (Amount changed)
+					if (MilestoneType.Billing)
+						LocalRemaining = ProjectFundingSource.BilledRemaining - ProjectFundingSource.TotalUnprocessedMilestoneBillingAmount
+						LocalRemaining += Amount
+						if (ProjectContract.BillingMethod.Installment)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedInstallmentAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedMilestoneAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+					else
+						LocalRemaining = ProjectFundingSource.RevenueRemaining - ProjectFundingSource.TotalUnprocessedMilestoneRevenueAmount
+						LocalRemaining += Amount
+						if (ProjectContract.RevenueMethod.PercentageOfCompletion)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedPercentageOfCompletionAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+						if (ProjectContract.RevenueMethod.Installment)	
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedInstallmentAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+						else
+							constraint (Amount <= LocalRemaining)
+								"TotalUnprocessedMilestoneAmountsCannotExceedRemainingAmountOf<LocalRemaining>"
+
+		UpdateStatus is an Instance Action
+			restricted
+			Parameters
+				PrmStatus				is Numeric 1
+					States
+						ToProcess			value is 1
+						Processed			value is 2
+						Hold				value is 3
+						Draft				value is 4
+						Historical			value is 5
+			Action Rules
+				Status = PrmStatus
+																
+		Delete is a Delete Action
+			valid when (!Status.Processed)		
+			Action Rules
+				constraint (!Status.Processed)
+					"CannotDeleteAProcessedMilestoneOrInstallment"
+			Exit Rules
+				if (Status.Historical)
+					LocalAmount = Amount * -1
+					if (MilestoneType.Billing)
+						invoke UpdateTotalBilledAmount ProjectFundingSource
+							invoked.BilledAmount = LocalAmount
+						invoke UpdateTotalBilledAmount ProjectContract
+							invoked.BilledAmount = LocalAmount
+					if (MilestoneType.Revenue
+					or 	ProjectContract.RevenueRecognition.Combined)
+						invoke UpdateTotalRecognizedAmount ProjectFundingSource
+							invoked.RecognizedAmount = LocalAmount
+						invoke UpdateTotalRecognizedAmount ProjectContract
+							invoked.RecognizedAmount = LocalAmount
+
+		CopyRevenueDistributions is an Instance Action
+			valid when (CopyRevenueDistributionsOK)
+			Parameters
+				BillingMilestone		is a ProjectContractMilestone
+					default label is "ToMilestone"
+				RevenueMilestone		is a ProjectContractMilestone
+					default label is "ToMilestone"
+				CopyToAll				is Boolean
+				ReplaceExisting			is Boolean
+			Local Fields
+				ToMilestone		is a ProjectContractMilestone
+			Action Rules
+				if (MilestoneType.Billing)
+					ToMilestone = BillingMilestone
+				else
+					ToMilestone = RevenueMilestone
+				if (CopyToAll)
+					constraint (ToMilestone not entered)
+						"CopyToAllSelected;_ToMilestoneCannotBeEntered"
+				else
+					constraint (ToMilestone entered)
+						"EnterToMilestoneOrSelectCopyToAll"
+				if (ToMilestone entered)
+					constraint (ToMilestone exists)
+						"InvalidMilestone"
+					constraint (ToMilestone.ProjectFundingSource = ProjectFundingSource)
+						"ToMilestoneMustBeIncludedInFundingSource"
+					constraint (ToMilestone.MilestoneType = MilestoneType)
+						"ToMilestoneMustBe<MilestoneType>Type"
+					constraint (!ToMilestone.Status.Processed)
+						"ToMilestoneCannotBeInProcessedState"
+					constraint (ToMilestone != ProjectContractMilestone)
+						"ToMilestoneCannotBeTheSameAsFromMilestone"
+				if (CopyToAll)
+					for each OtherMilestoneRel
+						ToMilestone = each.ProjectContractMilestone
+						if (ReplaceExisting)
+							invoke Delete ToMilestone.ProjectContractMilestoneDistribution set
+						if (ToMilestone.ProjectContractMilestoneDistribution set not exists)
+							for each ProjectContractMilestoneDistribution set
+								invoke Create ProjectContractMilestoneDistribution
+									fill in fields from each
+									invoked.ProjectContractMilestone = ToMilestone
+				else
+					if (ReplaceExisting)
+						invoke Delete ToMilestone.ProjectContractMilestoneDistribution set
+					if (ToMilestone.ProjectContractMilestoneDistribution set not exists)
+						for each ProjectContractMilestoneDistribution set
+							invoke Create ProjectContractMilestoneDistribution
+								fill in fields from each
+								invoked.ProjectContractMilestone = ToMilestone
+							
+		CreateComments is an Instance Action
+			Parameters
+				PrmSubject	 			is a CommentName
+		    	PrmComment				is Text
+				PrmFrom					is Alpha size 230
+				PrmCommentDate			is TimeStamp
+				PrmDocumentURL			is URL		
+				PrmAttachment			is an Attachment
+			Parameter Rules
+				PrmSubject
+					required
+		    	PrmComment
+		    		required
+				PrmFrom	
+					initial value is actor
+					required
+				PrmCommentDate
+		    		default to current timestamp
+			Action Rules
+				invoke Create ProjectContractMilestoneComment
+					invoked.FinanceEnterpriseGroup   = FinanceEnterpriseGroup
+					invoked.FinanceDimension2        = FinanceDimension2					
+					invoked.ProjectFundingSource     = ProjectFundingSource
+					invoked.ProjectContract		     = ProjectContract					
+					invoked.ProjectContractMilestone = ProjectContractMilestone
+					invoked.Subject				     = PrmSubject
+			    	invoked.Comment                  = PrmComment
+					invoked.From                     = PrmFrom	
+					invoked.CommentDate              = PrmCommentDate
+					invoked.DocumentURL			     = PrmDocumentURL					
+			    	invoked.Attachment               = PrmAttachment
+	

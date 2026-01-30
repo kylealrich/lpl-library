@@ -1,0 +1,257 @@
+WorkOrderByproduct is a BusinessClass
+	owned by wo
+	prefix is WOB
+	classic name is WOBYPROD
+
+	Ontology
+		symbolic key is WorkOrderByproduct
+			classic set name is WOBSET1
+			classic name is SEQ
+			classic name for InventoryLocation is LOCATION
+			classic name for WorkOrder is WORK-ORDER
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		Item
+		Quantity
+		ActualQuantity				is a Quantity
+			classic name is ACTUAL-QTY
+		DetailQuantity				is a Quantity
+			classic name is DETAIL-QTY
+		WalkThruRequired			is Boolean
+			classic name is WALK-THRU-REQ
+			protected
+		FinishedGoodsVarianceAmount	is an InternationalCost
+			classic name is FGV-AMOUNT
+
+	Derived Fields
+		DerivedWorkOrderByproduct is a DerivedField
+			type is Text
+			if (WorkOrderByproduct exists)
+				return WorkOrderByproduct
+			else
+				return blank
+		
+		QuantityAssigned 								is a DerivedField
+			type is like Quantity
+			if (ItemLocation.IsSerialTracked)
+				return sum WorkOrderByproductDetailsRel.ActualQuantity
+			else
+				for each WorkOrderByproductDetailsRel
+					if (Item.StockUOM != each.WorkOrderItemBinLotSerial.UnitOfMeasure)
+						UOMCalculation.InputUOM							= each.WorkOrderItemBinLotSerial.UnitOfMeasure
+						UOMCalculation.InputToUOM						= Item.StockUOM
+						UOMCalculation.InputQuantity					= each.ActualQuantity
+						UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+						LocalConvertedQuantity							= UOMCalculation.OutputQuantity
+
+						LocalTotalQuantityAssignedConverted += LocalConvertedQuantity
+					else
+						LocalTotalQuantityAssigned += each.ActualQuantity
+
+				return (LocalTotalQuantityAssignedConverted + LocalTotalQuantityAssigned)
+
+	Local Fields
+		ItemLocation
+		LocalReverseByWorkOrder						is Boolean
+		NewWorkOrderByproduct						is a WorkOrderByproduct view
+		LocalWorkOrderByproduct						is a WorkOrderByproduct
+		LocalConvertedQuantity						is a Quantity
+		UOMCalculation
+		NewInventoryTransactionLine					is an InventoryTransactionLine view
+		LocalInventoryTransaction					is like InventoryTransaction
+		LocalInventoryTransactionLine				is a LineNumber
+		LocalTotalQuantityAssigned					is a Quantity
+		LocalTotalQuantityAssignedConverted			is a Quantity
+		
+	Conditions
+
+		IsWalkthrureq
+			restricted
+			when (WalkThruRequired)
+
+		IsOnlySerialTracked
+			restricted
+			when (ItemLocation.IsSerialTracked
+			and  !ItemLocation.BinTracked)
+
+		IsPlainItem
+			restricted
+			when (!ItemLocation.BinTracked
+			and   !ItemLocation.IsLotTracked
+			and   !ItemLocation.SerialTracked.SerialRequiredAtReceipt
+			and   !Item.IsTrackedInAlternateUOM)
+
+		IsSerialTrackedAtIssue
+			restricted
+			when (ItemLocation.SerialTracked.SerialRequiredAtIssue)
+
+		DetailTracked
+			restricted
+			when (!IsPlainItem
+			and   !IsSerialTrackedAtIssue)
+
+
+	Sets
+
+		Set2
+			indexed
+			Instance Selection
+				where (IsWalkthrureq)
+			Sort Order
+				Company
+				InventoryLocation
+				WorkOrder
+				WorkOrderByproduct
+
+	Relations
+		WorkOrderItemBinLotSerialRel 			is a WorkOrderItemBinLotSerial set
+
+		WorkOrderByproductDetailsRel			is a WorkOrderItemBinLotSerial set
+			Instance Selection
+				where (related.WorkOrderByproduct entered
+				and    related.WorkOrderItem not exists)
+
+	Field Rules
+
+		Item
+			cannot be changed 										
+
+			constraint (Item != WorkOrder.Item)
+				"ByproductMustNotEqualToFinishedGoodItem"				
+
+			constraint (ItemLocation.InventoryTracked)
+				"ItemIsNotTrackedAtSpecifiedLocation"				
+
+			constraint (!Item.IsCatchWeightItem)
+				"CannotCreate;ByproductCannotBeACatchWeightItem"					
+
+		Quantity
+			required
+
+		ActualQuantity
+			if (!LocalReverseByWorkOrder)
+				if (WorkOrder.ProductionFeedbackStatus.InProcess)
+					required
+				else
+					cannot be entered
+						"CannotEnter;WorkOrderProductionFeedbackNotInProcess"
+
+	Actions
+
+		Create is a Create Action
+			valid when (!WorkOrder.IsReleasedOrUnreleased)
+
+			Action Rules
+				constraint (!WorkOrder.IsReleasedOrUnreleased)
+					"WorkOrderIsNotInProduction"
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+			Entrance Rules
+				if (WorkOrder.IsInProduction)
+					constraint (Quantity not entered)
+						"CannotDelete;PlannedQuantitiesExist"
+
+
+
+
+
+
+
+
+
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		UpdateActualQuantityFromWorkOrder is an Instance Action
+			restricted
+			Action Rules
+				ActualQuantity   = Quantity
+
+		UpdateInitializeActualQuantityFromWorkOrder is an Instance Action
+			restricted
+			Action Rules
+				initialize ActualQuantity
+
+				invoke UpdateAllocatedFromWorkOrder WorkOrderItemBinLotSerialRel
+
+		ValidateDetailsFromWorkOrder is an Instance Action
+			restricted
+			Action Rules
+				if (DetailTracked)
+					constraint (WorkOrderItemBinLotSerialRel exists)
+						"CannotFinish;ByProductsDetailsDoNotExists"
+					
+					for each WorkOrderItemBinLotSerialRel
+						if (each.WorkOrderItemBinLotSerial.UnitOfMeasure entered
+						and each.WorkOrderItemBinLotSerial.UnitOfMeasure != Item.StockUOM)
+							initialize UOMCalculation
+							UOMCalculation.InputQuantity					= each.ActualQuantity
+							UOMCalculation.InputUOM							= each.WorkOrderItemBinLotSerial.UnitOfMeasure
+							UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+							LocalConvertedQuantity							+= UOMCalculation.OutputQuantity
+						else
+							LocalConvertedQuantity += each.ActualQuantity
+
+					constraint (ActualQuantity = LocalConvertedQuantity)
+						"CannotFinish;ActualQuantityOfByproductDoesNotMatchDetail'sActualQuantity"
+
+		ReverseWorkOrderByproduct is an Instance Action
+			restricted
+			Parameters
+				PrmWorkOrder	is like WorkOrder
+			Action Rules
+				if (Company.AllowNegativeStockOnHand)
+					constraint (ItemLocation.AvailableQuantity > ActualQuantity)
+						"CannotReverseWorkOrder;AvailableFinishedGoodQuantityIsLessThanQuantityToReverse"
+
+				invoke Create WorkOrderByproduct
+					assign result to NewWorkOrderByproduct
+					fill in fields from this instance
+					invoked.Company							= Company
+					invoked.InventoryLocation				= InventoryLocation
+					invoked.WorkOrder						= PrmWorkOrder
+					invoked.LocalReverseByWorkOrder			= true
+					invoked.Quantity						= Quantity * -1
+					invoked.ActualQuantity					= ActualQuantity * -1
+
+				LocalWorkOrderByproduct           			= NewWorkOrderByproduct.WorkOrderByproduct
+
+				if (DetailTracked)
+					for each WorkOrderItemBinLotSerialRel
+						invoke ReverseWorkOrderDetail each
+							invoked.PrmWorkOrder					= PrmWorkOrder
+							invoked.PrmItem							= Item
+							invoked.PrmWorkOrderByproduct			= LocalWorkOrderByproduct
+
+		CreateDistributions	is an Instance Action
+			restricted
+			Parameters
+				PrmInventoryTransaction					is like InventoryTransaction
+			Action Rules
+				LocalInventoryTransaction								= PrmInventoryTransaction
+				invoke Unreleased.Create InventoryTransactionLine
+					assign result to NewInventoryTransactionLine
+					fill in fields from this instance
+					invoked.TransactionSystemCode 						= "WO"
+					invoked.InventoryTransaction						= PrmInventoryTransaction
+					invoked.OriginatingTransaction						= reference to this instance
+					invoked.Quantity									= ActualQuantity
+					invoked.KitType										= "S"
+					if (WorkOrder.OriginalWorkOrder entered)
+						initialize invoked.UnitCost
+					invoked.TransactionUOM								= Item.StockUOM
+					if (ItemLocation.BinTracked)
+						invoked.MultipleBins							= true
+				
+				LocalInventoryTransactionLine							= NewInventoryTransactionLine.InventoryTransactionLine.LineNumber
+				invoke CreateDistributions WorkOrderByproductDetailsRel
+					invoked.PrmInventoryTransaction						= LocalInventoryTransaction
+					invoked.PrmInventoryTransactionLine					= LocalInventoryTransactionLine

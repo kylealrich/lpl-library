@@ -1,0 +1,419 @@
+WarehousePickListPrintLine is a BusinessClass
+	owned by wh
+
+	prefix is WPLPL
+
+	Ontology
+		symbolic key is WarehousePickListPrintLine
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		CustomerOrder
+		Requisition					is like Requisition
+		HeadRecord					is Boolean
+			restricted		
+	Local Fields
+		LocalTotalCost				is Boolean
+		LocalTotalUnitCost			is an InternationalCost
+		LocalLineCostData			is Boolean
+		LocalCombine				is Boolean
+		LocalCombinedQuantity		is a Quantity
+		LocalInsufficientDetail		is Boolean
+		LocalWarehouseShipmentLineDetailBin					is like Bin
+		LocalWarehouseShipmentLineDetailLot					is like ItemLot
+		LocalWarehouseShipmentLineDetailSublot				is like Sublot
+		LocalWarehouseShipmentLineDetailSerial				is like ItemSerialNumber
+		LocalWarehouseShipmentLineDetailUnitOfMeasure		is like UnitOfMeasure
+		LocalWarehouseShipmentLineComponent					is like WarehouseShipmentLineComponent
+		LocalTotalLineQuantity						is like Quantity
+		
+	Rule Blocks
+	
+		InsufficientDetailRules
+			initialize LocalInsufficientDetail
+			if	(WarehouseShipmentLine.IsSerialTrackedAtReceipt
+			or	 WarehouseShipmentLine.IsLotTrackedAtReceipt
+			or	 WarehouseShipmentLine.IsMultipleUOMTracked
+			or	 WarehouseShipmentLine.IsBinTracked)
+				if (WarehousePickListPrintIDMRel.DerivedAllocateDetail
+				and	(WarehouseShipmentLine.PrintedQuantity != WarehouseShipmentLine.DetailQuantity))
+					LocalInsufficientDetail = true
+			
+			if (WarehousePickListPrintIDMRel.DerivedAllocateDetail
+			and (WarehouseShipmentLine.IsSerialTrackedAtIssues
+			or 	 WarehouseShipmentLine.IsOnlyLotTrackedAtIssue)
+			and WarehouseShipmentLine.LineType.InventoriedItem)
+				LocalInsufficientDetail = true
+
+		CalculateTotalCost
+			if(!LocalTotalCost and WarehousePickListPrintIDMRel.DerivedIncludeCost)
+				for each WarehousePickListPrintLineRel
+					LocalTotalUnitCost 			+= each.DerivedExtendedCost
+				LocalTotalCost = true
+		
+		CombinePrintedQuantities
+			if(not LocalCombine)
+				for each CombinePickListPrintDetailsRel
+					LocalCombinedQuantity	+= each.WarehouseShipmentLine.DerivedPrintedQuantityInTransUOM
+				LocalCombine = true
+				
+		
+
+	Derived Fields
+
+		DerivedCombinedQuantity is a DerivedField
+			type is like Quantity
+				precision is WarehouseShipmentLine.Item.NumberOfDecimalsQuantity
+			include CombinePrintedQuantities
+			return LocalCombinedQuantity	
+		
+		DerivedCustomerShipTo is a DerivedField
+			type is Alpha 4
+			if(WarehouseShipment.CustomerShipTo entered)
+				return WarehouseShipment.CustomerShipTo
+
+		DerivedCarrier is a DerivedField
+			type is Alpha 9
+			if(WarehouseShipment.Carrier entered)
+				return WarehouseShipment.Carrier
+
+		DerivedRoute is a DerivedField
+			type is Alpha 4
+			if(WarehouseShipment.RouteHeader.Route entered)
+				return WarehouseShipment.RouteHeader.Route
+
+		DerivedRouteStop is a DerivedField
+			type is Alpha 4
+			if(WarehouseShipment.RouteStop entered)
+				return WarehouseShipment.RouteStop
+				
+		InsufficientDetailFlag is a DerivedField
+			type is Alpha 26
+			include InsufficientDetailRules
+			if(LocalInsufficientDetail)
+				return "Insufficient Details Found" 
+		
+		DerivedExtendedCost is a DerivedField
+			type is like InternationalCost
+				precision is WarehouseShipmentLine.Item.NumberOfDecimalsCost
+			if (WarehousePickListPrintIDMRel.DerivedIncludeCost)
+				return WarehouseShipmentLine.DerivedPrintedQuantityInTransUOM * DerivedUnitCost
+
+		DerivedTotalCost is a DerivedField
+			type is like InternationalCost
+				precision is 4
+			include CalculateTotalCost
+			return LocalTotalUnitCost	
+			
+		DerivedUnitCost is a DerivedField
+			type is like InternationalCost
+				precision is WarehouseShipmentLine.Item.NumberOfDecimalsCost
+			if (WarehousePickListPrintIDMRel.DerivedIncludeCost)
+				return WarehouseShipmentLine.UnitCost * WarehouseShipmentLine.TransactionUOMMultiplier
+				
+		DerivedItemDescription2 is a DerivedField
+			type is like Description
+			if (WarehouseShipmentLine.LineType.InventoriedItem
+			or  WarehouseShipmentLine.LineType.NonstockItem)
+				return WarehouseShipmentLine.Item.Description2
+				
+		DerivedLineComponentCheck is a DerivedField
+			type is Alpha 3
+			if (HasComponents)
+				return "Yes"
+			return "No"
+			
+		DerivedItemCommentCheck is a DerivedField
+			type is Alpha 3
+			if (LineItemCommentsRel exists)
+				return "Yes"
+			return "No"
+			
+		DerivedTotalQuantityOfComponents is a DerivedField
+			type is like Quantity
+			initialize LocalTotalLineQuantity
+			if (HasComponents)
+				for each WarehouseShipmentLineComponentRel
+					LocalTotalLineQuantity += each.Quantity
+			else
+				LocalTotalLineQuantity		= WarehouseShipmentLine.OpenQuantity
+			return LocalTotalLineQuantity
+
+		DerivedWarehouseShipmentLineDetailBin is a DerivedField
+			type is like Bin
+			return first WarehouseShipmentLineDetailRel.WarehouseShipmentLineDetail.Bin
+
+		DerivedWarehouseShipmentLineDetailLot is a DerivedField
+			type is like ItemLot
+			return first WarehouseShipmentLineDetailRel.WarehouseShipmentLineDetail.Lot
+		
+		DerivedWarehouseShipmentLineDetailSublot is a DerivedField
+			type is like Sublot
+			return first WarehouseShipmentLineDetailRel.WarehouseShipmentLineDetail.Sublot
+
+		DerivedWarehouseShipmentLineDetailSerial is a DerivedField
+			type is like ItemSerialNumber
+			return first WarehouseShipmentLineDetailRel.WarehouseShipmentLineDetail.Serial
+			
+		DerivedWarehouseShipmentLineDetailLotExpirationDate is a DerivedField
+			type is Date
+			return first WarehouseShipmentLineDetailRel.WarehouseShipmentLineDetail.Lot.LotExpirationDate	
+
+		DerivedWarehouseShipmentLineHasSpecialHandling	is a DerivedField
+			type is Alpha 3
+			if (WarehouseShipmentLine.HasSpecialHandling)
+				return "Yes"
+			return "No"
+
+
+	Conditions
+		HasDetails
+			when (WarehouseShipmentLineDetailRel exists)
+		
+		HasNoDetails
+			when (WarehouseShipmentLineDetailRel not exists)
+			
+		HasDetailsForShipmentLineItem
+			when (ShipmentLineDetailForLineItemRel exists)
+
+		HasComponents
+			when (WarehouseShipmentLineComponentRel exists)
+
+		IsItemSerialRequiredAtIssue
+			restricted
+			when (WarehouseShipmentLine.ItemLocation.SerialTracked.SerialRequiredAtIssue)
+		
+		IsItemLotRequiredAtIssue
+			restricted
+			when (WarehouseShipmentLine.ItemLocation.LotTracked.LotRequiredAtIssue)
+		
+	
+	Field Rules
+
+		WarehouseShipmentLine
+			required
+
+		CustomerOrder
+			if(WarehouseShipment.IsCustomerOrder)
+				default to WarehouseShipment.WarehouseDemand.DemandDocument
+
+		Requisition 
+			if(WarehouseShipment.IsRequisition)
+				default to WarehouseShipment.WarehouseDemand.DemandDocument
+	
+	Relations
+		RequisitionRel
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company 	= WarehouseShipment.CompanyAndLocation.RequestingCompany
+				related.Requisition = WarehouseShipment.WarehouseDemand.DemandDocument
+
+		WarehousePickListPrintIDMRel
+			one-to-one relation to WarehousePickListPrintIDM
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.InventoryLocation	= InventoryLocation
+				related.WarehouseShipment	= WarehouseShipment
+		
+		WarehouseDemandLineRel
+            one-to-many relation to WarehouseDemandLine
+            Field Mapping uses symbolic key
+            	related.Company                          = Company
+            	related.WarehouseDemand.DemandSystemCode = WarehouseShipment.WarehouseDemand.DemandSystemCode
+                related.WarehouseDemand.DemandDocument   = WarehouseShipment.WarehouseDemand.DemandDocument
+                related.WarehouseDemand.DemandCompany    = WarehouseShipment.WarehouseDemand.DemandCompany
+            	related.InventoryLocation 				 = InventoryLocation
+            Instance Selection
+            	where (related.Item entered)
+		
+		RequisitionForIDMRel is a WarehousePickListPrintLine set
+			Instance Selection
+				where (WarehouseShipment.IsRequisition)
+
+		CustomerOrderForIDMRel is a WarehousePickListPrintLine set
+			Instance Selection
+				where (WarehouseShipment.IsCustomerOrder)
+				
+		RequisitionLineCommentRel													
+			one-to-many relation to RequisitionLineComment
+			Field Mapping uses part of key
+				related.Company         			= WarehouseShipment.CompanyAndLocation.RequestingCompany
+				related.Requisition					= WarehouseShipment.WarehouseDemand.DemandDocument
+				related.RequisitionLine 			= WarehouseShipmentLine
+			Instance Selection
+				where (related.CommentType.PrintOnPickList)
+
+		RequisitionLineWithPrefCardTranRel													
+			one-to-many relation to RequisitionLine
+			Field Mapping uses symbolic key
+				related.Company         			= WarehouseShipment.CompanyAndLocation.RequestingCompany
+				related.Requisition					= WarehouseShipment.WarehouseDemand.DemandDocument
+				related.RequisitionLine 			= WarehouseShipmentLine
+			Instance Selection
+				where (related.PreferenceCardTransaction)
+
+		RequisitionWithPrefCardTranRel													
+			one-to-many relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company         			= WarehouseShipment.CompanyAndLocation.RequestingCompany
+				related.Requisition					= WarehouseShipment.WarehouseDemand.DemandDocument
+			Instance Selection
+				where (related.HasPreferenceCardTransaction)
+		
+		WarehousePickListPrintLineRel is a WarehousePickListPrintLine set
+		
+		WarehousePickListPrintDetailRel is a WarehousePickListPrintDetail set
+			Instance Selection
+				where (not HasComponents)
+		
+		WarehouseShipmentLineDetailRel
+			one-to-many relation to WarehouseShipmentLineDetail
+			Field Mapping uses symbolic key
+				related.Company 					 = Company
+				related.InventoryLocation 			 = InventoryLocation
+				related.WarehouseShipment			 = WarehouseShipment
+				related.WarehouseShipmentLine		 = WarehouseShipmentLine
+			
+		WarehouseShipmentLineDetailsForMergeRel
+			one-to-many relation to WarehouseShipmentLineDetail
+			Field Mapping uses symbolic key
+				related.Company 					 = Company
+				related.InventoryLocation 			 = InventoryLocation
+			Instance Selection
+				where (related.WarehouseShipmentLineDetail.WarehouseShipment.WarehouseBatch = WarehouseShipment.WarehouseBatch) 	
+
+		HeadRecordTaggedRel
+			one-to-many relation to WarehousePickListPrintLine
+			Field Mapping uses symbolic key
+				related.Company                          			= Company
+				related.InventoryLocation 				 			= InventoryLocation
+			Instance Selection	
+				where (related.WarehouseShipment.WarehouseBatch		= WarehouseShipment.WarehouseBatch
+				and    related.WarehouseShipmentLine.Item 			= WarehouseShipmentLine.Item
+				and    related.HeadRecord)
+		
+		CombinePickListPrintDetailsRel
+			one-to-many relation to WarehousePickListPrintLine
+			Field Mapping uses symbolic key
+				related.Company										= Company
+				related.InventoryLocation							= InventoryLocation
+				related.WarehouseShipment							= WarehouseShipment
+			Instance Selection
+				where (related.WarehouseShipment.WarehouseBatch		= WarehouseShipment.WarehouseBatch
+				and    related.WarehouseShipmentLine.Item			= WarehouseShipmentLine.Item)
+				
+		CustomerOrderLineCommentRel
+			one-to-many relation to OrderEntryOrderComment
+			Field Mapping uses symbolic key
+				related.Company						= Company
+				related.Customer					= CustomerOrder.Customer
+				related.OrderEntryStandardOrder		= blank
+				related.CustomerOrder				= CustomerOrder
+				related.CustomerOrderLine			= WarehouseShipmentLine
+				
+		WarehouseShipmentLineDetailWithDetailsRel
+			one-to-many relation to WarehouseShipmentLineDetail
+			Field Mapping uses symbolic key
+				related.Company 					 = Company
+				related.InventoryLocation 			 = InventoryLocation
+				related.WarehouseShipment			 = WarehouseShipment
+				related.WarehouseShipmentLine		 = WarehouseShipmentLine
+				
+		LineCommentCheckRel is a WarehousePickListPrintLine set
+			Instance Selection
+				where (RequisitionLineCommentRel exists or CustomerOrderLineCommentRel exists)
+		
+		ExistingWarehousePickListPrintDetailRel
+			one-to-one relation to WarehousePickListPrintDetail
+			Field Mapping uses symbolic key
+				related.Company 										= Company
+				related.InventoryLocation 								= InventoryLocation
+				related.WarehouseShipment 								= WarehouseShipment
+				related.WarehouseShipmentLine 							= WarehouseShipmentLine
+				related.WarehouseShipmentLineComponent					= LocalWarehouseShipmentLineComponent
+				related.WarehouseShipmentLineDetail.Bin					= LocalWarehouseShipmentLineDetailBin
+				related.WarehouseShipmentLineDetail.Lot					= LocalWarehouseShipmentLineDetailLot
+				related.WarehouseShipmentLineDetail.Sublot				= LocalWarehouseShipmentLineDetailSublot
+				related.WarehouseShipmentLineDetail.UnitOfMeasure		= LocalWarehouseShipmentLineDetailUnitOfMeasure
+				related.WarehouseShipmentLineDetail.Serial				= LocalWarehouseShipmentLineDetailSerial
+				
+		WarehouseShipmentLineComponentRel
+			one-to-many relation to WarehouseShipmentLineComponent
+			Field Mapping uses symbolic key
+				related.Company 				= Company
+				related.InventoryLocation 		= InventoryLocation
+				related.WarehouseShipment 		= WarehouseShipment
+				related.WarehouseShipmentLine 	= WarehouseShipmentLine
+				
+		LineItemCommentsRel
+        	one-to-many relation to ItemComment
+        	Field Mapping uses symbolic key
+        		related.ItemGroup 	= WarehouseShipmentLine.Item.ItemGroup
+        		related.Item		= WarehouseShipmentLine.Item
+			Instance Selection
+				where (related.IsCommentNotExpired)
+        		
+        ShipmentLineDetailForLineItemRel
+			one-to-many relation to WarehouseShipmentLineDetail
+			Field Mapping uses symbolic key
+				related.Company 					 	= Company
+				related.InventoryLocation 			 	= InventoryLocation
+				related.WarehouseShipment			 	= WarehouseShipment
+				related.WarehouseShipmentLine		 	= WarehouseShipmentLine
+				related.WarehouseShipmentLineComponent	= blank
+				
+		WarehousePickListPrintLineItemRel
+			one-to-many relation to WarehousePickListPrintLine
+			Field Mapping uses symbolic key
+				related.Company			      = Company
+				related.InventoryLocation     = InventoryLocation
+				related.WarehouseShipment  	  = WarehouseShipment
+				related.WarehouseShipmentLine = WarehouseShipmentLine
+			
+	Actions
+
+		Create is a Create Action
+			restricted
+		
+		CreatePickListLineRecord is a Create Action
+			restricted
+			Action Rules
+				if(HeadRecordTaggedRel not exists)
+					HeadRecord = true
+			Exit Rules
+				if(HasDetails)
+					for each WarehouseShipmentLineDetailRel
+						LocalWarehouseShipmentLineDetailBin					= each.WarehouseShipmentLineDetail.Bin
+						LocalWarehouseShipmentLineDetailLot					= each.WarehouseShipmentLineDetail.Lot
+						LocalWarehouseShipmentLineDetailSublot				= each.WarehouseShipmentLineDetail.Sublot
+						LocalWarehouseShipmentLineDetailSerial				= each.WarehouseShipmentLineDetail.Serial
+						LocalWarehouseShipmentLineDetailUnitOfMeasure		= each.WarehouseShipmentLineDetail.UnitOfMeasure
+						LocalWarehouseShipmentLineComponent					= each.WarehouseShipmentLineComponent
+					
+						if (ExistingWarehousePickListPrintDetailRel not exists)
+							invoke Create WarehousePickListPrintDetail
+								invoked.Company											= Company
+								invoked.InventoryLocation								= InventoryLocation
+								invoked.WarehouseShipment								= WarehouseShipment
+								invoked.WarehouseShipmentLine   						= WarehouseShipmentLine
+								invoked.WarehouseShipmentLineDetail.Bin					= LocalWarehouseShipmentLineDetailBin
+								invoked.WarehouseShipmentLineDetail.Lot					= LocalWarehouseShipmentLineDetailLot
+								invoked.WarehouseShipmentLineDetail.Sublot				= LocalWarehouseShipmentLineDetailSublot
+								invoked.WarehouseShipmentLineDetail.Serial				= LocalWarehouseShipmentLineDetailSerial
+								invoked.WarehouseShipmentLineDetail.UnitOfMeasure		= LocalWarehouseShipmentLineDetailUnitOfMeasure
+								invoked.WarehouseShipmentLineComponent					= LocalWarehouseShipmentLineComponent
+					
+		Update is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			restricted
+			
+
+
+
+

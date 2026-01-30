@@ -1,0 +1,426 @@
+WSMessageGroup is a BusinessClass
+    owned by la
+    prefix is WSMG
+
+    Ontology
+    	symbolic key is WSMessageGroup
+
+	Patterns
+    	implements CRUD
+		implements CreateStamp
+
+    Persistent Fields
+        Status		  		is Numeric size 1
+        	States
+        		New				value is 0
+        		Reset			value is 1
+        		Pending			value is 2
+        		Hold			value is 3
+        		SetHold			value is 4
+        		PendingReset	value is 6
+        		PendingDelete	value is 7
+        		Complete		value is 8
+        		Failed			value is 9
+        ExecuteTime			is TimeStamp
+        FailureCount 		is Numeric size 6
+        EffectiveDate		is Date
+        
+	Conditions
+    	IsNew
+    		default label is "New"
+    		when (Status.New) 
+    	IsReset
+    		default label is "Reset"
+    		when (Status.Reset) 
+    	IsPending
+    		default label is "Pending"
+    		when (Status.Pending)
+    	IsHold
+    		default label is "Hold"
+    		when (Status.Hold
+    		or    Status.SetHold)
+		IsPendingReset
+			default label is "PendingReset"
+    		when (Status.PendingReset)
+    	IsPendingDelete
+    		default label is "PendingDelete"
+    		when (Status.PendingDelete)    		
+    	IsComplete
+    		default label is "Complete"
+    		when (Status.Complete)
+    	IsFailed
+    		default label is "Failed"
+    		when (Status.Failed)
+    		
+	Derived Fields
+		UpperCaseDataArea is a DerivedField
+			type is DataAreaName
+			restricted
+			return parentcontext.dataarea  
+
+		EffectiveDateExecuteTime is a NativeField
+			type is TimeStamp
+			restricted
+			
+		DerActionParameters is a NativeField	
+			type is Text
+			restricted						    		
+    
+    Local Fields
+		LocalAsyncActionRequest is an AsyncActionRequest
+		LocalActionParams is Text // Performance optimization since BLOB/CLOB native derived fields get called twice - once for "exists" and a second for getValue.	
+			
+	Relations
+		IsFailedChildSet is a WSMessage set
+			Instance Selection 
+				where (related.IsFailed)
+		
+		IsPendingChildSet is a WSMessage set
+			Instance Selection 
+				where (related.IsPending)
+		
+		IsHoldChildSet is a WSMessage set
+			Instance Selection 
+				where (related.IsHold)
+				
+		IsNotCompleteSet is a WSMessage set
+			Instance Selection
+				where (!related.IsComplete)
+
+		AsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction 
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "WSAsyncTransactionExecutor"
+				related.AsyncAction = "ExecuteWSTransaction"		
+				
+		FutureAsyncActionRequestRel
+			default label is "FutureAsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByNameGroup 
+				related.Name = "WSMessageGroup" + EffectiveDate 
+				related.Group = "async"
+				related.DataArea = UpperCaseDataArea
+			Instance Selection
+				where (related.ImplementingClass = "AsyncActionRequest"
+				and related.AsyncAction = "SetPendingScheduling")								
+
+    Sets
+
+		ByStamp
+			indexed
+			Sort Order
+				create stamp
+				WSMessageGroup
+
+		ByNewStamp
+			indexed
+			Sort Order
+				create stamp
+				WSMessageGroup
+			Instance Selection
+				where (IsNew)
+
+		ByCompleteStamp
+			Sort Order
+				create stamp
+				WSMessageGroup
+			Instance Selection
+				where (IsComplete)				
+		
+		ByResetStamp
+			indexed
+			Sort Order
+				create stamp
+				WSMessageGroup
+			Instance Selection
+				where (IsReset)
+		
+	 	ByHoldStamp
+			indexed
+			Sort Order
+				create stamp
+				WSMessageGroup
+			Instance Selection
+				where (IsHold)				
+	
+		ByFailedStamp
+			indexed
+			Sort Order
+				ExecuteTime
+				WSMessageGroup
+			Instance Selection
+				where (IsFailed)
+				
+		ByExecCompleteStamp
+			Sort Order
+				ExecuteTime
+				WSMessageGroup
+			Instance Selection
+				where (IsComplete)		
+	
+	Actions
+		PurgeWSTransactions is a Set Action
+			Parameters
+				ThruDate 		is Date
+				PurgeOffsetDays is Numeric size 3
+			
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+			
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = ThruDate
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - PurgeOffsetDays
+
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Instance Selection
+				include deleted records
+				where (Status.Complete
+				and    ExecuteTime < LocalThruDate)
+
+
+
+				
+			Action Rules
+
+
+				Instance Rules
+					invoke Complete.MakePendingDelete
+					invoke PurgeWSMessages WSMessage in background
+						invoked.ParamGroup 			= WSMessageGroup
+
+		ResetFailedTransactions is a Set Action
+			Instance Selection
+				where (Status.Failed)
+											
+			Action Rules
+				Instance Rules
+					invoke Failed.MakePendingReset
+					if (current timestamp - 3600 > ExecuteTime)
+						invoke ResetFailedMessages WSMessage in background
+							invoked.ParamGroup 			= WSMessageGroup				
+
+		EndWorkUpdateAsyncRequest is an Instance Action
+			restricted
+			manual update
+
+				
+		UpdateAsyncRequest is an Instance Action
+			restricted			
+
+			Action Rules
+				if (EffectiveDate entered
+				and EffectiveDate > system current date)
+					LocalAsyncActionRequest = first FutureAsyncActionRequestRel.AsyncActionRequest
+					
+					if (LocalAsyncActionRequest exists)
+						invoke SetPendingScheduling LocalAsyncActionRequest
+							invoked.ParamPendingScheduling = true
+					else
+						initialize LocalActionParams
+						LocalAsyncActionRequest = first AsyncActionRequestRel.AsyncActionRequest
+						
+						if (LocalAsyncActionRequest exists)
+							invoke Create AsyncActionRequest
+								invoked.Name 				= "WSMessageGroup" + EffectiveDate 
+								invoked.Group	 			= "async"
+								invoked.DataArea			= UpperCaseDataArea
+								invoked.ImplementingClass	= "AsyncActionRequest"
+								invoked.AsyncAction			= "SetPendingScheduling"
+								invoked.ScheduleConcurrency	= 1		
+								invoked.TimeToExec			= EffectiveDateExecuteTime
+								invoked.ActionParameters	= DerActionParameters
+								invoked.NotificationType	= 2 
+								invoked.TranDisableAudit 	= true
+				else
+					LocalAsyncActionRequest = first AsyncActionRequestRel.AsyncActionRequest
+	
+					if (LocalAsyncActionRequest exists)
+						invoke SetPendingScheduling LocalAsyncActionRequest
+							invoked.ParamPendingScheduling = true
+				
+				initialize LocalActionParams
+								
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+				Entrance Rules
+					invoke EndWorkUpdateAsyncRequest
+						
+				Create is a Create Action
+					restricted
+				
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+
+			Reset is a State
+				Entrance Rules
+					invoke EndWorkUpdateAsyncRequest
+						
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						ExecuteTime = current timestamp
+						make transition to Pending	
+						
+			Pending is a State
+				
+				Complete is an Instance Action
+					restricted
+					
+					Action Rules
+						ExecuteTime = current timestamp
+						
+
+						if (IsNotCompleteSet exists)
+							if (IsHoldChildSet exists
+							or  not IsFailedChildSet exists)
+								make transition to Hold
+							else
+								make transition to Failed
+						else
+							make transition to Complete
+						
+				PlaceOnHold is an Instance Action
+					restricted
+					Action Rules
+						ExecuteTime = current timestamp
+						FailureCount = FailureCount + 1
+						make transition to Hold
+						
+				Failed is an Instance Action
+					restricted
+					
+					Action Rules
+						ExecuteTime = current timestamp
+						FailureCount = FailureCount + 1
+						
+						if (IsHoldChildSet exists)
+							make transition to Hold
+						else
+							make transition to Failed
+				
+				MakeFailed is an Instance Action
+					Action Rules
+						ExecuteTime = current timestamp
+						FailureCount = FailureCount + 1
+						
+						for each IsPendingChildSet
+							invoke Failed Pending each
+								invoked.Message = "ManuallyFailed"
+						
+						make transition to Failed
+			
+			Hold is a State
+				ResetWithChildren is an Instance Action
+					Action Rules
+						for each IsHoldChildSet
+							invoke Reset Hold each
+							
+						for each IsFailedChildSet
+							invoke Reset Failed each
+						
+						ExecuteTime = current timestamp
+						make transition to Reset
+
+				ResetWithChildrenBackground is an Instance Action
+					completion message is "ResetWithChildrenSubmittedToBackground"	
+					Action Rules
+						invoke ResetHoldFailedMessages WSMessage in background
+							invoked.ParamGroup = WSMessageGroup
+							
+				Reset is an Instance Action
+					restricted
+					Action Rules
+						ExecuteTime = current timestamp
+						make transition to Reset			
+			SetHold is a State
+
+
+				Create is a Create Action 
+					restricted
+				
+
+
+
+				MakeNew is an Instance Action 
+					restricted
+					Action Rules
+						make transition to New				
+			
+			PendingReset is a State
+				
+				Reset is an Instance Action
+					restricted
+					Action Rules
+						ExecuteTime = current timestamp
+						make transition to Reset
+					
+			PendingDelete is a State
+				Delete is a Delete Action
+					restricted
+				
+				PurgeRecordInternal is a Purge Action
+					restricted	
+			
+			Complete is a State
+				Delete is a Delete Action
+				
+				PurgeRecordInternal is a Purge Action
+					restricted			
+					
+				MakePendingDelete is an Instance Action
+					restricted
+					Action Rules
+						make transition to PendingDelete					
+							
+			Failed is a State
+				Delete is a Delete Action
+				
+				Reset is an Instance Action
+					Action Rules
+						ExecuteTime = current timestamp
+						make transition to Reset
+				
+				ResetWithChildren is an Instance Action
+					Action Rules
+						for each IsFailedChildSet
+							invoke Reset Failed each
+						
+						ExecuteTime = current timestamp
+						make transition to Reset
+						
+				MakePendingReset is an Instance Action
+					restricted
+					Action Rules
+						make transition to PendingReset
+				
+				ResetWithChildrenBackground is an Instance Action
+					completion message is "ResetWithChildrenSubmittedToBackground"	
+					Action Rules
+						invoke ResetFailedMessages WSMessage in background
+							invoked.ParamGroup = WSMessageGroup
+				
+				PlaceOnHold is an Instance Action
+					Action Rules
+						make transition to Hold
+    

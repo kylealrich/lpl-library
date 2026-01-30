@@ -1,0 +1,1140 @@
+AllocationTransactionDetail is a BusinessClass
+    owned by Allocations
+    prefix is ALTD
+
+    Ontology
+    	symbolic key is AllocationTransactionDetail
+    	
+    Patterns
+ 		implements DynamicCreation 
+ 		implements AnalyticCube
+ 			disable continuous update
+ 			dynamically calculate totals
+ 			write to base level only
+
+ 		disable EffectiveDated
+
+	Transient Fields
+		CurrencyTable
+	Persistent Fields
+		AllocationPeriod				is a GeneralLedgerCalendarPeriod
+			delete ignored
+		AllocationStep
+		EntityYearPeriod				is a GeneralLedgerCalendarPeriod
+			delete ignored
+		Direction						is Numeric size 1
+			States
+				PostFrom					value is 0
+				PostTo						value is 1
+		ErrorMessage					is Alpha 150
+
+		JournalizeGroup
+		AccountingEntity
+		FinanceCodeBlock				is a TransactionCodeBlock
+		PostingDate
+		TransactionDate					is an ExchangeDate
+		CurrencyCode					is a FromCurrency
+		TransactionAmount				is a CurrencyAmount 
+			precision is CurrencyCode.NumberOfDecimals     
+		ReportCurrencyAmount			is a FinanceCurrencyAmount
+		UnitsAmount
+		System							is a GeneralLedgerSystemCode
+		GeneralLedgerEvent
+			default label is "GlobalLedgerEvent"
+		OriginatingTransaction			is BusinessObjectReference
+		
+		SourcePeriod					is a GeneralLedgerCalendarPeriod
+		AllocationLineSourceValue
+			context of SourcePeriod
+		AutoReverse						is Boolean
+		FromPreviousStep				is Boolean
+
+#ifdef module transpricing		
+	Context Fields
+		ContextTransferPricingBatchRun is a TransferPricingBatchRun
+#endif	
+	Field Groups
+		AllocationFieldGroup
+			FinanceEnterpriseGroup
+			AllocationControl
+			AllocationSourceSystem
+			Allocation
+			
+	Sets
+		ByAllocationAndStep
+			duplicates			
+			Sort Order
+				FinanceEnterpriseGroup				
+				AllocationRun
+				AllocationStep descending
+				AllocationTransactionDetail
+
+												
+		ByDetail
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun descending
+				AllocationTransactionDetail
+				AllocationLine
+		
+		ByAllocationAndDirection
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun
+				Allocation
+				Direction
+				AllocationLine
+				AllocationTransactionDetail
+				
+		ByAllocationControlRun
+			duplicates
+			Sort Order
+				AllocationControl
+				AllocationRun
+				Allocation
+				AllocationLine
+
+				AllocationTransactionDetail
+
+		ByAccountingEntity
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationControl
+				AllocationRun
+				Allocation
+				FinanceCodeBlock.ToAccountingEntity			
+				AllocationLine
+		
+		ByAllocationRun
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun
+		
+		ByAllocationLine
+			indexed
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+            	AllocationSourceSystem
+            	AllocationControl
+            	AllocationLine
+            	AllocationRun
+	
+	Local Fields
+#ifdef module truecost	
+		LocalDimensionCode						is a DriverDimensionCode
+		LocalTrueCostResourceUtilizationDriver 	is like TrueCostResourceUtilizationDriver
+#endif   				
+		LocalUnutilizedCapacity					is like FinanceDimension1
+		LocalFinanceEnterpriseGroup				is like FinanceEnterpriseGroup
+		LocalAllocationRun						is like AllocationRun
+		LocalAllocationControl					is like AllocationControl
+		LocalAllocationSourceSystem				is like AllocationSourceSystem
+		LocalCurrency							is like Currency
+		LocalAllocationRunJobType				is an AllocationRunJobType
+	Derived Fields
+
+		Amount is a DerivedField
+			type is like CurrencyAmount
+			if (AllocationLine.AllocateUnits)
+				return UnitsAmount
+			else
+			 	return TransactionAmount
+		IsUnits is a DerivedField
+			type is Boolean
+			return AllocationLine.AllocateUnits
+		HasError is a DerivedField
+			type is Boolean
+			if (ErrorMessage entered)
+				return true
+			return false
+		StepNumber is a DerivedField
+			type is like AllocationStepNumber
+			return -1*AllocationStep
+		DerivedCurrencyTotalPostTo is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostToTransactionDetailsGroupByCurrency.Amount)		
+		
+		DerivedCurrencyTotalPostFrom is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostFromTransactionDetailsGroupByCurrency.Amount)
+		
+		DerivedCurrencyReportTotalPostTo is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostToTransactionDetailsGroupByCurrencyReportTotal.Amount)
+		
+		DerivedCurrencyReportTotalPostFrom is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostFromTransactionDetailsGroupByCurrencyReportTotal.Amount)
+			
+#ifdef module transpricing
+		SourceAmount is a DerivedField
+			type is like InternationalAmount
+			if (AllocationLine.SourcePercentage > 0)
+				return AllocationLineSourceValueRel.TransactionAmount
+			else
+				return (AllocationLineSourceValueRel.TransactionAmount * -1)
+
+		SplitPercentage is a DerivedField
+			type is Percent size 10.6
+			if (AllocationLine.FromPostOption.Retain) 
+				return 100%
+			else
+				return first ToAllocationLineTempOverrideByAccountingEntityRel.WeightPercent
+				
+		Weight is a DerivedField
+			type is like InternationalAmount
+			return first ToAllocationLineTempOverrideByAccountingEntityRel.Weight
+
+		AllocableAmount	is a DerivedField
+			type is like InternationalAmount
+				precision is AllocationRun.Currency.NumberOfDecimals 
+			if (AllocationLineSourceValueRel.ComputedAmount entered)
+				AllocableAmount = AllocationLineSourceValueRel.ComputedAmount
+			else 
+				AllocableAmount = AllocationLineSourceValueRel.TransactionAmount
+					
+			AllocableAmount = AllocableAmount * AllocationLine.SourcePercentage	
+
+
+		FromCompany is a DerivedField
+			type is like GeneralLedgerCompany
+			return first TransferPricingTransactionRel.FromCompany
+			
+		FromEntity is a DerivedField
+			type is like AccountingEntity
+			return first TransferPricingTransactionRel.FromEntity
+			
+		ToCompany is a DerivedField
+			type is like GeneralLedgerCompany
+			return first TransferPricingTransactionRel.ToCompany
+			
+		ToEntity is a DerivedField
+			type is like AccountingEntity
+			return first TransferPricingTransactionRel.ToEntity
+#endif					
+					
+	Conditions
+		AllocationLoggingEnabled
+			restricted
+			when (AllocationControl.AllocationLoggingEnabled)
+			
+		IsGroupByAllocationAndStep
+			restricted
+			when(IsGroupByAllocationAndStepHeaderRel not exists)		
+		
+		IsGroupByCurrency
+			restricted
+			when (IsCurrencyHeaderRel not exist)		    
+   
+   		IsGroupByCurrencyReportTotal 
+   			restricted
+   			when(IsGroupByCurrencyReportTotalRel not exists)   		   		
+
+		SecurityGroupAllowsAccess
+			when (actor.context.AccountingEntitySecurityGroup = blank
+			or   (AccountingEntitySecurityGroupMemberRel exists))
+
+	Rule Blocks
+		SetRunJobMappingForInterfaceAsChangeRequest
+			LocalFinanceEnterpriseGroup			= PrmEnterpriseGroup
+			LocalAllocationRun					= PrmAllocationRun
+			LocalCurrency						= PrmCurrency
+
+		SetRunJobMappingFields
+			LocalFinanceEnterpriseGroup			= PrmEnterpriseGroup
+			LocalAllocationRun					= PrmAllocationRun
+			LocalAllocationControl				= PrmAllocationRun.AllocationControl
+			LocalAllocationSourceSystem			= PrmAllocationRun.AllocationSourceSystem
+
+		CreateCalculationReportHeader
+			if (AllocationRun.GenerateListingData)
+			 	if (AllocationDetailByStepHeaderRel not exists) 
+					invoke Create AllocationDetailByStepHeader
+						invoked.FinanceEnterpriseGroup						= FinanceEnterpriseGroup
+						invoked.AllocationDetailByStepHeader.AllocationRun	= AllocationRun
+						invoked.AllocationDetailByStepHeader.Allocation		= Allocation
+						invoked.AllocationDetailByStepHeader.AllocationStep	= StepNumber
+
+                if (AllocationDetailByCurrencyRel not exists)
+                    invoke Create AllocationDetailByCurrency
+                        invoked.FinanceEnterpriseGroup                    = FinanceEnterpriseGroup
+                        invoked.AllocationDetailByCurrency.AllocationRun  = AllocationRun
+                        invoked.AllocationDetailByCurrency.Allocation     = Allocation
+                        invoked.AllocationDetailByCurrency.AllocationStep = StepNumber
+                        invoked.AllocationDetailByCurrency.CurrencyCode   = CurrencyCode
+                        invoked.AllocationDetailByCurrency.AllocateUnits  = IsUnits
+                        if (Direction.PostTo)
+                            invoked.PostToCurrencyTotal                   = Amount
+                        else
+                            invoked.PostFromCurrencyTotal                 = Amount
+                else 
+                    if (Direction.PostTo)
+                        increment AllocationDetailByCurrencyRel.PostToCurrencyTotal by Amount
+                    else 
+                        increment AllocationDetailByCurrencyRel.PostFromCurrencyTotal by Amount
+
+                if (AllocationDetailByCurrencyTotalRel not exists)
+                    invoke Create AllocationDetailByCurrency
+                        invoked.FinanceEnterpriseGroup                    = FinanceEnterpriseGroup
+                        invoked.AllocationDetailByCurrency.AllocationRun  = AllocationRun
+                        invoked.AllocationDetailByCurrency.CurrencyCode   = CurrencyCode
+                        invoked.AllocationDetailByCurrency.AllocateUnits  = IsUnits
+                        if (Direction.PostTo)
+                            invoked.PostToCurrencyTotal                   = Amount
+                        else
+                            invoked.PostFromCurrencyTotal                 = Amount   
+                else 
+                    if (Direction.PostTo)
+                        increment AllocationDetailByCurrencyTotalRel.PostToCurrencyTotal by Amount
+                    else 
+                        increment AllocationDetailByCurrencyTotalRel.PostFromCurrencyTotal by Amount  
+
+    Relations
+		AllocationRunJobByCurrencyRel
+            one-to-one relation to AllocationRunJob
+            Field Mapping uses ByAllocationRunCurrency
+                related.FinanceEnterpriseGroup		= LocalFinanceEnterpriseGroup
+                related.AllocationRun               = LocalAllocationRun
+				related.Currency					= LocalCurrency
+                related.JobType                     = AllocationRunJobType.InterfaceAsChangeRequest
+
+		AllocationRunJobByTypeRel
+			one-to-many relation to AllocationRunJob
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= LocalFinanceEnterpriseGroup
+				related.AllocationSourceSystem		= LocalAllocationSourceSystem
+				related.AllocationControl		 	= LocalAllocationControl
+				related.AllocationRun				= LocalAllocationRun
+            Instance Selection
+                where (related.JobType              = LocalAllocationRunJobType)
+
+    	IsGroupByAllocationAndStepHeaderRel 
+			one-to-many relation to AllocationTransactionDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.AllocationRun = AllocationRun
+			Instance Selection
+				where ((related.Allocation = Allocation
+				or Allocation not entered)
+				and (related.AllocationStep = AllocationStep
+				or AllocationStep not entered)
+				and related.UniqueID  < UniqueID)
+
+		AllocationDetailByStepHeaderRel 
+			one-to-one relation to AllocationDetailByStepHeader
+			Field Mapping uses ByAllocationRunAllocationAndStep
+				related.FinanceEnterpriseGroup									= FinanceEnterpriseGroup
+				related.AllocationDetailByStepHeader.AllocationRun 				= AllocationRun
+				related.AllocationDetailByStepHeader.Allocation					= Allocation
+				related.AllocationDetailByStepHeader.AllocationStep				= StepNumber				
+		
+		IsGroupByCurrencyReportTotalRel 
+			one-to-many relation to AllocationTransactionDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.AllocationRun = AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode							
+				and	related.IsUnits = IsUnits
+				and related.UniqueID  < UniqueID)		
+		
+		AllocationPostFromTransactionDetailsGroupByCurrencyReportTotal
+			one-to-many relation to AllocationTransactionDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode
+				and	related.IsUnits = IsUnits
+				and related.Direction.PostFrom)	
+		
+		AllocationPostToTransactionDetailsGroupByCurrencyReportTotal
+			one-to-many relation to AllocationTransactionDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode
+				and	related.IsUnits = IsUnits
+				and related.Direction.PostTo)
+						
+		IsGroupByCurrencyDisplayHeaderRel
+			one-to-many relation to AllocationTransactionDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.AllocationRun				= AllocationRun
+				and related.Allocation						= Allocation
+				and related.AllocationStep					= AllocationStep				 
+				and related.IsGroupByCurrency)
+		
+		IsCurrencyHeaderRel
+			one-to-many relation to AllocationTransactionDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup							
+			Instance Selection	
+				where (related.AllocationRun				= AllocationRun
+				and related.Allocation						= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode 
+				and	related.IsUnits 						= IsUnits
+				and related.UniqueID  < UniqueID)
+
+        AllocationDetailByCurrencyRel 
+            one-to-one relation to AllocationDetailByCurrency
+            Field Mapping uses ByAllocationStepAndCurrency
+                related.FinanceEnterpriseGroup                        = FinanceEnterpriseGroup
+                related.AllocationDetailByCurrency.AllocationRun      = AllocationRun
+                related.AllocationDetailByCurrency.Allocation         = Allocation
+                related.AllocationDetailByCurrency.AllocationStep     = StepNumber
+                related.AllocationDetailByCurrency.CurrencyCode       = CurrencyCode  
+                related.AllocationDetailByCurrency.AllocateUnits      = IsUnits       
+
+        AllocationDetailByCurrencyTotalRel 
+            one-to-one relation to AllocationDetailByCurrency
+            Field Mapping uses ByAllocationStepAndCurrency
+                related.FinanceEnterpriseGroup                        = FinanceEnterpriseGroup
+                related.AllocationDetailByCurrency.AllocationRun      = AllocationRun
+                related.AllocationDetailByCurrency.Allocation         = blank
+                related.AllocationDetailByCurrency.AllocationStep     = blank
+                related.AllocationDetailByCurrency.CurrencyCode       = CurrencyCode  
+                related.AllocationDetailByCurrency.AllocateUnits      = IsUnits                
+		
+		AllocationTransactionDetailsGroupByAllocationAndStep
+			one-to-many relation to AllocationTransactionDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep)		
+		
+		AllocationPostToTransactionDetailsGroupByCurrency
+			one-to-many relation to AllocationTransactionDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode
+				and	related.IsUnits 						= IsUnits
+				and related.Direction.PostTo)
+		
+		AllocationPostFromTransactionDetailsGroupByCurrency
+			one-to-many relation to AllocationTransactionDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode
+				and	related.IsUnits 						= IsUnits
+				and related.Direction.PostFrom)
+											
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date 			not < PostingDate)
+				
+		AllocationLineSourceValueRel
+			one-to-one relation to AllocationLineSourceValue
+			Field Mapping uses ByAlternate
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AllocationSourceSystem		= AllocationSourceSystem
+				related.AllocationControl			= AllocationControl
+				related.Allocation					= Allocation
+				related.AllocationLine				= AllocationLine
+				related.AllocationRun				= AllocationRun
+				related.GeneralLedgerCalendarPeriod = SourcePeriod
+				related.AllocationLineSourceValue   = AllocationLineSourceValue				
+				
+		AccountingEntitySecurityGroupMemberRel
+			one-to-one relation to AccountingEntityGroupMember
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.AccountingEntityGroup   = actor.context.AccountingEntitySecurityGroup.FinanceDimensionStructure
+				related.AccountingEntity        = AccountingEntity
+
+		AllocationRunCurrencyRel
+			one-to-one relation to AllocationRunCurrency
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.AllocationRun			= AllocationRun
+				related.Currency				= CurrencyCode
+
+
+#ifdef module truecost
+		TrueCostCapacityUnutilizedRel
+			one-to-many relation to TrueCostCapacityUnutilized
+			Field Mapping uses ByUnutilizedCapacityPosting
+				related.TrueCostConfiguration 			= FinanceEnterpriseGroup
+				related.UnutilizedCapacityDimension 	= LocalUnutilizedCapacity
+#endif			
+#ifdef module transpricing
+		TransferPricingRunRel
+			one-to-one relation to TransferPricingRun
+			Field Mapping uses ByAllocationRun
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AllocationRun				= AllocationRun
+		
+		TransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingRun			= TransferPricingRunRel.TransferPricingRun
+			Instance Selection
+				where (related.ToEntity					= FinanceCodeBlock.ToAccountingEntity)
+											
+		TransferPricingTransactionDetailRel
+			one-to-one relation to TransferPricingTransactionDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingRun			= TransferPricingRunRel.TransferPricingRun
+				related.TransferPricingTransaction	= first TransferPricingTransactionRel.TransferPricingTransaction
+				related.TransferPricingSource		= AllocationLine
+		
+		TransferPricingSourceRel
+			one-to-one relation to TransferPricingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingSource		= AllocationLine
+				
+    	ToAllocationLineTempOverrideByAccountingEntityRel
+    		one-to-many relation to AllocationLineTempOverride
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.AllocationSourceSystem	= AllocationSourceSystem
+    			related.AllocationControl		= AllocationControl
+    			related.Allocation				= Allocation
+    			related.AllocationLine			= AllocationLine
+    			related.AllocationRun			= AllocationRun
+    		Instance Selection
+    			where (related.Direction.To
+    			and	  (related.AccountingEntity = FinanceCodeBlock.ToAccountingEntity)
+    			and   (related.GeneralLedgerCalendarPeriod = SourcePeriod))
+				
+#endif
+#ifdef module truecost
+		TrueCostResourceUnitCostDetailsRel
+			one-to-one relation to TrueCostResourceUnitCostDetails
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration						= FinanceEnterpriseGroup
+				related.AllocationRun								= AllocationRun
+				related.TrueCostResourceUtilizationDriver			= LocalTrueCostResourceUtilizationDriver
+				related.TrueCostResourceUnitCostDetails				= LocalDimensionCode.GetDimensionCode	
+#endif
+#ifdef module cb			
+		CashCodeByAccountRel
+			one-to-many relation to CompanyCashCode
+			Field Mapping uses ByCashGLAccount
+				related.CashAccount.GeneralLedgerChartAccount	= FinanceCodeBlock.GeneralLedgerChartAccount
+			Instance Selection
+				where (related.CashCode.CashManagementGroup		= FinanceEnterpriseGroup)
+		CashCodeFundEditByAccountingUnitRel
+			one-to-one relation to CashCodeFundEdit
+			Field Mapping uses ByOriginatingTransaction
+		 		related.CashManagementGroup		= FinanceEnterpriseGroup
+		  		related.OriginatingTransaction	= reference to AllocationRun
+		 		related.CashCode				= first CashCodeByAccountRel.CashCode
+		 		related.AccountingEntity		= FinanceCodeBlock.ToAccountingEntity
+		 		related.AccountingUnit			= FinanceCodeBlock.AccountingUnit
+		 		related.FinanceDimension1		= blank
+		CashCodeFundEditByDimension1Rel
+			one-to-one relation to CashCodeFundEdit
+			Field Mapping uses ByOriginatingTransaction
+		 		related.CashManagementGroup		= FinanceEnterpriseGroup
+		  		related.OriginatingTransaction	= reference to AllocationRun
+		 		related.CashCode				= first CashCodeByAccountRel.CashCode
+		 		related.AccountingEntity		= FinanceCodeBlock.ToAccountingEntity
+		 		related.AccountingUnit			= blank
+		 		related.FinanceDimension1		= FinanceCodeBlock.FinanceDimension1
+#endif
+
+
+#ifdef module cam
+		CustodialDetailAmountRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses ByCustodialPosting
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.CustodialPosting       = FinanceCodeBlock.FinanceDimension10
+			Instance Selection
+				where (related.CustodialAccountManagement.AccountingEntity	= FinanceCodeBlock.ToAccountingEntity)
+#endif
+
+	Field Rules
+		EntityYearPeriod
+			default to first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+			required
+		AllocationStep
+			default to AllocationLine.AllocationStep
+			required
+			cannot be changed
+		ReportCurrencyAmount
+			required
+
+		FinanceCodeBlock
+#ifdef module cam
+			if (FinanceEnterpriseGroup.CustodialAccountManagement
+			and FinanceCodeBlock.FinanceDimension10 entered)
+				constraint (CustodialDetailAmountRel exist)
+					"<FinanceEnterpriseGroup.FinanceDimension10Label>:_<FinanceCodeBlock.FinanceDimension10>_MustBeSetupAs_a_CustodialAccount"
+
+#endif
+	Dimensions
+		AllocationRun
+		AllocationLine
+		AllocationStep
+			dimension name is Step
+		FinanceCodeBlock.ToAccountingEntity
+			dimension name is AccountingEntity
+			Attributes
+				Name
+				FiscalYear
+				CurrentPeriod.GeneralLedgerCalendarPeriod
+				FunctionalCurrency
+				AlternateCurrency
+				AlternateCurrency2
+				AlternateCurrency3
+				SequenceNumber
+		CurrencyCode.Currency
+			dimension name is Currency
+			Attributes
+				Description
+				ISOCode
+		FinanceCodeBlock.AccountingUnit
+			dimension name is AccountingUnit
+			Attributes
+				Description
+				Level
+				SequenceNumber
+		FinanceCodeBlock.GeneralLedgerChartAccount
+			dimension name is ChartAccount
+			Attributes
+				AccountDescription
+				AccountType
+				ChartType
+				NaturalBalance
+				Account
+				GeneralLedgerSubAccount
+				Level
+				SequenceNumber
+				XbrlTag
+		FinanceCodeBlock.Project
+			dimension name is Project
+			Attributes
+				Description
+				Billable
+				SequenceNumber
+		FinanceCodeBlock.FinanceDimension1
+			dimension name is FinanceDimension1
+			Attributes
+				Description
+		FinanceCodeBlock.FinanceDimension2
+			dimension name is FinanceDimension2
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension3
+			dimension name is FinanceDimension3
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension4
+			dimension name is FinanceDimension4
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension5
+			dimension name is FinanceDimension5
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension6
+			dimension name is FinanceDimension6
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension7
+			dimension name is FinanceDimension7
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension8
+			dimension name is FinanceDimension8
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension9
+			dimension name is FinanceDimension9
+			Attributes
+				Description		
+		FinanceCodeBlock.FinanceDimension10
+			dimension name is FinanceDimension10
+			Attributes
+				Description		
+	    EntityYearPeriod
+	    	dimension name is CalendarPeriod
+	    	Attributes
+	    		DisplayPeriod
+	    		PeriodType
+	    		DerivedDEPMPeriod
+	    System
+	    	dimension name is System
+	    	Attributes
+	    		Description
+	    FinanceCodeBlock.Ledger
+	    	dimension name is Ledger
+	    	Attributes
+	    		Description
+
+	Measures
+	    ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+	    	measure name is FunctionalAmount
+	    TransactionAmount
+	    ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+	    	measure name is AlternateAmount
+	    ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+	    	measure name is AlternateAmount2
+	    ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+	    	measure name is AlternateAmount3
+	    ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+	    	measure name is ProjectAmount
+	    ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+	    	measure name is ReportAmount1
+	    ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+	    	measure name is ReportAmount2
+	    ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+	    	measure name is ReportAmount3
+	    ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+	    	measure name is ReportAmount4
+	    ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+	    	measure name is ReportAmount5
+	    UnitsAmount
+
+	Actions
+ 		Create is an Action
+ 			restricted
+			Field Rules
+			Entrance Rules
+#ifdef module cb			
+				if  (FinanceEnterpriseGroup.FundAccounting
+				and  FinanceCodeBlock.GeneralLedgerChartAccount.AccountSubType	= "CASH"
+				and (first CashCodeByAccountRel.CashCode.EditAvailableFunds
+				or   first CashCodeByAccountRel.CashCode.RestrictedFunds))
+					if (FinanceEnterpriseGroup.FundDimension.AccountingUnit)
+						if (first CashCodeByAccountRel.CashCode.EditAvailableFunds)
+							invoke Update CashCodeFundEditByAccountingUnitRel
+								invoked.EditAmount += (TransactionAmount *-1)
+						else
+							invoke Update CashCodeFundEditByAccountingUnitRel
+						constraint (!CashCodeFundEditByAccountingUnitRel.ExceedesFundBalance)
+							"<CashCodeFundEditByAccountingUnitRel.ErrorMessage>"
+					else
+						if (first CashCodeByAccountRel.CashCode.EditAvailableFunds)
+							invoke Update CashCodeFundEditByDimension1Rel
+								invoked.EditAmount += (TransactionAmount *-1)
+						else
+							invoke Update CashCodeFundEditByDimension1Rel
+						constraint (!CashCodeFundEditByDimension1Rel.ExceedesFundBalance)
+							"<CashCodeFundEditByDimension1Rel.ErrorMessage>"
+#endif		      
+				
+			Action Rules
+				
+			Exit Rules
+				include CreateCalculationReportHeader
+				
+
+  		CreateError is a Create Action
+			restricted
+			bypass field rules
+			
+			Field Rules
+
+			Exit Rules
+				EntityYearPeriod = first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+
+				include CreateCalculationReportHeader
+
+    	Delete is a Delete Action
+    		restricted
+
+    	CreateJournalizedDetails is a Set Action
+    		restricted
+    		Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Action Rules
+				Set Rules
+					Entrance Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							LocalAllocationRunJobType	= AllocationRunJobType.CreateJournalizedDetails
+							invoke Start first AllocationRunJobByTypeRel
+					Exit Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							LocalAllocationRunJobType	= AllocationRunJobType.CreateJournalizedDetails
+							invoke End first AllocationRunJobByTypeRel
+				Instance Rules
+					invoke Create AllocationJournalizedDetail
+						fill in fields from this instance
+						invoked.AllocationJournalizedDetail	= AllocationTransactionDetail
+					invoke Delete
+
+    	DeleteAllForRun is a Set Action
+    		restricted
+    		Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+			Sort Order
+				FinanceEnterpriseGroup				
+				AllocationRun
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+    	BuildTemplateGroupTotals is a Set Action
+    		restricted
+    		Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun
+			Action Rules
+				Instance Rules
+					invoke UpdateGroupTotals BudgetTemplate
+						invoked.PrmFinanceEnterpriseGroup	= FinanceEnterpriseGroup
+						invoked.PrmBudgetEditGroup			= AllocationRun.UniqueID
+						invoked.PrmEndDate					= first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+						invoked.PrmTransactionCodeBlock		= FinanceCodeBlock
+						invoked.PrmReportAmounts.FunctionalAmount	= ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.AlternateAmount	= ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.AlternateAmount2	= ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.AlternateAmount3	= ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ProjectAmount		= ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ReportAmount1		= ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ReportAmount2		= ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ReportAmount3		= ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ReportAmount4		= ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+						invoked.PrmReportAmounts.ReportAmount5		= ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+						invoked.PrmAllowRebuild						= true 
+						invoked.PrmOriginatingDocument   			= reference to AllocationRun
+						
+		InterfaceAsChangeRequest is a Set Action
+			restricted
+   			Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+				PrmCurrency				is a Currency
+					default label is "Currency"
+				PrmScenario 		is a Scenario
+					default label is "Scenario"
+				PrmDescription		is a Description
+					default label is "Description"					
+				PrmPeriod				is a GeneralLedgerCalendarPeriod
+					default label is "Period"
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun
+				and    CurrencyCode				= PrmCurrency)
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun
+
+			Local Fields
+				LocalBudgetChangeOrderView  is a BudgetChangeOrder view
+				LocalBudgetChangeOrder		is a BudgetChangeOrder
+				TransactionError					is Boolean
+				TransactionErrorMessage				is Alpha 150
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+
+
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingForInterfaceAsChangeRequest
+							invoke Start AllocationRunJobByCurrencyRel
+
+						invoke Create BudgetChangeOrder
+							assign result to LocalBudgetChangeOrderView
+							invoked.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+							invoked.Scenario						= PrmScenario
+							invoked.Description						= PrmDescription
+							invoked.Currency 						= PrmCurrency
+							invoked.DefaultPeriod					= PrmPeriod		
+
+						LocalBudgetChangeOrder = LocalBudgetChangeOrderView.BudgetChangeOrder
+
+						invoke Update AllocationRunCurrencyRel
+							invoked.Scenario			= PrmScenario
+							invoked.BudgetChangeOrder 	= LocalBudgetChangeOrder
+						
+						initialize TransactionError
+						initialize TransactionErrorMessage
+
+					Exit Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingForInterfaceAsChangeRequest
+							invoke End AllocationRunJobByCurrencyRel
+				
+				Instance Rules
+					if (not TransactionError)
+						invoke Create BudgetChangeOrderLine
+							resume on error
+								TransactionError		= true
+								TransactionErrorMessage	= error message					
+							invoked.FinanceEnterpriseGroup 			= FinanceEnterpriseGroup
+							invoked.Scenario						= PrmScenario
+							invoked.BudgetChangeOrder				= LocalBudgetChangeOrder
+							invoked.Amount							= TransactionAmount
+							invoked.UnitsAmount						= UnitsAmount
+							invoked.GeneralLedgerCalendarPeriod		= PrmPeriod
+							invoked.BudgetCodeBlock					= FinanceCodeBlock
+
+						if (TransactionError)
+							ErrorMessage = TransactionErrorMessage
+							increment PrmAllocationRun.ErrorCount by 1
+
+		TransferToJournalizedDetail is a Set Action
+			restricted
+			default label is untranslatable
+   			Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun
+
+			Local Fields
+				TransactionError					is Boolean
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							LocalAllocationRunJobType	= AllocationRunJobType.TransferToJournalizedDetail
+							invoke Start first AllocationRunJobByTypeRel
+
+						if (PrmAllocationRun.ErrorCount > 0)
+							TransactionError = true
+					Exit Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							LocalAllocationRunJobType	= AllocationRunJobType.TransferToJournalizedDetail
+							invoke End first AllocationRunJobByTypeRel
+				
+				Instance Rules
+					if (not TransactionError)
+						invoke CreateNoRules AllocationJournalizedDetail
+							fill in fields from this instance
+							invoked.AllocationJournalizedDetail	= AllocationTransactionDetail
+
+						invoke Delete
+
+		
+#ifdef module truecost   
+		
+		
+		ReconcileTrueCost is a Set Action
+			restricted
+			Parameters
+				PrmTrueCostConfiguration 	is a TrueCostConfiguration
+				PrmTrueCostAllocationRun 	is a TrueCostAllocationRun
+			Instance Selection
+				where (FinanceEnterpriseGroup 	= PrmTrueCostConfiguration
+				and    AllocationRun			= PrmTrueCostAllocationRun
+				and    Direction.PostTo
+				and   ((PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension1  and FinanceCodeBlock.FinanceDimension1  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension2  and FinanceCodeBlock.FinanceDimension2  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension3  and FinanceCodeBlock.FinanceDimension3  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension4  and FinanceCodeBlock.FinanceDimension4  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension5  and FinanceCodeBlock.FinanceDimension5  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension6  and FinanceCodeBlock.FinanceDimension6  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension7  and FinanceCodeBlock.FinanceDimension7  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension8  and FinanceCodeBlock.FinanceDimension8  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension9  and FinanceCodeBlock.FinanceDimension9  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension10 and FinanceCodeBlock.FinanceDimension10 entered)
+				))
+			Local Fields
+				LocalAllocableAmount		is an InternationalAmount
+				LocalWithCostObjectTotal	is an InternationalAmount
+				LocalUntilizedTotal			is an InternationalAmount
+			Action Rules
+				Set Rules
+					Exit Rules
+						invoke Update PrmTrueCostAllocationRun
+							invoked.TotalAllocatedExpense 	= LocalWithCostObjectTotal
+							invoked.TotalUnutilizedCapacity = LocalUntilizedTotal
+					
+				Instance Rules
+					display "AllocationTransactionDetail:<AllocationTransactionDetail>"
+
+					if ((PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension1  and FinanceCodeBlock.FinanceDimension1  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension2  and FinanceCodeBlock.FinanceDimension2  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension3  and FinanceCodeBlock.FinanceDimension3  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension4  and FinanceCodeBlock.FinanceDimension4  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension5  and FinanceCodeBlock.FinanceDimension5  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension6  and FinanceCodeBlock.FinanceDimension6  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension7  and FinanceCodeBlock.FinanceDimension7  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension8  and FinanceCodeBlock.FinanceDimension8  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension9  and FinanceCodeBlock.FinanceDimension9  entered)
+					or  (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension10 and FinanceCodeBlock.FinanceDimension10 entered))
+				
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension1)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension1
+						else
+						if(PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension2)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension2
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension3)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension3
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension4)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension4
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension5)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension5
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension6)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension6
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension7)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension7
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension8)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension8
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension9)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension9
+						else
+						if (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension10)
+							LocalUnutilizedCapacity = FinanceCodeBlock.FinanceDimension10
+						
+						if (TrueCostCapacityUnutilizedRel exists)
+							LocalUntilizedTotal += TransactionAmount
+						else
+							LocalWithCostObjectTotal += TransactionAmount
+					
+					
+		GenerateAllocatedUnitCostDetails is a Set Action
+			restricted
+			Parameters
+				PrmTrueCostConfiguration 				is a TrueCostConfiguration
+				PrmTrueCostAllocationRun				is a AllocationRun
+				PrmTrueCostResourceUtilizationDriver	is a TrueCostResourceUtilizationDriver
+			
+			Instance Selection
+				where  (FinanceEnterpriseGroup 		= PrmTrueCostConfiguration
+				and     AllocationRun				= PrmTrueCostAllocationRun 
+				and   ((PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension1  and FinanceCodeBlock.FinanceDimension1  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension2  and FinanceCodeBlock.FinanceDimension2  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension3  and FinanceCodeBlock.FinanceDimension3  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension4  and FinanceCodeBlock.FinanceDimension4  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension5  and FinanceCodeBlock.FinanceDimension5  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension6  and FinanceCodeBlock.FinanceDimension6  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension7  and FinanceCodeBlock.FinanceDimension7  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension8  and FinanceCodeBlock.FinanceDimension8  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension9  and FinanceCodeBlock.FinanceDimension9  entered)
+				or     (PrmTrueCostConfiguration.CostObjectDimension.Type.Dimension10 and FinanceCodeBlock.FinanceDimension10 entered)))
+			Sort Order is ByAllocationRun 
+			Action Rules
+				Set Rules
+				Instance Rules
+					initialize LocalDimensionCode
+					LocalDimensionCode.FinanceCodeBlock 					= FinanceCodeBlock
+					LocalDimensionCode.TrueCostConfiguration 				= PrmTrueCostConfiguration
+					LocalDimensionCode.TrueCostResourceUtilizationDriver	= PrmTrueCostResourceUtilizationDriver
+					LocalTrueCostResourceUtilizationDriver					= PrmTrueCostResourceUtilizationDriver
+					if(TrueCostResourceUnitCostDetailsRel exists)
+						increment TrueCostResourceUnitCostDetailsRel.AllocatedCost by Amount
+					else
+						invoke Create TrueCostResourceUnitCostDetails
+							invoked.TrueCostConfiguration 				= FinanceEnterpriseGroup
+							invoked.TrueCostResourceUtilizationDriver	= PrmTrueCostResourceUtilizationDriver
+							invoked.AllocationRun						= PrmTrueCostAllocationRun
+							invoked.TrueCostResourceUnitCostDetails		= LocalDimensionCode.GetDimensionCode
+							invoked.AllocatedCost						= Amount									
+							invoked.AccountingEntity					= AccountingEntity
+							invoked.AccountingUnit						= FinanceCodeBlock.AccountingUnit
+							invoked.GeneralLedgerChartAccount			= FinanceCodeBlock.GeneralLedgerChartAccount
+							invoked.Project								= FinanceCodeBlock.Project
+							invoked.FinanceDimension1					= FinanceCodeBlock.FinanceDimension1
+							invoked.FinanceDimension2					= FinanceCodeBlock.FinanceDimension2
+							invoked.FinanceDimension3					= FinanceCodeBlock.FinanceDimension3
+							invoked.FinanceDimension4					= FinanceCodeBlock.FinanceDimension4
+							invoked.FinanceDimension5					= FinanceCodeBlock.FinanceDimension5
+							invoked.FinanceDimension6					= FinanceCodeBlock.FinanceDimension6
+							invoked.FinanceDimension7					= FinanceCodeBlock.FinanceDimension7
+							invoked.FinanceDimension8					= FinanceCodeBlock.FinanceDimension8
+							invoked.FinanceDimension9					= FinanceCodeBlock.FinanceDimension9
+							invoked.FinanceDimension10					= FinanceCodeBlock.FinanceDimension10
+							
+#endif														
+
+		UpdateAllAmounts is an Instance Action
+			restricted
+			Parameters
+				PrmAmount				is a CurrencyAmount 
+				PrmReportCurrencyAmount	is a FinanceCurrencyAmount
+			Action Rules
+				if (IsUnits)
+					UnitsAmount += PrmAmount
+				else
+					TransactionAmount += PrmAmount
+
+					if (PrmReportCurrencyAmount entered)
+						ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+						ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+						ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+						ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+						ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+						ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+						ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+						ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+						ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+						ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount			+= PrmReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+
+				if (AllocationRun.GenerateListingData)
+					if (AllocationDetailByCurrencyRel exists)
+						if (Direction.PostTo)
+							increment AllocationDetailByCurrencyRel.PostToCurrencyTotal by PrmAmount
+						else 
+							increment AllocationDetailByCurrencyRel.PostFromCurrencyTotal by PrmAmount
+
+					if (AllocationDetailByCurrencyTotalRel exists)
+						if (Direction.PostTo)
+							increment AllocationDetailByCurrencyTotalRel.PostToCurrencyTotal by PrmAmount
+						else 
+							increment AllocationDetailByCurrencyTotalRel.PostFromCurrencyTotal by PrmAmount
+

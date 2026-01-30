@@ -1,0 +1,157 @@
+VendorAddressImport is a BusinessClass
+    owned by ap
+    prefix is AAD
+    classic name is APCVENADDR
+
+    Ontology
+        symbolic key is VendorAddressImport
+            classic set name is AADSET1
+            classic name for VendorAddressImport.Vendor is VENDOR
+            classic name for VendorAddressImport.VendorLocation is LOCATION-CODE
+            classic name for VendorAddressImport.VendorContactImport.VendorContactCode is RESP-CODE
+            classic name for VendorAddressImport.VendorContactImport.ContactLevel is CONTACT-LVL
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+    Persistent Fields
+		RunGroup
+        RecordInError                is Boolean
+		ErrorMessage				 is Alpha 150
+
+        PostalAddress				is a PostalAddressV2	
+        	holds pii
+            classic name for PostalAddress.DeliveryAddress.AddressLine1 is ADDR1
+            classic name for PostalAddress.DeliveryAddress.AddressLine2 is ADDR2
+            classic name for PostalAddress.DeliveryAddress.AddressLine3 is ADDR3
+            classic name for PostalAddress.DeliveryAddress.AddressLine4 is ADDR4
+            classic name for PostalAddress.Municipality is CITY-ADDR5
+            classic name for PostalAddress.StateProvince is STATE-PROV
+            classic name for PostalAddress.Country is COUNTRY-CODE
+            classic name for PostalAddress.Region is REGION
+
+		VendorConversionResult
+
+	Local Fields
+		ErrorOccurred					is Boolean
+		LocalErrorMessage				is Alpha 150
+		LocalVendor						is like Vendor
+		LocalVendorLocation				is like VendorLocation
+		LocalVendorContactCode			is like VendorContactCode
+		LocalContactLevel				is like ContactLevel
+	
+	Relations
+		VendorAddressRel
+			one-to-one relation to VendorAddress
+			Field Mapping uses symbolic key
+				related.VendorGroup						= VendorGroup
+				related.Vendor							= LocalVendor
+				related.VendorLocation					= LocalVendorLocation
+				related.VendorContact.VendorContactCode	= LocalVendorContactCode
+				related.VendorContact.ContactLevel		= LocalContactLevel
+
+		VendorMappingTableInterfaceRel
+			one-to-one relation to VendorMappingTableInterface
+			Field Mapping uses symbolic key
+				related.VendorGroup									= VendorGroup
+				related.VendorMappingTableInterface.OldVendor		= VendorAddressImport.OldVendor
+				related.VendorMappingTableInterface.VendorLocation	= VendorAddressImport.VendorLocation
+
+	Sets
+		ByVendorConversionResult
+            indexed
+            Sort Order
+            	VendorConversionResult
+				VendorGroup
+				VendorAddressImport
+	
+	Actions
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+
+		VendorAddressInterface is a Set Action
+			run in background
+			Parameters
+				PrmRunGroup					is a RunGroup
+					default label is "RunGroup"
+				PrmVendorGroup				is a VendorGroup
+					default label is "VendorGroup"
+
+			Parameter Rules
+				PrmRunGroup
+					required
+				PrmVendorGroup
+					required
+
+			Local Fields
+				LocalInstanceCount				is Numeric 10
+				LocalResultView					is a VendorConversionResult view
+				LocalVendorConversionResult		is like VendorConversionResult
+
+			Instance Selection			
+				where (RunGroup		= PrmRunGroup
+				and    VendorGroup	= PrmVendorGroup)
+
+			Sort Order
+				RunGroup
+				VendorGroup
+				VendorAddressImport
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						invoke Create VendorConversionResult
+							assign result to LocalResultView
+							invoked.VendorInterfaceType			= 3
+							invoked.VendorGroup					= PrmVendorGroup
+							invoked.RunTime						= current timestamp
+							invoked.Status						= 2
+							invoked.RunGroup					= PrmRunGroup
+					
+					Exit Rules
+						invoke Update LocalResultView.VendorConversionResult
+							invoked.RecordsProcessed			= LocalInstanceCount
+							invoked.Status						= 1
+					
+				Instance Rules
+					LocalVendorConversionResult 	= LocalResultView.VendorConversionResult
+
+
+					if (VendorAddressImport.Vendor entered)
+						LocalVendor	= VendorAddressImport.Vendor
+					else
+						LocalVendor	= VendorMappingTableInterfaceRel.Vendor
+
+					LocalVendorLocation		= VendorAddressImport.VendorLocation
+					LocalVendorContactCode	= VendorAddressImport.VendorContact.VendorContactCode
+					LocalContactLevel		= VendorAddressImport.VendorContact.ContactLevel
+
+					if (VendorAddressRel not exists)
+						invoke Create VendorAddressRel
+							resume on error
+								ErrorOccurred		= true
+								LocalErrorMessage	= error message
+							fill in fields from this instance
+							invoked.PostalAddress					= PostalAddress
+							invoked.VendorConversionResult			= LocalVendorConversionResult
+					else
+						invoke Update VendorAddressRel
+							resume on error
+								ErrorOccurred		= true
+								LocalErrorMessage	= error message
+							fill in fields from this instance
+							invoked.PostalAddress					= PostalAddress
+							invoked.VendorConversionResult			= LocalVendorConversionResult
+					
+					if (ErrorOccurred)
+						RecordInError					= true
+						ErrorMessage					= LocalErrorMessage
+						VendorConversionResult			= LocalVendorConversionResult
+					else
+						invoke Delete
+
+					LocalInstanceCount			+= 1

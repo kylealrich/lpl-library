@@ -1,0 +1,318 @@
+BatchTaskStep is a BusinessClass
+    owned by la
+    prefix is TSKS
+
+
+
+
+	Ontology
+    	symbolic key is BatchTaskStep
+    		name is Sequence
+    		
+	Patterns
+    	implements CRUD
+
+		implements Resequence on ExecutionOrder
+			new sequence field is NewExecutionOrder
+			set is ByExecutionOrder
+
+    Persistent Fields
+        TaskStep	is a BatchTask
+        	default label is "Job"
+        Description	is Alpha 80
+        ExecutionOrder is Numeric size 8
+        	default label is "ExecutionSequence"
+        ClearCache is Boolean
+
+	Transient Fields
+		NewExecutionOrder is Numeric size 8
+        	default label is "ModifyExecutionSequence"
+		
+	Derived Fields
+
+
+
+			
+		NewExecutionOrderAfterMappedSourceFields is a DerivedField
+			type is Boolean
+			
+			for each BatchTaskMap set
+				if (NewExecutionOrder <= each.BatchTaskMapData.SourceStep.ExecutionOrder)
+					return false
+					
+			return true
+
+		NewExecutionOrderBeforeMappedTargetFields is a DerivedField
+			type is Boolean
+			
+
+
+			for each (BatchTaskStep) BatchTask.BatchTaskSteps
+				if (each (BatchTaskStep).ExecutionOrder > NewExecutionOrder)
+					end for each
+					
+				if (each (BatchTaskStep).ExecutionOrder > ExecutionOrder)
+					for each (BatchTaskMap) each (BatchTaskStep).BatchTaskMap set
+						if (each (BatchTaskMap).BatchTaskMapData.SourceStep = Sequence)
+							if (NewExecutionOrder >= each (BatchTaskMap).BatchTaskMapData.SourceStep.ExecutionOrder)
+								return false
+						
+			return true
+
+	Conditions
+		HasActionResults
+			default label is "ActionResultsExist"
+			when (ActionResultsRel exists)
+
+		CanMapFields
+			default label is untranslatable
+			when (TaskStep.Type.TaskAction
+			and   not BatchTask.AsyncTasks)
+
+	    ProhibitedForPublic
+	        when	(!BatchTask.IsPrivate
+	        and 	TaskStep.IsPrivate)
+
+	    ProhibitedForPrivate
+	        when	(BatchTask.IsPrivate
+	        and 	TaskStep.IsPrivate
+	        and 	not TaskStep.Owner = BatchTask.Owner)
+
+	Field Rules
+ 		BatchTask
+ 			constraint (BatchTask.Type.TaskStream)
+ 				"JobStreamMustBeOfTypeJobStream"
+ 				
+		Sequence
+			autosequence
+		
+		TaskStep
+			required
+			constraint (TaskStep != BatchTask)
+				"JobStreamStepCannotBeParentJobStream"
+			
+			constraint (not ProhibitedForPublic)		
+			    "PublicJobStreamsCanOnlyContainPublicJobs"
+			    
+			constraint (not ProhibitedForPrivate)		
+			    "PrivateJobStreamsCanOnlyContainPublicJobsOrPrivateJobsOwnedByTheOwnerOfTheJobStream"
+			    
+	    NewExecutionOrder
+	    	constraint (NewExecutionOrder > 0)
+	    		"ExecutionSequenceMustBeGreaterThan0"	
+				
+	Rule Blocks
+		ParentBatchTaskConfirmsAndConstraints
+			constraint (not BatchTask.IsInProgress)
+				"<BatchTask>CannotBeUpdated.ItOrAJobStreamWhichIncludesItIsInProgressState"
+
+			if (BatchTask.CheckPointExists)
+				confirmation required
+					"<BatchTask>OrAJobStreamThatIncludesItHasUnfinishedTriggersAndRecoveryInformation_(Checkpoint)Exists.UpdatingAtThisTimeMayCauseCorruptionOrLossOfDataOrCompromiseTheAbilityToRecoverAFailedJobCorrectly.AreYouSureYouWantToUpdate?"
+			else
+				if (BatchTask.IsScheduled)
+					confirmation required
+						"<BatchTask>OrAJobStreamThatIncludesItIsPendingScheduling,CurrentlyInProcess,OrInAnIncompletedOrFailedState.UpdatingAtThisTimeMayImpactThePendingOrCurrentExecutionsOfItOrJobStreamsThatIncludeIt.AreYouSureYouWantToUpdate?"
+
+		ExecutionOrderChangeConstraints		
+			constraint (!BatchTask.CheckPointExists)
+				"<BatchTask>OrAJobStreamThatIncludesItHasUnfinishedTriggersAndRecoveryInformation_(Checkpoint)Exists.JobStreamMemberUpdatesThatMayResultInChangesToExecutionOrderAreNotAllowed"
+
+			constraint (!BatchTask.IsScheduled)
+				"<BatchTask>OrAJobStreamThatIncludesItIsPendingScheduling,CurrentlyInProcess,OrInAnIncompletedOrFailedState.JobStreamMemberUpdatesThatMayResultInChangesToExecutionOrderAreNotAllowed"
+				
+	Relations
+		UsedInStreamBatchTaskFieldRel
+    		one-to-many relation to BatchTaskField
+			Field Mapping uses symbolic key
+				related.BatchTask 		= BatchTask
+				related.BatchTaskStep 	= Sequence
+			Instance Selection
+				where (related.UsedInStream)		
+				
+		ActionResultsRel  				
+  			one-to-many relation to ActionResult 
+  			Field Mapping uses ByDataAreaBatchTask
+  				related.DataArea		= parentcontext.dataarea
+  				related.BatchTask 		= BatchTask
+  				related.BatchTaskStep 	= Sequence
+  				
+		TaskStepToBatchTaskRel  
+    		one-to-one relation to BatchTask
+			Field Mapping uses symbolic key
+				related.BatchTask 		= TaskStep.BatchTask
+
+		JobstreamsOwnedByTaskStepOwnerRel  
+    		one-to-many relation to BatchTask
+			Field Mapping uses ByTypeOwnerBatchTask
+				related.Type		= BatchTask.Type.TaskStream
+				related.Owner		= TaskStep.Owner
+				
+		AllJobStreamsByTypeOwnerBatchTaskRel
+    		one-to-many relation to BatchTask
+			Field Mapping uses ByTypeOwnerBatchTask
+				related.Type		= BatchTask.Type.TaskStream
+
+		AllStreamsOrPrivateStreamsOwnedByTaskStepOwnerRel
+			if (TaskStep.IsPrivate)
+				JobstreamsOwnedByTaskStepOwnerRel
+			else
+				AllJobStreamsByTypeOwnerBatchTaskRel
+			
+	Sets	
+		ByTaskStep
+ 			Sort Order
+ 				TaskStep
+ 				BatchTask
+ 				Sequence
+
+		ByTaskStepBatchTaskExecutionOrderSequence
+ 			Sort Order
+ 				TaskStep
+ 				BatchTask
+ 				ExecutionOrder
+ 				Sequence
+
+		ByExecutionOrder
+			duplicates
+			Sort Order
+				BatchTask
+				ExecutionOrder
+				Sequence
+ 		
+	Actions
+		Create is a Create Action
+		
+			Entrance Rules
+
+				include ExecutionOrderChangeConstraints
+
+				if (NewExecutionOrder not entered)
+					NewExecutionOrder = 99999999
+					
+			Exit Rules
+				invoke Update
+					invoked.NewExecutionOrder = NewExecutionOrder
+
+				NewExecutionOrder = 0   
+					
+				invoke ValidateTaskStreamStep  
+
+			Action Rules
+				include ParentBatchTaskConfirmsAndConstraints
+
+		Update is an Update Action
+
+			Entrance Rules
+				if (NewExecutionOrder entered)
+				
+					include ExecutionOrderChangeConstraints
+
+
+
+
+
+
+					if (ExecutionOrder > 0)
+						if (NewExecutionOrder < ExecutionOrder)
+							constraint (NewExecutionOrderAfterMappedSourceFields)
+								"MoveToStepMustBeAfterInputMapSourceFieldSteps"
+	
+						if (NewExecutionOrder > ExecutionOrder)
+							constraint (NewExecutionOrderBeforeMappedTargetFields)
+								"MoveToStepMustBePriorToInputMapTargetFieldSteps"
+					
+			Action Rules
+				if (TaskStep changed)
+					invoke ValidateTaskStreamStep  
+					
+				include ParentBatchTaskConfirmsAndConstraints
+	
+		Delete is a Delete Action
+			
+			Action Rules
+				include ExecutionOrderChangeConstraints
+
+				constraint (not UsedInStreamBatchTaskFieldRel exists)
+					"CannotDelete:AtLeastOneAssociatedJobFieldMappedInStream"
+
+				include ParentBatchTaskConfirmsAndConstraints
+
+			Exit Rules
+				invoke ResequenceJobSteps
+					invoked.PrmBatchTask = BatchTask
+
+		ValidateTaskStreamStep is an Instance Action
+			Action Rules
+				invoke ValidateTaskStream TaskStep
+
+		ValidateTaskStream is an Instance Action
+			restricted
+			Parameters
+				TaskToCheck is a BatchTask
+			
+			Parameter Rules
+				TaskToCheck
+					required
+			
+			Action Rules
+				constraint (TaskToCheck != TaskStep)
+					"CircularDependencyFoundAt<BatchTask>Sequence<Sequence>"
+				
+				invoke ValidateTaskStreamTask TaskStep
+					invoked.TaskToCheck = TaskToCheck
+				
+				invoke ValidateTaskStream TaskStep
+				
+    	ResequenceJobSteps is a Set Action
+    		restricted
+			run in foreground
+
+            Parameters
+				PrmBatchTask is a BatchTask
+					default label is "BatchTask"
+				
+			Instance Selection
+				where (BatchTask = PrmBatchTask)
+				
+			Local Fields
+				LastExecutionOrder is Numeric size 8
+				
+			Sort Order
+				BatchTask
+				ExecutionOrder
+				
+			Action Rules
+				
+				Instance Rules 
+					LastExecutionOrder    += 1
+					ExecutionOrder = LastExecutionOrder
+
+        Copy is an Instance Action
+            restricted
+
+            Parameters
+                NewJob is AlphaUpper size 30
+				PrmExecutionOrder is Numeric size 8
+				
+            Local Fields
+                BatchTaskStepCopy is a BatchTaskStep
+
+            Action Rules
+                invoke Create BatchTaskStep
+                    assign result to BatchTaskStepCopy
+                    invoked.BatchTask   = NewJob
+                    invoked.TaskStep    = TaskStep
+                    invoked.Description = Description
+                    invoked.NewExecutionOrder = PrmExecutionOrder
+
+                for each BatchTaskField set
+                    if (each.UsedInStream)
+                        invoke Copy each
+                            invoked.NewJob = NewJob
+                            invoked.NewBatchTaskStep = BatchTaskStepCopy
+
+                for each BatchTaskMap set
+                    invoke Copy each
+                        invoked.NewJob = NewJob
+                        invoked.NewSequence = Sequence

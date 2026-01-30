@@ -1,0 +1,710 @@
+ProjectAssignment is a BusinessClass
+    owned by Projects
+    prefix is PRJAS
+
+    Ontology
+        symbolic key is ProjectAssignment
+
+    Persistent Fields
+    	ProjectDateRange
+		ProjectRole
+		BillableRate		is Decimal size 22.6
+		CommittedEffort		is Percent size 6.3
+		FinanceCodeBlock	is a FinanceCodeBlockNoProject 
+			default label is "LaborDistributionFinanceStructure"
+		BurdenCode			is a ProjectBurdenCode
+		BurdenCodeBlock		is a FinanceCodeBlockNoProject 
+			default label is "FringeBurdenFinanceStructure"
+		FringeEncumbranceCodeBlock	is a FinanceCodeBlockFullBurden
+			default label is "FringeEncumbranceFinanceStructure"
+
+	Transient Fields
+		BypassStructureRelationEdit
+		
+	Context Fields
+		ProjectLaborSchedule
+		ProjectSchedulePeriod
+				
+	Local Fields
+		LocalPeriod 				is like ProjectSchedulePeriod
+		LocalSequenceNumber			is Numeric size 4
+	    TotalsAccumulated    		is Boolean
+	    LocalTotalTransactionAmount is like InternationalAmount
+	    LocalTotalFunctionalAmount  is like InternationalAmount
+	    LocalEffort					is Percent size 6.3
+	    LocalDate					is Date
+	    LocalEachCodeBlock			is a FinanceCodeBlockNoProject
+	    LocalOldCodeBlock			is a FinanceCodeBlockNoProject
+    	LocalSequenceNum			is Numeric size 4
+    	LocalAsOfDate				is Date
+		LocalDateRange				is a ProjectDateRange
+
+        LocalNativeLPLBODTrigger    is Boolean
+        LocalTriggerFrom            is Alpha size 100
+
+	Rule Blocks    
+	    AccumulateTotals
+	        if (!TotalsAccumulated)
+		    	for each GLTransactionDetailRel
+		        	LocalTotalTransactionAmount += each.TransactionAmount
+		            LocalTotalFunctionalAmount  += each.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+		       	TotalsAccumulated = true
+				  
+    
+    Derived Fields
+    	ContextMessageEntityType is a StringField
+			type is Alpha 50
+			restricted
+			"InforERPEnterpriseProjectAssignment"
+
+		ContextMessageText is a MessageField
+			restricted
+			"ProjectAssignment<ProjectAssignment>"
+			
+    	TotalTransactionAmount is a DerivedField
+			type is like InternationalAmount
+				precision is Project.Currency.NumberOfDecimals
+       		include AccumulateTotals				
+		    return LocalTotalTransactionAmount
+
+		TotalFunctionalAmount is a DerivedField
+			type is like InternationalAmount
+				precision is Project.Currency.NumberOfDecimals
+       		include AccumulateTotals       		
+       		return LocalTotalFunctionalAmount
+
+		AssignmentSplitCommittedEffort is a DerivedField
+    		type is Percent size 6.3
+    		return sum ProjectAssignmentSplit set.CommittedEffort
+		
+		NetCommittedEffort is a DerivedField
+			type is Percent size 6.3
+			return CommittedEffort - AssignmentSplitCommittedEffort
+
+		DerivedLaborSchedule is a DerivedField
+			type is like ProjectLaborSchedule
+			if (Employee.ExcludeFromLabor)
+				return blank
+			else
+				return Employee.ProjectLaborSchedule
+
+		ExcludedMF is a MessageField
+			restricted
+			"Excluded_\From_\Labor_\Distribution"
+						
+		ExcludedMessage is a ConditionalField
+			type is Alpha size 40
+			if (Employee.ExcludeFromLabor)
+				ExcludedMF
+			else
+				""
+				
+	Conditions
+		HasProjectAssignmentComments
+			restricted		
+			when (ProjectAssignmentComment set exists)	
+		HasUncertifiedEffort
+			restricted
+			when (UncertifiedEffortRel exists)
+		HasProcessedLabor
+			restricted
+			when (ProcessedLaborRel exists)
+		HasProjectAssignmentLabor
+			restricted		
+			when (ProjectAssignmentLabor set exists
+			and   !Employee.ExcludeFromLabor)
+		AssignmentToExpire
+			restricted
+			when (ProjectDateRange.EndDate - current corporate date <= 30
+			and   ProjectDateRange.EndDate > current corporate date)
+		AssignmentHasEnded
+			restricted
+			when (ProjectDateRange.EndDate < current corporate date)
+		HasSplits
+			restricted
+			when (ProjectAssignmentSplit set exists)
+
+    Relations
+    	OtherProjectAssignments
+    		one-to-many relation to ProjectAssignment
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.Project					= Project
+    			related.Employee				= Employee
+    		Instance Selection
+    			where (related.ProjectAssignment not = ProjectAssignment)
+    	ProcessedLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where (related.Status.Processed)
+
+    	ProcessedNonBlankLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where ((related.Status.Processed
+    			or      related.Status.Certified)
+    			and     related.ActualPercent entered)
+    	CertifiedEffortRel is a ProjectAssignmentEffort set
+    		Instance Selection
+    			where (related.Certified)
+    	CertifiedNonBlankEffortRel is a ProjectAssignmentEffort set
+    		Instance Selection
+    			where (related.Certified
+    			and    related.EffortPercent entered)
+    	UncertifiedEffortRel is a ProjectAssignmentEffort set
+    		Instance Selection
+    			where (!related.Certified)
+    	UnprocessedLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where (!related.Status.Processed
+    			and    !related.Status.Certified)
+    	UnprocessedLaborAsOfDateRel
+    		one-to-many relation using UnprocessedLaborRel
+    		Instance Selection
+    			where (related.DateRange.Begin >= LocalAsOfDate)
+    	OpenLaborRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where ((related.Status.Entered
+    			or      related.Status not entered)
+    			and     related.LaborPeriod.SequenceNumber = 0
+    			and     related.OpenPeriod)
+    	ProjectAssignmentLaborRel
+    		one-to-one relation to ProjectAssignmentLabor
+    		Field Mapping uses part of key
+    			related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+    			related.Project						= Project
+    			related.Employee					= Employee
+    			related.ProjectAssignment			= ProjectAssignment
+    			related.LaborPeriod.Period			= LocalPeriod
+    			related.LaborPeriod.SequenceNumber	= LocalSequenceNumber
+    	LaborEncumbrancesRel is a ProjectAssignmentLabor set
+    		Instance Selection
+    			where (related.EncumbrancesExist)
+    	ProjectSchedulePeriodsRel  
+    		one-to-many relation to ProjectSchedulePeriod
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.ProjectLaborSchedule	= DerivedLaborSchedule 
+    		Instance Selection
+    			where (related.ProjectAssignmentLaborExists
+    			and    related.Status.Open)
+    	EmployeeRel
+    		one-to-one relation to Employee
+    		Field Mapping uses symbolic key
+    			related.HROrganization	= FinanceEnterpriseGroup.HROrganization
+    			related.Employee		= Employee
+    	GLTransactionDetailRel
+    		one-to-many relation to GLTransactionDetail
+    		Field Mapping uses ByResourceAndDate
+    			related.FinanceEnterpriseGroup	 = FinanceEnterpriseGroup
+    			related.Resource				 = Employee
+    			related.FinanceCodeBlock.Project = Project
+    		Instance Selection
+    			where (related.TransactionDate within ProjectDateRange
+    			and   (related.GeneralLedgerEvent = "PJ"
+    			or     related.GeneralLedgerEvent = "PL"
+    			or     related.GeneralLedgerEvent = "LR"))
+    	PeriodBurdenCodeRel
+    		one-to-one relation to ProjectBurdenCode
+    		Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectBurdenCode		= BurdenCode
+				related.EffectiveDate			<= ProjectSchedulePeriod.DateRange.End
+		CurrentProjectSchedulePeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.ProjectLaborSchedule	= Employee.ProjectLaborSchedule
+    		Instance Selection
+    			where (current corporate date within related.DateRange)
+    	LastProjectSchedulePeriodRel
+			one-to-many relation to ProjectSchedulePeriod
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.ProjectLaborSchedule	= Employee.ProjectLaborSchedule
+    		Instance Selection
+    			where (related.DateRange.End <= Project.ProjectDateRange.EndDate)
+
+	Sets
+		ByEmployee
+			Sort Order
+				FinanceEnterpriseGroup
+				Employee
+				Project
+				ProjectAssignment
+				
+		ByBeginDate
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectDateRange.BeginDate
+				Employee
+				Project
+				ProjectAssignment
+				
+    Field Rules
+    	ProjectDateRange
+    		required
+    		LocalDateRange = Project.ProjectDateRange
+    		LocalDateRange.BeginDate -= Project.PreAwardAssignmentDays
+    		constraint (ProjectDateRange within LocalDateRange)
+    			"AssignmentDateRangeMustBeWithinProjectDateRangeOf<LocalDateRange.BeginDate>Through<LocalDateRange.EndDate>"
+    		default to Project.ProjectDateRange
+    		for each OtherProjectAssignments
+    			constraint (ProjectDateRange.BeginDate not within each.ProjectDateRange
+    			and         ProjectDateRange.EndDate not within each.ProjectDateRange
+    			and         each.ProjectDateRange.BeginDate not within ProjectDateRange
+    			and         each.ProjectDateRange.EndDate not within ProjectDateRange)
+    				"EmployeeAlreadyAssignedTo<FinanceEnterpriseGroup.ProjectLabel>ForEnteredDateRange"    		
+    		if (ProjectDateRange changed)
+    			for each ProcessedLaborRel
+    				constraint (each.DateRange.Begin within ProjectDateRange
+    				or          each.DateRange.End within ProjectDateRange)
+    					"CannotChangeDateRange;ProcessedLaborDistributionRecordsExist"
+		CommittedEffort
+			constraint (CommittedEffort <= 1)
+				"CommittedEffortCannotExceed100%"
+			constraint (CommittedEffort >= AssignmentSplitCommittedEffort)
+				"CommittedEffortCannotBeLessThanTheTotalAssignmentSplitCommittedEffort"
+				 
+		BurdenCode
+			constraint (!Project.FringeBurden.No)
+				"ProjectDoesNotAllowBurden"
+
+		BurdenCodeBlock
+			constraint (!Project.FringeBurden.No)
+				"ProjectDoesNotAllowBurden"				
+
+		FringeEncumbranceCodeBlock
+			constraint (Employee.FringeEncumbrance)
+				"EmployeeNotSetUpForFringeBurdenEncumbrance"
+				
+	Actions
+		Create is a Create Action
+			Entrance Rules
+				if (ProjectDateRange.BeginDate not entered)
+					if (first CurrentProjectSchedulePeriodRel.DateRange.Begin within Project.ProjectDateRange)
+						ProjectDateRange.BeginDate = first CurrentProjectSchedulePeriodRel.DateRange.Begin
+					else
+						ProjectDateRange.BeginDate = Project.ProjectDateRange.BeginDate					
+				if (ProjectDateRange.EndDate not entered)
+					if (last LastProjectSchedulePeriodRel.DateRange.End >= ProjectDateRange.BeginDate
+					and last LastProjectSchedulePeriodRel.DateRange.End within Project.ProjectDateRange)
+						ProjectDateRange.EndDate = last LastProjectSchedulePeriodRel.DateRange.End
+					else
+						ProjectDateRange.EndDate = Project.ProjectDateRange.EndDate
+			Action Rules
+				constraint (Project.ProjectType.Posting)
+					"AssignmentValidForPostingProjectsOnly"
+				constraint (Employee.ProjectEmployee.Active)
+					"ProjectEmployeeMustBeActive"
+				if (ProjectDateRange.EndDate < current corporate date)
+					confirmation required
+						"AssignmentEndDate<ProjectDateRange.EndDate>IsInThePast._Continue?"
+				if (ProjectDateRange.BeginDate > current corporate date)
+					confirmation required
+						"AssignmentBeginDate<ProjectDateRange.BeginDate>IsInTheFuture._Continue?"
+			Field Rules
+				FinanceCodeBlock
+					default to Project.FinanceCodeBlock
+						default individual fields
+					default to Employee.FinanceCodeBlock
+						default individual fields
+
+				BurdenCode
+					if (BurdenCode not entered)
+						if (Project.FringeBurden.DefaultFromEmployee)
+							BurdenCode = Employee.BurdenCode
+						else
+						if (Project.FringeBurden.DefaultFromProject)
+							BurdenCode = Project.BurdenCode
+
+				BurdenCodeBlock
+					if (Project.FringeBurden.DefaultFromEmployee)
+						default to Employee.BurdenCodeBlock
+							default individual fields
+					else
+					if (Project.FringeBurden.DefaultFromProject)
+						default to Project.BurdenCodeBlock
+							default individual fields
+							
+				FringeEncumbranceCodeBlock
+					default to Employee.FringeEncumbranceCodeBlock
+						default individual fields
+
+			Exit Rules
+				if (!Employee.ExcludeFromLabor)
+					LocalDate = Employee.ProjectLaborSchedule.last ProjectSchedulePeriod set.DateRange.End
+					if (ProjectDateRange.EndDate > LocalDate)
+						invoke CreatePeriodDates Employee.ProjectLaborSchedule
+							invoked.PeriodThruDate = ProjectDateRange.EndDate
+					for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+						if (each.DateRange.Begin within ProjectDateRange
+						or  each.DateRange.End within ProjectDateRange)
+							invoke Create ProjectAssignmentLabor
+								fill in fields from this instance
+								invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+					LocalDate = Employee.ProjectLaborSchedule.ProjectEffortSchedule.last ProjectEffortPeriod set.DateRange.End
+					if (ProjectDateRange.EndDate > LocalDate)
+						invoke CreatePeriodDates Employee.ProjectLaborSchedule.ProjectEffortSchedule
+							invoked.PeriodThruDate = ProjectDateRange.EndDate
+				invoke TriggerProjectMaster Project
+
+
+
+
+
+							
+		Update is an Update Action
+			Exit Rules
+				if (ProjectDateRange changed
+				and !Employee.ExcludeFromLabor)
+					LocalDate = Employee.ProjectLaborSchedule.last ProjectSchedulePeriod set.DateRange.End
+					if (ProjectDateRange.EndDate > LocalDate)
+						invoke CreatePeriodDates Employee.ProjectLaborSchedule
+							invoked.PeriodThruDate = ProjectDateRange.EndDate
+					for each ProjectAssignmentLabor set
+						if (!each.DateRange.Begin within ProjectDateRange
+						and !each.DateRange.End within ProjectDateRange)
+							invoke Delete each
+					for each ProjectAssignmentEffort set
+						if (!each.DateRange.Begin within ProjectDateRange
+						and !each.DateRange.End within ProjectDateRange)
+							invoke Delete each
+					if (ProjectDateRange.EndDate > old ProjectDateRange.EndDate)
+						for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+							if ((each.DateRange.Begin within ProjectDateRange
+							or   each.DateRange.End within ProjectDateRange)
+							and  each.DateRange.End > old ProjectDateRange.EndDate)
+								LocalPeriod = each.ProjectSchedulePeriod
+								LocalSequenceNumber = blank
+								if (ProjectAssignmentLaborRel not exists)
+									invoke Create ProjectAssignmentLabor
+										fill in fields from this instance
+										invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+										invoked.CommittedEffort = NetCommittedEffort
+								invoke CreateSplitLabor ProjectAssignmentSplit set
+									invoked.PrmPeriod	= each.ProjectSchedulePeriod
+					if (ProjectDateRange.BeginDate < old ProjectDateRange.BeginDate)
+						for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+							if ((each.DateRange.Begin within ProjectDateRange
+							or   each.DateRange.End within ProjectDateRange)
+							and  each.DateRange.Begin < old ProjectDateRange.BeginDate)
+								LocalPeriod = each.ProjectSchedulePeriod
+								LocalSequenceNumber = blank
+								if (ProjectAssignmentLaborRel not exists)							
+									invoke Create ProjectAssignmentLabor
+										fill in fields from this instance
+										invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+										invoked.CommittedEffort = NetCommittedEffort
+								invoke CreateSplitLabor ProjectAssignmentSplit set
+									invoked.PrmPeriod	= each.ProjectSchedulePeriod
+					LocalDate = Employee.ProjectLaborSchedule.ProjectEffortSchedule.last ProjectEffortPeriod set.DateRange.End
+					if (ProjectDateRange.EndDate > LocalDate)
+						invoke CreatePeriodDates Employee.ProjectLaborSchedule.ProjectEffortSchedule
+							invoked.PeriodThruDate = ProjectDateRange.EndDate
+
+				if (CommittedEffort changed
+				and !Employee.ExcludeFromLabor)
+					invoke ChangePlannedPercents
+				if (FinanceCodeBlock changed
+				and !Employee.ExcludeFromLabor)
+					for each OpenLaborRel
+						LocalOldCodeBlock = old FinanceCodeBlock
+						LocalEachCodeBlock = each.FinanceCodeBlock
+						initialize LocalEachCodeBlock.Ledger
+						initialize LocalOldCodeBlock.Ledger
+						if (LocalEachCodeBlock = LocalOldCodeBlock)
+							invoke UpdateCodeBlock each
+								invoked.PrmFinanceCodeBlock = FinanceCodeBlock
+				invoke TriggerProjectMaster Project	
+				
+		UpdateFringeBurdens is an Instance Action
+			restricted
+			Parameters
+				OverrideCurrentValues	is Boolean
+			Action Rules
+				if (OverrideCurrentValues
+				or  BurdenCode not entered)
+					if (Project.FringeBurden.DefaultFromEmployee)
+						BurdenCode = Employee.BurdenCode
+					else
+					if (Project.FringeBurden.DefaultFromProject)
+						BurdenCode = Project.BurdenCode
+				if (OverrideCurrentValues
+				or  BurdenCodeBlock not entered)
+					if (Project.FringeBurden.DefaultFromEmployee)
+						BurdenCodeBlock = Employee.BurdenCodeBlock
+					else
+					if (Project.FringeBurden.DefaultFromProject)
+						BurdenCodeBlock = Project.BurdenCodeBlock
+				if (Project.FringeBurden.No)
+					initialize BurdenCode
+					initialize BurdenCodeBlock
+				if (OverrideCurrentValues
+				or  FringeEncumbranceCodeBlock not entered)
+					FringeEncumbranceCodeBlock = Employee.FringeEncumbranceCodeBlock
+				if (!Employee.FringeEncumbrance
+				or  Project.FringeBurden.No)
+					initialize FringeEncumbranceCodeBlock
+						
+		UpdateFinanceCodeBlocks is an Instance Action
+			restricted
+			Parameters
+				OverrideCurrentValues	is Boolean
+			Local Fields
+				RecordCount is Numeric size 2
+			Action Rules
+				if (OverrideCurrentValues)
+					initialize FinanceCodeBlock
+				default FinanceCodeBlock to Project.FinanceCodeBlock
+					default individual fields
+				default FinanceCodeBlock to Employee.FinanceCodeBlock
+					default individual fields
+			Exit Rules
+				if (FinanceCodeBlock changed
+				and !Employee.ExcludeFromLabor)
+					for each OpenLaborRel
+						LocalOldCodeBlock = old FinanceCodeBlock
+						LocalEachCodeBlock = each.FinanceCodeBlock
+						initialize LocalEachCodeBlock.Ledger
+						initialize LocalOldCodeBlock.Ledger
+						if (LocalEachCodeBlock = LocalOldCodeBlock
+						or  OverrideCurrentValues)
+							invoke Update each
+								invoked.FinanceCodeBlock = FinanceCodeBlock
+							if (RecordCount = 50)
+								commit transaction
+								initialize RecordCount
+							RecordCount += 1
+						
+		Delete is a Delete Action
+			Action Rules
+				constraint (ProcessedNonBlankLaborRel not exists)
+					"CannotDelete;ProcessedLaborDistributionRecordsExist"
+				constraint (CertifiedNonBlankEffortRel not exists)
+					"CannotDelete;CertifiedEffortDistributionRecordsExist"
+				constraint (LaborEncumbrancesRel not exists)
+					"CannotDelete;SalaryEncumbranceRecordsExist"
+			Exit Rules
+				invoke TriggerProjectMaster Project
+
+
+
+
+
+
+		ChangePlannedPercents is an Instance Action
+			restricted
+			Action Rules
+				LocalEffort = CommittedEffort - AssignmentSplitCommittedEffort
+				invoke Update OpenLaborRel
+					invoked.PlannedPercent	= LocalEffort
+			
+		ChangeLaborSchedule is an Instance Action
+			restricted
+			Parameters
+				AsOfDate	is Date
+			Action Rules
+				if (AsOfDate entered
+				and AsOfDate != current corporate date)
+					LocalAsOfDate = AsOfDate
+					invoke Delete UnprocessedLaborAsOfDateRel
+				else
+					invoke Delete UnprocessedLaborRel
+					LocalAsOfDate = current corporate date
+				if (ProcessedLaborRel exists)
+					for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+						if ((each.DateRange.Begin within ProjectDateRange
+						or   each.DateRange.End within ProjectDateRange)
+						and  each.DateRange.End > LocalAsOfDate)
+							LocalPeriod = each.ProjectSchedulePeriod
+							LocalSequenceNumber = blank
+							if (ProjectAssignmentLaborRel not exists)
+								invoke Create ProjectAssignmentLabor
+									fill in fields from this instance
+									invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+									invoked.CommittedEffort = NetCommittedEffort
+							else
+								invoke Update ProjectAssignmentLaborRel
+									invoked.ProjectLaborSchedule = Employee.ProjectLaborSchedule
+							invoke CreateSplitLabor ProjectAssignmentSplit set
+								invoked.PrmPeriod	= each.ProjectSchedulePeriod
+				else
+					for each Employee.ProjectLaborSchedule.ProjectSchedulePeriod set
+						if (each.DateRange.Begin within ProjectDateRange
+						or  each.DateRange.End within ProjectDateRange)
+							LocalPeriod = each.ProjectSchedulePeriod
+							LocalSequenceNumber = blank
+							if (ProjectAssignmentLaborRel not exists)
+								invoke Create ProjectAssignmentLabor
+									fill in fields from this instance
+									invoked.LaborPeriod.Period = each.ProjectSchedulePeriod
+									invoked.CommittedEffort = NetCommittedEffort
+							else
+								invoke Update ProjectAssignmentLaborRel
+									invoked.ProjectLaborSchedule = Employee.ProjectLaborSchedule
+							invoke CreateSplitLabor ProjectAssignmentSplit set
+								invoked.PrmPeriod	= each.ProjectSchedulePeriod
+
+		CreateComments is an Instance Action
+			Parameters
+				PrmSubject	 			is a CommentName
+		    	PrmComment				is Text
+				PrmFrom					is Alpha size 230
+				PrmCommentDate			is TimeStamp
+				PrmAttachment			is an Attachment
+				PrmDocumentURL			is URL		    	
+			Parameter Rules
+				PrmSubject
+					required
+		    	PrmComment
+		    		required
+				PrmFrom	
+					initial value is actor
+					required
+				PrmCommentDate
+		    		default to current timestamp
+			Action Rules
+				invoke Create ProjectAssignmentComment
+					invoked.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+					invoked.ProjectAssignment	   = ProjectAssignment
+					invoked.Project				   = Project
+					invoked.Employee			   = Employee
+					invoked.Subject				   = PrmSubject
+			    	invoked.Comment                = PrmComment
+					invoked.From                   = PrmFrom	
+					invoked.CommentDate            = PrmCommentDate
+					invoked.DocumentURL			   = PrmDocumentURL					
+			    	invoked.Attachment             = PrmAttachment
+
+		CopyAssignment is an Instance Action
+			Parameters
+				NewProject				is a Project
+				NewProjectEmployee      is a ProjectEmployee
+				NewProjectDateRange		is a ProjectDateRange				
+				NewProjectRole          is a ProjectRole
+				NewBillableRate		    is Decimal size 22.6
+				NewCommittedEffort		is Percent size 6.3
+				NewFinanceCodeBlock	    is a FinanceCodeBlockNoProject 
+					default label is "LaborDistributionFinanceStructure"
+				NewBurdenCode			is a ProjectBurdenCode
+				NewBurdenCodeBlock		is a FinanceCodeBlockNoProject 
+					default label is "FringeBurdenFinanceStructure"
+				NewFringeEncumbranceCodeBlock	is a FinanceCodeBlockFullBurden
+					default label is "FringeEncumbranceFinanceStructure"
+				CopyAssignmentSplits     is Boolean
+			
+			Local Fields 
+				LocalProjectAssignmentView	is a ProjectAssignment view
+
+			Parameter Rules
+
+				NewProject
+					required
+					initial value is Project
+					constraint (NewProject.ProjectType.Posting)
+						"AssignmentValidForPostingProjectsOnly"
+
+				NewProjectEmployee
+					required
+					initial value is Employee		
+					constraint (NewProjectEmployee.Active)
+						"ProjectEmployeeMustBeActive"
+
+				NewProjectDateRange
+					required
+					constraint (NewProjectDateRange within NewProject.ProjectDateRange)
+						"AssignmentDateRangeMustBeWithinProjectDateRangeOf<Project.ProjectDateRange.BeginDate>Through<Project.ProjectDateRange.EndDate>"
+					initial value is NewProject.ProjectDateRange	
+					default to NewProject.ProjectDateRange
+				
+				NewProjectRole
+					initial value is ProjectRole							
+
+				NewCommittedEffort
+					initial value is CommittedEffort			
+					constraint (NewCommittedEffort <= 1)
+						"CommittedEffortCannotExceed100%"
+
+				NewFinanceCodeBlock
+					initial value is FinanceCodeBlock					
+					default to NewProject.FinanceCodeBlock
+						default individual fields
+					default to NewProjectEmployee.FinanceCodeBlock
+						default individual fields
+
+				NewBurdenCode
+					initial value is BurdenCode							
+					constraint (!NewProject.FringeBurden.No)
+						"ProjectDoesNotAllowBurden"
+					if (!NewProject.FringeBurden.No)	
+						if (NewBurdenCode not entered)
+							if (NewProject.FringeBurden.DefaultFromEmployee)
+								NewBurdenCode = NewProjectEmployee.BurdenCode
+							else
+							if (NewProject.FringeBurden.DefaultFromProject)
+								NewBurdenCode = NewProject.BurdenCode
+
+				NewBurdenCodeBlock
+					initial value is BurdenCodeBlock		
+					constraint (!NewProject.FringeBurden.No)
+						"ProjectDoesNotAllowBurden"		
+					if (!NewProject.FringeBurden.No)						
+						if (NewProject.FringeBurden.DefaultFromEmployee)
+							default to NewProjectEmployee.BurdenCodeBlock
+								default individual fields
+						else
+						if (NewProject.FringeBurden.DefaultFromProject)
+							default to NewProject.BurdenCodeBlock
+								default individual fields
+
+				NewFringeEncumbranceCodeBlock
+					initial value is FringeEncumbranceCodeBlock			
+					constraint (NewProjectEmployee.FringeEncumbrance)
+						"EmployeeNotSetUpForFringeBurdenEncumbrance"
+					if (NewProjectEmployee.FringeEncumbrance)						
+						default to NewProjectEmployee.FringeEncumbranceCodeBlock
+							default individual fields
+
+			Action Rules
+				invoke Create
+					assign result to LocalProjectAssignmentView
+					fill in fields from this instance
+					invoked.Project						= NewProject
+					invoked.Employee        		    = NewProjectEmployee
+					invoked.ProjectDateRange			= NewProjectDateRange				
+					invoked.ProjectRole       			= NewProjectRole
+					invoked.BillableRate				= NewBillableRate
+					invoked.CommittedEffort	 			= NewCommittedEffort
+					invoked.FinanceCodeBlock			= NewFinanceCodeBlock
+					invoked.BurdenCode					= NewBurdenCode
+					invoked.BurdenCodeBlock				= NewBurdenCodeBlock
+					invoked.FringeEncumbranceCodeBlock	= NewFringeEncumbranceCodeBlock
+					invoked.BypassStructureRelationEdit = true					
+			Exit Rules
+				if (CopyAssignmentSplits)	
+					for each ProjectAssignmentSplit set
+						invoke Create ProjectAssignmentSplit
+							fill in fields from each
+								except invoked.SequenceNumber
+							invoked.Project 			= NewProject
+							invoked.Employee			= NewProjectEmployee
+							invoked.ProjectAssignment	= LocalProjectAssignmentView.ProjectAssignment
+							invoked.BypassStructureRelationEdit = true
+
+		EndAllProjectAssignments is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup
+				PrmProject				is a Project	
+				PrmAssignmentEndDate	is Date
+				PrmProjectLaborSchedule is a ProjectLaborSchedule
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    Project = PrmProject
+				and    ProjectDateRange.EndDate > PrmAssignmentEndDate
+				and   (Employee.ProjectLaborSchedule = PrmProjectLaborSchedule
+				or     PrmProjectLaborSchedule not entered))
+			Action Rules
+				Instance Rules
+					invoke Update
+						resume on error
+						invoked.ProjectDateRange.EndDate = PrmAssignmentEndDate				

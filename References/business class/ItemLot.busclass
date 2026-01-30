@@ -1,0 +1,256 @@
+ItemLot is a BusinessClass
+    owned by ic
+    prefix is ILT
+    classic name is ICLOT
+
+    Ontology
+        symbolic key is ItemLot
+            classic set name is ILTSET1
+            classic name is LOT
+            classic name for InventoryLocation is LOCATION
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+        
+    Context Fields
+    	PurchaseOrderReceipt
+      	PurchaseOrderReceiptLine
+		InventoryTransaction
+		InventoryTransactionLine
+        StockOnHandDetail
+
+    Persistent Fields
+
+		ShelfLife
+		ManufacturingDate
+        LotExpirationDate is Date
+            classic name is EXPIRE-DATE
+        LotOnHold         is Boolean
+            classic name is HOLD-FLAG
+        ItemLocation
+		ExpirationDateSource
+
+	Field Rules
+		ShelfLife
+			if (not IsBinTrackedAndLotTrackedWarehouseItem)
+				cannot be entered
+					"Shelf_LifeMustBeBlankWhenItemIsNot_Bin_TrackedAnd_Lot_Tracked"
+			else
+			if (ManufacturingDate entered
+			and IsBinTrackedAndLotTrackedWarehouseItem)
+				required
+
+		ManufacturingDate
+			if (not IsBinTrackedAndLotTrackedWarehouseItem)
+				cannot be entered
+					"Manufacturing_DateMustBeBlankWhenItemIsNot_Bin_TrackedAnd_Lot_Tracked"
+			else
+			if (ShelfLife entered
+			and IsBinTrackedAndLotTrackedWarehouseItem)
+				required
+
+		LotExpirationDate
+			if (IsAWarehouseLocationItem
+			and LotExpirationDate entered)
+				ExpirationDateSource = ExpirationDateSource.Entered
+
+			if (ShelfLife entered)
+				force default to ManufacturingDate + ShelfLife
+				ExpirationDateSource = ExpirationDateSource.CalculatedFromShelfLife
+
+    Derived Fields
+
+        HoldFlagValue is a StringField
+            type is Alpha size 1
+            classic name is HOLD-FL-VALUE
+            restricted
+            LotOnHold
+
+ 		NoExpiringItems is a MessageField
+            restricted
+            "NoItemLotsAreAboutToExpire"
+
+		DerivedStockOnHandDetail is a DerivedField
+			type is like Quantity
+			restricted
+			return sum StockOnHandDetailForItemLotRel.StockOnHandQuantity
+		
+		DerivedStockOnUOMDetail is a DerivedField
+			type is like UnitOfMeasure
+			restricted
+			return StockOnHandDetailForItemLotRel.StockOnHandDetail.UnitOfMeasure
+
+        StockOnHandByDetailWithUOMDisplay is a LabelField
+            "<DerivedStockOnHandDetail>_<DerivedStockOnUOMDetail>"
+
+		DerivedDaysBeforeExpiration is a ComputeField
+			type is Numeric 4
+			(LotExpirationDate - current corporate date)           
+
+		DerivedRemainingShelfLife is a DerivedField
+			type is Numeric 4
+			default label is "Remaining_Shelf_Life"
+			if (LotExpirationDate >= current corporate date)
+				return LotExpirationDate - current corporate date
+			else
+				return 0
+
+		DerivedExpirationWarning is a DerivedField
+			type is Numeric 4
+			restricted
+			return StockOnHandItemStorageLocationRel.ExpirationWarning
+
+	Conditions
+		
+		PurchaseOrderTransactionDetailRelExists
+			restricted
+			when (PurchaseOrderTransactionDetailRel exists)
+			
+		HasStockOnHandDetail
+			when(StockOnHandDetailForItemLotRel exists)
+	
+		NoStockOnHandDetail
+			restricted
+			when (StockOnHandDetailsRel not exists)
+	
+		IssuedInventoryTransactionLineDetailForReturnExists
+			restricted
+			when (IssuedInventoryTransactionLineDetailForReturnRel exists)
+			
+		ExpiredItems
+            when (LotExpirationDate entered
+			and   LotExpirationDate <= current corporate date)
+
+		ItemsAboutToExpire
+			when (LotExpirationDate entered
+			and  ((DerivedExpirationWarning entered
+			and  DerivedDaysBeforeExpiration <= DerivedExpirationWarning)
+			or   (Company.DaysPriorToExpiringLots entered
+			and  DerivedDaysBeforeExpiration <= Company.DaysPriorToExpiringLots))
+			and  DerivedDaysBeforeExpiration > 0)
+
+		IsForExpiringItemsListDisplay
+			restricted
+			when (LotExpirationDate entered
+            and   StockOnHandDetailForItemLotRel.StockOnHandQuantity > 0
+            and  (ItemLot.ExpiredItems or ItemLot.ItemsAboutToExpire))
+
+		IsAWarehouseLocationItem
+			restricted
+			when (ItemLocation.IsAWarehouseLocationItem)
+
+		IsBinTrackedAndLotTrackedWarehouseItem
+			restricted
+			when (ItemLocation.IsBinTrackedAndLotTrackedWarehouseItem)
+	
+    Relations
+		
+		PurchaseOrderTransactionDetailRel
+            one-to-many relation to PurchaseOrderTransactionDetail
+            Field Mapping uses ByLot
+                related.Lot                      = ItemLot
+                related.Company                  = Company
+                related.PurchaseOrderReceipt     = PurchaseOrderReceipt
+                related.PurchaseOrderTransactionDetail.LineNumber = PurchaseOrderReceiptLine
+                related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType = "PO"
+		
+		IssuedInventoryTransactionLineDetailForReturnRel
+			one-to-many relation to InventoryTransactionLineDetail
+			Field Mapping uses Set2
+				related.Company										= Company
+            	related.InventoryLocation							= InventoryTransaction.OriginatingIssueLocation	
+			Instance Selection
+				where (related.InventoryTransaction					= InventoryTransaction.OriginatingIssueDocument
+				and	   related.Lot									= ItemLot
+				and	   related.InventoryTransactionLine.LineNumber 	= InventoryTransactionLine.LineNumber
+				and    related.Item									= Item)
+
+        StockOnHandDetailsRel
+            classic name is SOHDETAIL
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = InventoryLocation
+                related.Item              = Item
+
+
+
+		StockOnHandDetailForItemLotRel
+			one-to-many relation to StockOnHandDetail
+			Field Mapping uses symbolic key
+				related.Company			 	= Company
+				related.InventoryLocation 	= InventoryLocation
+				related.Item				= Item
+			Instance Selection
+				where (related.StockOnHandDetail.Lot = ItemLot)
+
+        StockOnHandItemStorageLocationRel
+			one-to-one relation to ItemStorageLocation
+			Field Mapping uses symbolic key
+				related.Company							= StockOnHandDetail.Company
+				related.InventoryLocation				= StockOnHandDetail.InventoryLocation
+				related.Item							= StockOnHandDetail.Item
+				related.WarehouseStorageLocation		= StockOnHandDetail.DerivedWarehouseStorageLocation
+
+	Sets
+		ByExpirationDate
+			indexed
+			Sort Order
+				LotExpirationDate
+				Company
+				InventoryLocation
+				Item
+				ItemLot
+    Actions
+    
+        Create is a Create Action
+        	restricted
+        	
+        Update is an Update Action
+
+        Delete is a Delete Action
+        	restricted
+        
+        Purge is a Purge Action
+        	restricted
+        	bypass relational integrity rules
+					
+		UpdateFromTransaction is an Instance Action
+			restricted
+			Parameters
+				PrmLotExpirationDate is Date
+				PrmShelfLife		 		is a ShelfLife
+				PrmManufacturingDate 		is Date
+				PrmExpirationDateSource 	is an ExpirationDateSource
+				
+			Action Rules
+				if (PrmLotExpirationDate entered)
+					LotExpirationDate = PrmLotExpirationDate   
+				if (PrmShelfLife entered)
+					ShelfLife		  		= PrmShelfLife
+				if (PrmManufacturingDate entered)
+					ManufacturingDate 		= PrmManufacturingDate
+				if (PrmExpirationDateSource entered)
+					ExpirationDateSource 	= PrmExpirationDateSource
+
+		ItemLotPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany 									is an InventoryCompany
+				PrmPurgeOption								is Numeric 1
+					default label is "ActionOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2	
+			Instance Selection
+				include deleted records
+				where(PrmCompany = Company
+				and   NoStockOnHandDetail)
+			Action Rules
+				Instance Rules
+					if(StockOnHandDetailsRel not exists)
+						if(PrmPurgeOption.PurgeRecords)
+							invoke Purge
+    

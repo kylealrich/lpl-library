@@ -1,0 +1,947 @@
+ProcurementTemplate is a BusinessClass
+    owned by po
+    prefix is POP
+    classic name is PROCTEMP
+
+    Ontology
+        symbolic key is ProcurementTemplate
+            classic set name is POPSET1
+            classic name is TEMPLATE-REF
+            classic name for ProcurementGroup is PROCURE-GROUP
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        Description
+        LastProcurementTemplateLine is a LineNumber
+            classic name is LAST-LINE-NBR
+            disable Auditing
+        FromCompanyLocation
+        Locked                      is Boolean
+            classic name is LOCK-FLAG
+        Contract
+        TemplateDocumentNumber      is a SourceDocumentNumeric
+            classic name is TEMPLT-DOC-NBR
+        TemplateCode                is AlphaUpper size 4
+        Active                      is Boolean
+        ProcurementTemplateSearch			is Text
+			text searchable
+            disable Auditing
+		AutoUpdateFromContract      is Boolean
+			default label is "AutoAddNewContractLinesToTemplate"
+        
+    Transient Fields
+    	TransientCopyAllLines		is Boolean
+		TransientQuantityOfOne  	is Boolean
+		TransientParticipantVendor  is Boolean
+		TransientNewRequisition		is like Requisition
+		TransientQuantityMultiplier	is a Quantity
+
+
+		SavedRequisition				is a Requisition
+		SavedRequisitionCompany			is an InventoryCompany
+		
+	Rule Blocks
+		BuildProcurementTemplateTextIndex
+			build text search field ProcurementTemplateSearch
+				Fields
+					ProcurementTemplate
+					Description
+					ProcurementTemplateLine set.TextSearch
+
+	Derived Fields
+
+        Participant is a ConditionalField
+            type is AlphaUpper size 1
+            restricted
+            if (NoParticipantExists)
+                "*"
+            else
+                blank
+        
+        NoOfLines is a ComputeField
+			type is Numeric 6
+			(instance count of ProcurementTemplateLinesRel)
+
+		NumberOfParticipants is a ComputeField
+			type is Numeric 6
+			(instance count of ProcurementTemplateParticipantsRel) 
+		
+		DerivedCompany is a DerivedField
+			type is like InventoryCompany
+			restricted
+			if (RequisitionRel exists)
+				return RequisitionRel.Company
+			else
+				return RequesterRel.Company
+	
+		DerivedVendorParticipant is a DerivedField
+			type is Numeric 9
+			return first ProcurementTemplateParticipantWithAVendorRel.Vendor
+
+ 		DerivedRequestingLocation		is a DerivedField
+			type is like RequestingLocation
+			if (RequisitionRel exists)
+				return RequisitionRel.RequestingLocation
+			else
+				return RequesterRel.RequestingLocation
+
+        FromCompanyAndName is a StringField
+            type is Alpha size up to 87
+            FromCompanyLocation.FromCompany
+            " - "
+            FromCompanyLocation.FromCompany.Name
+
+		DerivedLocked  is a DerivedField
+			type is Alpha 3
+			if (Locked = true)
+			 	DerivedLocked = "Yes"
+			else
+				DerivedLocked = "No" 	
+
+		DerivedActive  is a DerivedField
+			type is Alpha 3
+			if (Active = true)
+			 	DerivedActive = "Yes"
+			else
+				DerivedActive = "No" 	
+				
+	Local Fields
+
+		
+
+    Context Fields
+   		ContextCompany   			is a Company
+   		ContextRequester 			is a Requester
+   		ContextRequestingLocation   is a RequestingLocation
+   		ContextBuyer	 			is a Buyer
+		ContextRequisition			is a Requisition
+			default to SavedRequisition
+		ContextRequisitionCompany	is an InventoryCompany
+			default to SavedRequisitionCompany
+		ContextSupplier             is a Supplier
+
+    Conditions
+
+        HasContract
+            classic name is HAS-AGRMT-REF
+            restricted
+            when (Contract entered)
+
+		CanUpdateFromContract
+			restricted
+			when (HasContract
+			and   Contract.NotClosed
+			and   Contract.NumberOfLinesQuickApproximation > LastProcurementTemplateLine)
+
+        HasProcurementTemplate
+            classic name is HAS-TEMPLATES
+            restricted
+            when (ProcurementTemplate entered)
+
+        AlwaysFalse
+        	restricted
+        	when (HasProcurementTemplate
+        	and  !HasProcurementTemplate)
+        
+        PurchaseOrdersExist
+        	restricted
+        	when (RecordExists
+			and PurchaseOrdersCreatedRel exists)
+        	
+        RequisitionsExist
+        	restricted
+        	when (RecordExists
+			and RequisitionsCreatedRel exists)
+        
+        NoParticipantExists
+            classic name is NO-PARTICIPANT
+            restricted
+            when (first ProcurementTemplateParticipantsRel not exists)
+            
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   ProcurementGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))			
+			
+		RecordExists
+			restricted
+			when (ProcurementTemplate exists)
+			
+		IsNotContract
+			restricted
+			when (RecordExists
+			and  !HasContract)
+
+		OnlyForMyRequester
+			restricted
+			when  (RSSProcurementTemplateRequesterParticipantRel exists
+			and   NumberOfParticipants = 1) 
+		
+		RSSRequesterParticipant
+			when (first RSSProcurementTemplateRequesterParticipantRel exists)
+
+		RSSCompanyParticipant
+			when (first RSSProcurementTemplateCompanyParticipantRel exists)
+
+		RSSLocationParticipant
+			when (first RSSProcurementTemplateLocationParticipantRel exists)
+
+		RSSIParticipate
+			restricted
+			when ((RSSRequesterParticipant
+			or	  RSSCompanyParticipant
+			or    RSSLocationParticipant)
+			and   Active)
+			
+		MyBuyerParticipantExists
+			restricted
+			when (ProcurementTemplateParticipantsByBuyerRel exists)
+		
+		ParticipantsExistsForRQ
+			restricted
+			when (ProcurementTemplateParticipantsByCompanyAndRequesterRel exists )
+			
+		ParticipantsExistsForPO
+			restricted
+			when (ProcurementTemplateParticipantsByCompanyAndBuyerRel exists)
+			
+		IsRequesterFavoritePOTemplate
+			when (RequesterFavoritePOTemplateRel exists)
+			
+		ProcurementTemplateUpdateAllowed
+			when (RSSProcurementTemplateRequesterParticipantRel exists
+			and NumberOfParticipants = 1)
+			
+		IsForSupplier
+			restricted
+			when (SupplierRel exists)
+		
+		ValidForSupplier
+			restricted
+			when (ProcurementGroup = actor.agent(SupplierSourceId).SupplierGroup)
+
+		ParticipantExistsForVendor
+			restricted
+			when (ProcurementTemplateParticipantsForAVendorRel exists)
+		
+		ParticipantExistsForAnyVendor
+			restricted
+			when (ProcurementTemplateParticipantWithAVendorRel exists)
+
+		ParticipantExistsForContextVendor
+			restricted
+			when (ProcurementTemplateParticipantsForContextVendorRel exists)
+
+		ParticipantsExistsForRequester
+			restricted
+			when (RSSProcurementTemplateParticipantsRequesterRel exists )
+
+    Relations
+
+		ProcurementTemplateParticipantsByCompanyAndRequesterRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+				where ((related.HasRequester	and related.Requester 	= ContextRequester)
+				or     (related.HasCompany		and related.Company 	= ContextCompany) 
+				or	   (related.HasRequestingLocation 
+				and     related.Company = ContextCompany and related.RequestingLocation = ContextRequestingLocation))
+				
+        ProcurementTemplateParticipantsByCompanyAndBuyerRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+            	where ((related.Company entered and related.Company = ContextCompany)
+            	or     (related.Buyer entered   and related.Buyer = ContextBuyer))
+                            	
+		SupplierRel
+			one-to-one relation to Supplier
+			Field Mapping uses symbolic key
+ 				related.SupplierGroup 	= actor.agent(SupplierSourceId).SupplierGroup
+ 				related.Supplier   		= actor.agent(SupplierSourceId).Supplier	
+
+        ProcurementTemplateParticipantsForAVendorRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+            	where (related.Vendor entered
+            	and    related.Vendor = SupplierRel.Vendor)
+
+        ProcurementTemplateParticipantsForContextVendorRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+            	where (related.Vendor entered
+            	and    related.Vendor = ContextSupplier.Vendor)
+
+        ProcurementTemplateParticipantWithAVendorRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+            	where (related.Vendor entered)
+
+        ProcurementTemplateParticipantsByBuyerRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+            	where (related.Buyer entered
+            	and    related.Buyer = actor.agent(Employee).Employee)
+        
+        ProcurementTemplateLines2Rel
+            classic name is PROCTEMPL2
+            one-to-many relation to ProcurementTemplateLine
+            delete cascades
+            Field Mapping uses Set2
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+
+        ProcurementTemplateLinesRel
+            one-to-many relation to ProcurementTemplateLine
+            delete cascades
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+
+
+
+
+
+		ValidProcurementTemplateLinesRel
+			one-to-many relation to ProcurementTemplateLine
+            delete cascades
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+            Instance Selection
+            	where (related.ContractLine not entered
+            	or	  (related.ContractLine.ContractLineState.Active
+            	and	   not related.ContractLine.OnHold))
+
+        ProcurementTemplateParticipantsRel
+            one-to-many relation to ProcurementTemplateParticipant
+            delete cascades
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+
+        RSSProcurementTemplateRequesterParticipantRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+                related.Company					= blank
+                related.RequestingLocation		= blank
+                related.Requester				= actor.agent(Employee).Employee
+
+        RSSProcurementTemplateLocationParticipantRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+                related.Company					= DerivedCompany
+                related.RequestingLocation		= DerivedRequestingLocation
+            Instance Selection
+				where (related.Requester not entered)
+
+        RSSProcurementTemplateCompanyParticipantRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    	= ProcurementGroup
+                related.ProcurementTemplate 	= ProcurementTemplate
+                related.Company					= DerivedCompany
+            Instance Selection
+            	where (related.RequestingLocation not entered
+            	and    related.Requester not entered)
+
+		NewRequisitionsRel 
+			one-to-many relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company     = SavedRequisitionCompany 
+				
+		NewRequisitionRel 
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company     = ContextRequisitionCompany 
+				related.Requisition = ContextRequisition
+				
+		ContractLinesForProcurementTemplateRel
+            one-to-many relation to ContractLine
+            Field Mapping uses symbolic key
+                related.ContractGroup   				= 	ProcurementGroup
+                related.Contract        				= 	Contract
+                
+		RequesterRel
+            one-to-one relation to Requester
+            Field Mapping uses symbolic key
+            	related.HROrganization = actor.agent(Employee).HROrganization
+                related.Requester = actor.agent(Employee).Employee.Requester.Requester
+
+		RequisitionsCreatedRel
+			one-to-many relation to Requisition
+			Field Mapping uses ByProcurementTemplate 
+				related.ProcurementTemplate             = ProcurementTemplate 
+			Instance Selection
+				where (related.PurchasingCompanyRel.ProcurementGroup = ProcurementGroup)
+			
+		PurchaseOrdersCreatedRel
+			one-to-many relation to PurchaseOrder
+			Field Mapping uses ByProcurementTemplate
+				related.ProcurementTemplate             = ProcurementTemplate 
+			Instance Selection
+				where (related.Company.ProcurementGroup = ProcurementGroup)
+		
+		RequisitionRel
+			one-to-one relation to Requisition
+			Field Mapping uses symbolic key
+				related.Company				= RequesterRel.CurrentCompanyForRQC
+				related.Requisition			= RequesterRel.CurrentRequisitionForRQC
+				
+		RequesterFavoritePOTemplateRel
+			one-to-one relation to RequesterFavoritePOTemplate
+			Field Mapping uses symbolic key
+				related.Company				= RequesterRel.Company
+				related.Requester			= actor.agent(Employee).Employee.Requester.Requester
+				related.ProcurementTemplate	= ProcurementTemplate
+				
+		RequesterFavoriteCreatedRel
+			one-to-many relation to RequesterFavoritePOTemplate
+			delete cascades
+			Field Mapping uses ByProcurementTemplate 
+				related.ProcurementTemplate             = ProcurementTemplate 
+
+		ActorRoleRel
+			one-to-many relation to ActorRole
+			Field Mapping uses symbolic key
+				related.Actor           = actor
+				
+		RSSProcurementTemplateParticipantsRequesterRel
+            one-to-many relation to ProcurementTemplateParticipant
+            Field Mapping uses symbolic key
+                related.ProcurementGroup    = ProcurementTemplate.ProcurementGroup
+                related.ProcurementTemplate = ProcurementTemplate
+            Instance Selection
+				where ((related.Company entered and related.Company = DerivedCompany
+				and     related.RequestingLocation not entered
+				and     related.Requester not entered)
+				or		(related.Requester entered and related.Requester = actor.agent(Employee).Employee
+				and		 related.Company not entered
+				and      related.RequestingLocation not entered)
+				or		(related.Company entered and related.Company = DerivedCompany
+				and		related.RequestingLocation entered and related.RequestingLocation = DerivedRequestingLocation
+				and     related.Requester not entered))
+		
+    Sets
+
+    	ByContract
+    		Sort Order
+                ProcurementGroup
+                Contract
+                ProcurementTemplate
+                
+        ByTemplateDocumentNumber
+        	Sort Order
+        		ProcurementGroup
+        		TemplateDocumentNumber
+        
+        ByDescription
+        	Sort Order
+        		ProcurementGroup
+        		Description
+        		ProcurementTemplate
+        		        
+    Attach Rules
+    
+    	constraint (Active)
+			"TemplateIsNotActive" 
+    
+    Field Rules
+    	TemplateDocumentNumber
+    		autosequence using ByTemplateDocumentNumber
+		
+        Description
+            required
+			if (Description changed)
+				include BuildProcurementTemplateTextIndex
+
+		FromCompanyLocation
+			if (FromCompanyLocation.FromCompany not entered)
+				cannot be entered
+					"CannotEnterFromLocationWithoutFromCompany" 
+					
+		Active
+			initial value is true
+			default to true
+
+		AutoUpdateFromContract
+			if (Contract !entered)
+				AutoUpdateFromContract = false
+			
+    Actions
+	
+		Create is a Create Action
+			Action Rules
+				include BuildProcurementTemplateTextIndex	
+				
+		Update is an Update Action
+			valid when (!Locked)
+			Action Rules
+				constraint (!Locked)
+					"ProcurementTemplateLocked,RecordNotUpdated" 
+
+		UpdateFast is an Update Action
+			restricted
+			bypass field rules
+			Action Rules
+				
+		
+		Delete is a Delete Action
+			valid when (!Locked)
+			Action Rules
+				
+				constraint (!Locked)
+					"ProcurementTemplateLocked,RecordsNotDeleted" 
+					
+		CreatePurchaseOrderInterface is an Update Action
+
+				
+		AddAllLinesFromContract is an Instance Action
+			valid when (CanUpdateFromContract) 
+			Parameters
+				ParmQuantityOfOne is Boolean
+			
+			Exit Rules
+					
+				invoke CreateProcurementTemplateLinesFromContract ContractLine
+					invoked.PrmContractGroup 		= ProcurementGroup
+					invoked.PrmContract      		= Contract
+					invoked.PrmProcurementTemplate  = ProcurementTemplate
+					invoked.QuantityOfOne           = ParmQuantityOfOne
+		
+		CreateFromContract   is a Create Action
+			default label is "CreateFromContract"
+			
+			Action Rules
+				constraint (Contract entered)
+					"ContractRequired"
+					
+				constraint (Contract.HasBeenActivated)
+					"ContractMustHaveBeenActivated"
+				constraint (Contract.ContractPurchaseType
+				or          Contract.CatalogQuotePurchaseType)
+					"OnlyContractOrCatalogPurchaseTypeContractsCanBeUsedForTemplates"
+				constraint (Contract.IsValidForProcurementTemplate)
+					"ContractCannotBeUsedForProcurementTemplate"
+
+				include BuildProcurementTemplateTextIndex
+					
+			Exit Rules
+				if (Contract entered
+				and TransientCopyAllLines) 
+					
+					invoke CreateProcurementTemplateLinesFromContract ContractLine
+						invoked.PrmContractGroup 		= ProcurementGroup
+						invoked.PrmContract      		= Contract
+						invoked.PrmProcurementTemplate  = ProcurementTemplate
+						invoked.QuantityOfOne           = TransientQuantityOfOne
+
+				if (Contract entered
+				and TransientParticipantVendor)
+
+					invoke Create ProcurementTemplateParticipant
+						invoked.ProcurementGroup 		= ProcurementGroup
+						invoked.ProcurementTemplate     = ProcurementTemplate
+						invoked.Vendor                  = Contract.Vendor					
+					
+		CreateRequisition is an Instance Action
+            completion message is "RequisitionCreated;ClickRequisitionsCreatedToViewRequisition;FirstRequisitionOnListIsNewRequisition"
+            Local Fields
+		    	NewRequisitionView   		is a Requisition view    
+			Parameters
+				PrmRequester			is a Requester
+				PrmCompany             	is an InventoryCompany
+	            PrmRequestingLocation  	is a RequestingLocation
+				PrmFromCompanyLocation 	is a FromCompanyLocation  
+	            PrmDate                	is Date
+	            PrmRequisitionSource	is a RqSource
+	        Parameter Rules 
+	        	PrmRequester
+            		initial value is actor.agent(Employee).Employee
+            		default to actor.agent(Employee).Employee
+			Action Rules
+				invoke Unreleased.CreateUsingCopyFromTemplate Requisition
+					assign result to NewRequisitionView 
+					invoked.Company							= PrmCompany
+					invoked.Requester						= PrmRequester
+					invoked.ProcurementTemplate				= ProcurementTemplate
+					invoked.RequestingLocation				= PrmRequestingLocation
+					invoked.FromCompanyLocation				= PrmFromCompanyLocation
+					invoked.RequestedDeliveryDate			= PrmDate
+					invoked.TransientCopyAllLines			= true
+					invoked.RequisitionSource				= PrmRequisitionSource
+				SavedRequisitionCompany = PrmCompany
+				SavedRequisition		= NewRequisitionView.Requisition
+				TransientNewRequisition = NewRequisitionView.Requisition		
+
+
+		CreateRequisitionForRSS is an Instance Action
+			restricted
+            Local Fields
+		    	NewRequisitionView   		is a Requisition view    
+			Parameters
+				PrmProcurementTemplate	is a ProcurementTemplate
+				PrmRequester			is a Requester
+				PrmCompany             	is an InventoryCompany
+	            PrmRequestingLocation  	is a RequestingLocation
+				PrmFromCompanyLocation 	is a FromCompanyLocation  
+	            PrmDate                	is Date
+	            PrmRequisitionSource	is a RqSource
+	            PrmVendor               is a Vendor
+	            PrmBuyer				is a Buyer
+	            PrmDeliverTo			is a DeliverTo
+	            PrmPOCode						is a POCode
+	            PrmAllocationPriority	is a AllocationPriority
+	            PrmPurchaseFromLocation	is a VendorLocation
+	            PrmPurchaseTaxCode		is a TaxCode
+				PrmPurchaseTaxable		is Boolean
+				PrmCommodityCode		is a CommCodes
+				PrmRequisitionDescription		is Alpha size 30
+				PrmQuantityMultiplier	is a Quantity
+	        Parameter Rules 
+	        	PrmRequester
+            		initial value is actor.agent(Employee).Employee
+            		default to actor.agent(Employee).Employee
+			Action Rules
+				invoke Unreleased.CreateUsingCopyFromTemplateForRSS Requisition
+					assign result to NewRequisitionView 
+					invoked.Company							= PrmCompany
+					invoked.Requester						= PrmRequester
+					invoked.ProcurementTemplate				= ProcurementTemplate
+					invoked.RequestingLocation				= PrmRequestingLocation
+					invoked.FromCompanyLocation				= PrmFromCompanyLocation
+					invoked.RequestedDeliveryDate			= PrmDate
+					invoked.TransientCopyAllLines			= true
+					invoked.RequisitionSource				= PrmRequisitionSource
+					invoked.Vendor							= PrmVendor
+					invoked.Buyer							= PrmBuyer
+					invoked.DeliverTo						= PrmDeliverTo
+					invoked.POCode							= PrmPOCode
+					invoked.AllocationPriority				= PrmAllocationPriority
+					invoked.PurchaseFromLocation			= PrmPurchaseFromLocation
+					invoked.PurchaseTaxCode					= PrmPurchaseTaxCode
+					invoked.PurchaseTaxable					= PrmPurchaseTaxable
+					invoked.CommodityCode					= PrmCommodityCode
+					invoked.RequisitionDescription			= PrmRequisitionDescription
+					invoked.TransientQuantityMultiplier		= PrmQuantityMultiplier
+					
+				SavedRequisitionCompany = PrmCompany
+				SavedRequisition		= NewRequisitionView.Requisition
+				TransientNewRequisition = NewRequisitionView.Requisition		
+
+		CreateRequisitionBatch is an Instance Action
+			completion message is "Create_Requisition_Batch_Submitted"
+            Local Fields
+		    	NewRequisitionView   		is a Requisition view    
+			Parameters
+				PrmProcurementTemplate	is a ProcurementTemplate
+				PrmRequester			is a Requester
+				PrmCompany             	is an InventoryCompany
+	            PrmRequestingLocation  	is a RequestingLocation
+				PrmFromCompanyLocation 	is a FromCompanyLocation  
+	            PrmDate                	is Date
+	            PrmRequisitionSource	is a RqSource
+	            PrmVendor               is a Vendor
+	            PrmBuyer				is a Buyer
+	            PrmDeliverTo			is a DeliverTo
+	            PrmPOCode				is a POCode
+	            PrmAllocationPriority	is a AllocationPriority
+	            PrmPurchaseFromLocation	is a VendorLocation
+	            PrmPurchaseTaxCode		is a TaxCode
+				PrmPurchaseTaxable		is Boolean
+				PrmCommodityCode		is a CommCodes
+				PrmRequisitionDescription		is Alpha size 30
+				PrmQuantityMultiplier	is a Quantity
+	        Parameter Rules 
+	        	PrmRequester
+            		initial value is actor.agent(Employee).Employee
+            		default to actor.agent(Employee).Employee
+            	
+			Action Rules
+				invoke Unreleased.CreateUsingCopyFromTemplateForRSS Requisition
+					assign result to NewRequisitionView 
+					invoked.Company							= PrmCompany
+					invoked.Requester						= PrmRequester
+					invoked.ProcurementTemplate				= ProcurementTemplate
+					invoked.RequestingLocation				= PrmRequestingLocation
+					invoked.FromCompanyLocation				= PrmFromCompanyLocation
+					invoked.RequestedDeliveryDate			= PrmDate
+					invoked.TransientCopyAllLines			= true
+					invoked.RequisitionSource				= PrmRequisitionSource
+					invoked.Vendor							= PrmVendor
+					invoked.Buyer							= PrmBuyer
+					invoked.DeliverTo						= PrmDeliverTo
+					invoked.POCode							= PrmPOCode
+					invoked.AllocationPriority				= PrmAllocationPriority
+					invoked.PurchaseFromLocation			= PrmPurchaseFromLocation
+					invoked.PurchaseTaxCode					= PrmPurchaseTaxCode
+					invoked.PurchaseTaxable					= PrmPurchaseTaxable
+					invoked.CommodityCode					= PrmCommodityCode
+					invoked.RequisitionDescription			= PrmRequisitionDescription
+					invoked.TransientQuantityMultiplier		= PrmQuantityMultiplier
+
+				SavedRequisitionCompany = PrmCompany
+				SavedRequisition		= NewRequisitionView.Requisition
+				TransientNewRequisition = NewRequisitionView.Requisition		
+
+
+		CopyToRequisitionBatch is a Set Action
+			run in background
+			completion message is "CreateRequisitionSubmitted"
+			disable resume on error
+			Parameters
+				PrmProcurementTemplate	is a ProcurementTemplate
+				PrmCompany             	is an InventoryCompany
+	            PrmRequisition		  	is a Requisition
+	            PrmRequestingLocation  	is a RequestingLocation
+				PrmFromCompanyLocation 	is a FromCompanyLocation  
+	            PrmDate                	is Date
+	            PrmVendor               is a Vendor
+	            PrmBuyer				is a Buyer
+	            PrmDeliverTo			is a DeliverTo
+	            PrmPOCode				is a POCode
+	            PrmAllocationPriority	is a AllocationPriority
+	            PrmPurchaseFromLocation	is a VendorLocation
+	            PrmPurchaseTaxCode		is a TaxCode
+				PrmPurchaseTaxable		is Boolean
+				PrmCommodityCode		is a CommCodes
+				PrmQuantityMultiplier	is a Quantity
+	        Parameter Rules 
+	        	PrmCompany
+	        		required
+	        	PrmRequisition
+	        		required
+	        		constraint(PrmRequisition.Status.Unreleased)
+	        			"RequistionMustBeUnreleased"
+	        Instance Selection
+            	where (ProcurementTemplate = PrmProcurementTemplate)
+	        			
+			Action Rules
+				Instance Rules
+	            	for each ProcurementTemplate.ProcurementTemplateLine set
+						invoke CopyToRequisitionAll each
+							invoked.PrmCompany							= PrmCompany
+							invoked.PrmRequisition						= PrmRequisition
+							invoked.PrmRequestingLocation				= PrmRequestingLocation
+							invoked.PrmFromCompanyLocation				= PrmFromCompanyLocation
+							invoked.PrmDate								= PrmDate
+							invoked.PrmVendor							= PrmVendor
+							invoked.PrmBuyer							= PrmBuyer
+							invoked.PrmDeliverTo						= PrmDeliverTo
+							invoked.PrmPOCode							= PrmPOCode
+							invoked.PrmAllocationPriority				= PrmAllocationPriority
+							invoked.PrmPurchaseFromLocation				= PrmPurchaseFromLocation
+							invoked.PrmPurchaseTaxCode					= PrmPurchaseTaxCode
+							invoked.PrmPurchaseTaxable					= PrmPurchaseTaxable
+							invoked.PrmCommodityCode					= PrmCommodityCode
+							invoked.PrmQuantityMultiplier				= PrmQuantityMultiplier
+
+					SavedRequisitionCompany = PrmCompany
+					SavedRequisition		= PrmRequisition
+
+		CopyToRequisition is an Instance Action
+            completion message is "TemplateLinesAddedToRequisition;ClickRequisitionsCreatedToViewRequisition"
+			Parameters
+				PrmCompany             	is an InventoryCompany
+	            PrmRequisition		  	is a Requisition
+	        	PrmLimitCopy			is Boolean
+	            PrmRequestingLocation  	is a RequestingLocation
+				PrmFromCompanyLocation 	is a FromCompanyLocation  
+	            PrmDate                	is Date
+	            PrmVendor               is a Vendor
+	            PrmBuyer				is a Buyer
+	            PrmDeliverTo			is a DeliverTo
+	            PrmPOCode				is a POCode
+	            PrmAllocationPriority	is a AllocationPriority
+	            PrmPurchaseFromLocation	is a VendorLocation
+	            PrmPurchaseTaxCode		is a TaxCode
+				PrmPurchaseTaxable		is Boolean
+				PrmCommodityCode		is a CommCodes
+				PrmQuantityMultiplier	is a Quantity
+	        Parameter Rules 
+	        	PrmCompany
+	        		required
+	        	PrmRequisition
+	        		required
+	        		constraint(PrmRequisition.Status.Unreleased)
+	        			"RequistionMustBeUnreleased"
+
+                        
+			Action Rules
+	            for each ProcurementTemplate.ProcurementTemplateLine set
+					invoke CopyToRequisitionAll each
+						invoked.PrmCompany							= PrmCompany
+						invoked.PrmRequisition						= PrmRequisition
+						invoked.PrmRequestingLocation				= PrmRequestingLocation
+						invoked.PrmFromCompanyLocation				= PrmFromCompanyLocation
+						invoked.PrmDate								= PrmDate
+						invoked.PrmVendor							= PrmVendor
+						invoked.PrmBuyer							= PrmBuyer
+						invoked.PrmDeliverTo						= PrmDeliverTo
+						invoked.PrmPOCode							= PrmPOCode
+						invoked.PrmAllocationPriority				= PrmAllocationPriority
+						invoked.PrmPurchaseFromLocation				= PrmPurchaseFromLocation
+						invoked.PrmPurchaseTaxCode					= PrmPurchaseTaxCode
+						invoked.PrmPurchaseTaxable					= PrmPurchaseTaxable
+						invoked.PrmCommodityCode					= PrmCommodityCode
+						invoked.PrmQuantityMultiplier				= PrmQuantityMultiplier
+
+				SavedRequisitionCompany = PrmCompany
+				SavedRequisition		= PrmRequisition
+
+		MobileCopyToRequisition is an Instance Action
+			confirmation required
+				"AreYouSureYouWantToCopyAllLinesToRequisition?"
+			Action Rules
+				constraint (NoOfLines <= 50)
+					"MustCopy50OrLessLinesFromMobile"
+					
+	            for each ProcurementTemplateLines2Rel
+	            	invoke MobileAddToRequisitionLine each
+						
+		CreateByCopy is an Instance Action
+			valid when (not Locked)
+			Parameters
+				CopyToProcurementTemplate is AlphaUpper size 30
+				NewDescription is Alpha size 30 
+				CopyParticipants is Boolean
+			
+			Parameter Rules
+				CopyToProcurementTemplate
+					required
+				NewDescription
+					initial value is Description
+					default to Description
+
+			Action Rules
+				invoke Create ProcurementTemplate
+					fill in fields from this instance
+					invoked.ProcurementTemplate			= CopyToProcurementTemplate
+					invoked.Description					= NewDescription  
+					
+				for each ProcurementTemplateLinesRel
+					invoke Create ProcurementTemplateLine
+						fill in fields from each
+						invoked.ProcurementTemplate 	= CopyToProcurementTemplate
+							
+				if (CopyParticipants)
+					for each ProcurementTemplateParticipantsRel
+						invoke Create ProcurementTemplateParticipant
+							fill in fields from each
+							invoked.ProcurementTemplate	= CopyToProcurementTemplate
+								
+			
+  		Lock is an Instance Action
+  			valid when (not Locked)
+  			Action Rules
+  				display "LockAction"
+  				constraint (not Locked)
+  					"ProcurementTemplateIsAlreadyLocked" 			
+  				Locked = true
+    
+    	Unlock is an Instance Action
+    		valid when (Locked)
+    		Action Rules
+    			display "UnlockAction"
+    			constraint (Locked)
+    				"ProcurementTemplateIsAlreadyUnlocked"
+    			Locked = false
+  	 	
+		SendParticipantAddNotification is an Instance Action
+			restricted
+			Parameters
+				PrmLine is a ProcurementTemplateLine
+			Local Fields
+				LocalActor	is an Actor
+			Action Rules
+				for each ProcurementTemplateParticipant set
+					LocalActor = each.ProcurementTemplateParticipant.Requester.Employee.agent(Actor).Actor
+					if (LocalActor entered)
+						send notification
+							to LocalActor
+							description is "Item<PrmLine.DescriptionDisplay>HasBeenAddedTo_\Template<ProcurementTemplate>."
+							priority is medium
+							detail is "Item<PrmLine.DescriptionDisplay>HasBeenAddedTo_\Template<ProcurementTemplate>."
+
+  	 	
+		SendParticipantDeleteNotification is an Instance Action
+			restricted
+			Parameters
+				PrmLine is a ProcurementTemplateLine
+			Local Fields
+				LocalActor	is an Actor
+			Action Rules
+				for each ProcurementTemplateParticipant set
+					LocalActor = each.ProcurementTemplateParticipant.Requester.Employee.agent(Actor).Actor
+					if (LocalActor entered)
+						send notification
+							to LocalActor	
+							description is "Item<PrmLine.DescriptionDisplay>HasBeenRemovedFrom_\Template<ProcurementTemplate>"
+							priority is medium
+							detail is "Item<PrmLine.DescriptionDisplay>HasBeenRemovedFrom_\Template<ProcurementTemplate>"
+
+						
+		SendParticipantUpdateNotification is an Instance Action
+			restricted
+			Parameters
+				PrmLine is a ProcurementTemplateLine
+			Local Fields
+				LocalActor	is an Actor
+			Action Rules
+				for each ProcurementTemplateParticipant set
+					LocalActor = each.ProcurementTemplateParticipant.Requester.Employee.agent(Actor).Actor
+					if (LocalActor entered)
+						send notification
+							to LocalActor	
+							description is "Item<PrmLine.DescriptionDisplay>HasBeenUpdatedIn_\Template<ProcurementTemplate>."
+							priority is medium
+							detail is "Item<PrmLine.DescriptionDisplay>HasBeenUpdatedIn_\Template<ProcurementTemplate>."
+
+						
+		BuildProcurementTemplateTextIndexes is an Instance Action
+			restricted
+			Action Rules
+				include BuildProcurementTemplateTextIndex
+				
+								
+		RecreateTemplateSearchKeywords is a Set Action 
+			restricted
+			run in background
+			Parameters
+				ParmProcurementGroup	is an ProcurementGroup
+					default label is "ProcurementGroup"
+			Parameter Rules
+				ParmProcurementGroup
+					required
+						"ProcurementGroupIsRequired"
+			Instance Selection
+				where 	(ProcurementGroup	= ParmProcurementGroup)
+				
+			Action Rules
+				Instance Rules
+					invoke BuildProcurementTemplateTextIndexes
+

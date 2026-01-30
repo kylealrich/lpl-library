@@ -1,0 +1,525 @@
+IntercompanyBillingTransaction is a BusinessClass
+	owned by intercobilling
+	prefix is ICBT
+	sql name is "ICBTransaction"
+
+	Ontology
+		symbolic key is IntercompanyBillingTransaction 
+
+    Patterns
+		enable explicit context override
+
+	Persistent Fields
+		FromCompany						is a GeneralLedgerCompany
+		ToCompany						is a GeneralLedgerCompany
+		Description						
+		IntercompanyBillingRechargeItem
+		OriginatingTransaction 			is BusinessObjectReference
+		OriginatingDocument 			is BusinessObjectReference
+		Status							is Numeric 1
+			States
+				Unreleased					value is 0
+				Released					value is 1
+				Cancelled					value is 8	
+				Processed					value is 9
+		TransactionAmount				is an InternationalAmount
+		TransactionCurrency				is a FromCurrency
+		CurrencyTable
+			context of IntercompanyBillingGroup
+		CurrencyExchangeRate
+		TransactionDate					is Date
+		PostingDate						is Date
+		ReceivablesRevenueAccount		is a FinanceCodeBlock
+			context of IntercompanyBillingGroup
+		PayablesExpenseAccount			is a FinanceCodeBlock
+			context of IntercompanyBillingGroup
+
+	Transient Fields
+		PayablesInvoiceCancelOffset		is Boolean	
+
+	Field Rules
+		FromCompany
+			required
+				"IntercompanyBillingTransaction:FromCompanyIsRequired"
+				
+			constraint (FromCompany.IsAValidIntercompanyBillingCompany)
+				"IntercompanyBillingTransaction:FromCompany<FromCompany>IsNotSetupForIntercompanyBilling;TheGlobalLedgerCompanySetForIntercompanyBilling,AReceivableAndAPayablesCompanySetupWithDefaultsForIntercompanyBilling"
+			constraint (FromCompany.PayablesCompany.ICBillingDefaultVendor.PayablesOnHoldRel.HoldCode.HoldOnVendor.PermanentHold)
+				"IntercompanyBillingTransaction:Vendor<FromCompany.PayablesCompany.ICBillingDefaultVendor>-<FromCompany.PayablesCompany.ICBillingDefaultVendor.VendorName>MustBeOnPermanentHold"
+			if (FromCompany.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency entered)
+				constraint (FromCompany.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency = TransactionCurrency)
+					"IntercompanyBillingTransaction:Vendor<FromCompany.PayablesCompany.ICBillingDefaultVendor>-<FromCompany.PayablesCompany.ICBillingDefaultVendor.VendorName>HasBalanceCurrencySetTo<FromCompany.PayablesCompany.ICBillingDefaultVendor.BalanceCurrency>;TransactionCurrencyMustBeTheSame"
+			
+		ToCompany
+			required
+				"IntercompanyBillingTransaction:ToCompanyIsRequired"
+				
+			constraint (ToCompany.IsAValidIntercompanyBillingCompany)
+				"IntercompanyBillingTransaction:ToCompany<ToCompany>IsNotSetupForIntercompanyBilling;TheGlobalLedgerCompanySetForIntercompanyBilling,AReceivableAndAPayablesCompanySetupWithDefaultsForIntercompanyBilling"
+			constraint (!FromCompany = ToCompany)
+				"IntercompanyBillingTransaction:ToCompany<ToCompany>CannotBeTheSameAsTheFromCompany<FromCompany>"
+			if (ToCompany.PayablesCompany.ICBillingDefaultProcessLevel.AccrualCode not entered)
+				constraint (ToCompany.PayablesCompany.AccrualCode entered)
+					"IntercompanyBillingTransaction:ToCompany<ToCompany>PayablesCompanyNeedsAnAccrualCodeForIntercompanyBillingProcessing"
+					
+		IntercompanyBillingRechargeItem
+			required
+				"IntercompanyBillingTransaction:RechargeItemIsRequired"
+			constraint (IntercompanyBillingRechargeItem.Active)
+				"IntercompanyBillingTransaction:RechargeItem<IntercompanyBillingRechargeItem>IsInactive"
+			constraint (IntercompanyBillingRechargeItem.DefaultUnitOfMeasure.Active)
+				"IntercompanyBillingTransaction:RechargeItemUnitOfMeasure<IntercompanyBillingRechargeItem.DefaultUnitOfMeasure>IsInactive"
+
+
+
+
+
+
+
+
+					
+		TransactionAmount
+			required
+				"IntercompanyBillingTransaction:TransactionAmountIsRequired"
+
+		TransactionCurrency
+			if  (FromCompany.ReceivableCompanyRel.UseBillFromFunctionalCurrency.Yes
+			or  (FromCompany.ReceivableCompanyRel.UseBillFromFunctionalCurrency.UseIntercompanyBillingGroupValue
+			and  IntercompanyBillingGroup.UseBillFromFunctionalCurrency))
+				constraint (TransactionCurrency = FromCompany.Currency)
+					"IntercompanyBillingTransaction:Currency<TransactionCurrency>MustBeBillFromCompanyFunctionalCurrency<FromCompany.Currency>"
+		
+		OriginatingTransaction
+			default to reference to this instance
+
+		TransactionDate
+			default to current corporate date	
+			
+		PostingDate
+			if (FromCompanySystemClosingControlRel.Control)
+				constraint (PostingDate within FromCompanySystemClosingControlRel.ValidEntryDate)
+					"IntercompanyBillingTransaction:PostDateIsNotWithinValidEntryDatesForCompany<FromCompany>;ValidDateRangeIs<FromCompanySystemClosingControlRel.ValidEntryDate.Begin>-<FromCompanySystemClosingControlRel.ValidEntryDate.End>"
+			
+			if (ToCompanySystemClosingControlRel.Control)
+				constraint (PostingDate within ToCompanySystemClosingControlRel.ValidEntryDate)
+					"IntercompanyBillingTransaction:PostDateIsNotWithinValidEntryDatesForCompany<FromCompany>;ValidDateRangeIs<ToCompanySystemClosingControlRel.ValidEntryDate.Begin>-<ToCompanySystemClosingControlRel.ValidEntryDate.End>"	
+
+	Local Fields
+		LocalSystemAccount				is a SystemAccount
+		LocalReceivableCompany			is like Company
+		LocalPayableCompany				is like Company
+		LocalRechargeItem				is like IntercompanyBillingRechargeItem
+		LocalCompanyCustomer			is a ReceivableCompanyCustomer
+		LocalActor						is Actor  
+
+
+	Rule Blocks
+		CompanyCustomerEdits
+			LocalCompanyCustomer.Company	= FromCompany
+			LocalCompanyCustomer.Customer	= ToCompany.ReceivableCompany.ICBillingDefaultCustomer
+			constraint (LocalCompanyCustomer.CompanyCustomer exists)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>MustBeSetupForCompany<FromCompany>"
+				
+			constraint (LocalCompanyCustomer.CompanyCustomer.TermsCode.IsNetTermsWithNoDiscounts)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupWithNet_Payment_TermsWithNoDiscounts"
+				
+			constraint (LocalCompanyCustomer.CompanyCustomer.AutomaticCashApplication)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupFor_Automatic_Cash_Application"
+				
+			constraint (LocalCompanyCustomer.CompanyCustomer.AutomaticApplicationMethod.Remittance)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupWith_Application_Method=_Remittance"
+				
+			constraint (LocalCompanyCustomer.CompanyCustomer.ReceivableProcessingMethod.OpenItem)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupWith_Processing_Method=_Open_Item"
+
+			constraint (LocalCompanyCustomer.CompanyCustomer.BankTransactionCode.BankTransactionType.CashPayment)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupWithA_Payment_CodeThatIsCashPaymentTypeAndTransactionOriginOfPayable"
+				
+			constraint (LocalCompanyCustomer.CompanyCustomer.BankTransactionCode.TransactionOrigin.Payable)
+				"IntercompanyBillingTransaction:Customer<LocalCompanyCustomer.Customer>-<LocalCompanyCustomer.Customer.Name>ForCompany<FromCompany>MustBeSetupWithA_Payment_CodeThatIsCashPaymentTypeAndTransactionOriginOfPayable"
+			
+	Derived Fields
+		DerivedDateCreated is a DerivedField
+			type is Date
+			return (last update stamp date)
+
+
+	Conditions
+		FromGL
+			when (OriginatingDocument.BusinessClassName = "GeneralLedgerJournalControl")
+
+		FromAP
+			when (OriginatingDocument.BusinessClassName = "PayablesInvoice")
+		
+		FromTransferPricing
+			when (OriginatingDocument.BusinessClassName = "TransferPricingRun")
+
+		FromProjects
+			when (OriginatingDocument.BusinessClassName = "ProjectContractInvoice")
+
+		NotFromProjects  
+			when (!OriginatingDocument.BusinessClassName = "ProjectContractInvoice")
+
+		FromExternalSource
+			when (OriginatingDocument not entered)
+
+		AllowDelete
+			when (OriginatingDocument not entered
+			and  (Status.Unreleased
+			or    Status.Released))
+
+		AllowPurge  
+			when (Status.Cancelled
+			or    Status.Processed)
+
+		AllowUpdate
+			when (OriginatingDocument not entered
+			and  (Status.Unreleased
+			or    Status.Released))
+
+		AllowCreationOfDocuments
+			when (ReleasedIntercompanyBillingTransactionRel exists)
+			
+		SecurityGroupAllowsAccess
+			when ((actor.context.CompanySecurityGroup = blank or FromCompanySecurityGroupMemberRel exists)
+			and (actor.context.CompanySecurityGroup = blank or ToCompanySecurityGroupMemberRel exists))
+
+	Field Groups  
+		FromCompanyAndToCompany
+			FromCompany
+			ToCompany
+
+	Relations
+		SystemAccountRel
+			one-to-many relation to GeneralLedgerChartAccount
+			Field Mapping uses BySystemAccount
+				related.FinanceEnterpriseGroup		= IntercompanyBillingGroup
+				related.SystemAccount				= LocalSystemAccount
+
+		RechargeItemAccrualRel
+			one-to-one relation to IntercompanyBillingRechargeItemAccrual
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup									= IntercompanyBillingGroup
+				related.IntercompanyBillingRechargeItem								= LocalRechargeItem
+				related.IntercompanyBillingRechargeItemAccrual.ReceivableCompany	= LocalReceivableCompany
+				related.IntercompanyBillingRechargeItemAccrual.PayablesCompany		= LocalPayableCompany
+
+		RechargeItemAccrualReceivableRel
+			one-to-one relation to IntercompanyBillingRechargeItemAccrual
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup									= IntercompanyBillingGroup
+				related.IntercompanyBillingRechargeItem								= LocalRechargeItem
+				related.IntercompanyBillingRechargeItemAccrual.ReceivableCompany	= LocalReceivableCompany
+				related.IntercompanyBillingRechargeItemAccrual.PayablesCompany		= blank
+
+		RechargeItemAccrualPayableRel
+			one-to-one relation to IntercompanyBillingRechargeItemAccrual
+			Field Mapping uses symbolic key
+				related.IntercompanyBillingGroup									= IntercompanyBillingGroup
+				related.IntercompanyBillingRechargeItem								= LocalRechargeItem
+				related.IntercompanyBillingRechargeItemAccrual.ReceivableCompany	= blank
+				related.IntercompanyBillingRechargeItemAccrual.PayablesCompany		= LocalPayableCompany
+
+		ReleasedIntercompanyBillingTransactionRel
+			one-to-many relation to IntercompanyBillingTransaction
+			Field Mapping uses ByStatus
+				related.IntercompanyBillingGroup	= IntercompanyBillingGroup
+				related.Status						= 1 
+
+		IntercompanyBillingDocumentHeaderFromPayablesRel		
+			one-to-many relation to IntercompanyBillingDocumentHeader
+			Field Mapping uses ByInvoiceDate
+				related.IntercompanyBillingGroup	= IntercompanyBillingGroup
+				related.InvoiceDate					= TransactionDate
+			Instance Selection
+				where (related.OriginatedFrom		= 2
+				and    related.OriginatingDocument	= OriginatingDocument)
+
+		FromCompanySystemClosingControlRel
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses symbolic key
+				related.Company						= FromCompany
+				related.GeneralLedgerSystemCode		= "AR"
+				
+		ToCompanySystemClosingControlRel
+			one-to-one relation to CompanySystemClosingControl
+			Field Mapping uses symbolic key
+				related.Company						= ToCompany
+				related.GeneralLedgerSystemCode		= "AP"
+				
+		FromCompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company                     = FromCompany
+				
+		ToCompanySecurityGroupMemberRel
+			one-to-one relation to GeneralLedgerCompanyGroupMember
+			Field Mapping uses symbolic key
+				related.GeneralLedgerCompanyGroup	= actor.context.CompanySecurityGroup.FinanceDimensionStructure
+				related.Company                     = ToCompany
+
+	Sets
+		ByOriginatingDocument
+			duplicates
+			Sort Order
+				IntercompanyBillingGroup
+				OriginatingDocument
+	
+		ByOriginatingTransaction
+			Sort Order
+				OriginatingTransaction
+
+		ByStatus
+			duplicates
+			Sort Order
+				IntercompanyBillingGroup
+				Status
+
+	Actions
+        Create is a Create Action
+        	restricted
+			Action Rules
+				include CompanyCustomerEdits
+			Exit Rules
+				if (initiating action	= "PayablesInvoice.CancelReleased"		
+				or (initiating action	= "PayablesInvoice.UpdateRecurringInvoiceAmountReleased"
+				and PayablesInvoiceCancelOffset))
+					Status		= 1
+					invoke ProcessIntoBillingDocuments
+						invoked.PrmIntercompanyBillingGroup			= IntercompanyBillingGroup
+						invoked.PrmOriginatingDocument				= OriginatingDocument
+
+		Update is an Update Action
+			restricted
+			valid when (AllowUpdate)
+			Action Rules
+				constraint (!Status.Processed)
+					"IntercompanyBillingTransaction:RecordHasBeenProcessedIntoBillingDocument;CannotUpdate"
+					
+				include CompanyCustomerEdits
+			
+        Delete is a Delete Action
+        	valid when (AllowDelete)
+
+		Purge is a Purge Action  
+        	restricted
+        	valid when (AllowPurge)
+
+        DeleteTransaction is a Delete Action
+        	restricted
+        	
+		MakeReleased is an Instance Action
+			restricted
+			Action Rules
+				Status		= 1
+
+		Cancel is an Instance Action		
+			restricted
+			Action Rules
+				if (Status.Processed)
+					if (IntercompanyBillingDocumentHeaderFromPayablesRel.Status.Unreleased
+					or  IntercompanyBillingDocumentHeaderFromPayablesRel.Status.PendingApproval
+					or  IntercompanyBillingDocumentHeaderFromPayablesRel.Status.Approved)
+						invoke Cancel IntercompanyBillingDocumentHeaderFromPayablesRel
+						Status = Status.Cancelled
+
+		PurgeProjectsOriginTransactions is a Set Action  
+			default label is "PurgeAllProcessedAndCancelledTransactionFromAProjectsOrigin"
+			confirmation required
+				"ThisActionWillPurgeAllProcessedAndCancelledIntercompanyBillingTransactionsThroughACutoffDateFromAProjectsOrigin:NoteThatProjectsOriginTransactionsCannotBeReversedForPurgedTranscactions"
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup	
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where   ((TransactionDate <= PrmCutoffDate
+				and       FromProjects)      
+				and 	 (Status.Cancelled
+				or		  Status.Processed))
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoIntercompanyBillingTransactionRecordsFoundToPurge"
+						priority is medium
+
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "ProjectsOriginIntercompanyBillingTransactionRecordsHaveBeenPurgedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Purge
+
+		PurgeNonProjectsOriginTransactions is a Set Action  
+			default label is "PurgeAllProcessedAndCancelledTransactionNotFromAProjectsOrigin"
+			confirmation required
+				"ThisActionWillPurgeAllProcessedAndCancelledIntercompanyBillingTransactionsThroughACutoffDateNotFromAProjectsOrigin:NoteThatAccountsPayableOriginTransactionsCannotBeCancelledForPurgedTranscactions"
+			Parameters
+				PrmFinanceEnterpriseGroup is a FinanceEnterpriseGroup	
+					default label is "FinanceEnterpriseGroup"
+				PrmCutoffDate			  is Date
+					default label is "CutoffDate"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+
+				PrmCutoffDate
+					required
+
+			Instance Selection
+				where   ((TransactionDate <= PrmCutoffDate
+				and       NotFromProjects)      
+				and 	 (Status.Cancelled
+				or		  Status.Processed))
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "NoIntercompanyBillingTransactionRecordsFoundToPurge"
+						priority is medium
+
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "NonProjectsOriginIntercompanyBillingTransactionRecordsHaveBeenPurgedThrough<PrmCutoffDate>"
+							priority is medium
+				
+				Instance Rules
+					invoke Purge
+
+
+		ProcessIntoBillingDocuments is a Set Action
+			valid when (AllowCreationOfDocuments)
+			completion message is "CreationOfBillingDocumentsHasBeenSubmittedToTheQueueForProcessing"
+			Parameters
+				PrmIntercompanyBillingGroup			is a IntercompanyBillingGroup
+				PrmOriginatingDocument				is BusinessObjectReference
+				
+			Local Fields
+				LocalBillingDocumentHeader	is a IntercompanyBillingDocumentHeader
+
+			Sort Order
+				IntercompanyBillingGroup
+				OriginatingDocument
+				FromCompany
+				ToCompany
+				TransactionCurrency
+				CurrencyTable
+				CurrencyExchangeRate
+				Status
+				IntercompanyBillingTransaction
+
+			Instance Selection
+				where (Status.Released
+				and   (PrmOriginatingDocument not entered
+				or    (PrmOriginatingDocument entered
+				and    OriginatingDocument = PrmOriginatingDocument)))
+
+			Action Rules
+
+				OriginatingDocument Set Rules
+
+				FromCompany Set Rules
+				
+				ToCompany Set Rules
+				
+				TransactionCurrency Set Rules
+				
+				CurrencyTable Set Rules
+				
+				CurrencyExchangeRate Set Rules
+					Entrance Rules
+						initialize LocalBillingDocumentHeader
+						initialize LocalRechargeItem
+						LocalReceivableCompany	= FromCompany
+						LocalPayableCompany		= ToCompany
+						LocalRechargeItem		= IntercompanyBillingRechargeItem
+												
+						invoke Unreleased.Create IntercompanyBillingDocumentHeader
+							assign result to LocalBillingDocumentHeader
+							invoked.IntercompanyBillingGroup				= IntercompanyBillingGroup
+							invoked.ReceivableEntity.Company				= FromCompany
+							invoked.PayableEntity.Company					= ToCompany
+							invoked.Description								= Description
+							invoked.OriginatingDocument						= OriginatingDocument
+							invoked.DocumentCurrency						= TransactionCurrency
+							invoked.ReceivableEntity.CurrencyTable			= CurrencyTable
+							invoked.ReceivableEntity.CurrencyExchangeRate	= CurrencyExchangeRate
+							invoked.InvoiceDate								= TransactionDate
+							invoked.PostDate								= PostingDate
+							invoked.OriginatedFrom							= 4 
+							if (FromGL)
+								invoked.OriginatedFrom			= 1 
+							if (FromAP)
+								invoked.OriginatedFrom			= 2 
+							if (FromTransferPricing)
+								invoked.OriginatedFrom			= 3 
+								invoked.PayableEntity.CurrencyTable			= CurrencyTable
+								invoked.PayableEntity.CurrencyExchangeRate	= CurrencyExchangeRate
+							if (FromProjects)
+								invoked.OriginatedFrom			= 5 
+								
+							if (RechargeItemAccrualRel exists)
+								invoked.ReceivableEntity.ReceivableGeneralLedgerCode	= RechargeItemAccrualRel.ReceivableGeneralLedgerCode
+								invoked.PayableEntity.PayablesAccrualCode				= RechargeItemAccrualRel.PayablesAccrualCode
+							else							
+								if (RechargeItemAccrualReceivableRel exists)
+									invoked.ReceivableEntity.ReceivableGeneralLedgerCode	= RechargeItemAccrualReceivableRel.ReceivableGeneralLedgerCode
+								else
+									if (RechargeItemAccrualPayableRel exists)
+										invoked.PayableEntity.PayablesAccrualCode			= RechargeItemAccrualPayableRel.PayablesAccrualCode
+							
+								
+					Exit Rules
+						invoke UpdateFromInterface LocalBillingDocumentHeader
+
+
+				Instance Rules
+					invoke Create IntercompanyBillingDocumentLine
+						invoked.IntercompanyBillingGroup							= IntercompanyBillingGroup
+						invoked.IntercompanyBillingDocumentHeader					= LocalBillingDocumentHeader
+						invoked.RechargeItem										= IntercompanyBillingRechargeItem
+						invoked.Description											= Description
+						invoked.Quantity											= 1
+						invoked.UnitPrice											= TransactionAmount
+						invoked.ReceivablesRevenueAccount							= ReceivablesRevenueAccount
+						if (PayablesExpenseAccount entered)
+							invoked.PayablesExpenseAccount							= PayablesExpenseAccount
+						else
+							if ((FromGL
+							and  IntercompanyBillingGroup.UseExpenseClearingAcctForGLDocuments)
+							or  (FromAP
+							and  IntercompanyBillingGroup.UseExpenseClearingAcctForAPDocuments)
+							or  (FromTransferPricing
+							and  IntercompanyBillingGroup.UseExpenseClearingAcctForTPDocuments)
+							or  (FromProjects
+							and  IntercompanyBillingGroup.UseExpenseClearingAcctForProjectsDocuments)
+							or  (FromExternalSource
+							and  IntercompanyBillingGroup.UseExpenseClearingAcctForExternalDocuments))
+								LocalSystemAccount											= SystemAccount.IntercompanyBillingExpenseClearing 
+								invoked.PayablesExpenseAccount.GeneralLedgerChartAccount	= first SystemAccountRel.GeneralLedgerChartAccount
+
+						invoked.OriginatingTransaction								= OriginatingTransaction
+						
+
+					Status = 9
+

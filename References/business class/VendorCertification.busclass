@@ -1,0 +1,217 @@
+VendorCertification is a BusinessClass
+    owned by ap
+    prefix is AVT
+    classic name is APVENCERT
+
+    Ontology
+        symbolic key is VendorCertification
+            classic set name is AVTSET1
+            classic name for CertificationEffectiveDate is CERTIF-EFF-DT
+            classic name for VendorLocation is LOCATION-CODE
+            classic name for PayablesCertificationCode is CERTIF-CODE
+
+    Patterns
+        implements StaticJava
+            has attachments
+        disable AuditIndex
+
+
+	Local Fields
+		LocalSupplier is like Supplier
+
+	Attach Rules
+		constraint (Validated)
+			"CertificationCodeIsNotValidated"
+
+	Derived Fields
+
+		DaysToExpire is a DerivedField		
+			type is Numeric size 5
+			if (CertificationExpirationDate entered)
+				return (CertificationExpirationDate - current corporate date)
+
+		DaysUntilExpiration is a ConditionalField
+			type is Alpha size 25
+			if (CertificationExpirationDate entered)
+				if (CertificationExpirationDate < current corporate date)
+					ExpiredDateMessage
+				else
+					DaysToExpire
+			else
+				blank
+
+		ExpiredDateMessage is a MessageField
+			"Expired"
+		
+    Persistent Fields
+        Description                 is a CertifDesc
+            classic name is CERTIF-DESC
+        CertificationExpirationDate is Date
+            classic name is CERTIF-EXP-DT
+        Validated                   is Boolean
+            classic name is VALIDATE-FL
+        CommentText
+		MaximumSpendAmount			is an InternationalAmount	
+		CurrentSpendAmount			is an InternationalAmount
+		ValidCertificationDays		is Numeric 3
+		MaximumSpendHoldCode		is a PayablesHoldCode
+
+    Relations
+    	
+    	SupplierRel
+			one-to-many relation to Supplier
+			Field Mapping uses symbolic key
+				related.SupplierGroup 		= VendorGroup
+			Instance Selection
+				where (related.Vendor = Vendor)
+				
+		SupplierSourceIdRel
+			one-to-many relation to SupplierSourceId
+			Field Mapping uses symbolic key
+				related.SupplierGroup       = VendorGroup
+			Instance Selection
+				where (related.LocationVendor = Vendor
+				and    related.VendorLocation = VendorLocation)
+    	
+    	SupplierVendorMismatchRel
+    		one-to-one relation to SupplierVendorMismatch
+    		Field Mapping uses symbolic key
+    			related.SupplierGroup 	= VendorGroup
+            	related.Supplier		= LocalSupplier
+    	
+    	SupplierCertificationRel
+			one-to-many relation to SupplierCertification
+			Field Mapping uses symbolic key
+				related.SupplierGroup			  						 = VendorGroup
+				related.Supplier				  						 = LocalSupplier
+			Instance Selection
+				where (related.SupplierCertification.PayablesCertificationCode  = PayablesCertificationCode
+				and    related.SupplierCertification.CertificationEffectiveDate = CertificationEffectiveDate)
+	
+							
+		SupplierLocationCertificationRel
+			one-to-many relation to SupplierCertification
+			Field Mapping uses symbolic key
+				related.SupplierGroup			  						 = VendorGroup
+				related.Supplier				  						 = LocalSupplier
+				related.SupplierSourceId  								 = first SupplierSourceIdRel.SupplierSourceId 
+			Instance Selection
+				where (related.SupplierCertification.PayablesCertificationCode	 = PayablesCertificationCode
+				and    related.SupplierCertification.CertificationEffectiveDate = CertificationEffectiveDate)
+
+	Conditions
+		RecordExists
+			restricted
+			when (VendorCertification exists)
+
+		DateIsExpired
+			restricted
+			when (CertificationExpirationDate < current corporate date)
+			
+    Field Rules
+		CertificationExpirationDate
+			if (ValidCertificationDays !entered)	
+				required
+
+		CertificationEffectiveDate
+			required
+
+			if (CertificationExpirationDate entered)	
+				constraint (CertificationEffectiveDate < CertificationExpirationDate)
+					"ExpirationDateMustBeGreaterThanEffectiveDate"             
+
+		MaximumSpendAmount	
+			if (Vendor.ValidateCertificationAmount)
+				required
+
+		ValidCertificationDays
+			if (CertificationExpirationDate !entered)
+				required
+			else
+				cannot be entered
+					"ValidCertificationDaysMustBeBlank"
+
+		MaximumSpendHoldCode
+			if (Vendor.ValidateCertificationAmount)
+				required		
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+
+		FastUpdate is an Update Action
+			bypass field rules
+
+		VendorCertificationCompare is an Instance Action
+			restricted
+			Parameters
+				ParmSupplier is like Supplier
+			Action Rules
+				LocalSupplier = ParmSupplier
+				if  (PayablesCertificationCode.Active)
+					if  (SupplierCertificationRel !exists)
+						if (SupplierVendorMismatchRel !exists)
+							invoke Create SupplierVendorMismatch
+								invoked.SupplierGroup                        = VendorGroup
+								invoked.Supplier                             = ParmSupplier
+								invoked.Vendor						         = Vendor
+						invoke Create SupplierVendorMismatchDetail
+								invoked.SupplierGroup		  		= VendorGroup
+								invoked.Supplier					= ParmSupplier
+								invoked.Type 						= 31
+								invoked.PayablesCertificationCode	= PayablesCertificationCode
+								invoked.SupplierValue 				= "None"
+								invoked.VendorValue					= PayablesCertificationCode
+								invoked.CertificationEffectiveDate 	= CertificationEffectiveDate
+		
+		VendorLocationCertificationCompare is an Instance Action
+			restricted
+			Parameters
+				ParmSupplier is like Supplier
+			Action Rules
+				LocalSupplier = ParmSupplier
+				if  (SupplierSourceIdRel exists)
+					if  (PayablesCertificationCode.Active)
+						if  (SupplierLocationCertificationRel !exists)
+							if (SupplierVendorMismatchRel !exists)
+								invoke Create SupplierVendorMismatch
+									invoked.SupplierGroup                        = VendorGroup
+									invoked.Supplier                             = LocalSupplier
+									invoked.Vendor						         = Vendor
+							invoke Create SupplierVendorMismatchDetail
+									invoked.SupplierGroup		  		= VendorGroup
+									invoked.Supplier					= LocalSupplier
+									invoked.SupplierSourceId        	= first SupplierSourceIdRel.SupplierSourceId
+									invoked.Type 						= 31
+									invoked.PayablesCertificationCode   = PayablesCertificationCode
+									invoked.SupplierValue 				= "None"
+									invoked.VendorValue					= PayablesCertificationCode
+									invoked.CertificationEffectiveDate 	= CertificationEffectiveDate
+    
+		UpdateCertificationDates is an Instance Action
+			restricted
+			default label is untranslatable
+			Parameters
+				PrmPaymentDate is Date
+				PrmPaymentAmount is an InternationalAmount
+			Parameter Rules
+				PrmPaymentDate 
+					required
+			Action Rules
+				CertificationExpirationDate = PrmPaymentDate + ValidCertificationDays as days
+				initialize ValidCertificationDays
+				CurrentSpendAmount = PrmPaymentAmount
+			
+    Sets
+
+
+
+
+
+
+
+
+
+

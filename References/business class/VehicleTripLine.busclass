@@ -1,0 +1,157 @@
+VehicleTripLine is a BusinessClass
+    owned by wh
+    prefix is VHTL
+
+    Ontology
+        symbolic key is VehicleTripLine
+
+    Patterns 
+        disable AuditIndex
+
+    Persistent Fields
+        ShipmentLoadConsolidation
+        PickShipRoute
+        ShipTo                      is a RequestingLocation
+        Delivered                   is Boolean
+
+    Derived Fields
+        DerivedCurrentLoadWeight                is a DerivedField
+            type is like DimensionSize
+            restricted
+            return sum ShipmentLineLoadRel.StockWeight
+                
+        DerivedTotalShipmentLoad                is a DerivedField
+            type is Numeric 6
+            restricted
+            return instance count of ShipmentLoadRel
+
+        DerivedCurrentLoadUOM                   is a DerivedField
+            type is like UnitOfMeasure
+            restricted
+            return ShipmentLineLoadRel.UnitOfMeasure
+        
+        DerivedCurrentLoadVolume                is a DerivedField
+            type is like DimensionSize
+            restricted
+            return sum ShipmentLineLoadRel.StockVolume
+
+        DerivedNumberOfContainer                is a DerivedField
+            type is Numeric 6
+            return ShipmentLoadConsolidationRel.DerivedNumberOfContainer
+
+    Relations
+        ShipmentLoadConsolidationRel
+            one-to-many relation to ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+            Instance Selection
+			    where ((related.Vehicle             = VehicleTrip.Vehicle
+                or      related.Vehicle             = blank)
+                and     related.Status.Released)
+
+        ShipmentLoadRel 
+            one-to-many relation to ShipmentLoad
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.ShipmentLoadConsolidation   = ShipmentLoadConsolidation
+
+        ShipmentLineLoadRel
+            one-to-many relation to ShipmentLoadLine 
+            Field Mapping uses ByShipmentLoadConsolidation
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+                related.ShipmentLoadConsolidation   = ShipmentLoadConsolidation
+
+        PickShipRouteRel
+            one-to-many relation to PickShipRoute
+            Field Mapping uses symbolic key
+                related.Company                     = Company
+                related.InventoryLocation           = InventoryLocation
+            Instance Selection
+                where (related.RequestingLocation   = ShipTo)
+
+        VehicleTripLineRel
+            one-to-many relation to VehicleTripLine
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.InventoryLocation                  = InventoryLocation
+            Instance Selection
+			    where (related.VehicleTrip                 = VehicleTrip
+                and    related.ShipmentLoadConsolidation   = ShipmentLoadConsolidation)
+        
+        LogisticsDeliveryRel
+            one-to-many relation to LogisticDelivery
+            Field Mapping uses symbolic key
+                related.Company                            = Company
+                related.InventoryLocation                  = InventoryLocation
+            Instance Selection
+			    where (related.VehicleTrip                 = VehicleTrip
+                and    related.VehicleTripLine             = VehicleTripLine)
+
+    Sets
+        ByShipment
+            indexed
+            no duplicates
+            Sort Order
+                Company
+                InventoryLocation
+                ShipmentLoadConsolidation
+
+    Actions
+        Create is a Create Action
+
+        Update is an Update Action
+
+        Delete is a Delete Action
+            valid when (VehicleTrip.TripCreated)
+        
+        CreateDelivery is a Set Action
+            Parameters
+                PrmCompany                      is an InventoryCompany
+                PrmInventoryLocation            is an InventoryLocation
+				PrmVehicleTrip                  is a  VehicleTrip
+
+            Local Fields
+                LocalLogisticDeliveryView         is a LogisticDelivery view
+
+            Instance Selection
+                where (VehicleTrip    =  PrmVehicleTrip
+                and Company           =  PrmCompany
+                and InventoryLocation =  PrmInventoryLocation)
+            
+            Action Rules
+                Instance Rules
+                    
+                    invoke Create LogisticDelivery
+                        assign result to LocalLogisticDeliveryView
+                        invoked.Company             = Company
+                        invoked.InventoryLocation   = InventoryLocation
+                        invoked.VehicleTrip         = VehicleTrip
+                        invoked.VehicleTripLine     = VehicleTripLine
+
+                    invoke CreateDeliveryLine 
+                        invoked.PrmCompany             = LocalLogisticDeliveryView.Company
+                        invoked.PrmInventoryLocation   = LocalLogisticDeliveryView.InventoryLocation
+                        invoked.PrmDeliveryLogistics    = LocalLogisticDeliveryView.LogisticDelivery
+        
+        CreateDeliveryLine is an Instance Action
+            Parameters
+                PrmCompany                      is an InventoryCompany
+                PrmInventoryLocation            is an InventoryLocation
+                PrmDeliveryLogistics            is a LogisticDelivery         
+            Action Rules
+                
+                for each distinct ShipmentLoadLineKeyFields in ShipmentLineLoadRel  
+                    invoke Create LogisticDeliveryLine  
+                        invoked.Company                 = PrmCompany
+                        invoked.InventoryLocation       = PrmInventoryLocation
+                        invoked.LogisticDelivery        = PrmDeliveryLogistics
+                        invoked.WarehouseShipment       = each.WarehouseShipment
+                        invoked.OrderType               = each.ShipmentLoad.OrderType
+                        invoked.OrderNumber             = each.ShipmentLoad.OrderNumber
+                        invoked.ShipTo                  = each.ShipmentLoadConsolidation.ShipTo
+
+
+

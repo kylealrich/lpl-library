@@ -1,0 +1,306 @@
+ANTHCInvoiceRequest is a BusinessClass
+    prefix is cfg
+
+    Ontology
+        symbolic key is ANTHCInvoiceRequest
+
+    Persistent Fields
+        HROrganization
+        RunGroup
+            default label is untranslatable:"RunGroup"
+        Requester
+            default label is untranslatable:"Requester"
+        BatchNumber is Numeric size 6
+        Status is Numeric size 1
+            States
+                Draft value is 0
+                Approved value is 1
+                InProgress value is 2
+                Rejected value is 3
+        RejectReason is Alpha size 500
+        ApprovedMessage is Alpha size 500
+
+    Local Fields
+        LocalEmailRecipients is a Text
+        LocalEmailSubject is a Text
+        LocalEmailContent is a Text
+        LocalCurrentDateTimeStamp is Alpha size 100
+        LocalEmailTo is a Text
+        LocalEmailFrom is a Text
+
+    Derived Fields
+        DerivedTenantID is a DerivedField
+            type is Alpha size 20
+            return tenant id
+
+        GetTenant is a StringField
+            type is Alpha size 100
+            "^.*"
+            "\Q"
+            "_"
+            "\E"
+
+        DerivedTenant is a DerivedField
+            type is Alpha size 10
+            return (DerivedTenantID - GetTenant)
+
+        DerivedRequestLink is a DerivedField
+            type is Text
+            return "https://fin-anthc-" + DerivedTenant + ".inforcloudsuite.com/fsm/ApplicationAdministrator/form/ANTHCInvoiceRequest%28" + ANTHCInvoiceRequest + "%29.ANTHCInvoiceRequest_Primary"
+
+        DerivedCommentText is a StringField
+            type is Alpha size 5000
+            "To: "
+            "<p>"
+            LocalEmailTo
+            "</p>"
+            "<br>"
+            "From: "
+            "<p>"
+            LocalEmailFrom
+            "</p>"
+            "<br>"
+            "Subject: "
+            "<p>"
+            LocalEmailSubject
+            "</p>"
+            "<br>"
+            "Email Content: "
+            LocalEmailContent
+
+        DerivedTotalTransactionAmount is a DerivedField
+            type is Numeric size 15.5
+            return (sum ReceivableInvoiceRel.CurrencyAmount)
+
+        DerivedTransactionCount is a DerivedField
+            type is Numeric size 2
+            return (instance count of ReceivableInvoiceRel)
+
+    Field Rules
+        BatchNumber
+            default to ANTHCInvoiceRequest
+
+        Status
+            initial value is 0
+            default to 0
+
+    Conditions
+		CanCreateRequest
+			restricted
+			when (ARRequestersActorRel exists)
+			
+        IsRequesterActor
+            restricted
+            when (actor.agent(Employee).Employee = Requester)
+
+        IsReadyForSubmission
+            restricted
+            when (ReceivableInvoiceRel exists
+            and UnmatchedReceivableInvoiceRel not exist
+            and ReceivableInvoiceNoAttachmentRel not exists)
+
+        RejectReasonExists
+            restricted
+            when (RejectReason != blank)
+
+        IsUpdatable
+            restricted
+            when ((IsRequesterActor and !Status.InProgress)
+            or (!IsRequesterActor and Status.InProgress))
+
+        IsActorAR
+            restricted
+            when (ARApproversActorRel exists)
+
+    Sets
+        Unique
+            indexed
+            Sort Order
+                ANTHCInvoiceRequest
+                BatchNumber
+
+    Relations
+        ReceivableInvoiceRel is a ANTHCReceivableInvoice set
+
+        ReceivableInvoiceNoAttachmentRel is a ANTHCReceivableInvoice set
+            Instance Selection
+                where (related.AttachmentExists = false)
+
+        UnmatchedReceivableInvoiceRel
+            one-to-many relation to ANTHCReceivableInvoice
+            Field Mapping uses symbolic key
+                related.ANTHCInvoiceRequest = ANTHCInvoiceRequest
+            Instance Selection
+                where (related.IsMatchedAmount = false)
+
+        ARApproversRel
+            one-to-many relation to PfiUserTask
+            Field Mapping uses ByTaskNameTaskTypeUserProfile
+                related.PfiTask.TaskName = "ARApprovers"
+
+        ARApproversActorRel
+            one-to-many relation to PfiUserTask
+            Field Mapping uses ByTaskNameTaskTypeUserProfile
+                related.PfiTask.TaskName = "ARApprovers"
+            Instance Selection
+                where (related.PfiUserProfile = actor)
+
+        ARRequestersActorRel
+            one-to-many relation to PfiUserTask
+            Field Mapping uses ByTaskNameTaskTypeUserProfile
+                related.PfiTask.TaskName = "ARRequesters"
+            Instance Selection
+                where (related.PfiUserProfile = actor)
+
+    Actions
+        Create is a Create Action
+            restricted
+
+        FastCreate is a Create Action
+			valid when (CanCreateRequest)
+            default label is untranslatable:"Create Invoice Request"
+            Parameters
+                PrmHROrganization is a HROrganization
+                    default label is untranslatable:"HROrganization"
+                PrmRunGroup is a RunGroup
+                    default label is untranslatable:"Run Group"
+                PrmRequester is a Requester
+                    default label is untranslatable:"Requester"
+
+            Parameter Rules
+                PrmHROrganization
+                    initial value is 1000
+                    default to 1000
+                PrmRunGroup
+                    initial value is system current date
+                    default to system current date
+                PrmRequester
+                    initial value is actor.agent(Employee).Employee
+                    default to actor.agent(Employee).Employee
+
+            Action Rules
+                invoke Create this instance
+                    invoked.HROrganization = PrmHROrganization
+                    invoked.RunGroup = system current date
+                    invoked.Requester = PrmRequester
+
+        Update is an Update Action
+            valid when ((IsRequesterActor and !Status.InProgress)
+            or (IsActorAR and Status.InProgress))
+
+        Delete is a Purge Action
+            valid when (IsRequesterActor
+            and !Status.InProgress)
+            completion message is untranslatable:"Invoice Request Successfully Deleted"
+            Entrance Rules
+                for each ReceivableInvoiceRel
+                    invoke Delete ReceivableInvoiceRel
+
+        RequesterSubmit is an Instance Action
+            default label is untranslatable:"Submit"
+            valid when (IsRequesterActor
+            and IsReadyForSubmission
+            and (Status.Draft or Status.Rejected))
+            Action Rules
+                Status = 2
+                initialize LocalEmailRecipients
+                for each(Ln) ARApproversRel
+                    LocalEmailRecipients += each(Ln).PfiUserProfile.EmailAddress + ","
+                send email
+                    to LocalEmailRecipients
+                    from "from.pfi@inforcloudsuite.com"
+                    ignore invalid addresses
+                    subject "Invoice_Request_is_submitted_by_<Requester.Name>_for_your_review."
+                    Contents
+                        "Invoice_Request_with_Batch_Number_<BatchNumber>_is_submitted_for_your_review."
+                        "To_view_the_request_please_follow_the_link:_<DerivedRequestLink>"
+
+        ARSubmit is an Instance Action
+            default label is untranslatable:"Submit"
+            valid when (IsActorAR
+            and IsReadyForSubmission
+            and Status.InProgress)
+            Action Rules
+                Status = 1
+                RejectReason = blank
+                ApprovedMessage = "Invoice Request is approved."
+
+                invoke Create ReceivableInvoiceBatch
+                    invoked.Company = first ReceivableInvoiceRel.ReceivableCompany
+                    invoked.ReceivableProcessLevel = first ReceivableInvoiceRel.ProcessLevel
+                    invoked.OriginalCurrency = "USD"
+                    invoked.ANTHCFromInvoiceRequest = true
+                    invoked.ANTHCInvoiceRequest = ANTHCInvoiceRequest
+                    invoked.CountTotal = DerivedTransactionCount
+                    invoked.InvoiceTotal = DerivedTotalTransactionAmount
+
+        Reject is an Instance Action
+            default label is untranslatable:"Reject"
+            valid when (IsActorAR
+            and Status.InProgress)
+            Parameters
+                PrmRejectReason is Alpha size 500
+                    default label is untranslatable:"Reason"
+
+            Parameter Rules
+                PrmRejectReason
+                    required
+
+            Action Rules
+                RejectReason = PrmRejectReason
+                Status = 3
+
+        EmailRequester is an Instance Action
+            valid when (IsActorAR)
+			Parameters
+				PrmToEmail is an EmailAddressMulti
+                    default label is untranslatable:"To"
+					holds pii
+				PrmFromEmail is an EmailAddress
+                    default label is untranslatable:"From"
+					holds pii
+				PrmCcEmail is an EmailAddressMulti
+                    default label is untranslatable:"Cc"
+					holds pii
+				PrmSubject is Text
+                    default label is untranslatable:"Subject"
+				PrmEmailContents is RichText
+                    default label is untranslatable:"Email Contents"
+
+            Parameter Rules
+				PrmToEmail
+					required
+					initial value is Requester.EmployeeWorkEmailAddress
+				PrmFromEmail
+					required
+					initial value is actor.ContactInfo.EmailAddress
+				PrmSubject
+					required
+                    initial value is "Please review Invoice Request " + ANTHCInvoiceRequest
+				PrmEmailContents
+					required
+
+            Action Rules
+                LocalEmailTo = PrmToEmail
+                LocalEmailFrom = PrmFromEmail
+                LocalEmailSubject = PrmSubject
+                LocalEmailContent = PrmEmailContents
+                send email
+					to PrmToEmail
+					cc PrmCcEmail
+					from PrmFromEmail
+					subject "<PrmSubject>"
+					Contents
+						"<PrmEmailContents>"
+
+            Exit Rules
+                LocalCurrentDateTimeStamp = system current timestamp
+                for each(Ln) ReceivableInvoiceRel
+                    invoke Create ANTHCCompanyCustomerComment
+                        invoked.Transaction = each(Ln).Transaction
+                        invoked.ReceivableCompany = each(Ln).ReceivableCompany
+                        invoked.ANTHCInvoiceRequest = ANTHCInvoiceRequest
+                        invoked.ANTHCReceivableInvoice = each(Ln).ANTHCReceivableInvoice
+                        invoked.Comment = "Email notification sent to requester. Date: " + LocalCurrentDateTimeStamp
+                        invoked.Customer = each(Ln).Customer
+                        invoked.CommentText = DerivedCommentText

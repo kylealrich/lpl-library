@@ -1,0 +1,306 @@
+StudentActivityJournal is a BusinessClass
+    owned by studentactivities
+    prefix is SAJP
+
+    Ontology
+    	symbolic key is StudentActivityJournal
+
+ 	Patterns
+		implements ContextualParent
+
+    Persistent Fields
+		Description				is Alpha 60
+
+		PostDate				is Date
+		Status					is Numeric 2
+			States
+				Unreleased	value is 0
+				Released 	value is 1
+				Posted		value is 2
+
+	Transient Fields
+		GLFinanceCodeBlock		 		is a TransactionCodeBlock				 		
+			derive value from GLTransactionDetailRel.FinanceCodeBlock 
+		GLTransactionAmount		 		is a CurrencyAmount			
+			derive value from GLTransactionDetailRel.TransactionAmount 				 
+        GLBaseAmount					is a FinanceCurrencyAmount
+        	derive value from GLTransactionDetailRel.ReportCurrencyAmount
+       	PostingDate                     is Date
+       		derive value from GLTransactionDetailRel.PostingDate
+		System							is a GeneralLedgerSystemCode
+			derive value from GLTransactionDetailRel.System
+       	CurrencyCode					is a FromCurrency
+       		derive value from GLTransactionDetailRel.CurrencyCode    		
+		UnitsAmount
+			derive value from GLTransactionDetailRel.UnitsAmount
+		TransactionDate					is an ExchangeDate
+			derive value from GLTransactionDetailRel.TransactionDate
+       	JournalizeGroup
+       		derive value from GLTransactionDetailRel.JournalizeGroup
+		Reference 						
+			derive value from GLTransactionDetailRel.Reference
+		GeneralLedgerEvent 			
+			derive value from GLTransactionDetailRel.GeneralLedgerEvent
+		DocumentNumber
+			derive value from GLTransactionDetailRel.DocumentNumber
+			
+	Derived Fields
+		DerivedStatus is a DerivedField
+			type is Alpha 27
+			if (NoDetails)
+				return NoJournalMessage
+			else
+				if (Status.Unreleased)
+					return "Unreleased"
+				else
+					if (Status.Released)
+						return "Released"
+					else
+						return "Posted"
+						
+		NoJournalMessage is a MessageField
+			"NoJournalDetailsToPost"
+
+		ReopenedPeriodMessage is a MessageField
+			"<StudentActivitySchool>_<StudentActivityClosedPeriod>PeriodReopening"
+
+	Sets
+
+	Relations
+
+
+
+
+		GLTransactionDetailRel	
+			one-to-one relation to GLTransactionDetail
+			valid when (!action type.Create)
+			Field Mapping uses ByOriginatingTransaction		 
+				related.OriginatingTransaction = reference to this instance
+
+		StudentActivityGeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup                  = StudentActivityDistrict
+				related.GeneralLedgerSystemCode                 = "SA"
+				
+
+
+
+
+
+
+
+	Conditions
+		NoDetails
+			when (!StudentActivityJournal set exists)
+				
+
+
+
+
+
+
+	Field Rules
+	
+	Actions
+		ProcessJournalForReopenedPeriod is an Instance Action
+			restricted
+
+			Parameters
+				PrmJournalizeGroup 	is a JournalizeGroup
+
+			Action Rules
+				if (StudentActivityDistrict.DistrictLevelPosting)
+					constraint (!Status.Posted)
+						"TransactionsAlreadyPostedToGLForAllSchools_-_CannotReopenPeriod"
+					
+					if (Status.Unreleased)
+						invoke Delete Unreleased this instance
+					else
+						if (Status.Released)
+							invoke Delete Released this instance
+				else
+					if (StudentActivityJournalDetail set exists)
+						for each StudentActivityJournalDetail set
+							invoke Released.CreateReleasedGLTransDetailNoRules GLTransactionDetail
+								fill in fields from this instance		 
+								invoked.OriginatingTransaction 					= reference to this instance
+								invoked.FinanceEnterpriseGroup					= each.StudentActivityDistrict
+								invoked.AccountingEntity						= each.GLAccount.ToAccountingEntity
+								invoked.PostingDate								= PostDate
+								invoked.TransactionDate							= PostDate
+								invoked.ReportCurrencyAmount					= (each.PostingAmount * -1)
+								invoked.TransactionAmount						= (each.PostingAmount * -1)
+								invoked.FinanceCodeBlock						= each.GLAccount
+								invoked.Description			  					= ReopenedPeriodMessage
+								invoked.GeneralLedgerEvent						= "SM"
+								invoked.System									= "SA"
+								invoked.JournalizeGroup							= PrmJournalizeGroup
+					invoke Delete Posted this instance
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	StateCycles
+		StudentActivityJournalLifeCycle is a StateCycle
+			state field is Status
+			
+			Unreleased is a State
+
+				Create is a Create Action
+					restricted
+				
+				Update is an Update Action
+				
+				Delete is a Delete Action
+					restricted
+				
+				Release is an Instance Action
+					Action Rules
+						make transition to Released
+					Exit Rules
+						invoke Release StudentActivityJournalDetail set
+				
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			Released is a State
+				
+				Journalize is a Set Action
+					Parameters
+						SchoolDistrict					is a StudentActivityDistrict
+						School							is a StudentActivitySchool
+						PostThruDate					is Date
+						AllSchools						is Boolean
+
+					Parameter Rules
+						SchoolDistrict
+							default to actor.context.FinanceEnterpriseGroup
+							required
+
+						School
+							if (not AllSchools)
+								required
+
+						PostThruDate
+							initial value is StudentActivityClosedPeriod.GeneralLedgerCalendarPeriod.Date
+							default to StudentActivityClosedPeriod.GeneralLedgerCalendarPeriod.Date
+							required
+
+					Instance Selection
+						where (StudentActivityDistrict = SchoolDistrict
+						and   (AllSchools or (StudentActivitySchool = School))
+						and    StudentActivityClosedPeriod.GeneralLedgerCalendarPeriod.Date <= PostThruDate
+						and    Status.Released)
+
+					Sort Order
+						StudentActivityDistrict
+						StudentActivitySchool
+
+					Action Rules
+						StudentActivitySchool Set Rules
+						
+						Instance Rules
+							invoke JournalizeDistributions Released StudentActivityJournalDetail
+								invoked.PrmStudentActivityDistrict	= StudentActivityDistrict
+								invoked.PrmStudentActivitySchool	= StudentActivitySchool
+								invoked.PrmPostThruDate				= StudentActivityClosedPeriod.GeneralLedgerCalendarPeriod.Date
+								if (AllSchools)
+									invoked.JournalizeActionFrom	= 1
+								else
+									invoked.JournalizeActionFrom	= 2
+						
+							make transition to Posted		
+
+				Delete is a Delete Action
+					restricted
+
+				Post is an Instance Action
+					restricted
+					Action Rules
+						make transition to Posted
+						
+			Posted is a State
+				Delete is a Delete Action
+					restricted
+			

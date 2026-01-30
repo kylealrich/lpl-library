@@ -1,0 +1,162 @@
+MatchWorkReceipt is a BusinessClass
+	owned by ma
+	prefix is MWPOR
+
+	Ontology
+		symbolic key is MatchWorkReceipt
+
+	Patterns
+
+		disable AuditIndex
+		disable Auditing
+		disable EffectiveDated
+		disable DataTranslations
+
+	Persistent Fields
+		PurchaseOrder
+		MatchedAmount			is an InternationalAmount
+		PayablesInvoice
+		Vendor
+		MatchSub				is Numeric 3
+		Selected				is Boolean
+		UnmatchedAmount			is an InternationalAmount
+		UnmatchedQuantity		is like Quantity
+		UnmatchedAddOnCharge	is an InternationalAmount
+		HashQuantity			is like Quantity
+		HashQuantityMatched		is like Quantity
+
+		WorkLinesRead			is Numeric 3
+		WorkLinesClosed			is Numeric 3
+		WriteoffAmount			is an InternationalAmount
+		MatchAddOnCharge		is an InternationalAmount
+		TotalAddOnCharge		is an InternationalAmount
+		Status					is Numeric 1
+
+		MatchReconQueueSet		is like MatchReconQueueSet
+
+	Derived Fields
+		DerivedQuantity is a DerivedField
+			type is like Quantity
+			return sum ReconQueueReceiptLineRel.OpenToMatchQuantity
+
+		DerivedExtendedAmount is a DerivedField
+			type is like InternationalAmount
+			if (PurchaseOrderReceipt entered)
+				return (sum ReconQueueReceiptLineRel.DerivedOpenToMatchExtendedCost + PurchaseOrderReceipt.OtherAddOnChargesTotal)
+			else
+				return sum PurchaseOrderServiceLinesRel.OpenToMatchAmount
+
+	Conditions
+		Pending
+			restricted
+			when (Selected
+			and   MatchReconQueueSet not entered)
+
+		IncludeInView
+			restricted
+			when ((!Vendor.RequireMatchReference
+					and (MatchWork.PurchaseOrder not entered	
+						or MatchWork.PurchaseOrder = PurchaseOrder))
+				or (Vendor.RequireMatchReference
+					and PurchaseOrderReceipt.MatchReferenceNumber = MatchWork.PayablesInvoice.MatchReferenceNumber))
+
+	Relations
+		MatchWorkReceiptLineRel
+			one-to-many relation to MatchWorkReceiptLine
+			Field Mapping uses ByPurchaseOrderReceipt
+				related.MatchWork					= MatchWork
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderReceipt		= PurchaseOrderReceipt
+
+		MatchWorkPseudoReceiptLineRel
+			one-to-many relation to MatchWorkReceiptLine
+			Field Mapping uses ByPurchaseOrderReceipt
+				related.MatchWork					= MatchWork
+				related.Company						= Company
+			Instance Selection
+				where (related.PurchaseOrderReceipt		= blank) 
+		MatchWorkReceiptLineAOCRel
+			one-to-many relation to MatchWorkReceiptLineAOC
+			Field Mapping uses ByPurchaseOrderReceipt
+				related.MatchWork					= MatchWork
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderReceipt		= PurchaseOrderReceipt
+
+		ReconQueueReceiptLineRel
+			one-to-many relation to PurchaseOrderReceiptLine
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrderReceipt	= PurchaseOrderReceipt
+
+		OtherWorkReceiptRel
+			one-to-many relation to MatchWorkReceipt
+			Field Mapping uses ByReceipt
+				related.Company						= Company
+				related.PurchaseOrder				= PurchaseOrder
+				related.PurchaseOrderReceipt		= PurchaseOrderReceipt
+			Instance Selection
+				where (related.MatchWork			!= MatchWork)
+
+		UnmatchedMatchReconQueueRel
+			one-to-many relation to MatchReconQueue
+			Field Mapping uses ByMatchWork
+				related.Company						= Company
+				related.MatchWork					= MatchWork
+			Instance Selection
+				where (related.PayablesInvoice.MatchStatus < 2)
+
+		PurchaseOrderServiceLinesRel
+			one-to-many relation to PurchaseOrderLine
+			Field Mapping uses symbolic key
+				related.Company					= Company
+				related.PurchaseOrder			= PurchaseOrder
+			Instance Selection
+				where (related.ItemType.Service)
+
+	Sets
+		ByPurchaseOrder
+			indexed
+			Sort Order
+				MatchWork
+				Company
+				PurchaseOrder
+				PurchaseOrderReceipt
+
+		ByReceipt
+			indexed
+			Sort Order
+				Company
+				PurchaseOrder
+				PurchaseOrderReceipt
+				MatchWork
+
+	Actions
+		Create is a Create Action
+			restricted
+		Update is an Update Action
+			restricted
+		FastUpdate is an Update Action
+			bypass field rules
+			restricted
+		Delete is a Delete Action
+			restricted
+		PurgeDetail is an Instance Action
+			restricted
+			Action Rules
+				invoke Purge MatchWorkReceiptLineRel
+				invoke Purge MatchWorkReceiptLineAOCRel
+		Purge is a Purge Action
+			restricted
+
+		SelectRecordForRecon is an Instance Action
+			valid when (!Selected)
+			Action Rules
+				Selected = true
+
+		UnselectRecordForRecon is an Instance Action
+			valid when (Selected)
+			Action Rules
+				initialize MatchReconQueueSet
+				Selected = false

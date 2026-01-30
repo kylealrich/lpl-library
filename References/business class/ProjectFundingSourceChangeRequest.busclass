@@ -1,0 +1,264 @@
+ProjectFundingSourceChangeRequest is a BusinessClass
+	owned by Projects
+	
+	prefix is PFSR
+	sql name is PFundingSourceChangeRequest	
+	
+	Ontology
+		symbolic key is ProjectFundingSourceChangeRequest
+	
+	Patterns
+	
+	Persistent Fields
+		Description
+    	NewPriority					is Numeric size 2
+    	NewFundingGroup				is Numeric size 2
+    	NewPercent					is Percent size 8.5
+    	NewFundedAmount				is a CurrencyAmount
+			precision is ProjectContract.Currency.NumberOfDecimals
+		Status						is Numeric size 1				
+			States	
+				Open					value is 1
+				SubmittedForApproval	value is 2
+				Approved				value is 3 
+				Rejected				value is 4				 
+		ChangeRequestDate			is Date	
+		ProjectContractChangeRequest				
+		RequestedBy					is an Actor		
+		ApprovedBy					is an Actor					
+    	Comment						is Text
+#ifdef module idm
+    	Attachment				is an AlternateAttachment
+#endif
+#ifndef module idm
+		Attachment
+#endif
+		ErrorMessage				is Text
+			disable Auditing
+   		DocumentURL					is URL  			
+	
+	Local Fields
+		CompletionMessage			is Alpha size 100
+		ErrorFound					is Boolean
+		LocalErrorMessage			is Text	
+		LocalAttributeCtr   		is Numeric 2
+
+    Derived Fields
+    				
+		SubmitForApprovalMF is a MessageField
+			restricted
+			"This_request_will_be_routed_for_approval;_after_it_is_reviewed_this_record_will_be_updated"
+
+		DerivedFinanceDimension2 is a DerivedField
+			type is like FinanceDimension2
+			return ProjectFundingSourceChangeRequest.ProjectFundingSource.FinanceDimension2
+
+		DerivedProjectContract is a DerivedField
+			type is like Project
+			return ProjectFundingSourceChangeRequest.ProjectFundingSource.ProjectContract			
+
+	Field Rules
+	
+		Description
+			required	
+
+		NewPriority
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"				
+
+		NewFundingGroup
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"
+
+		NewPercent
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"				
+			
+		NewFundedAmount
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"				
+							
+		ChangeRequestDate
+			required
+			default to current corporate date	
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"				
+				
+		ProjectContractChangeRequest
+			if (!EligibleToRelease)
+				cannot be changed
+					"CannotChange;ProjectFundingSourceChangeRequestHasBeenProcessed"				
+						
+	Conditions
+		
+		EligibleToDelete
+			restricted
+			when (Status.Open
+			or    Status.Rejected)
+
+		EligibleToRelease			
+			restricted
+			when (Status.Open
+			or    Status.Rejected)
+	
+		EligibleToReset			
+			restricted
+			when (Status.SubmittedForApproval)
+			
+		HasURL
+			restricted
+			when (DocumentURL entered)
+			
+		HasAttachment 
+			restricted    	
+    		when (Attachment entered)
+			
+	Relations	
+	
+	Sets
+	
+		ByProjectContract
+			Sort Order
+				FinanceEnterpriseGroup	
+				ProjectContract
+				FinanceDimension2
+				ProjectFundingSourceChangeRequest
+
+		ByStatus
+			Sort Order
+				FinanceEnterpriseGroup	
+				Status				
+				ProjectContract
+				FinanceDimension2
+				ProjectFundingSourceChangeRequest
+								
+#ifdef module idm	
+	Create Rules   
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment	
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment			
+
+#endif				
+
+    Actions
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+
+		Delete is a Delete Action
+			valid when (EligibleToDelete)
+
+		Release is an Instance Action
+			valid when (EligibleToRelease)
+			completion message is "<CompletionMessage>"			
+			Action Rules
+				CompletionMessage = SubmitForApprovalMF	
+				Status            = 2						
+			Exit Rules
+				trigger "ProjectFundingSourceChangeRequest" PA service
+					title is "ProjectFundingSourceChangeRequest"
+					Variables
+						FinanceEnterpriseGroup
+						FinanceDimension2
+						ProjectContract
+						ProjectFundingSourceChangeRequest
+						Description		
+							variable name is ChangeRequestDescription						
+					URLs
+						"<linkback(webapp is ProjectAccountant navigation is ProjectFundingSourceChangeRequestNav text is \"ProjectFundingSourceChangeRequest\")>"
+			
+		ApproveChangeRequest is an Instance Action
+			restricted
+			Parameters
+				PrmApprover				is an Actor
+			Action Rules
+    			initialize ErrorMessage
+    			ErrorFound = false
+				invoke Update ProjectFundingSource
+					resume on error		
+						ErrorFound = true
+						LocalErrorMessage = error message        				
+			    	invoked.Priority   			= NewPriority
+			    	invoked.FundingGroup		= NewFundingGroup
+			    	invoked.Percent     		= NewPercent					
+			    	invoked.FundedAmount 		= NewFundedAmount	
+					invoked.ChangeOrderApproved	= true	
+    			if (ErrorFound)
+					Status       = 4
+					ApprovedBy   = blank
+    				ErrorMessage = LocalErrorMessage
+				else 					
+					Status       = 3
+					ApprovedBy   = PrmApprover
+					ErrorMessage = blank
+			Exit Rules
+				if (Comment entered)	
+					invoke Create ProjectFundingSourceComment
+						invoked.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+						invoked.ProjectContract		   = ProjectContract
+						invoked.FinanceDimension2  	   = FinanceDimension2 
+						invoked.Subject				   = "ProjectFundingSourceChangeRequest"
+    					invoked.From				   = actor
+						invoked.CommentDate			   = current timestamp
+						invoked.Comment                = Comment
+
+						invoked.Attachment.File		   = Attachment.File
+						invoked.Attachment.Title	   = Attachment.Title
+						invoked.Attachment.MimeType	   = Attachment.MimeType
+						invoked.DocumentURL     	   = DocumentURL				    	
+
+		RejectChangeRequest is an Instance Action
+			restricted
+			action comment required			
+			Parameters
+				PrmApprover				is an Actor
+			Action Rules
+				Status     = 4
+				ApprovedBy = blank
+
+
+		ResetStatus is an Instance Action
+			valid when (EligibleToReset)		
+			Action Rules
+				Status = 1
+				
+#ifdef module idm		
+		UploadToIDM is an Instance Action
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+		
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop	
+						
+#endif				

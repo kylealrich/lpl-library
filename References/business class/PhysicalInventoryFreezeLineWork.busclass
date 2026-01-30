@@ -1,0 +1,211 @@
+PhysicalInventoryFreezeLineWork is a BusinessClass
+	owned by ic
+	prefix is PIFLW
+    sql name is PIFreezeLnWork
+	
+	Ontology
+		symbolic key is PhysicalInventoryFreezeLineWork
+		
+	Patterns
+		disable Auditing
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		disable StaticTranslations
+			
+	Persistent Fields
+        InventoryCompany			is like InventoryCompany
+		PhysicalInventorySelect		is like PhysicalInventorySelect
+       	InventoryLocation			is like InventoryLocation
+       	BinGroup					is like BinGroup
+       	Bin							is like Bin
+       	Item						is like Item
+       	ItemLot						is like ItemLot
+       	Sublot						is like Sublot
+ 	    ItemSerialNumber			is like ItemSerialNumber
+        ItemLocation				is like ItemLocation
+        UnitOfMeasure				is like UnitOfMeasure
+        EnteredUOM             		is like UnitOfMeasure
+        FreezeQuantity         		is Decimal size 13.4
+        CountQuantity          		is like UnsignedQuantity
+        UnitCost               		is like InternationalCost
+        SecondaryQuantity      		is like UnsignedQuantity
+        SecondaryCountQuantity
+        SecondaryUOM           		is like UnitOfMeasure
+        SecondaryUOMMultiplier 		is like UOMMultiplier
+        InventoryReasonCode			is like InventoryReasonCode
+        MovementClassX         		is AlphaUpper size 1
+            States
+                Class1            		value is "1"
+                Class2            		value is "2"
+                Class3            		value is "3"
+                SpecialCycleCount 		value is "X"
+        CountEntered           		is Boolean
+        OperatorID             		is like Operator 
+        	holds pii
+	
+	Sets
+    	ByItemDetail
+    		indexed
+    		Sort Order
+		        InventoryCompany
+				PhysicalInventorySelect
+		       	InventoryLocation
+		       	BinGroup
+		       	Bin
+		       	Item
+		       	ItemLot
+		       	Sublot
+		 	    ItemSerialNumber
+				UnitOfMeasure
+				
+	Conditions
+		DetailTrackingUnitOfMeasure
+			when (ItemLocationRel.TrackedInAlternateUnitsOfMeasure
+			and   StockOnHandDetailRel exists
+			and   !Bin entered
+			and   !ItemLot entered) 
+				
+	Relations
+		PhysicalInventorySelectRel
+			one-to-one relation to PhysicalInventorySelect
+			Field Mapping uses symbolic key
+				related.Company					= InventoryCompany
+				related.PhysicalInventorySelect	= PhysicalInventorySelect
+				
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company					= InventoryCompany
+				related.InventoryLocation		= InventoryLocation
+				related.Item					= Item
+			
+        StockOnHandDetailRel
+            one-to-one relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                         = InventoryCompany
+                related.InventoryLocation               = InventoryLocation
+                related.Item                            = Item
+                related.StockOnHandDetail.UnitOfMeasure = UnitOfMeasure
+                related.StockOnHandDetail.Lot           = ItemLot
+                related.StockOnHandDetail.Sublot        = Sublot
+                related.StockOnHandDetail.Bin           = Bin
+		
+	Field Rules
+
+	Actions
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			restricted
+			
+		CreateFreezeLinesFromWork is a Set Action
+			restricted
+			Parameters
+				PrmCompany				is an InventoryCompany
+				PrmSelectId				is a PhysicalInventorySelect
+				PrmActorGroup			is an ActorGroup
+				
+			Local Fields
+   				LocalCreateFreezeErrorMessage			is Alpha size 100
+				LocalCreateItemLocationFreezeCount		is Numeric size 9	
+				LocalLastFreezePage						is Numeric size 9
+				SetLocalPreviousLocation				is like InventoryLocation
+												
+			Instance Selection
+				where (PrmCompany			= InventoryCompany
+				and    PrmSelectId			= PhysicalInventorySelect)
+				
+			Sort Order
+		        InventoryCompany
+				PhysicalInventorySelect
+		       	InventoryLocation
+		       	BinGroup
+		       	Bin
+		       	Item
+		       	ItemLot
+		       	Sublot
+		 	    ItemSerialNumber
+				UnitOfMeasure
+				
+			Action Rules
+				Empty Set Rules
+
+		   			invoke SendFreezeCompletionNotification PrmSelectId in background
+							invoked.PrmActorGroup			= PrmActorGroup
+							initialize invoked.PrmFreezeCount
+					
+					invoke UpdateToSelectIDStatusInUse PrmSelectId
+				
+				Set Rules
+					Entrance Rules
+						initialize SetLocalPreviousLocation
+					Exit Rules
+
+						invoke UpdateFreezePageAndLine PrmSelectId in background
+							invoked.PrmFreezeLines 	= LocalCreateItemLocationFreezeCount
+							invoked.PrmFreezePages	= LocalLastFreezePage
+					
+
+			   			invoke SendFreezeCompletionNotification PrmSelectId in background
+								invoked.PrmActorGroup			= PrmActorGroup
+								invoked.PrmFreezeCount			= LocalCreateItemLocationFreezeCount
+						
+						invoke UpdateToSelectIDStatusInUse PrmSelectId
+								
+				InventoryLocation Set Rules
+					Entrance Rules
+
+
+
+
+
+						if (SetLocalPreviousLocation entered)
+							if (PhysicalInventorySelectRel.LastFreezeLine entered)
+								invoke FastUpdateLastFreezeLinePage PhysicalInventorySelectRel	
+
+								
+						SetLocalPreviousLocation		= InventoryLocation
+							
+				Instance Rules
+
+					invoke Create PhysicalInventoryFreeze
+						resume on error
+							LocalCreateFreezeErrorMessage	= error message
+							display "PhysicalInventoryFreezeLineWork_CreateFreezeLineOnError:<LocalCreateFreezeErrorMessage>"
+						invoked.Company													= InventoryCompany 
+						invoked.PhysicalInventoryFreeze.PhysicalInventoryFreezePage		= PhysicalInventorySelectRel.LastFreezePage
+						invoked.InventoryLocation										= PhysicalInventoryFreezeLineWork.InventoryLocation
+						invoked.BinGroup												= PhysicalInventoryFreezeLineWork.BinGroup
+						invoked.Bin														= PhysicalInventoryFreezeLineWork.Bin
+						invoked.Item													= PhysicalInventoryFreezeLineWork.Item
+				        invoked.Lot														= PhysicalInventoryFreezeLineWork.ItemLot
+				        invoked.Sublot													= PhysicalInventoryFreezeLineWork.Sublot
+				        invoked.Serial													= PhysicalInventoryFreezeLineWork.ItemSerialNumber
+				        invoked.ItemLocation											= PhysicalInventoryFreezeLineWork.ItemLocation
+				        invoked.UnitOfMeasure											= PhysicalInventoryFreezeLineWork.UnitOfMeasure
+						fill in fields from this instance
+				
+				    if (LocalCreateFreezeErrorMessage entered)
+						invoke FastUpdateLastFreezeLineFromError PhysicalInventorySelectRel
+					else						
+						LocalCreateItemLocationFreezeCount	+= 1
+						LocalLastFreezePage					= PhysicalInventorySelectRel.LastFreezePage
+
+						invoke UpdateFrozenForPhysicalInventory ItemLocationRel
+							invoked.PrmFrozenForPhysicalInventory			= true
+							invoked.PrmFreezeDate							= current corporate date
+							
+						if (Bin entered
+						or  ItemLot entered
+						or  DetailTrackingUnitOfMeasure)
+
+							invoke UpdateFromPhysicalInventoryFreeze StockOnHandDetailRel
+								invoked.PrmFrozenForPhysicalInventory			= true					
+						
+					invoke Delete PhysicalInventoryFreezeLineWork	
+				    initialize LocalCreateFreezeErrorMessage
+					

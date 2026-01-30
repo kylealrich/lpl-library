@@ -1,0 +1,1256 @@
+Identity is a BusinessClass
+    owned by security
+    prefix is IDENT
+    stored in environment
+	contains environment data
+	disable data area copy
+		preserve target data
+
+    Ontology
+        symbolic key is Identity
+
+    Patterns
+        implements CRUD
+        implements SecurityCache
+        disable AuditIndex
+
+    Persistent Fields
+        ServiceType
+        DatabaseIdentityProperties
+        FormBasedIdentityProperties
+        UnixIdentityProperties
+        WindowsIdentityProperties
+        AS400IdentityProperties
+        MISocketIdentityProperties
+		NoneLoginScheme
+        IsPasswordResetRequired is Boolean
+			default label is "PasswordResetRequired"
+        PasswordLastSet is TimeStamp
+
+    Transient Fields
+        Actor              				is Actor
+        NewPassword        				is Password
+        ConfirmNewPassword 				is Password
+        CurrentPassword    				is Password
+        SSODomain
+		GeneratedPassword 				is Text
+		DisplayPasswordPolicy			is Boolean
+
+        ProviderName                    is Alpha size 10
+            States
+                Email                   value is "email"
+
+                TOTP                 value is "totp"
+
+        ExternalEntity
+        MFARegisteredProvider
+        ErrorMessage                    is Alpha 200
+    
+        MFARegistrationStatus           is Numeric size 2
+            States
+                NONE                         value is 0
+                MFACodeSent                  value is 1
+                MFACodeSentFailed            value is 2
+                MFACodeVerified              value is 3
+                MFACodeVerificationFailed    value is 4
+                MFADeviceRegistered          value is 5
+                ResendMFACode                value is 6
+                DeviceUnregistered           value is 7
+                DeviceUnregistrationFailed   value is 8
+                DeviceChanged                value is 9
+
+        RegistrationStatus                is Numeric size 2
+        DeviceName                        is Alpha size 50
+        NewDeviceName                     is Alpha size 50
+        DeviceId                          is Alpha size 50
+        MFADeviceId                       is Alpha size 50
+        
+
+	Derived Fields
+        NumberOfSavedQuestions is a ComputeField
+            type is Numeric 2
+            (instance count of SecurityAnswer set)
+            
+        NumberOfUnansweredQuestions is a ComputeField
+            type is Numeric 2
+            (Service.PasswordResetPolicy.SecurityQuestionnaire.NumberOfQuestionsRequired - NumberOfSavedQuestions)
+            
+        NumberOfRemainingQuestions is a ConditionalField
+            type is Numeric 2
+            if (NumberOfUnansweredQuestions < 0)
+                (0)
+            else
+                (NumberOfUnansweredQuestions)
+                
+        NumberOfReqdQuestions is a ComputeField
+            type is Numeric 2
+            (Service.PasswordResetPolicy.SecurityQuestionnaire.NumberOfQuestionsRequired)
+
+    	DefaultEmailSubject is a MessageField
+            "PasswordReset"
+			
+		DefaultEmailContent is a MessageField
+            "APasswordHasBeenGeneratedForYou.PleaseLoginAndAnswerYourQuestions.YourPasswordIs:"
+            
+        EmailLocale is a DerivedField
+            type is Alpha 100 
+            if (ServiceIdentityRel exists)
+                return ServiceIdentityRel.Actor.IsoLocale
+                
+        ActorLanguage is a DerivedField
+            type is Alpha 1000 
+            if (ServiceIdentityRel exists)
+                return ServiceIdentityRel.Actor.IsoLocale.IsoLanguage
+			
+		EmailTemplateFrom is a DerivedField
+			type is Alpha size up to 100
+			if (Service.PasswordResetPolicy != blank and Service.PasswordResetPolicy.SecurityEmailTemplate != blank)
+				return Service.PasswordResetPolicy.SecurityEmailTemplate.From 
+			else
+				return config(security).SecurityAdministratorDoNotReplyEmail
+				
+		EmailTemplateSubject is a DerivedField
+			type is Alpha size up to 100
+			if (Service.PasswordResetPolicy != blank and Service.PasswordResetPolicy.SecurityEmailTemplate != blank)
+				return Service.PasswordResetPolicy.SecurityEmailTemplate.Subject translation
+			else
+				return DefaultEmailSubject
+				
+		EUEnabled is a DerivedField
+			type is Boolean
+			default label is "ExternalUserEnabled"
+			if (instance count of Service.ServicePropertyEntityCodeRel = 1) 
+				return true
+			else
+				return false
+								
+		EUEntityId is a DerivedField
+			type is Alpha size up to 50
+			default label is "ExternalUserEntity_ID"
+			for each Service.ServicePropertyEntityCodeRel 
+				if (each.PropertyValue != blank)
+					return each.PropertyValue
+			
+		EUPasswordPolicy is a DerivedField	
+			type is RichText
+			default label is "PasswordPolicy"	
+			if (EUEnabled)
+				if (EUEntityId != blank)
+					invoke GetPasswordPolicy ExternalUserExecutor
+						resume on error
+						assign result to EUAPICallResp 
+						invoked.EntityId = EUEntityId	
+						invoked.Language = ActorLanguage
+					
+					EUPasswordPolicyText = ""
+					ElementCount = 0
+					EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+					
+					if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+						EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+	
+						if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+							ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+						else
+							ElementSize = 1
+						
+						while (ElementCount < ElementSize)
+							EUAPICallRespNode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+							EUPasswordPolicyText += EUAPICallRespNode + ": "
+							EUAPICallRespNode = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+							EUPasswordPolicyText += EUAPICallRespNode + "<br>"
+							ElementCount += 1
+					else
+						EUAPICallRespNode = EUAPICallResp select "$..passwordpolicy[*]"
+	
+						if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+							ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+						else
+							ElementSize = 1
+						
+						while (ElementCount < ElementSize)
+							EUAPICallRespNode = EUAPICallResp select "$..passwordpolicy[<ElementCount>].visible"
+							if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallRespNode, "True"))
+								EUAPICallRespNode = EUAPICallResp select "$..passwordpolicy[<ElementCount>].langtext"
+								EUPasswordPolicyText += EUAPICallRespNode + "<br>"
+							ElementCount += 1
+				else
+					EUPasswordPolicyText = "Missing Entity Id"		
+							
+			return EUPasswordPolicyText
+        
+		AccessTokenEndpointExist is a NativeField
+			type is Boolean
+			default label is "AccessTokenEndpointExists"
+
+        ContactAdministratorMessage                 is a MessageField
+            "Please_contact_your_administrator_for_more_details."
+
+        UnknowErrorMessage                          is a MessageField
+            "An_error_occured_while_performing_requested_operation."
+
+        DeviceNameAlreadyUsed                       is a MessageField
+            "A_device_with_same_device_name_is_already_registered.Please_use_a_different_device_name."
+
+        SameDeviceNameErrorMessage                  is a MessageField
+            "Please_use_a_different_device_name_than_the_one_already_used_for_the_device."
+
+        RegisteredEmailDevice is a DerivedField
+            type is Alpha 50
+            default label is "RegisteredEmailDevice"
+            if (EUEnabled)
+                if(EUEntityId != blank and FormBasedIdentityProperties.User != blank)
+                    for each RegisteredMFAEmailProviders
+                        if (each.ProviderName = "EMAIL")
+                            return (each.IdentifierValue)
+
+        NumberOfRegisteredProviders is a ComputeField
+            type is Numeric 2
+            (instance count of RegisteredMFAProviders)
+
+	Local Fields
+		FinalBody						is RichText
+		EUAPICallResp					is JSONObject
+		EUAPICallStatus					is Alpha 10
+		EUAPICallRespNode				is Alpha 1000
+		EUPasswordPolicyText			is RichText
+
+		EuIdentifierType				is Alpha 20
+		ElementCount					is Numeric 2
+		ElementSize						is Numeric 2
+		Index							is Numeric 2
+		ErrorText						is Alpha 100
+		ErrorCode   					is Alpha 20
+
+        TotalSupportedMFADevices        is Numeric 2
+
+    Sets
+        ByDomainUser 
+            duplicates
+            indexed
+            Sort Order
+                WindowsIdentityProperties.DomainUser
+                Service
+				    
+    Conditions
+        IsDatabaseIdentity
+			default label is "DatabaseIdentity"
+            when (ServiceType = "Database")
+        IsFormBasedIdentity
+			default label is "FormBasedIdentity"
+            when (ServiceType = "FormBased")
+        IsMISocketIdentity
+			default label is "MISocketIdentity"
+            when (ServiceType = "MISocket")
+        IsUnixIdentity
+			default label is "UnixIdentity"
+            when (ServiceType = "Unix")
+        IsWindowsIdentity
+			default label is "WindowsIdentity"
+            when (ServiceType = "Windows")
+		IsAS400Identity
+			default label is "AS400Identity"
+			when (ServiceType = "AS400")
+		IsWebServiceIdentity
+			default label is "WebServiceIdentity"
+            when (ServiceType = "WebService")
+        IsQuestionnaireValid
+			default label is "QuestionnaireValid"
+            when (instance count of SecurityAnswer set >= Service.PasswordResetPolicy.SecurityQuestionnaire.NumberOfQuestionsRequired
+                and Service.PasswordResetPolicy.SecurityQuestionnaire.IsSecurityQuestionnaireEnabled)
+		IsPasswordPolicyExist
+			default label is "PasswordPolicyExist"
+			when (Service.PasswordPolicy != "")
+
+        IsEUEnabled
+            default label is "ExternalUserEnabled"
+            when (EUEnabled and EUEntityId != blank and FormBasedIdentityProperties.User != blank)
+
+
+    Relations
+        IdentityActorRel
+            one-to-one relation to IdentityActor
+            Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+                related.Actor    = actor
+
+        Questions is a SecurityQuestion set
+
+        ServiceIdentityRel is an IdentityActor set
+            Instance Selection
+                where (related.Service    = Service    
+                and related.Identity = Identity)
+
+        ActiveSecurityQuestions
+            one-to-many relation to SecurityQuestion
+            Field Mapping uses symbolic key
+            Instance Selection
+                where (related.Service = Service and related.Active = true)
+
+		ExternalUserIdentifiers
+			one-to-many relation to EUserIdentifier
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+			Instance Selection
+				where ( related.IdentifierType = "email")
+
+        RegisteredMFAProviders
+			one-to-many relation to MFARegisteredProvider
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+            Instance Selection
+                where (related.Service    = Service
+                and related.Identity = Identity)
+
+        RegisteredMFAEmailProviders is an MFARegisteredProvider set
+            Instance Selection
+                where (related.Service    = Service
+                and related.Identity = Identity
+                and related.ProviderName = "EMAIL")
+
+        RegisteredTOTPDeviceWithDeviceName is an MFARegisteredProvider set
+            valid when ( IsEUEnabled )
+            Instance Selection
+                where (related.Service      = Service    
+                and related.Identity        = Identity
+                and related.ProviderName    = "TOTP"
+                and related.DeviceName      not = blank
+                and related.DeviceName      = DeviceName)
+
+        RegisteredDeviceWithDeviceId is an MFARegisteredProvider set
+            valid when ( IsEUEnabled )
+            Instance Selection
+                where (related.Service      = Service    
+                and related.Identity        = Identity
+                and related.DeviceId        not = blank
+                and related.DeviceId        = DeviceId)
+
+        DefaultMFADevice is an MFARegisteredProvider set
+            valid when ( IsEUEnabled )
+            Instance Selection
+                where (related.Service      = Service
+                and related.Identity        = Identity
+                and related.IsDefault       = true)
+
+	Rule Blocks
+		ChangePasswordValidation
+			constraint (NewPassword = ConfirmNewPassword)
+                "New_PasswordDoesNotMatch_Confirm_New_Password"
+            if(Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse != blank)     
+            	constraint (NewPassword != CurrentPassword)
+            		"New_PasswordCannotMatch_Current_Password"            
+            
+            if (Service.PasswordResetPolicy.PasswordResetInterval > 0)
+                	constraint (current timestamp  - (Service.PasswordResetPolicy.PasswordResetInterval * 3600) > PasswordLastSet)
+                		"CannotResetPasswordWithinPasswordResetIntervalTimeFrame"
+                		
+            if (Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse > 0)
+                	for each IdentityPassword set
+                		constraint(NewPassword != each.Password)
+                			"NewPasswordCannotMatchPasswordsUsedBefore" 	
+            if (IsDatabaseIdentity)
+                constraint (DatabaseIdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                DatabaseIdentityProperties.Password = NewPassword
+            if (IsFormBasedIdentity)
+                constraint (FormBasedIdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                FormBasedIdentityProperties.Password = NewPassword
+            if (IsMISocketIdentity)
+                constraint (MISocketIdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                MISocketIdentityProperties.Password = NewPassword
+            if (IsUnixIdentity)
+                constraint (UnixIdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                UnixIdentityProperties.Password = NewPassword
+            if (IsWindowsIdentity)
+                constraint (WindowsIdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                WindowsIdentityProperties.Password = NewPassword
+			if (IsWebServiceIdentity)
+                constraint (NoneLoginScheme.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+				NoneLoginScheme.Password = NewPassword
+    		if (IsAS400Identity)
+                constraint (AS400IdentityProperties.Password = CurrentPassword)
+                    "Current_PasswordIsIncorrect"
+                AS400IdentityProperties.Password = NewPassword
+			if (instance count of IdentityPassword set = Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse)            		
+					invoke Delete first IdentityPassword set
+		    if (instance count of IdentityPassword set = 0)
+		    	invoke Create IdentityPassword
+	                	invoked.Identity = Identity
+               			invoked.Service = Service
+               			invoked.IdentityPassword.Password = CurrentPassword              		               		
+               			invoked.IdentityPassword.PasswordCreated = current timestamp
+            if (instance count of IdentityPassword set <= Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse)
+                	invoke Create IdentityPassword
+	                	invoked.Identity = Identity
+               			invoked.Service = Service
+               			invoked.IdentityPassword.Password = NewPassword              		               		
+               			invoked.IdentityPassword.PasswordCreated = current timestamp
+
+        GetExternalUserIdentifiers
+            if (Identity.EUEnabled)
+                if (Identity.EUEntityId != blank and Identity.FormBasedIdentityProperties.User != blank)
+                    ErrorMessage = blank
+                    ErrorCode = blank               
+                    EUAPICallResp = blank
+
+                    invoke GetUser ExternalUserExecutor
+                        resume on error
+                        assign result to EUAPICallResp
+
+                        invoked.EntityId = Identity.EUEntityId
+                        invoked.UserIdentity = Identity.FormBasedIdentityProperties.User
+
+                    ElementCount = 0
+                    EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                    constraint(EUAPICallStatus != "")
+                        "JSONResponse<EUAPICallStatus>"
+
+                    if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+                        ErrorMessage = blank
+                        ErrorCode = blank
+
+                        EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                            ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                        else
+                            ElementSize = 1
+
+                        while (ElementCount < ElementSize)
+                            ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                            ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                            ElementCount += 1
+
+                        constraint(ErrorMessage = blank)
+                            "<ErrorMessage>"
+
+                    else
+                        EUAPICallRespNode = EUAPICallResp select "$..useridentifierlist[*]"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                            ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                        else
+                            ElementSize = 1
+
+                        while (ElementCount < ElementSize)
+                            EuIdentifierType = EUAPICallResp select "$..useridentifierlist[<ElementCount>].identifiertype"
+
+                            if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase("Email", EuIdentifierType))
+                                invoke Create EUserIdentifier
+                                    invoked.Identity                = Identity
+                                    invoked.Service                 = Service
+                                    invoked.IdentifierId            = EUAPICallResp select "$..useridentifierlist[<ElementCount>].identifierid"
+                                    invoked.IdentifierType          = EuIdentifierType
+                                    invoked.IdentifierValue         = EUAPICallResp select "$..useridentifierlist[<ElementCount>].identifiervalue"
+                                    invoked.IsPrimary               = EUAPICallResp select "$..useridentifierlist[<ElementCount>].isprimary"
+
+                            ElementCount += 1
+
+        GetRegisteredMFADeviceInfo
+            if (EUEnabled)
+                if (EUEntityId != blank and FormBasedIdentityProperties.User != blank)
+                    if(MFARegisteredProvider not entered)
+                        ErrorMessage = blank
+                        ErrorCode = blank
+                        EUAPICallResp = blank
+
+                        invoke GetRegisteredMFADeviceInfo ExternalUserExecutor
+                            resume on error
+                            assign result to EUAPICallResp
+
+                            invoked.EntityId = EUEntityId
+                            invoked.UserIdentity = FormBasedIdentityProperties.User
+
+                        ElementCount = 0
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+
+
+                            EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                            if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                            else
+                                ElementSize = 1
+
+                            while (ElementCount < ElementSize)
+                                ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                                ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                                ElementCount += 1
+
+                            constraint(ErrorMessage = blank)
+                                "<ErrorMessage>"
+
+                        else
+                            if(not com.lawson.apps.security.base.JSON_ActionBase.isArrayEmpty(EUAPICallResp, "mfaprovider"))
+
+                                EUAPICallRespNode = EUAPICallResp select "$.mfaprovider[*]"
+
+                                if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                    ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                                else
+                                    ElementSize = 1
+
+                                while (ElementCount < ElementSize)
+                                    
+                                    invoke Create MFARegisteredProvider
+                                        invoked.Identity                = Identity
+                                        invoked.Service                 = Service
+                                        invoked.DeviceId                = EUAPICallResp select "$..mfaprovider[<ElementCount>].deviceId"
+                                        invoked.DeviceName              = EUAPICallResp select "$..mfaprovider[<ElementCount>].deviceName"
+                                        invoked.IsDefault               = EUAPICallResp select "$..mfaprovider[<ElementCount>].isDefault"
+                                        invoked.ProviderName            = EUAPICallResp select "$..mfaprovider[<ElementCount>].providerName"
+                                        invoked.ProviderId              = EUAPICallResp select "$..mfaprovider[<ElementCount>].providerID"
+                                        invoked.IdentifierId            = EUAPICallResp select "$..mfaprovider[<ElementCount>].identifierid"
+                                        invoked.IdentifierValue         = EUAPICallResp select "$..mfaprovider[<ElementCount>].identifiervalue"
+ 
+                                    ElementCount += 1
+
+        GetExternalEntityInfo
+            if (EUEnabled)
+                if(EUEntityId != blank)
+                    ErrorCode = blank
+                    ErrorMessage = blank
+                    EUAPICallResp = blank
+
+                    invoke GetExternalEntity ExternalUserExecutor
+                        assign result to EUAPICallResp
+
+                        invoked.EntityId = EUEntityId
+
+                    
+                    EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                    if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "failure"))
+                        EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                            ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                        else
+                            ElementSize = 1
+
+                        while (ElementCount < ElementSize)
+                            ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                            ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                            ElementCount += 1
+
+                    else
+
+                        ExternalEntity.EntityId         = EUAPICallResp select "$..externalentity.entityid"
+                        ExternalEntity.EntityName       = EUAPICallResp select "$..externalentity.entityname"
+                        ExternalEntity.EntityCode       = EUAPICallResp select "$..externalentity.entitycode"
+                        ExternalEntity.Description      = EUAPICallResp select "$..externalentity.description"
+                        ExternalEntity.Status           = EUAPICallResp select "$..externalentity.status"
+                        ExternalEntity.MFAEnforce       = EUAPICallResp select "$..externalentity.mfaenforce"
+                        ExternalEntity.MFAEnable        = EUAPICallResp select "$..externalentity.mfaenable"
+                        ExternalEntity.MFAEmail         = EUAPICallResp select "$..externalentity.mfaEmail"
+                        ExternalEntity.MFATotp          = EUAPICallResp select "$..externalentity.mfaTOTP"
+
+        SetDefaultMFADevice
+            if (EUEnabled)
+                if (EUEntityId != blank and FormBasedIdentityProperties.User != blank)
+                    if(MFARegisteredProvider not entered)
+                        ErrorMessage = blank
+                        ErrorCode = blank
+                        EUAPICallResp = blank
+
+                        invoke SetDefaultMFADevice ExternalUserExecutor
+                            resume on error
+                            assign result to EUAPICallResp
+
+                            invoked.EntityId = EUEntityId
+                            invoked.UserIdentity = FormBasedIdentityProperties.User
+                            invoked.DeviceId = RegisteredDeviceWithDeviceId.DeviceId
+
+                        ElementCount = 0
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+
+                            EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                            if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                            else
+                                ElementSize = 1
+
+                            while (ElementCount < ElementSize)
+                                ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                                ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                                ElementCount += 1
+
+                            constraint(ErrorMessage = blank)
+                                "<ErrorMessage>"
+        
+        UpdateMFADeviceName
+            if (EUEnabled)
+                if (EUEntityId != blank and FormBasedIdentityProperties.User != blank)
+                    if(MFARegisteredProvider not entered)
+                        ErrorMessage = blank
+                        ErrorCode = blank
+                        EUAPICallResp = blank
+
+                        invoke UpdateMFADeviceName ExternalUserExecutor
+                            resume on error
+                            assign result to EUAPICallResp
+
+                            invoked.EntityId = EUEntityId
+                            invoked.UserIdentity = FormBasedIdentityProperties.User
+                            invoked.DeviceId = RegisteredDeviceWithDeviceId.DeviceId
+                            invoked.DeviceName = NewDeviceName
+
+                        ElementCount = 0
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+
+                            EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                            if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                            else
+                                ElementSize = 1
+
+                            while (ElementCount < ElementSize)
+                                ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                                ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                                ElementCount += 1
+
+                            constraint(ErrorMessage = blank)
+                                "<ErrorMessage>"
+
+    Actions
+    
+        Create is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                
+        CreateIdentity is a Create Action        		
+        	Action Rules
+                PasswordLastSet = current timestamp
+                ServiceType = Service.ServiceType
+	            if (Service.ServiceType = "FormBased")
+		        	FormBasedIdentityProperties.User = Identity
+		        	FormBasedIdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateFormBasedIdentityKey(Identity) 
+		        if (Service.ServiceType = "Windows")
+		        	WindowsIdentityProperties.SID = Identity
+		        	WindowsIdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateWindowsIdentityKey(Identity)
+		        if (Service.ServiceType = "MISocket")
+		        	MISocketIdentityProperties.MIUser = Identity
+		        	MISocketIdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateMISocketIdentityKey(Identity)              	                	               	
+		        if (Service.ServiceType = "Database")
+		        	DatabaseIdentityProperties.DatabaseLoginName = Identity
+		        	DatabaseIdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateDatabaseIdentityKey(Identity) 
+		        if (Service.ServiceType = "Unix")
+		        	UnixIdentityProperties.Login = Identity
+		        	UnixIdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateUnixIdentityKey(Identity) 
+		        if (Service.ServiceType = "AS400")
+		        	AS400IdentityProperties.UserID = Identity
+		        	AS400IdentityProperties.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateMISocketIdentityKey(Identity)
+				if (Service.ServiceType = "WebService")
+		        	NoneLoginScheme.User = Identity
+		        	NoneLoginScheme.Password = NewPassword
+		        	Identity = com.lawson.apps.security.base.Identity_ActionBase.generateWebServicedIdentityKey(Identity)
+
+		CreateFormBasedIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateFormBasedIdentityKey(FormBasedIdentityProperties.User)
+                ServiceType = "FormBased"
+
+		CreateWindowsIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                WindowsIdentityProperties.SID = Identity
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateWindowsIdentityKey(Identity)
+                ServiceType = "Windows"
+
+		CreateMISocketIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                MISocketIdentityProperties.MIUser = Identity
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateMISocketIdentityKey(Identity)
+                ServiceType = "MISocket"
+
+		CreateDatabaseIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                DatabaseIdentityProperties.DatabaseLoginName = Identity
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateDatabaseIdentityKey(Identity)   
+                ServiceType = "Database"                                     			        			
+
+		CreateUnixIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                UnixIdentityProperties.Login = Identity
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateUnixIdentityKey(Identity)
+                ServiceType = "Unix"
+
+		CreateAS400Identity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                AS400IdentityProperties.UserID = Identity
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateAS400IdentityKey(Identity)
+                ServiceType = "AS400"
+        
+		CreateWebServiceIdentity is a Create Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+                Identity = com.lawson.apps.security.base.Identity_ActionBase.generateWebServicedIdentityKey(NoneLoginScheme.User)
+                ServiceType = "WebService"   
+				
+        Delete is a Delete Action
+
+		Purge is a Purge Action
+
+        Update is an Update Action
+        	Action Rules
+                PasswordLastSet = current timestamp
+        		
+
+		ChangePasswordUIMenu is an Update Action
+			default label is "ChangePassword"
+			completion message is "You_have_successfully_changed_your_password."
+			restricted
+			Action Rules
+				if (EUEnabled)
+					constraint (NewPassword = ConfirmNewPassword)
+						"New_PasswordDoesNotMatch_Confirm_New_Password"
+					
+					constraint (EUEntityId != blank)
+						"Entity_IdIsRequiredOnTheService"
+							
+					invoke ChangePassword ExternalUserExecutor
+						resume on error
+						assign result to EUAPICallResp 
+						
+						invoked.EntityId = EUEntityId					
+						invoked.UserIdentity = FormBasedIdentityProperties.User	
+						invoked.Password = CurrentPassword
+						invoked.NewPassword = NewPassword
+						invoked.Language = ActorLanguage
+					
+					EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+					if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+						EUAPICallRespNode = EUAPICallResp select "$..errorlist[0].languagetext"
+						
+						constraint (false)
+							"FailedToChangePassword.<EUAPICallRespNode>"
+					else
+						FormBasedIdentityProperties.Password = NewPassword
+						PasswordLastSet = current timestamp
+				else	
+					include ChangePasswordValidation	
+					PasswordLastSet = current timestamp
+
+        ChangePassword is an Update Action
+            Action Rules
+                include ChangePasswordValidation
+        		PasswordLastSet = current timestamp
+
+        AdminChangePassword is an Update Action
+            Action Rules
+                if (IsDatabaseIdentity)
+                    DatabaseIdentityProperties.Password = NewPassword
+                if (IsFormBasedIdentity)
+                    FormBasedIdentityProperties.Password = NewPassword
+                if (IsMISocketIdentity)
+                    MISocketIdentityProperties.Password = NewPassword
+                if (IsUnixIdentity)
+                    UnixIdentityProperties.Password = NewPassword
+                if (IsWindowsIdentity)
+                    WindowsIdentityProperties.Password = NewPassword
+				if (IsWebServiceIdentity)
+                    NoneLoginScheme.Password = NewPassword
+                if (IsAS400Identity)
+                    AS400IdentityProperties.Password = NewPassword                    
+        		PasswordLastSet = current timestamp
+
+        ResetPassword is an Update Action
+            Action Rules
+                constraint (NewPassword = ConfirmNewPassword)
+                    "NewPasswordDoesNotMatchConfirmNewPassword"
+                CurrentPassword=FormBasedIdentityProperties.Password
+                if(Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse != blank)  
+	                constraint (NewPassword != CurrentPassword)
+	                	"NewPasswordCannotMatchCurrentPassword"
+                if (Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse > 0)
+                	for each IdentityPassword set
+                		constraint(NewPassword != each.Password)
+                			"NewPasswordCannotMatchPasswordsUsedBefore"
+                if (IsDatabaseIdentity)
+                	constraint (NewPassword != DatabaseIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    DatabaseIdentityProperties.Password = NewPassword
+                if (IsFormBasedIdentity)
+                	if(Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse >0)
+	                	constraint (NewPassword != FormBasedIdentityProperties.Password)
+	                		"NewPasswordCannotMatchCurrentPassword"
+                    FormBasedIdentityProperties.Password = NewPassword
+
+
+                if (IsMISocketIdentity)
+                	constraint (NewPassword != MISocketIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    MISocketIdentityProperties.Password = NewPassword
+                if (IsUnixIdentity)
+                	constraint (NewPassword != UnixIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    UnixIdentityProperties.Password = NewPassword
+                if (IsWindowsIdentity)
+                	constraint (NewPassword != WindowsIdentityProperties.Password)
+                    	"NewPasswordCannotMatchCurrentPassword"
+                    WindowsIdentityProperties.Password = NewPassword 
+				if (IsWebServiceIdentity)
+                	constraint (NewPassword != NoneLoginScheme.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    NoneLoginScheme.Password = NewPassword
+                if (IsAS400Identity)
+                	constraint (NewPassword != AS400IdentityProperties.Password)
+	               		"NewPasswordCannotMatchCurrentPassword"
+                    AS400IdentityProperties.Password = NewPassword                    
+        		PasswordLastSet = current timestamp                   
+                IsPasswordResetRequired = false
+                if (instance count of IdentityPassword set = Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse)            		
+					invoke Delete first IdentityPassword set
+				if (instance count of IdentityPassword set = 0)
+			    	invoke Create IdentityPassword
+		                	invoked.Identity = Identity
+	               			invoked.Service = Service
+	               			invoked.IdentityPassword.Password = CurrentPassword              		               		
+	               			invoked.IdentityPassword.PasswordCreated = current timestamp
+                if (instance count of IdentityPassword set <= Service.PasswordResetPolicy.NumberOfLastPasswordsToNotReuse)
+                	invoke Create IdentityPassword
+	                	invoked.Identity = Identity
+               			invoked.Service = Service
+               			invoked.IdentityPassword.Password = NewPassword              		               		
+               			invoked.IdentityPassword.PasswordCreated = current timestamp  
+               	           		
+		
+		ViewFullSummary is an Update Action
+		
+		ClearSecurityAnswers is an Instance Action
+			completion message is "SecurityAnswersCleared"
+			Action Rules
+				for each SecurityAnswer set
+					invoke Delete each
+
+
+		UpdateSecurityAnswers is an Update Action		
+			completion message is "SecurityAnswerUpdated"
+			
+		ForcePasswordReset is an Instance Action
+			Action Rules
+				invoke Update Identity
+					invoked.IsPasswordResetRequired = true
+		
+		MarkForPasswordReset is an Instance Action
+			Parameters
+				EmailAddress is EmailAddressField
+			Action Rules
+				IsPasswordResetRequired = true
+			Exit Rules
+				send email
+					to EmailAddress
+					from config(security).SecurityAdministratorDoNotReplyEmail
+					subject "PasswordResetRequired"
+					Contents
+						"YourPasswordHasBeenExpiredPleaseResetYourPassword"
+						"FromTheInstructionProvidedByYourSystemAdministrator"
+
+		GenerateAndSendPassword is an Instance Action
+			Parameters
+				EmailAddress is EmailAddressField
+				TemplateBody	is RichText
+					Text Variables (locale of EmailLocale)
+						TemporaryPassword		value is GeneratedPassword
+			Parameter Rules
+				EmailAddress required
+
+			Action Rules
+				if (IsDatabaseIdentity)
+                	constraint (NewPassword != DatabaseIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    DatabaseIdentityProperties.Password = NewPassword
+                if (IsFormBasedIdentity)
+                	constraint (NewPassword != FormBasedIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    FormBasedIdentityProperties.Password = NewPassword
+                if (IsMISocketIdentity)
+                	constraint (NewPassword != MISocketIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    MISocketIdentityProperties.Password = NewPassword
+                if (IsUnixIdentity)
+                	constraint (NewPassword != UnixIdentityProperties.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    UnixIdentityProperties.Password = NewPassword
+                if (IsWindowsIdentity)
+                	constraint (NewPassword != WindowsIdentityProperties.Password)
+                    	"NewPasswordCannotMatchCurrentPassword"
+                    WindowsIdentityProperties.Password = NewPassword  
+				if (IsWebServiceIdentity)
+                	constraint (NewPassword != NoneLoginScheme.Password)
+                		"NewPasswordCannotMatchCurrentPassword"
+                    NoneLoginScheme.Password = NewPassword
+                if (IsAS400Identity)
+                	constraint (NewPassword != AS400IdentityProperties.Password)
+	               		"NewPasswordCannotMatchCurrentPassword"
+                    AS400IdentityProperties.Password = NewPassword                   
+
+				PasswordLastSet = current timestamp                   
+                IsPasswordResetRequired = true  
+                
+                if (Service.PasswordResetPolicy != blank and Service.PasswordResetPolicy.SecurityEmailTemplate != blank)
+					TemplateBody = Service.PasswordResetPolicy.SecurityEmailTemplate.Body translation 
+				else
+					TemplateBody =  DefaultEmailContent + " " + GeneratedPassword    
+				FinalBody = TemplateBody text
+			Exit Rules
+				send email
+					to EmailAddress
+					from EmailTemplateFrom
+					subject "<EmailTemplateSubject>"
+					Contents 
+							"<FinalBody>"
+
+        RemoveRegisteredDevice is an Instance Action
+			valid when (AccessTokenEndpointExist)
+            restricted
+            confirmation required
+                "AreYouSureYouWantToRemoveTheRegisteredMFADevice?"
+
+            Action Rules
+                invoke Delete RegisteredMFAProviders
+
+                include GetRegisteredMFADeviceInfo
+
+                if (NumberOfRegisteredProviders = 0)
+                    constraint (false)
+                        "NoRegisteredProvidersFound."
+
+        RemoveSelectedDevice is an Update Action
+            restricted
+            Field Rules
+                MFARegisteredProvider
+                    required
+
+        RemoveDevice is an Instance Action
+            restricted
+            Parameters
+                DeviceId 			    is Alpha size 50              
+                ProviderId              is Alpha size 50
+                ProviderName            is Alpha size 10
+                IdentifierValue         is Alpha size 50
+                DeviceName              is Alpha size 50
+                
+            Parameter Rules
+                DeviceId
+                    required
+                ProviderId
+                    required
+                ProviderName
+                    required
+            
+            Action Rules
+                if (EUEnabled)
+                    if (EUEntityId != blank  and Identity.FormBasedIdentityProperties.User != blank)
+
+                        ErrorCode = blank
+                        ErrorMessage = blank
+                        EUAPICallResp = blank
+					    ElementCount = 0
+                        ElementSize = 0
+                        EUAPICallStatus = blank
+                        RegistrationStatus = MFARegistrationStatus.NONE
+
+
+
+
+
+                            
+
+
+
+                        if ( ProviderName =  "EMAIL" and IdentifierValue = blank)
+                            ErrorMessage = "EmailIsRequired"
+                        else 
+                            if ( ProviderName =  "TOTP" and DeviceName = blank)
+                                ErrorMessage = "DeviceNameIsRequired"
+                            
+
+                        invoke RemoveMFADevice ExternalUserExecutor
+                            assign result to EUAPICallResp
+
+                            invoked.EntityId = EUEntityId
+                            invoked.UserIdentity            = FormBasedIdentityProperties.User
+                            invoked.ProviderId              = ProviderId
+                            invoked.DeviceId                = DeviceId
+
+
+                            if(ProviderName =  "EMAIL")
+                                invoked.IdentifierValue         = IdentifierValue
+                            else 
+                                if(ProviderName =  "TOTP")
+                                    invoked.IdentifierValue         = DeviceName 
+
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                        if(EUAPICallStatus = blank)
+                            ErrorMessage = UnknowErrorMessage + ContactAdministratorMessage
+                            
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Success"))
+                            RegistrationStatus = MFARegistrationStatus.DeviceUnregistered
+                        else
+                            if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+                                RegistrationStatus = MFARegistrationStatus.DeviceUnregistrationFailed
+
+                                EUAPICallRespNode = EUAPICallResp select "$.errorlist[*]"
+
+                                if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                    ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                                else
+                                    ElementSize = 1
+
+                                while (ElementCount < ElementSize)
+                                    EUAPICallRespNode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                                    ErrorMessage += EUAPICallRespNode + ": "
+                                    EUAPICallRespNode = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+                                    ErrorMessage += EUAPICallRespNode + "<br>"
+
+                                    ElementCount += 1
+        RegisterMFADeviceAsDefault is an Instance Action
+            valid when (AccessTokenEndpointExist)
+            restricted
+            confirmation required
+                "AreYouSureYouWantToRegisterThisDeviceAsDefaultForMFA?"
+			completion message is "You_have_successfully_updated_the_default_device_for_multi_factor_authentication."
+         	
+            Parameters
+                MFADeviceId is Alpha 50
+            Parameter Rules
+                MFADeviceId required
+
+            Action Rules
+
+                DeviceId = MFADeviceId
+               
+                invoke Delete RegisteredMFAProviders
+
+                include GetRegisteredMFADeviceInfo
+
+                if (NumberOfRegisteredProviders = 0)
+                    constraint (false)
+                        "NoRegisteredProvidersFound."
+
+
+                if (instance count of RegisteredDeviceWithDeviceId = 0)                        
+                    constraint (false)
+                        "NoRegisteredMFADeviceFoundWithTheSpecifiedDeviceId"
+                
+
+                if (RegisteredDeviceWithDeviceId.DeviceId = DefaultMFADevice.DeviceId)
+                    constraint (false)
+                        "DeviceIsAlreadyRegisteredAsTheDefaultDeviceForMFA."
+
+                include SetDefaultMFADevice
+            
+            Exit Rules
+                invoke LoadRegisteredMFADevices
+
+        RemoveMFADeviceWithId is an Instance Action
+            valid when (AccessTokenEndpointExist)
+            restricted
+            confirmation required
+                "AreYouSureYouWantToRemoveThisDevice?"
+            completion message is "You_have_successfully_removed_a_registered_MFA_device."
+            Parameters
+                MFADeviceId is Alpha 50
+            Parameter Rules
+                MFADeviceId required
+
+            Action Rules                
+
+                DeviceId = MFADeviceId
+               
+                invoke Delete RegisteredMFAProviders
+
+                include GetRegisteredMFADeviceInfo
+
+                if (NumberOfRegisteredProviders = 0)
+                    constraint (false)
+                        "NoRegisteredProvidersFound."
+
+
+                if (instance count of RegisteredDeviceWithDeviceId = 0)                        
+                    constraint (false)
+                        "NoRegisteredMFADeviceFoundWithTheSpecifiedDeviceId"
+
+                invoke RemoveDevice
+                    invoked.DeviceId                = RegisteredDeviceWithDeviceId.DeviceId
+                    invoked.ProviderId              = RegisteredDeviceWithDeviceId.ProviderId
+                    invoked.ProviderName            = RegisteredDeviceWithDeviceId.ProviderName
+                    invoked.IdentifierValue         = RegisteredDeviceWithDeviceId.IdentifierValue
+                    invoked.DeviceName              = RegisteredDeviceWithDeviceId.DeviceName
+
+                if(RegistrationStatus = MFARegistrationStatus.DeviceUnregistrationFailed)
+                    constraint(false)
+                        "<ErrorMessage>"
+
+            Exit Rules
+                invoke LoadRegisteredMFADevices
+
+        UpdateMFADeviceName is an Instance Action            
+			completion message is "You_have_successfully_updated_the_device_name."
+            valid when (AccessTokenEndpointExist)
+            restricted
+
+            Local Fields
+                DeviceType          is Alpha 10
+
+            Parameters
+                MFADeviceId is Alpha 50
+                NewDeviceName is Alpha 50
+            Parameter Rules
+                MFADeviceId 
+                    required
+                NewDeviceName
+                    required
+                    constraint ( NewDeviceName matches "^[a-zA-Z\d]+([\s]*[a-zA-Z\d])*$")
+                        "Device_name_cannot_contain_special_characters_or_start_with_spaces"
+                
+            Action Rules
+                DeviceId = MFADeviceId
+                DeviceName = NewDeviceName
+
+                invoke Delete RegisteredMFAProviders
+
+                include GetRegisteredMFADeviceInfo
+
+                if (NumberOfRegisteredProviders = 0)
+                    constraint (false)
+                        "NoRegisteredProvidersFound."
+
+
+
+                if (instance count of RegisteredDeviceWithDeviceId = 0)                       
+                    constraint (false)
+                        "NoRegisteredMFADeviceFoundWithTheSpecifiedDeviceId"
+
+                DeviceType = RegisteredDeviceWithDeviceId.ProviderName
+                constraint (DeviceType = "TOTP")
+                    "UpdatingDeviceNameIsNotSupportedForDeviceType:<DeviceType>"
+
+                constraint (RegisteredDeviceWithDeviceId.DeviceName not = NewDeviceName )
+                    "<SameDeviceNameErrorMessage>"
+
+                if (instance count of RegisteredTOTPDeviceWithDeviceName > 0)
+                    constraint(false)
+                        "<DeviceNameAlreadyUsed>"
+
+
+                for each RegisteredMFAProviders
+                    if ( each.ProviderName  not  = "TOTP")
+                        constraint( each.DeviceDisplayName not = NewDeviceName)
+                            "<DeviceNameAlreadyUsed>"
+                
+                include UpdateMFADeviceName
+            
+            Exit Rules
+                invoke LoadRegisteredMFADevices
+
+        RegisterMFADeviceAsDefaultUI is an Update Action
+         	valid when (AccessTokenEndpointExist)
+            restricted
+            default label is "SetMFADeviceAsDefault"
+            Action Rules                
+                invoke RegisterMFADeviceAsDefault
+                    invoked.MFADeviceId = MFADeviceId
+
+        RemoveMFADeviceWithIdAction is an Update Action
+         	valid when (AccessTokenEndpointExist)
+            restricted
+            default label is "RemoveDeviceWithId"
+            Action Rules                
+                invoke RemoveMFADeviceWithId
+                    invoked.MFADeviceId = MFADeviceId
+        
+        UpdateMFADeviceNameAction is an Update Action
+         	valid when (AccessTokenEndpointExist)
+            restricted
+            default label is "UpdateMFADeviceName"
+            Field Rules
+                MFADeviceId
+                    required
+                NewDeviceName
+                    required
+                    constraint ( NewDeviceName matches "^[a-zA-Z\d]+([\s]*[a-zA-Z\d])*$")
+                        "Device_name_cannot_contain_special_characters_or_start_with_spaces"                    
+
+            Action Rules
+                invoke UpdateMFADeviceName
+                    invoked.MFADeviceId = MFADeviceId
+                    invoked.NewDeviceName = NewDeviceName
+
+        LoadRegisteredMFADevices is an Instance Action
+         	valid when (AccessTokenEndpointExist)
+            restricted
+            Action Rules
+                invoke ClearMFARegistrationCache
+
+                invoke Delete RegisteredMFAProviders
+                include GetRegisteredMFADeviceInfo
+
+
+                invoke Delete ExternalUserIdentifiers
+                if (ExternalUserIdentifiers not exists)
+                    include GetExternalUserIdentifiers
+
+        ClearRegisteredMFADevices is an Instance Action
+         	valid when (AccessTokenEndpointExist)
+            restricted
+            Action Rules
+                invoke Delete RegisteredMFAProviders
+
+                invoke Delete ExternalUserIdentifiers
+
+        ClearMFARegistrationCache is an Instance Action
+            valid when (AccessTokenEndpointExist)
+            restricted
+            Parameters
+                CacheGUID           is Alpha size 40
+                ForceCacheClear     is Boolean
+
+            Action Rules
+                invoke ClearMFARegistrationCache ExternalUserExecutor
+                    resume on error
+                    assign result to EUAPICallResp
+
+                    invoked.EntityId = EUEntityId
+                    invoked.UserIdentity = FormBasedIdentityProperties.User
+                    invoked.CacheGUID = CacheGUID
+                    invoked.ForceCacheClear = ForceCacheClear
+        
+        
+
+                    

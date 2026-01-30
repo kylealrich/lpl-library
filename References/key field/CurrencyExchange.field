@@ -1,0 +1,322 @@
+CurrencyExchange is a Field
+
+    Representation
+        Group Fields
+			ToCurrency
+			EnteredCurrencyRate		is a CurrencyExchangeRate						
+			EnteredCurrencyAmount	is like InternationalAmount 
+				precision is OutputNumberOfDecimals 
+		        
+	Patterns
+		implements CompactFormat
+		        
+    Context Fields
+		FinanceEnterpriseGroup
+		FromCurrency
+		TransactionAmount		is a CurrencyAmount
+		ExchangeDate
+		ContextToCurrency		is a ToCurrency
+		CurrencyTable			
+		SummarizedInterfaceTransaction
+		
+	Local Fields
+		LocalToCurrency			is a ToCurrency
+		TranCurrRelationship	is a CurrencyRelationship
+		TriangulateFrRel		is a CurrencyRelationship
+		TriangulateToRel		is a CurrencyRelationship
+		TranCurrExchangeRate    is a CurrExchangeRate
+			version is ExchangeDate
+		TriangFrExchangeRate    is a CurrExchangeRate
+			version is ExchangeDate
+		TriangToExchangeRate    is a CurrExchangeRate
+			version is ExchangeDate
+		LocalSellRate           is Decimal size 31.15
+		LocalRateDefined		is Boolean
+		LocalCurrencyTable      is a CurrencyTable
+		LocalErrorMessage		is Alpha 150
+
+	Derived Fields
+		CurrencyRelationshipErrorMessage is a MessageField
+			"CurrencyRelationshipDoesNotExistBetween<TranCurrRelationship.FromCurrency>To<TranCurrRelationship.ToCurrency>"
+			
+		TriangulateFrRateErrorMessage is a MessageField
+			"CurrencyRateDoesNotExistBetween<FromCurrency>To<TranCurrRelationship.TriangulateVia>InRateTable<LocalCurrencyTable>"
+		
+		TriangulateToRateErrorMessage is a MessageField	 
+			"CurrencyRateDoesNotExistBetween<TranCurrRelationship.TriangulateVia>To<ToCurrency>InRateTable<LocalCurrencyTable>"
+		
+		TranCurrExchangeRateErrorMessage is a MessageField	 	 
+			"CurrencyRateDoesNotExistBetween<FromCurrency>To<ToCurrency>InRateTable<LocalCurrencyTable>"
+			
+		IsRateDefined		is a DerivedField
+			type is Boolean
+			constraint (IsRelationshipAndRateDefined)
+				"<LocalErrorMessage>"
+			return true
+		
+		IsRelationshipAndRateDefined          is a DerivedField
+			type is Boolean
+			initialize LocalErrorMessage
+			
+			if (CurrencyTable not entered)
+ 				LocalCurrencyTable	= FinanceEnterpriseGroup.CurrencyTable
+ 			else
+ 				LocalCurrencyTable	= CurrencyTable
+
+			if (FromCurrency entered 
+			and ToCurrency entered
+			and FromCurrency != ToCurrency)
+				TranCurrRelationship.FromCurrency	      = FromCurrency
+				TranCurrRelationship.ToCurrency		      = ToCurrency
+				TranCurrExchangeRate.CurrencyRelationship = TranCurrRelationship
+				if (TranCurrRelationship not exists)
+					LocalErrorMessage	= CurrencyRelationshipErrorMessage
+					return false
+					
+				if (TranCurrRelationship.Triangulate)
+					TriangulateFrRel.FromCurrency	            = FromCurrency
+					TriangulateFrRel.ToCurrency		            = TranCurrRelationship.TriangulateVia
+					TriangulateToRel.FromCurrency	            = TranCurrRelationship.TriangulateVia
+					TriangulateToRel.ToCurrency		            = ToCurrency
+					TriangFrExchangeRate.CurrencyRelationship	= TriangulateFrRel
+					TriangToExchangeRate.CurrencyRelationship	= TriangulateToRel
+					if (TriangulateFrRate = 0)
+						LocalErrorMessage	= TriangulateFrRateErrorMessage
+						return false
+					if (TriangulateToRate = 0)
+						LocalErrorMessage	= TriangulateToRateErrorMessage
+						return false
+				else
+					if (TranCurrExchangeRate.Rate = 0)
+						LocalErrorMessage	= TranCurrExchangeRateErrorMessage
+						return false
+			return true				
+			
+		OutputCurrencyAmount		is a DerivedField
+    		type is Decimal 24.8 
+				precision is OutputNumberOfDecimals
+			if (ToCurrency entered)
+				LocalToCurrency = ToCurrency
+			else
+				LocalToCurrency = ContextToCurrency
+			if (LocalToCurrency not entered)
+				LocalToCurrency = FromCurrency
+	
+			if (FromCurrency = LocalToCurrency
+			and !SummarizedInterfaceTransaction)
+				if (TransactionAmount entered)
+					OutputCurrencyAmount = TransactionAmount
+			else				
+			if (EnteredCurrencyAmount entered
+			or  SummarizedInterfaceTransaction)
+				OutputCurrencyAmount = EnteredCurrencyAmount
+			else
+			if (FromCurrency = LocalToCurrency)
+				OutputCurrencyAmount = TransactionAmount							
+			else
+				TranCurrRelationship.FromCurrency	      = FromCurrency
+				TranCurrRelationship.ToCurrency		      = LocalToCurrency
+				TranCurrExchangeRate.CurrencyRelationship = TranCurrRelationship
+				if (TranCurrRelationship.MultDiv.Multiply)
+					OutputCurrencyAmount = (TransactionAmount * OutputCurrencyRate)
+				else				
+					OutputCurrencyAmount = (TransactionAmount / OutputCurrencyRate)
+			return RoundedCurrencyAmount
+
+		OutputCurrencyRate			is a DerivedField
+			type is Decimal size 31.15
+			if (FromCurrency not entered)
+				return 1
+
+			if (ToCurrency entered)
+				LocalToCurrency = ToCurrency
+			else
+				LocalToCurrency = ContextToCurrency
+			if (LocalToCurrency not entered)
+				LocalToCurrency = FromCurrency	
+			if (FromCurrency = LocalToCurrency)
+				return 1
+			
+			if (EnteredCurrencyRate entered)
+				return EnteredCurrencyRate 
+
+			if (EnteredCurrencyAmount	not entered)
+				return CurrencySellRate 
+
+			if (EnteredCurrencyAmount entered
+			and TransactionAmount	not entered)
+				if (EnteredCurrencyRate not entered)
+					return CurrencySellRate 
+
+
+			TranCurrRelationship.FromCurrency	      = FromCurrency
+			TranCurrRelationship.ToCurrency		      = LocalToCurrency
+			TranCurrExchangeRate.CurrencyRelationship = TranCurrRelationship
+			if (!TranCurrRelationship exists)
+				return 1
+
+			if (TranCurrRelationship.MultDiv.Multiply)
+				if (RoundedCalculatedCurrencyAmount = EnteredCurrencyAmount)	
+					return CurrencySellRate
+				else
+					return (EnteredCurrencyAmount / TransactionAmount) 
+			else
+				if (RoundedCalculatedCurrencyAmount = EnteredCurrencyAmount)	
+					return CurrencySellRate
+				else
+					return (TransactionAmount / EnteredCurrencyAmount) 
+				
+		CurrencySellRate			is a DerivedField
+			type is Decimal size 31.15	
+				
+			if (FromCurrency not entered)
+				return 1			
+			if (CurrencyTable not entered)
+ 				LocalCurrencyTable					= FinanceEnterpriseGroup.CurrencyTable
+ 			else
+ 				LocalCurrencyTable					= CurrencyTable
+
+			if (ToCurrency entered)
+				LocalToCurrency = ToCurrency
+			else
+				LocalToCurrency = ContextToCurrency
+			if (LocalToCurrency not entered)
+				LocalToCurrency = FromCurrency	
+			if (FromCurrency = LocalToCurrency)
+				return 1
+		
+			TranCurrRelationship.FromCurrency	      = FromCurrency
+			TranCurrRelationship.ToCurrency		      = LocalToCurrency
+			TranCurrExchangeRate.CurrencyRelationship = TranCurrRelationship
+			if (!TranCurrRelationship exists)
+				return 1	
+
+			if (TranCurrRelationship.Triangulate)			
+				TriangulateFrRel.FromCurrency	            = FromCurrency
+				TriangulateFrRel.ToCurrency		            = TranCurrRelationship.TriangulateVia
+				TriangulateToRel.FromCurrency	            = TranCurrRelationship.TriangulateVia
+				TriangulateToRel.ToCurrency		            = LocalToCurrency
+				TriangFrExchangeRate.CurrencyRelationship	= TriangulateFrRel		
+				TriangToExchangeRate.CurrencyRelationship	= TriangulateToRel
+				return TriangulateCurrRate
+			else
+ 				LocalSellRate = TranCurrExchangeRate.Rate
+ 				return LocalSellRate
+
+		TriangulateFrRate			is a DerivedField		
+			type is Decimal size 31.15
+			return TriangFrExchangeRate.Rate
+
+		TriangulateToRate			is a DerivedField		
+			type is Decimal size 31.15
+			return TriangToExchangeRate.Rate
+			
+		RelationshipOverrideTolerance is a DerivedField
+			type is Numeric size 3
+			return TranCurrRelationship.OverrideTolerance
+
+		RateToleranceLoLimit		is a ComputeField
+			type is Decimal size 31.15
+			(CurrencySellRate - (CurrencySellRate * RelationshipOverrideTolerance / 100))
+			
+		RateToleranceHiLimit		is a ComputeField
+			type is Decimal size 31.15
+			(CurrencySellRate + (CurrencySellRate * RelationshipOverrideTolerance / 100))
+			
+		TriangulateCurrRate			is a ConditionalField
+			type is Decimal size 31.15
+			if  (TriangulateFrRel.MultDiv.Multiply)
+				if  (TriangulateToRel.MultDiv.Multiply)
+					(TriangulateFrRate * TriangulateToRate)
+				else
+					(TriangulateFrRate / TriangulateToRate)
+			else
+ 			if  (TriangulateToRel.MultDiv.Multiply)
+				(TriangulateToRate / TriangulateFrRate)
+			else
+				(1 / (TriangulateFrRate * TriangulateToRate))
+ 
+ 		OutputNumberOfDecimals is a DerivedField
+ 			type is Numeric size 1
+ 			if (ToCurrency entered)
+				LocalToCurrency = ToCurrency
+			else
+				LocalToCurrency = ContextToCurrency
+			if (LocalToCurrency not entered)
+				LocalToCurrency = FromCurrency
+			return LocalToCurrency.NumberOfDecimals
+ 			
+		DerivedRoundTo					is a DerivedField
+    		type is Decimal 5.4
+			restricted
+    		if (OutputNumberOfDecimals = 2)
+    			return .01
+    		else
+    		if (OutputNumberOfDecimals = 0)
+    			return 1
+    		else
+    		if (OutputNumberOfDecimals = 3)
+    			return .001
+    		else
+    		if (OutputNumberOfDecimals = 4)
+    			return .0001
+
+		RoundedCurrencyAmount			is a DerivedField
+     		type is Decimal 24.8 
+ 			restricted
+    		if (OutputCurrencyAmount entered)
+	    		RoundedCurrencyAmount	      = OutputCurrencyAmount
+	    		round RoundedCurrencyAmount to nearest DerivedRoundTo
+	    		return RoundedCurrencyAmount
+	    	else
+	    		return 0
+
+		RoundedCalculatedCurrencyAmount			is a DerivedField
+    		type is Decimal 24.8 
+			restricted
+			if (TranCurrRelationship.MultDiv.Multiply)
+	    		RoundedCalculatedCurrencyAmount	= TransactionAmount * CurrencySellRate
+	    	else
+	    		RoundedCalculatedCurrencyAmount	= TransactionAmount / CurrencySellRate
+    		round RoundedCalculatedCurrencyAmount to nearest DerivedRoundTo
+    		return RoundedCalculatedCurrencyAmount
+
+	Conditions
+		WithinRateTolerance
+			when (EnteredCurrencyRate >= RateToleranceLoLimit
+			and	  EnteredCurrencyRate <= RateToleranceHiLimit)
+ 			
+	Field Rules
+			
+		ToCurrency
+			default to ContextToCurrency		
+			default to FromCurrency
+			required
+			LocalRateDefined = IsRateDefined
+			if	(EnteredCurrencyRate entered
+			and	 TranCurrRelationship.OverrideProtection)
+				constraint	(EnteredCurrencyRate = CurrencySellRate)
+					"CannotOverrideCurrencyRate"			
+
+			if	(EnteredCurrencyRate entered
+			and  TranCurrRelationship.OverrideTolerance	entered)
+				constraint (WithinRateTolerance)
+					"RateIsNotWithinToleranceRange"
+
+		TransactionAmount
+			required
+						
+		EnteredCurrencyRate
+			EnteredCurrencyRate = OutputCurrencyRate
+			
+			if (TranCurrRelationship.OverrideProtection)
+				constraint (EnteredCurrencyRate = CurrencySellRate)
+					"CannotOverrideCurrencyRate"
+			
+			if (TranCurrRelationship.OverrideTolerance entered)
+				constraint (WithinRateTolerance)
+					"RateIsNotWithinToleranceRange"
+		
+		EnteredCurrencyAmount
+			EnteredCurrencyAmount = OutputCurrencyAmount
+

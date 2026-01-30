@@ -1,0 +1,242 @@
+WorkOrderSchedule is a BusinessClass
+    owned by wo
+    prefix is WOS
+    classic name is WOSCHEDULE
+
+    Ontology
+        symbolic key is WorkOrderSchedule
+            classic set name is WOSSET1
+            classic name is OBJ-ID-DMND
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        HeaderObjectID   	is an ObjId
+        	classic name is OBJ-ID-HDR
+        DetailObjectID   	is an ObjId
+        	classic name is OBJ-ID-DTL
+        Date       			is Date
+        DemandType 			is Numeric size 1
+            States
+                DocumentDetail  value is 1
+                DocumentSummary value is 2
+                Forecast        value is 3
+        SystemCode			is a DemandSystemCode
+            classic name is SYSTEM-CD
+        DocumentNumber     	is a DemandDocument
+        	classic name is DOC-NBR
+        LineNumber
+            classic name is LINE-NBR
+        Rush				is Boolean
+        	classic name is RUSH-FL
+        Quantity
+        ActionCode			is AlphaUpper 1
+        	classic name is ACTION-CD
+        	States
+				Group           value is "G"
+				Separate        value is "S"
+		IsSelected			is Boolean
+		SequenceNumber		is Numeric 2		
+		
+    Conditions
+
+
+
+
+
+
+
+        IsScheduleWithDetail
+        	restricted
+			when (WorkOrderScheduleDetailsRel exists)
+			
+    	IsForecastDemand
+    		restricted
+    		when (DemandType.Forecast)
+		
+		HasSelection
+			restricted
+			when (SelectedForGroupRel exists)
+					
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+            	Company
+            	InventoryLocation
+            	Item
+                HeaderObjectID
+                DemandType
+                Date
+                SystemCode
+                DocumentNumber
+                LineNumber
+                WorkOrderSchedule
+
+        Set3
+            indexed
+            Sort Order
+                Company
+            	InventoryLocation
+            	Item
+                DetailObjectID
+                WorkOrderSchedule
+
+        Set4
+            indexed
+            Sort Order
+            	Company
+            	InventoryLocation
+            	Item
+                HeaderObjectID
+                DetailObjectID
+                Date
+                WorkOrderSchedule
+
+        Set5
+            indexed
+            Sort Order
+            	Company
+            	InventoryLocation
+            	Item
+                HeaderObjectID
+                DemandType
+                SystemCode
+                DocumentNumber
+                LineNumber
+                Date
+                WorkOrderSchedule
+                
+   		ByDetail
+            Sort Order
+            	Company
+            	InventoryLocation
+            	Item
+            	SequenceNumber
+            	WorkOrderSchedule
+
+    Relations
+        WorkOrderScheduleDetailsRel is a WorkOrderScheduleDetail set
+
+		WorkOrderScheduleDetailForGroupsRel 
+			one-to-many relation to WorkOrderScheduleDetail
+			Field Mapping uses symbolic key  
+				related.Company				 			= Company
+	        	related.InventoryLocation		 		= InventoryLocation
+	        	related.Item					 		= Item
+			Instance Selection
+				where (related.SequenceNumber 			= WorkOrderDataScheduleHeader.SequenceNumber
+				and    related.WorkOrderSchedule entered)
+			
+		WorkOrderScheduleDetailRel 
+			one-to-many relation to WorkOrderScheduleDetail
+			Field Mapping uses symbolic key  
+				related.Company				 			= Company
+	        	related.InventoryLocation		 		= InventoryLocation
+	        	related.Item					 		= Item
+			Instance Selection
+				where (related.SequenceNumber 			= SequenceNumber)
+				
+		WorkOrderForecastDemandsUpdateStatusRel		
+			one-to-many relation to WorkOrderForecastDemand 
+			Field Mapping uses Set3
+				related.WorkOrderSchedule				= WorkOrderSchedule 
+			Instance Selection 
+				where (related.IsGatheredDemand)
+
+		SelectedForGroupRel
+			one-to-many relation to WorkOrderSchedule
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.IsSelected)
+
+	Field Rules
+		Date
+			default to WorkOrderDataScheduleHeader.StartDate
+					
+	Actions 
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+			
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Unreleased.Release WorkOrderForecastDemandsUpdateStatusRel		
+		
+		FinishWorkOrderSchedule is a Delete Action
+			restricted
+			Entrance Rules
+				constraint (ActionCode not entered)
+					"CannotFinish;UnreleasedScheduleRecordsExist"				
+				
+				invoke InScheduling.Release WorkOrderForecastDemandsUpdateStatusRel
+				
+		SelectRecord is an Instance Action
+			completion message is "RecordsSelectedForGroupAction;PerformGroupAction"
+			restricted
+			Action Rules
+				IsSelected = true
+				
+		UnSelectRecord is an Instance Action
+			restricted
+			Action Rules
+				IsSelected = false
+				
+		Separate is an Instance Action		
+			valid when (ActionCode.Group)
+			Action Rules
+				ActionCode = ActionCode.Separate
+				invoke Create WorkOrderScheduleDetail
+					fill in fields from this instance
+					invoked.Quantity									=	Quantity
+					invoked.WorkOrderNumber								=   WorkOrderDataScheduleHeader.WorkOrderNumber	 
+					invoked.StartDate									=	WorkOrderDataScheduleHeader.StartDate
+					invoked.EndDate										=   WorkOrderDataScheduleHeader.EndDate
+					initialize invoked.SequenceNumber
+					
+				initialize SequenceNumber	
+
+
+					
+		Group is a Set Action
+			valid when (HasSelection)
+			run in foreground
+			Instance Selection
+           		where (IsSelected = true
+           		and    WorkOrderDataScheduleHeader.UserId = actor)
+           		
+			Action Rules
+				Set Rules
+					Entrance Rules
+						invoke Update WorkOrderDataScheduleHeader
+							invoked.SequenceNumber			+= 1
+				Instance Rules			
+					if (WorkOrderScheduleDetailForGroupsRel exists)
+						invoke Update WorkOrderScheduleDetailForGroupsRel
+							invoked.Quantity 				+= Quantity
+					else
+						invoke Create WorkOrderScheduleDetail
+							fill in fields from this instance
+							invoked.WorkOrderNumber			= WorkOrderDataScheduleHeader.WorkOrderNumber	 
+							invoked.StartDate				= WorkOrderDataScheduleHeader.StartDate
+							invoked.EndDate					= WorkOrderDataScheduleHeader.EndDate
+							invoked.SequenceNumber			= WorkOrderDataScheduleHeader.SequenceNumber
+					ActionCode     = ActionCode.Group
+					SequenceNumber = WorkOrderDataScheduleHeader.SequenceNumber
+					IsSelected     = false
+					
+							
+		CreateWorkOrderAction is an Instance Action
+			restricted
+			Action Rules
+				invoke CreateWorkOrder WorkOrderScheduleDetailsRel
+				if (IsForecastDemand)
+					invoke InScheduling.Delete WorkOrderForecastDemandsUpdateStatusRel
+					
+			Exit Rules
+				invoke Delete 

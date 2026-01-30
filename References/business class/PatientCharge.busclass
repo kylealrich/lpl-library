@@ -1,0 +1,211 @@
+PatientCharge is a BusinessClass
+    owned by ic
+    prefix is HPR
+    classic name is HCPATCHRG
+
+    Ontology
+        symbolic key is PatientCharge
+            classic set name is HPRSET1
+            classic name for PatientCharge.RevenueCenter is REV-CENTER
+            classic name for PatientCharge.DateOfCharge is DATE-OF-CHRG
+            classic name for PatientCharge.ChargeSequence is CHARGE-SEQ
+            classic name for PatientVisit is VISIT-NBR
+
+    Patterns
+        implements StaticJava
+        implements Encrypted
+        disable AuditIndex
+
+    Persistent Fields
+
+        ChargeNumber
+            classic name is CHARGE-NBR
+        Quantity
+        UpdateDate   is TimeStamp
+        BatchNumber
+            classic name is BATCH-NBR
+        UnitCost     is an InternationalCost
+        Price        is an InternationalAmount
+        FicaNbr
+
+	Context Fields
+		ChargeDateRange		is a DateRange
+	
+	Local Fields
+		LocalTransactionAmount is an InternationalAmount
+    
+    Relations
+
+        PatientChargeItemRel
+            classic name is HCCHRGITEM
+            one-to-one relation to PatientChargeItem
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.PatientChargeItem.RevenueCenter = PatientCharge.RevenueCenter
+                related.PatientChargeItem.ChargeNumber  = ChargeNumber
+                related.PatientChargeItem.Item          = PatientCharge.Item
+
+        ItemLocationRel
+            classic name is ITEMLOC
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = PatientCharge.FromLocation
+                related.Item              = PatientCharge.Item
+		
+		PatientChargesItemRel
+            one-to-many relation to PatientChargeItem
+            Field Mapping uses Set2
+                related.Company                         = Company
+                related.PatientChargeItem.Item          = PatientCharge.Item
+                related.PatientChargeItem.RevenueCenter = PatientCharge.RevenueCenter
+
+        RequisitionTransactionRel
+			one-to-many relation to RequisitionTransaction
+			Field Mapping uses Set4        	
+				related.Company							= Company
+				related.RequestingLocation				= PatientCharge.FromLocation
+				related.FromCompanyLocation.FromCompany = Company
+				related.FromCompanyLocation.FromLocation = PatientCharge.FromLocation
+				related.Item							= PatientCharge.Item
+			                		
+    Sets
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                BatchNumber
+                PatientCharge.RevenueCenter
+                UpdateDate
+                PatientVisit
+                PatientCharge.ChargeSequence
+	
+	Field Rules
+		PatientCharge
+    		constraint (ItemLocationRel exists)
+    			"ItemLocationDoesNotExist"							
+    		
+    		constraint (PatientChargesItemRel exists)
+    			"PatientChargeItemDoesNotExist"					
+			
+		ChargeNumber
+			default to first PatientChargesItemRel.PatientChargeItem.ChargeNumber
+		
+		Quantity
+			initial value is 1
+			default to 1																						
+		
+		Price
+			initialize LocalTransactionAmount
+			LocalTransactionAmount = first PatientChargesItemRel.Price * Quantity
+			
+			default to LocalTransactionAmount		
+		
+		UpdateDate
+			default to current timestamp
+
+	Conditions
+	
+		WithinChargeDateRange
+			restricted
+			when (ChargeDateRange not entered
+			or	  PatientCharge.DateOfCharge within ChargeDateRange)	
+
+	Derived Fields
+		DerivedTotalIssuedQuantity is a DerivedField
+			type is like Quantity
+				precision is PatientCharge.Item.NumberOfDecimalsQuantity
+			restricted	
+			
+			if (PatientCharge.Item.PatientChargeable)
+				return sum RequisitionTransactionRel.Quantity
+
+		DerivedQuantityVariance is a DerivedField
+			type is like Quantity
+				precision is PatientCharge.Item.NumberOfDecimalsQuantity
+			restricted	
+			return (Quantity - DerivedTotalIssuedQuantity)
+
+
+	Transient Fields
+		TransientIssueQuantity	is like Quantity
+			default label is "IssueQuantity"
+			derive value from DerivedTotalIssuedQuantity	
+			precision is PatientCharge.Item.NumberOfDecimalsQuantity
+			
+		TransientQuantityVariance is like Quantity
+			default label is "QuantityVariance"
+			derive value from DerivedQuantityVariance			
+			precision is PatientCharge.Item.NumberOfDecimalsQuantity
+		
+	Actions
+		Create is a Create Action
+			Action Rules
+				increment PatientVisit.LastChargeSequence			
+				PatientCharge.ChargeSequence = PatientVisit.LastChargeSequence
+				
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			Entrance Rules
+				constraint (BatchNumber not entered)
+					"BatchNumberHasAlreadyBeenAssignedToPatientCharge"                       
+		
+		Purge is a Purge Action
+			restricted
+
+		PatientChargePurge is a Set Action
+			default label is "PatientChargePurge"
+			restricted
+			Parameters
+				PrmCompany								is an InventoryCompany
+				PrmUpdateDate					        is Date
+					default label is "CutoffDate"
+				PrmPurgeOption								is Numeric 1
+						default label is "PurgeOption"
+						States
+							PurgeRecords 	value is 1
+							ReportOnly		value is 2
+			Local Fields
+				NewLine									is LPLText
+				LocalSetPurgeCount						is Numeric 10
+				LocalActor								is an Actor
+			Parameter Rules
+				PrmCompany
+					required
+				PrmUpdateDate
+					required
+			Instance Selection
+				include deleted records
+				where(Company									=	PrmCompany
+				and (UpdateDate date 							<=	PrmUpdateDate))
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "PatientChargePurgeCompleted"
+						priority is high
+						detail is "PatientChargePurgeCompletedForCompany<PrmCompany><NewLine>\UpdateDate<PrmUpdateDate>.NoRecordsWerePurged"
+
+				Set Rules
+					Exit Rules
+						LocalActor = actor
+						NewLine = "\u000a"
+						if(PrmPurgeOption.PurgeRecords)
+							send notification
+								to LocalActor
+								description is "PatientChargePurgeCompleted<PrmCompany>"
+								priority is high
+								detail is "Company:<PrmCompany><NewLine>\UpdateDate<PrmUpdateDate>\<NewLine>\Number_of_records_that_has_been_purged.:<LocalSetPurgeCount>"
+						else
+							send notification
+								to LocalActor
+								description is "PatientChargePurgeCompleted<PrmCompany>"
+								priority is high
+								detail is "Company:<PrmCompany><NewLine>\UpdateDate<PrmUpdateDate>\<NewLine>\Number_of_records_that_are_available_to_purge.:<LocalSetPurgeCount>"
+				Instance Rules
+					LocalSetPurgeCount+=1
+					if(PrmPurgeOption.PurgeRecords)
+						invoke Purge

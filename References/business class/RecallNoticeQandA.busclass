@@ -1,0 +1,134 @@
+RecallNoticeQandA is a BusinessClass  
+    owned by recall
+    prefix is RMQA
+
+    Ontology
+    	part of RecallNotice
+    		delete cascades
+    		relative key is RecallNoticeQandA is a Sequence
+    			default label is "Q&A" 
+    	    			    			
+    Persistent Fields
+   		Question 				is Alpha size up to 500
+   		Answer 					is Alpha size up to 500
+   		Status					is Numeric size 1
+   			States
+   				Unanswered				value is 1
+   				Answered				value is 2
+   		DateReceived			is TimeStamp
+   		AnswerPostDate			is TimeStamp
+   		AskedBy					is a RecallUser
+   	
+    Derived Fields
+    
+    	QandALinkback is a MessageField
+    		restricted
+			"<linkback(webapp is RecallCoordinator navigation is QandANavigation text is \"here\" session key RecallGroup is RecallGroup)>"
+    
+    	NoticeMessage is a MessageField
+    		restricted
+    		"Notice"
+    		
+    	ProposalMessage is a MessageField
+    		restricted
+    		"NewItemProposal"	
+    	
+    	NoticeOrProposal is a ConditionalField
+    		type is Alpha size 25
+    		restricted
+    		if (RecallNotice.ItemProposal)
+    			ProposalMessage
+    		else
+    			NoticeMessage
+    
+    Field Rules
+        RecallNoticeQandA
+        	autosequence
+		
+		Question
+			required
+				"QuestionIsRequired"
+				
+		AskedBy
+			initial value is RecallUserRel.RecallUser
+			default to RecallUserRel.RecallUser
+			required
+
+	Conditions
+		RecallUserRelExists
+			when (RecallUserRel exists)
+		
+		UserNeedsToAnswer
+			restricted
+			when (AllowAnswerQuestion
+			and   Answer !entered) 
+		
+		AllowAnswerQuestion
+			restricted
+			when (actor.agent(Employee).Employee = RecallNotice.RecallCoordinator
+			and   !RecallNotice.HistoricalRecallNotice) 
+			
+	Relations
+	
+		RecallUserRel
+   			one-to-one relation to RecallUser
+   			Field Mapping uses symbolic key
+   				related.HROrganization           = actor.agent(Employee).HROrganization
+   				related.RecallUser               = actor.agent(Employee).Employee
+	
+	Sets
+		ByAskedBy
+			indexed
+			Sort Order
+				RecallGroup
+				RecallNotice
+				AskedBy
+				RecallNoticeQandA
+				
+	StateCycles
+		QandALifeCycle is a StateCycle
+    		state field is Status
+		
+    		Unanswered is a State
+    		
+				Create is a Create Action
+					restricted
+					Exit Rules
+						DateReceived = current timestamp
+						
+						send email
+							to RecallNotice.RecallCoordinator.EmployeeWorkEmailAddress
+							from AskedBy.EmployeeWorkEmailAddress
+							subject "AQuestionHasBeenAskedFor<NoticeOrProposal>#<RecallNotice>:<RecallNotice.Name>"
+							Contents
+	    						"Click<QandALinkback>ToViewAndAnswerTheQuestion."
+    							
+				Update is an Update Action
+    				Exit Rules
+    					if (Answer entered)
+    						make transition to Answered
+    						
+    			Delete is a Delete Action
+    				restricted
+					    						
+    			AnswerQuestion is an Update Action
+    				valid when (AllowAnswerQuestion)
+    				Field Rules
+    					Answer
+    						required
+    							"AnswerIsRequired"
+    				
+    				Action Rules
+						make transition to Answered
+    					
+    		Answered is a State
+    			Entrance Rules
+					AnswerPostDate = current timestamp
+						
+    				send email
+						to AskedBy.EmployeeWorkEmailAddress
+						from RecallNotice.RecallCoordinator.EmployeeWorkEmailAddress
+						subject "ResponseToYourQuestionFor<NoticeOrProposal>#<RecallNotice>"
+						Contents
+    						"Question:<Question>"
+    						"Answer:<Answer>"

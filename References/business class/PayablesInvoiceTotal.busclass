@@ -1,0 +1,176 @@
+PayablesInvoiceTotal is a BusinessClass
+    owned by ap
+    prefix is VIT
+
+    Ontology
+        symbolic key is PayablesInvoiceTotal
+
+    Persistent Fields
+		NumberOfInvoices 		is an InternationalAmount
+			disable Auditing
+		SumOfInvoices		 	is an InternationalAmount
+			disable Auditing
+        InvoiceSource			is Alpha size 20
+			
+	Local Fields
+		LocalVendorGroup 		is a VendorGroup
+
+		CurrentBackgroundGroup	is AlphaUpper up to 200
+		LastBackgroundGroup		is AlphaUpper up to 200
+	
+	Derived Fields
+		PositiveSumOfInvoices	is a DerivedField
+			type is like InternationalAmount
+			if (SumOfInvoices >= 0)
+				return SumOfInvoices
+			else
+				return SumOfInvoices * -1
+			
+		DisplayPositiveSumOfInvoices	is a DerivedField
+			type is Alpha size 25
+			if (SumOfInvoices >= 0)
+				return PositiveSumOfInvoices
+			else
+				return "(" + PositiveSumOfInvoices + ")"
+			
+		DerivedSumLabel	is a DerivedField
+			type is Alpha size 5
+			if (SumOfInvoices >= 0)
+				return blank
+			else
+				return "-(CR)"
+			
+	Relations
+		VendorGroupPayablesInvoiceTotalRel
+			one-to-many relation to PayablesInvoiceTotal
+			Field Mapping uses symbolic key
+				related.VendorGroup 				= LocalVendorGroup
+			Instance Selection
+				where (related.PayablesInvoiceTotal != "")
+		
+		AllOpenInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByVendorGroupAgingPeriod
+			Instance Selection
+				where (related.VendorGroup			= VendorGroup
+				and    related.AgingPeriod 			= PayablesInvoiceTotal
+				and    related.IncludeInPayablesInvoiceTotals)
+
+		AllPastDueInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByVendorGroupPastDueAgingPeriod
+			Instance Selection
+				where (related.VendorGroup			= VendorGroup
+				and    related.PastDueAgingPeriod 	= PayablesInvoiceTotal
+				and    related.IncludeInPayablesInvoiceTotals)
+
+		OpenInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByVendorGroupVendorAgingPeriod
+			Instance Selection
+				where (related.VendorGroup			= VendorGroup
+				and    related.Vendor 				= Vendor
+				and    related.AgingPeriod 			= PayablesInvoiceTotal
+				and    related.IncludeInPayablesInvoiceTotals)
+
+		PastDueInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByVendorGroupVendorPastDueAgingPeriod
+			Instance Selection
+				where (related.VendorGroup			= VendorGroup
+				and    related.Vendor 				= Vendor
+				and    related.PastDueAgingPeriod 	= PayablesInvoiceTotal
+				and    related.IncludeInPayablesInvoiceTotals)
+
+		VendorGroupsRel
+			one-to-many relation to VendorGroup
+			Field Mapping uses symbolic key
+				related.VendorGroup = LocalVendorGroup
+
+		VendorOnlyRel
+			one-to-many relation to Vendor
+			Field Mapping uses symbolic key
+				related.VendorGroup = LocalVendorGroup
+
+	Conditions
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   VendorGroup.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+	Actions 
+		Create is a Create Action
+			restricted
+
+		Update is an Update Action
+			restricted
+
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+		
+		UpdateNoEdits is an Instance Action
+			restricted
+			Parameters
+				PrmNumberOfInvoices 		is an InternationalAmount
+				PrmSumOfInvoices		 	is an InternationalAmount
+			Action Rules
+				NumberOfInvoices	= PrmNumberOfInvoices
+				SumOfInvoices		= PrmSumOfInvoices
+
+		PurgeRecords is a Set Action
+			restricted
+			disable checkpoint
+			run in background
+			Parameters
+				PrmVendorGroup 		is a VendorGroup
+					default label is "VendorGroup"
+			Instance Selection
+				include deleted records
+				where (VendorGroup 			= PrmVendorGroup
+				and    PayablesInvoiceTotal != "")
+			Action Rules
+				Instance Rules
+					invoke Purge
+		
+		SetupAllRecords is a Set Action
+			run in background
+			Parameters
+				PrmVendorGroup 		is a VendorGroup
+					default label is "VendorGroup"
+			Instance Selection
+				where (VendorGroup 			= PrmVendorGroup
+				and    PayablesInvoiceTotal = "nothing")
+			Action Rules
+				Empty Set Rules
+					LocalVendorGroup = PrmVendorGroup
+
+					CurrentBackgroundGroup		 				= "PayablesInvoiceTotal-SetupAllRecords-" + PrmVendorGroup + "-DeleteExistingRecords"
+					invoke PurgeRecords PayablesInvoiceTotal in background group(CurrentBackgroundGroup)
+						invoked.PrmVendorGroup					= PrmVendorGroup
+					LastBackgroundGroup							= CurrentBackgroundGroup
+	
+
+					CurrentBackgroundGroup		 				= "PayablesInvoiceTotal-SetupAllRecords-" + PrmVendorGroup + "-CreateVendorPayablesInvoiceTotals"
+					invoke CreatePayablesInvoiceTotals Vendor in background group(CurrentBackgroundGroup)
+						run after background group (LastBackgroundGroup)
+						invoked.PrmVendorGroup					= PrmVendorGroup
+					LastBackgroundGroup							= CurrentBackgroundGroup
+
+					CurrentBackgroundGroup		 				= "PayablesInvoiceTotal-SetupAllRecords-" + PrmVendorGroup + "-SetAgingFields"
+					invoke SetAgingFields PayablesInvoice in background group(CurrentBackgroundGroup)
+						run after background group (LastBackgroundGroup)
+						invoked.PrmVendorGroup = PrmVendorGroup
+					LastBackgroundGroup							= CurrentBackgroundGroup
+
+					CurrentBackgroundGroup		 				= "PayablesInvoiceTotal-SetupAllRecords-" + PrmVendorGroup + "-UpdatePayablesInvoiceTotals"
+					invoke UpdateOpenPayablesInvoiceTotals PayablesInvoice in background group(CurrentBackgroundGroup)
+						run after background group (LastBackgroundGroup)
+						invoked.PrmVendorGroup = PrmVendorGroup
+					
+					invoke UpdatePastDuePayablesInvoiceTotals PayablesInvoice in background group(CurrentBackgroundGroup)
+						run after background group (LastBackgroundGroup)
+						invoked.PrmVendorGroup = PrmVendorGroup

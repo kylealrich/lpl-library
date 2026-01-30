@@ -1,0 +1,261 @@
+ExpenseManagementTravelPlan is a BusinessClass
+	default label is "TravelPlan"
+    owned by ap
+    prefix is XTP
+    sql name is XMTravelPLan
+
+    Ontology
+        symbolic key is ExpenseManagementTravelPlan
+		    sql name is XMTravelPLan
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements BODId
+
+    Persistent Fields
+
+		PayablesCompany
+			disable surrogates
+        Vendor
+
+
+        Currency
+        Description
+        BeginDate                   is Date
+        EndDate                     is Date
+        ExpenseDate					is an ExchangeDate
+        FirstName                   is a Name	 
+        	holds pii
+        LastName                    is a Name	 
+        	holds pii
+        Status                      is Numeric 1
+            States
+                Entered		        value is 0
+                Approved            value is 1
+                UpdateUnapproved	value is 2
+                Closed				value is 3
+		BudgetEditProcessing 			is Numeric size 1
+			States
+                NotInProcessing 	value is 0
+                InProcess  			value is 1
+                Failure    			value is 2
+                Success    			value is 3
+
+	Conditions
+		GLCommitRelExists
+			restricted
+			when (GLCommitRel exists)
+			
+		HeaderBudgetEditErrorExists
+			when (HeaderBudgetEditErrorRel exists)
+			
+		DistributionBudgetEditErrorExists
+			when (DistributionBudgetEditErrorRel exists)	
+		
+	Derived Fields
+		DerivedTotalReimbursementAmount is a DerivedField
+			type is like InternationalAmount
+        	restricted
+			return (sum ExpenseManagementTravelPlanDetail set.RequestAmount)
+	
+		ActionExceedsBudgetMessage is a MessageField
+			restricted
+			"Warning:BudgetsHaveBeenExceeded:<action type>Complete"
+
+		ActionCompleteNoErrors is a MessageField
+			restricted
+			"<action type>Complete"
+
+	Field Rules
+        PayablesCompany
+			default to first DefaultVendorCompanyDefaultRel.Company
+			default to first ExpenseManagementInterfaceConfigurationRel.DefaultPayablesCompany
+			
+		ExpenseDate
+			default to current corporate date
+
+	Local Fields
+		LocalAccountingEntity 						is like AccountingEntity
+		LocalExpenseManagementInterfaceExpenseType	is like ExpenseManagementInterfaceExpenseType
+		ActionCompleteMessage						is Alpha size 250			
+
+	Relations
+		DefaultVendorCompanyDefaultRel
+			one-to-many relation to VendorCompanyDefault
+			Field Mapping uses symbolic key
+				related.VendorGroup						= VendorGroup
+				related.Vendor 							= Vendor
+				related.VendorLocation					= blank
+			Instance Selection
+				where (related.Default)
+
+        ExpenseManagementInterfaceConfigurationRel
+            one-to-many relation to ExpenseManagementInterfaceConfiguration
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup					= VendorGroup.BusinessGroup.FinanceEnterpriseGroup
+
+      	GeneralLedgerSystemCodeRel
+			one-to-one relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup      = PayablesCompany.AccountingEntity.FinanceEnterpriseGroup	
+				related.GeneralLedgerSystemCode     = "AP"
+
+		GLCommitRel		
+			one-to-many relation to GLCommit
+			Field Mapping uses BySystemAndHeaderUniqueID
+				related.FinanceEnterpriseGroup		= PayablesCompany.FinanceEnterpriseGroup
+				related.HeaderUniqueID				= UniqueID
+		
+		HeaderBudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup					= PayablesCompany.FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup         = UniqueID
+
+		DistributionBudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByHeaderUniqueID
+				related.FinanceEnterpriseGroup					= PayablesCompany.FinanceEnterpriseGroup
+				related.HeaderUniqueID                          = UniqueID
+		
+		ExpenseManagementTravelPlanDetailRel is a ExpenseManagementTravelPlanDetail set
+			Instance Selection
+				where (related.AccountingEntity 						= LocalAccountingEntity
+				and    related.ExpenseManagementInterfaceExpenseType	= LocalExpenseManagementInterfaceExpenseType)
+
+    Sets
+
+	Rule Blocks
+		ReleaseGLCommit	
+			invoke UpdateToReleased GLCommit
+				invoked.PrmFinanceEnterpriseGroup	= PayablesCompany.FinanceEnterpriseGroup  
+				invoked.PrmUniqueID					= UniqueID
+				invoked.PrmAccountingEntity			= PayablesCompany.AccountingEntity
+
+
+	Actions
+		ApproveTravelPlan is an Instance Action
+			Action Rules
+				if  (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	        	and  GLCommitRelExists)
+	 				BudgetEditProcessing = BudgetEditProcessing.InProcess
+					invoke Delete HeaderBudgetEditErrorRel 
+					invoke Delete DistributionBudgetEditErrorRel 
+						
+					invoke EditTotalsRoute BudgetTemplateGroupTotal 	
+						invoked.PrmFinanceEnterpriseGroup    													= PayablesCompany.FinanceEnterpriseGroup
+						invoked.PrmBudgetEditGroup           													= UniqueID
+						invoked.PrmBudgetEditCallBack.BudgetEditCallBackTravelPlan.VendorGroup 					= VendorGroup
+						invoked.PrmBudgetEditCallBack.BudgetEditCallBackTravelPlan.ExpenseManagementTravelPlan	= ExpenseManagementTravelPlan
+						invoked.PrmMode																			= BudgetEditMode.Hard
+						invoked.PrmBusinessClassName															= "ExpenseManagementTravelPlan"
+						invoked.PrmEditContext              													= "ApproveTravelPlan"						
+				else
+					if (GeneralLedgerSystemCodeRel.EncumbranceOption.Track
+					and GLCommitRelExists)
+						invoke EditTotalsRoute BudgetTemplateGroupTotal 	
+							invoked.PrmFinanceEnterpriseGroup    		= PayablesCompany.FinanceEnterpriseGroup
+							invoked.PrmBudgetEditGroup           		= UniqueID
+							invoked.PrmMode								= BudgetEditMode.UpdateOnly
+							invoked.PrmBusinessClassName				= "ExpenseManagementTravelPlan"
+							invoked.PrmEditContext              		= "ApproveTravelPlan"						
+					invoke Approve ExpenseManagementTravelPlanDetail set
+					Status = Status.Approved
+					include ReleaseGLCommit
+
+
+		UpdateBudgetResults is an Instance Action	
+			restricted
+			Parameters
+				ParmSuccess    is Boolean
+					default label is untranslatable
+			Action Rules
+				if (ParmSuccess)
+					BudgetEditProcessing = BudgetEditProcessing.Success
+					invoke Approve ExpenseManagementTravelPlanDetail set
+					Status = Status.Approved
+					include ReleaseGLCommit
+				else
+					BudgetEditProcessing = BudgetEditProcessing.Failure
+
+		ReleaseUpdatedGLCommitRecords is an Instance Action
+			restricted
+			Action Rules
+				include ReleaseGLCommit
+
+
+		TravelDetailUpdated is an Instance Action
+			restricted
+			Action Rules
+				if (Status.Approved
+				or  Status.Closed)
+					Status 					= Status.UpdateUnapproved
+					BudgetEditProcessing	= BudgetEditProcessing.NotInProcessing
+
+		CloseTravelPlan is an Instance Action
+			valid when (Status.Approved)
+			Action Rules
+				invoke CloseTravelDetail ExpenseManagementTravelPlanDetail set
+				Status = Status.Closed
+				
+		Create is a Create Action
+		Update is an Update Action
+		Delete is a Delete Action
+			Action Rules
+				invoke Delete ExpenseManagementTravelPlanDetail set
+
+		UpdateTravelDetail is an Instance Action
+			completion message is "<ActionCompleteMessage>"
+			Parameters
+				PrmExpenseManagementInterfaceExpenseType	is like ExpenseManagementInterfaceExpenseType
+					default label is "ExpenseManagementInterfaceExpenseType"
+				PrmRequestAmount							is an InternationalAmount
+					default label is "RequestAmount"
+		        PrmCurrency									is a FromCurrency
+					default label is "Currency"
+		        PrmFinanceStructure							is a FinanceCodeBlock
+					default label is "FinanceStructure"
+
+			Parameter Rules
+				PrmExpenseManagementInterfaceExpenseType
+					required
+					
+			Action Rules
+				LocalAccountingEntity 						= PayablesCompany.AccountingEntity
+				LocalExpenseManagementInterfaceExpenseType	= PrmExpenseManagementInterfaceExpenseType
+				
+				constraint (ExpenseManagementTravelPlanDetailRel exists)
+					"ExpenseManagementTravelPlanDetailForGivenExpenseTypeDoesNotExist"
+
+				invoke Update ExpenseManagementTravelPlanDetailRel
+					if (PrmCurrency entered)
+						invoked.Currency				= PrmCurrency
+					if (PrmRequestAmount entered)
+						invoked.RequestAmount			= PrmRequestAmount
+					if (PrmFinanceStructure entered)
+						invoked.FinanceStructure		= PrmFinanceStructure
+
+				ActionCompleteMessage = ActionCompleteNoErrors
+				if (first ExpenseManagementTravelPlanDetailRel.BudgetEditErrorExists)
+					ActionCompleteMessage = ActionExceedsBudgetMessage
+
+		DeleteTravelDetail is an Instance Action
+			Parameters
+				PrmExpenseManagementInterfaceExpenseType	is like ExpenseManagementInterfaceExpenseType
+					default label is "ExpenseManagementInterfaceExpenseType"
+
+			Parameter Rules
+				PrmExpenseManagementInterfaceExpenseType
+					required
+
+			Action Rules
+				LocalAccountingEntity 						= PayablesCompany.AccountingEntity
+				LocalExpenseManagementInterfaceExpenseType	= PrmExpenseManagementInterfaceExpenseType
+				
+				constraint (ExpenseManagementTravelPlanDetailRel exists)
+					"ExpenseManagementTravelPlanDetailForGivenExpenseTypeDoesNotExist"
+					
+				invoke Delete ExpenseManagementTravelPlanDetailRel
+
+					

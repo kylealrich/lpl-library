@@ -1,0 +1,220 @@
+WorkOrderScheduleDetail is a BusinessClass
+    owned by wo
+    prefix is WOT
+    classic name is WOSCHEDDTL
+
+    Ontology
+        symbolic key is WorkOrderScheduleDetail
+            classic set name is WOTSET1
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        WorkOrderNumber
+            classic name is WORK-ORDER
+    	Reference1		 is a Reference
+    	Reference2		 is a Reference
+        StartDate
+        EndDate          is Date
+        Quantity
+        SequenceNumber   is Numeric 2
+	
+	Local Fields
+		LocalSaveWorkOrder						is a WorkOrder view
+		LocalWorkOrder							is a WorkOrder		
+
+    Conditions
+
+        IsAssignedWorkOrderNumber
+        	restricted
+            when (WorkOrderNumber entered)
+
+		IsUseIncomeStatementAccounts
+			restricted
+    		when (InventoryLocation.UseIncomeStatementAccounts)
+
+	Relations
+	
+		WarehouseDemandLinesUpdateRel		
+			one-to-many relation to WarehouseDemandLine
+			Field Mapping uses Set8
+				related.WarehouseDemandLineObjectID			= WorkOrderSchedule.WorkOrderSchedule
+			Instance Selection 
+				where (related.HasWarehouseDemandLineObjectID) 
+	
+        KitItemRel
+			one-to-one relation to KitItem
+			Field Mapping uses Set2
+				related.MakeCode					= "S"
+                related.ItemGroup					= Company.ItemGroup
+                related.KitItem.Company				= Company
+                related.KitItem.InventoryLocation	= InventoryLocation
+                related.KitItem.Item				= Item
+
+    	WarehouseDemandLineForProductionRel	
+   			one-to-many relation to WarehouseDemandLine
+   			Field Mapping uses symbolic key
+   				related.Company 										= Company
+			Instance Selection
+				where (related.WarehouseDemand.DemandSystemCode	   		= WorkOrderSchedule.SystemCode
+				and    related.WarehouseDemand.DemandDocument		   	= WorkOrderSchedule.DocumentNumber
+				and    related.InventoryLocation						= InventoryLocation
+				and    related.Item										= Item
+				and    related.WarehouseDemandLine.LineNumber		   	= WorkOrderSchedule.LineNumber)	
+
+		CustomerOrderLineRel
+			one-to-one relation to CustomerOrderLine
+			Field Mapping uses symbolic key
+				related.Company								= Company
+				related.CustomerOrder						= WorkOrderSchedule.DocumentNumber 
+				related.CustomerOrderLine					= WorkOrderSchedule.LineNumber    
+		
+    	WorkOrderSchedulesRel
+    		one-to-many relation to WorkOrderSchedule
+			Field Mapping uses ByDetail
+				related.Company				= Company
+				related.InventoryLocation	= InventoryLocation
+                related.Item				= Item
+         		related.SequenceNumber 		= SequenceNumber
+            
+                
+    Sets
+
+        Set2
+            indexed
+            Instance Selection
+                where (IsAssignedWorkOrderNumber)
+            Sort Order
+                WorkOrderNumber
+
+        Set3
+            indexed
+            Sort Order
+            	Company
+            	InventoryLocation
+            	Item
+            	SequenceNumber
+				WorkOrderScheduleDetail
+                WorkOrderSchedule
+
+
+               
+	Field Rules
+	
+		StartDate
+			required
+		
+		EndDate
+			default to StartDate
+
+
+				
+    		constraint (EndDate >= StartDate)
+        		"ProductionEndDateMustBeGreaterThanOrEqualToStartDate"			
+        		
+		Quantity
+			required
+			
+			if (WorkOrderDataScheduleHeader.Capacity entered)
+				constraint (Quantity <= WorkOrderDataScheduleHeader.Capacity)
+					"QuantityCannotBeGreaterThanCapacity"						
+		
+	Actions 
+		Create is a Create Action
+			restricted	
+			Action Rules
+				
+
+
+					
+		Update is an Update Action
+			Exit Rules
+				if (Quantity not entered)
+					invoke Delete
+
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Update WorkOrderSchedulesRel
+					initialize invoked.ActionCode
+					
+			
+		CreateWorkOrder is an Instance Action
+			restricted
+			Action Rules
+				invoke Unreleased.Create WorkOrder
+					assign result to LocalSaveWorkOrder
+					fill in fields from this instance
+					invoked.StartDate					= StartDate	
+					invoked.EndDate 			 		= EndDate
+					invoked.DateNeeded 					= WorkOrderSchedule.Date		
+					invoked.PlanQuantity		 		= Quantity
+			    	invoked.Status						= 1	   	
+					invoked.SystemCode					= WorkOrderSchedule.SystemCode
+					invoked.DocumentNumberNumeric		= WorkOrderSchedule.DocumentNumber
+					invoked.LineNumber					= WorkOrderSchedule.LineNumber
+		    		if (IsUseIncomeStatementAccounts)
+						invoked.ProductionCreditAccount		= KitItemRel.ProductionCreditAccount
+						invoked.BurdenAbsorptionAccount		= KitItemRel.BurdenAbsorptionAccount
+				LocalWorkOrder							= LocalSaveWorkOrder.WorkOrder
+				
+				if (WorkOrderDataScheduleHeader.Status.Released)
+					invoke Unreleased.Release LocalWorkOrder
+				else 
+				if (WorkOrderDataScheduleHeader.Status.Exploded)
+					invoke Unreleased.Release LocalWorkOrder
+					invoke Released.Explode LocalWorkOrder
+				else
+				if (WorkOrderDataScheduleHeader.Status.InProduction)
+					invoke Unreleased.Release LocalWorkOrder
+					invoke Released.Explode LocalWorkOrder
+					invoke Exploded.StartProduction LocalWorkOrder
+				
+
+				if (WorkOrderDataScheduleHeader.FirmAllocation
+				and WorkOrderSchedule.ActionCode.Separate		
+				and WorkOrderSchedule.DemandType.DocumentDetail )	
+					
+					if (Company.AvailableToAllocateWIP.AddToStockOnHand)
+						for each WarehouseDemandLineForProductionRel	
+							invoke Update each
+								invoked.AllocatedQuantity					= LocalWorkOrder.PlanQuantity
+								invoked.BackorderedQuantity					= LocalWorkOrder.PlanQuantity * -1
+							
+				if (WorkOrderSchedule.ActionCode.Separate
+				and WorkOrderSchedule.DemandType.DocumentDetail)		
+					
+					invoke Create WorkOrderSource
+						fill in fields from this instance
+						invoked.WorkOrder				 				= LocalWorkOrder.WorkOrder
+						invoked.WorkOrderSource.SystemCode				= WorkOrderSchedule.SystemCode
+						invoked.WorkOrderSource.DocumentNumberNumeric 	= WorkOrderSchedule.DocumentNumber
+						invoked.WorkOrderSource.LineNumber			  	= WorkOrderSchedule.LineNumber
+						invoked.ScheduledQuantity					  	= Quantity
+					
+					if (WorkOrderSchedule.SystemCode.CustomerOrder)
+						invoke Update CustomerOrderLineRel
+							invoked.WorkOrder							= LocalWorkOrder.WorkOrder	
+							invoked.WorkOrderSuf						= LocalWorkOrder.OriginalWorkOrderSuffix
+				
+				if (WorkOrderSchedule.DemandType.DocumentDetail
+				and WorkOrderSchedule.ActionCode.Group)
+					invoke Create WorkOrderSource
+						fill in fields from this instance
+						invoked.WorkOrder				 				= LocalWorkOrder.WorkOrder	
+						invoked.WorkOrderSource.SystemCode				= WorkOrderSchedule.SystemCode
+						invoked.WorkOrderSource.LineNumber			  	= WorkOrderSchedule.LineNumber
+						invoked.ScheduledQuantity					  	= Quantity	
+				
+				if (WorkOrderSchedule.DemandType.DocumentSummary)
+					for each WarehouseDemandLinesUpdateRel
+						invoke Create WorkOrderSource
+							fill in fields from this instance
+							invoked.WorkOrder				 				= LocalWorkOrder.WorkOrder
+							invoked.WorkOrderSource.SystemCode				= each.WarehouseDemand.DemandSystemCode 
+							invoked.WorkOrderSource.DocumentNumberNumeric 	= each.WarehouseDemand.DemandDocument
+							invoked.WorkOrderSource.LineNumber			  	= each.WarehouseDemandLine.LineNumber
+							invoked.ScheduledQuantity	 				  	= each.BackorderedQuantity
+			

@@ -1,0 +1,190 @@
+SanPurchaseOrderReceiptImport is a BusinessClass
+    prefix is cfg
+
+    Ontology
+        symbolic key is SanPurchaseOrderReceiptImport
+
+    Persistent Fields
+        RunGroup
+        PurchaseOrder is Numeric size 12
+        BillOfLading is Alpha size 100
+        ReceiptComments is Text
+        ErrorMessage is Text
+        Processed is Boolean
+        ImportError is Boolean
+        AsyncID is an AsyncActionRequest
+			delete ignored
+        ImportAsyncID is an AsyncActionRequest
+            delete ignored
+
+    Field Rules
+        SanPurchaseOrderReceiptImport
+            required
+
+        Company
+            required
+
+        RunGroup
+            required
+            
+        ImportError
+            initial value is false
+            default to false
+
+    Derived Fields
+        DerivedErrorMessage is a DerivedField
+            type is Text
+            if (LineErrorExists)
+                return ("Receipt Lines encountered errors.")
+            else
+                return (ErrorMessage)
+
+    Relations
+        LineRel is a SanPurchaseOrderReceiptLineImport set
+
+        UnreleasedLineRel is a SanPurchaseOrderReceiptLineImport set
+            Instance Selection
+                where (related.IsReleased = false)
+
+        ErrorLineRel is a SanPurchaseOrderReceiptLineImport set
+            Instance Selection
+                where (related.ErrorMessage entered)
+
+        DetailRel is a SanPOReceiptInventoryDetailImport set
+
+        PurchaseOrderRel
+            one-to-one relation to PurchaseOrder
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.PurchaseOrder = PurchaseOrder
+
+        PurchaseOrderTransactionDetailRel
+            one-to-many relation to PurchaseOrderTransactionDetail
+            Field Mapping uses symbolic key
+                related.Company = Company
+            Instance Selection
+                where (related.PurchaseOrderReceipt.PurchaseOrder = PurchaseOrder)
+
+        PurchaseOrderReceiptImport is a PurchaseOrderReceiptImport set
+
+        PurchaseOrderReceiptLineImport is a PurchaseOrderReceiptLineImport set
+
+        POReceiptInventoryDetailImport is a POReceiptInventoryDetailImport set
+
+    Conditions
+        DetailRecordsExists
+            when (PurchaseOrderTransactionDetailRel exists)
+            
+        IsReleased
+            when (PurchaseOrderRel.IsReleased)
+
+        GreenAlertStatus
+            when (IsReleased and UnreleasedLineRel not exists)
+
+        YellowAlertStatus
+            when (!IsReleased or UnreleasedLineRel exists)
+
+        LineErrorExists
+            when (ErrorLineRel exists)
+
+    Actions
+        ProcessData is a Set Action
+            Instance Selection
+                where (!Processed)
+
+            Action Rules
+                Instance Rules
+                    Processed = true
+                    if (!DetailRecordsExists and DetailRel exists)
+                        ErrorMessage = "Details are provided but Purchase Order does not contain detail records."
+                    else
+                        if (PurchaseOrderRel not exists)
+                            ErrorMessage = "Purchase Order does not exist."
+                        if (PurchaseOrderRel exists and !IsReleased)
+                            ErrorMessage = "Purchase Order is not in released status."
+                        if (PurchaseOrderRel exists and IsReleased)
+                            invoke BatchUpdatePurchaseOrderLine SanPurchaseOrderReceiptLineImport
+                                assign async action request id to AsyncID
+                                invoked.PrmCompany = Company
+                                invoked.PrmPurchaseOrder = PurchaseOrder
+
+                            invoke Release in background
+                                run after AsyncID
+                                invoked.PrmSanPurchaseOrderReceiptImport = SanPurchaseOrderReceiptImport
+
+        Release is a Set Action
+            Parameters
+                PrmSanPurchaseOrderReceiptImport is Alpha size 100
+
+            Parameter Rules
+                PrmSanPurchaseOrderReceiptImport
+                    required
+
+            Instance Selection
+                where (SanPurchaseOrderReceiptImport = PrmSanPurchaseOrderReceiptImport
+                and ErrorMessage not entered
+                and !LineErrorExists
+                and !ImportError)
+
+            Action Rules
+                Instance Rules
+                    if (!LineErrorExists)
+                        invoke Release PurchaseOrderRel
+
+        ImportRecords is a Set Action
+            Instance Selection
+                where (Company != blank
+                and SanPurchaseOrderReceiptImport != blank)
+
+            Action Rules
+                Instance Rules
+                    if (PurchaseOrderReceiptImport exists)
+                        invoke Delete POReceiptInventoryDetailImport
+                        invoke Delete PurchaseOrderReceiptLineImport
+                        invoke Delete PurchaseOrderReceiptImport
+
+                    invoke Create PurchaseOrderReceiptImport
+                        resume on error
+                            ErrorMessage = error message
+                            ImportError = true
+                        invoked.PurchaseOrderReceiptImport = SanPurchaseOrderReceiptImport
+                        invoked.Company = Company
+                        invoked.RunGroup = RunGroup
+                        invoked.PurchaseOrder = PurchaseOrder
+                        invoked.BillOfLading = BillOfLading
+                        invoked.ReceiptComments = ReceiptComments
+                    
+                    for each(Ln) LineRel
+                        invoke Create PurchaseOrderReceiptLineImport
+                            resume on error
+                                ErrorMessage = error message
+                                ImportError = true
+                            invoked.PurchaseOrderReceiptImport = SanPurchaseOrderReceiptImport
+                            invoked.Company = Company
+                            invoked.PurchaseOrderReceiptLineImport.LineNumber = each(Ln).SanPurchaseOrderReceiptLineImport.LineNumber
+                            invoked.PurchaseOrderReceiptLineImport.SeqNbr = each(Ln).SanPurchaseOrderReceiptLineImport.SequenceNumber
+                            invoked.RunGroup = each(Ln).RunGroup
+                            invoked.Location = each(Ln).Location
+                            invoked.EnteredReceivedQuantity = each(Ln).EnteredReceivedQuantity
+                            invoked.ReceivedUOM = each(Ln).ReceivedUOM
+                            invoked.OriginalUnitCost = each(Ln).OriginalUnitCost
+                            invoked.CancelBackorder = each(Ln).CancelBackOrder
+                            invoked.RecComments = each(Ln).RecComments
+
+        Purge is a Set Action
+            Instance Selection
+                where (Company != blank
+                and SanPurchaseOrderReceiptImport != blank)
+
+            Action Rules
+                Instance Rules
+                    invoke Delete
+                        
+        Create is a Create Action
+
+        Update is an Update Action
+
+        Delete is a Purge Action
+            Entrance Rules
+                invoke Delete LineRel
+                invoke Delete DetailRel

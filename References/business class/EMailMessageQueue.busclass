@@ -1,0 +1,413 @@
+EMailMessageQueue is a BusinessClass
+    owned by la
+    prefix is EMMQ
+
+    Ontology
+    	symbolic key is EMailMessageQueue
+
+	Patterns
+    	implements CRUD
+		implements CreateStamp
+		disable Auditing
+		disable EffectiveDated
+
+    Persistent Fields
+    	To						    is Text
+    	Cc						    is Text
+    	Bcc						    is Text
+    	From					    is Text
+    	Subject					    is Text
+    	IgnoreInvalidAddresses      is Boolean
+    	ContentData
+    	AlternativeContent		    is Boolean
+    	Status		  			    is Numeric size 1
+        	States
+        		New					value is 0
+        		Reset				value is 1
+        		Pending				value is 2
+        		Hold				value is 3
+        		Complete			value is 8
+        		Failed				value is 9
+        ExecuteTime				    is TimeStamp
+        FailureCount 			    is Numeric size 6
+        ErrorMessage 			    is Text
+        	disable Auditing
+    	AuthenticatedActor          is an Actor                 
+    		as of CurrentDate
+    	IsProxy					    is Boolean					
+    		default label is "SubmittedAsProxy" 
+    	EffectiveDate			    is Date
+        NonVerifiedEmailAddress is Alpha size up to 256
+        NonVerifiedFallbackAddress  is Alpha size up to 256
+        NonVerifiedBusinessClass    is Alpha size up to 200
+        NonVerifiedKeys             is Alpha size up to 510
+        VerifiedDomains             is Alpha size up to 256
+        ActorToNotify               is Alpha size 30
+
+    Derived Fields
+    	CurrentDate is a NativeField
+    		type is Date
+    		
+		MaxRetriesConfig is a DerivedField
+            type is Numeric size 3
+            return config.email_max_retry
+
+		MaxRetries is a DerivedField
+            type is Numeric size 3
+            if (MaxRetriesConfig > 0)
+            	return MaxRetriesConfig
+           	else
+            	return 10
+		
+		CurrentIsProxy is a NativeField
+			type is Boolean
+			
+		UpperCaseDataArea is a DerivedField
+			type is DataAreaName
+			restricted
+			return parentcontext.dataarea  
+			
+		EffectiveDateExecuteTime is a NativeField
+			type is TimeStamp
+			restricted
+			
+		DerActionParameters is a NativeField	
+			type is Text
+			restricted
+
+	Local Fields
+		LocalAsyncActionRequest is an AsyncActionRequest
+		LocalActionParams is Text // Performance optimization since BLOB/CLOB native derived fields get called twice - once for "exists" and a second for getValue. 						
+        
+    Conditions
+    	IsNew
+    		default label is "New"
+    		when (Status.New) 
+    	IsReset
+    		default label is "Reset"
+    		when (Status.Reset) 
+    	IsPending
+    		default label is "Pending"
+    		when (Status.Pending)
+    	IsHold
+    		default label is "Hold"
+    		when (Status.Hold)
+    	IsComplete
+    		default label is "Complete"
+    		when (Status.Complete)
+    	IsFailed
+    		default label is "Failed"
+    		when (Status.Failed)
+    	HasErrorMessage
+    		default label is "ErrorMessageEntered"
+    		when (ErrorMessage entered)
+		IsHoldOrErrorMessage
+			default label is untranslatable
+    		when (Status.Hold
+    		or    ErrorMessage entered)
+    	HasNonVerifiedEmailAddress
+    	    when (NonVerifiedEmailAddress entered)
+	
+	Relations
+		AsyncActionRequestRel
+			default label is "AsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction 
+				related.DataArea = UpperCaseDataArea
+				related.ImplementingClass = "EMailExecutor"
+				related.AsyncAction = "ExecuteEMail"	
+				
+		FutureAsyncActionRequestRel
+			default label is "FutureAsyncActionRequest"
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByNameGroup 
+				related.Name = "EMailMessageQueue" + EffectiveDate 
+				related.Group = "async"
+				related.DataArea = UpperCaseDataArea
+			Instance Selection
+				where (related.ImplementingClass = "AsyncActionRequest"
+				and related.AsyncAction = "SetPendingScheduling")	
+
+        InvalidAddressNotificationActorRel
+            one-to-one relation to Actor
+            Field Mapping uses symbolic key
+                related.Actor = ActorToNotify
+
+    Sets
+		ByStamp
+			indexed
+			Sort Order
+				create stamp
+				EMailMessageQueue
+
+		ByNewStamp
+			indexed
+			Sort Order
+				create stamp
+				EMailMessageQueue
+			Instance Selection
+				where (IsNew)
+		
+		ByResetStamp
+			indexed
+			Sort Order
+				create stamp
+				EMailMessageQueue
+			Instance Selection
+				where (IsReset)
+
+		ByCompleteStamp
+			Sort Order
+				create stamp
+				EMailMessageQueue
+			Instance Selection
+				where (IsComplete)	
+		
+		ByExecCompleteStamp
+			Sort Order
+				ExecuteTime
+				EMailMessageQueue
+			Instance Selection
+				where (IsComplete)			
+	
+		ByFailedStamp
+			indexed
+			Sort Order
+				ExecuteTime
+				EMailMessageQueue
+			Instance Selection
+				where (IsFailed)
+			
+    Actions
+    	PurgeSentEMails is a Set Action
+			Parameters
+				ThruDate 			is Date
+				PurgeOffsetDays 	is Numeric size 3
+				
+			Local Fields
+				LocalThruDate 	is Date
+					value is ThruDate
+
+
+			Parameter Rules
+				ThruDate
+					if (ThruDate entered)
+						LocalThruDate = (ThruDate + 1 day)
+					else	 
+					if (not PurgeOffsetDays entered)
+						required	
+							"MustEnterThruDateOrOffset"
+					else
+						LocalThruDate  = current date - (PurgeOffsetDays - 1)
+			
+				PurgeOffsetDays
+					constraint (not ThruDate entered)
+						"CannotEnterBothThruDateAndOffset"
+
+			Instance Selection
+				include deleted records
+				where (Status.Complete
+				and    ExecuteTime < LocalThruDate)
+
+			Sort Order
+				Status
+				ExecuteTime
+				create stamp
+				EMailMessageQueue
+				
+			Action Rules
+
+				Instance Rules
+					invoke Complete.PurgeRecord
+
+		ResetFailedEMails is a Set Action
+
+			Instance Selection
+				where (Status.Failed)
+
+			Sort Order
+				Status
+				ExecuteTime
+				create stamp
+				EMailMessageQueue				
+											
+			Action Rules
+				Instance Rules
+					if (current timestamp - 3600 > ExecuteTime)
+						invoke Failed.Reset    
+						
+		EndWorkUpdateAsyncRequest is an Instance Action
+			restricted
+			manual update
+
+			
+		UpdateAsyncRequest is an Instance Action
+			restricted
+			
+			Action Rules
+				if (EffectiveDate entered
+				and EffectiveDate > current corporate date)
+					LocalAsyncActionRequest = first FutureAsyncActionRequestRel.AsyncActionRequest
+					
+					if (LocalAsyncActionRequest exists)
+						invoke SetPendingScheduling LocalAsyncActionRequest
+							invoked.ParamPendingScheduling = true
+					else
+						initialize LocalActionParams
+						LocalAsyncActionRequest = first AsyncActionRequestRel.AsyncActionRequest
+						
+						if (LocalAsyncActionRequest exists)
+							invoke Create AsyncActionRequest
+								invoked.Name 				= "EMailMessageQueue" + EffectiveDate 
+								invoked.Group	 			= "async"
+								invoked.DataArea			= UpperCaseDataArea
+								invoked.ImplementingClass	= "AsyncActionRequest"
+								invoked.AsyncAction			= "SetPendingScheduling"
+								invoked.ScheduleConcurrency	= 1		
+								invoked.TimeToExec			= EffectiveDateExecuteTime
+								invoked.ActionParameters	= DerActionParameters
+								invoked.NotificationType	= 2 
+								invoked.TranDisableAudit 	= true
+				else
+					LocalAsyncActionRequest = first AsyncActionRequestRel.AsyncActionRequest
+	
+					if (LocalAsyncActionRequest exists)
+						invoke SetPendingScheduling LocalAsyncActionRequest
+							invoked.ParamPendingScheduling = true
+				
+				initialize LocalActionParams
+
+		NotifyResource is an Instance Action
+		    restricted
+
+			Action Rules
+			    if (NonVerifiedEmailAddress entered
+			    and ActorToNotify entered)
+                    send notification
+                        to InvalidAddressNotificationActorRel.Actor
+                        description is "<NonVerifiedEmailAddress>WasImproperlyUsedAsAFrom-address"
+                        detail is "<NonVerifiedEmailAddress>WasImproperlyUsedAsAFrom-addressInAnEmailSentFrom<NonVerifiedBusinessClass>_(<NonVerifiedKeys>).EmailFrom-addressesMustUseOneOfTheseVerifiedDomainNames:<VerifiedDomains>."
+
+    StateCycles
+    
+    	MessageLifeCycle is a StateCycle
+			state field is Status
+			initial state is New
+		
+			New is a State
+				Entrance Rules
+					invoke EndWorkUpdateAsyncRequest
+						
+				Create is a Create Action
+					allow anonymous access
+					restricted
+					Action Rules
+						AuthenticatedActor		= authenticated actor
+						IsProxy					= CurrentIsProxy
+				
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						make transition to Pending	
+
+			Reset is a State
+				Entrance Rules
+					invoke EndWorkUpdateAsyncRequest
+						
+				SendNow is an Instance Action
+					Action Rules
+						invoke ExecuteNow EMailExecutor
+							suppress manual transaction warning
+							invoked.RecordID   		= EMailMessageQueue
+		
+				MakePending is an Instance Action
+					restricted
+					Action Rules
+						ExecuteTime = current timestamp
+						make transition to Pending	
+						
+			Pending is a State
+				
+				Complete is an Instance Action
+					restricted
+					
+					Action Rules
+						ErrorMessage	= ""
+						ExecuteTime = current timestamp
+						make transition to Complete
+					
+				CompleteWithMessage is an Instance Action
+					restricted
+					
+					Parameters
+						Message is Text
+					
+					Action Rules
+						ErrorMessage	= Message
+						ExecuteTime 	= current timestamp
+						make transition to Complete
+											
+				SetAsFailed is an Instance Action
+					Action Rules
+						ErrorMessage	= "ManuallyFailed"
+						ExecuteTime 	= current timestamp
+						FailureCount 	= FailureCount + 1
+						make transition to Failed
+						
+				Failed is an Instance Action
+					restricted
+				
+					Parameters
+						Message is Text
+					
+					Action Rules
+						ErrorMessage	= Message
+						ExecuteTime 	= current timestamp
+						FailureCount 	= FailureCount + 1
+						
+						if (FailureCount >= MaxRetries)
+							make transition to Hold
+						else
+							make transition to Failed
+			
+			Hold is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+						
+				Reset is an Instance Action
+					Action Rules
+						ErrorMessage	= ""
+						make transition to Reset
+			
+			Complete is a State
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				
+			Failed is a State
+				Update is an Update Action	
+				
+				Delete is a Delete Action
+				
+				PurgeRecord is a Purge Action
+					confirmation required
+						"ThisWillPhysicallyDeleteTheRecord.AreYouSureYouWantToPurge?"
+				
+				PlaceOnHold is an Instance Action
+					Action Rules
+						make transition to Hold
+						
+				Reset is an Instance Action
+					Action Rules
+						ErrorMessage 	= ""
+						ExecuteTime 	= current timestamp
+						make transition to Reset
+
+		

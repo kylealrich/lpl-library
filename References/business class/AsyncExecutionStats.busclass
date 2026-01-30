@@ -1,0 +1,167 @@
+AsyncExecutionStats is a BusinessClass
+    owned by async
+    store using com.lawson.rdtech.framework.repository.AsyncStatsStorage
+
+    Ontology
+        symbolic key is AsyncExecutionStats
+
+    Patterns
+    	disable UniqueID
+
+    Persistent Fields
+    	CompleteCount 			is Numeric size 8
+    	TotalCompleteDuration	is Numeric size 14
+    	MaxCompleteDuration     is Numeric size 14
+    	FailureCount            is Numeric size 8
+    	TotalFailureDuration	is Numeric size 14
+    	MaxFailureDuration		is Numeric size 14
+    	
+	Local Fields
+		LocalQueue is an AsyncQueueDefinition  	
+		  
+	Derived Fields
+		CompleteSeconds is a ComputeField
+			type is Decimal 12.4
+			(TotalCompleteDuration / 1000) 
+			
+		AverageCompleteSeconds is a ComputeField
+			type is Decimal 12.4
+			((TotalCompleteDuration / 1000) / CompleteCount) 
+			
+		LongestCompleteSeconds is a ComputeField
+			type is Decimal 12.4
+			(MaxCompleteDuration / 1000) 
+			
+		FailedSeconds is a ComputeField
+			type is Numeric 14
+			(TotalFailureDuration / 1000) 
+						
+		AverageFailedSeconds is a ComputeField
+			type is Decimal 12.4
+			((TotalFailureDuration / 1000) / FailureCount) 
+			
+		LongestFailedSeconds is a ComputeField
+			type is Decimal 12.4
+			(MaxFailureDuration / 1000) 
+			
+		TotalCount is a ComputeField
+			type is Numeric 8
+			(CompleteCount + FailureCount)	
+			
+		TotalDuration is a ComputeField
+			type is Numeric 14
+			(TotalCompleteDuration + TotalFailureDuration)
+			
+		TotalDurationSeconds is a ComputeField
+			type is Decimal 12.4
+			(TotalDuration / 1000) 
+	
+		AverageTotalSeconds is a ComputeField
+			type is Decimal 12.4
+			((TotalDuration / 1000) / TotalCount) 
+			
+		LongestSeconds is a DerivedField
+			type is Decimal 12.4
+			if (MaxCompleteDuration > MaxFailureDuration)
+				return (MaxCompleteDuration / 1000)
+			else
+				return (MaxFailureDuration / 1000)
+
+		IsEnvDataArea is a NativeField
+			type is Boolean 	
+			default label is "EnvironmentDataArea"
+			
+	Conditions
+		MappingExists
+   			when (QueueMappingRel exists)
+   			
+		AllMappingExists
+   			when (AllMappings exists)	   				
+		
+	Relations
+		QueueRel
+			one-to-one relation to AsyncQueueDefinition
+			Field Mapping uses symbolic key
+				related.AsyncQueueDefinition = LocalQueue
+
+		QueueMappingRel
+			one-to-one relation to AsyncQueueMapping
+			Field Mapping uses Mappings
+				related.Actor 				= blank
+    			related.DataArea 			= blank
+				related.ImplementingClass	= AsyncExecutionStats.BusinessView
+    			related.AsyncAction			= AsyncExecutionStats.BusinessAction
+    			related.MappingField1		= blank
+    			related.MappingField2		= blank
+
+		AllMappings // This will cause both a table scan and post processing but the queue list "should" never be too large.
+			one-to-many relation to AsyncQueueMapping
+				Field Mapping uses MappingsByQueue
+				Instance Selection
+					where ((IsEnvDataArea
+					or      related.DataArea = parentcontext.dataarea 
+					or      related.DataArea = blank)
+					and   ((related.ImplementingClass = AsyncExecutionStats.BusinessView
+					and   (related.AsyncAction =  AsyncExecutionStats.BusinessAction)
+					or     related.AsyncAction = blank)
+					or     related.ImplementingClass = blank))     			
+            	
+	Actions
+		CreateQueueAndMapping is an Instance Action
+			valid when (not MappingExists)
+			Parameters
+				QueueName 	is Alpha size 50
+				Description is Alpha 50
+				SaveHistory is Boolean
+				
+			Parameter Rules
+				QueueName
+					LocalQueue = QueueName
+					
+					constraint (not QueueRel exists)
+						"Queue<QueueName>AlreadyExists"				
+
+			Local Fields
+				LocQueue is an AsyncQueueDefinition view				
+				
+			Action Rules
+				invoke Create AsyncQueueDefinition
+					assign result to LocQueue
+					invoked.AsyncQueueDefinition 	= QueueName
+					invoked.Description 			= Description
+					invoked.MaxActiveActions 		= 1
+					invoked.SaveHistory				= SaveHistory
+					
+				invoke Create AsyncQueueMapping 
+					invoked.AsyncQueueDefinition	= LocQueue.AsyncQueueDefinition
+					invoked.ImplementingClass 		= AsyncExecutionStats.BusinessView	
+					invoked.AsyncAction 			= AsyncExecutionStats.BusinessAction						
+		
+		CreateMapping is an Instance Action
+			valid when (not MappingExists)
+			Parameters
+				QueueName 	is an AsyncQueueDefinition
+				Description is Alpha 50
+				 
+			Action Rules
+				invoke Create AsyncQueueMapping 
+					invoked.AsyncQueueDefinition	= QueueName
+					invoked.ImplementingClass 		= AsyncExecutionStats.BusinessView	
+					invoked.AsyncAction 			= AsyncExecutionStats.BusinessAction	
+
+	Sets
+		ByQueue
+			indexed
+			Sort Order
+				AsyncExecutionStats.AsyncQueueDefinition
+  				AsyncExecutionStats.BusinessView
+  				AsyncExecutionStats.BusinessAction
+  				AsyncExecutionStats.DataArea
+
+		ByBusClassAction    
+			indexed
+			Sort Order
+				AsyncExecutionStats.BusinessView
+  				AsyncExecutionStats.BusinessAction
+  				AsyncExecutionStats.AsyncQueueDefinition
+  				AsyncExecutionStats.DataArea

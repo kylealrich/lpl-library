@@ -1,0 +1,184 @@
+InventoryTransactionImportLineDetail is a BusinessClass
+    owned by ic
+    prefix is ITJ
+    sql name is ITransactionImportLineDetail
+    classic name is ICCTRNDTL
+
+    Ontology
+        symbolic key is InventoryTransactionImportLineDetail
+            classic set name is ITJSET1
+            sql name is ITransactionImportLineDetail
+            classic name is SEQ
+            classic name for InventoryLocation is LOCATION
+            classic name for InventoryDocumentType is DOC-TYPE
+            classic name for InventoryTransactionImportLine is LINE-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		disable Auditing 
+       	disable EffectiveDated
+
+    Persistent Fields
+		RunGroup
+        Serial            is an ItemSerialNumber
+        Bin
+        Lot               is an ItemLot
+        Sublot            is AlphaUpper size 6
+            classic name is SUB-LOT
+        Item
+        Quantity
+        LotOnHold         is Boolean
+            classic name is HOLD-FL
+        LotExpirationDate is Date
+            classic name is EXP-DATE
+        SecondaryQuantity
+            classic name is SEC-QTY
+            
+    Local Fields
+		LocalInterfaceResult            		is like InventoryTransactionInterfaceResult
+		LocalErrorMessage               		is Alpha 150
+    
+    Conditions
+    
+    	OtherDetailsForLineExist
+    		restricted
+    		when (OtherDetailsForLineRel exists)
+    
+    Relations
+    	
+    	LocalInterfaceResultsRel
+			one-to-one relation to InventoryTransactionInterfaceResult
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup					= actor.context.FinanceEnterpriseGroup
+				related.InventoryTransactionInterfaceResult		= LocalInterfaceResult 
+				
+		OtherDetailsForLineRel
+			one-to-many relation to InventoryTransactionImportLineDetail
+			Field Mapping uses symbolic key
+				related.Company                        = Company
+				related.InventoryLocation              = InventoryLocation
+				related.InventoryDocumentType          = InventoryDocumentType
+				related.InventoryTransactionImport     = InventoryTransactionImport
+				related.InventoryTransactionImportLine = InventoryTransactionImportLine
+			Instance Selection
+				where (related.UniqueID      != UniqueID)
+    
+    Sets
+	
+		ByRunGroup
+			Sort Order
+				RunGroup
+				Company
+				InventoryLocation
+				InventoryDocumentType
+				InventoryTransactionImport
+				InventoryTransactionImportLine
+				InventoryTransactionImportLineDetail
+    		
+    Field Rules
+    
+    Actions
+    
+    	Create is a Create Action
+    	
+    		Field Rules
+    		
+    			RunGroup
+    				default to InventoryTransactionImport.RunGroup
+    	
+    			Item
+    				force default to InventoryTransactionImportLine.Item
+    							
+    	CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+			
+			Action Rules
+			
+				Item = InventoryTransactionImportLine.Item
+    	
+    	Update is an Update Action
+    	
+    	Delete is a Delete Action
+    	
+    	FastDelete is a Delete Action
+			restricted
+			bypass relational integrity rules
+    	
+    	UpdateRunGroup is an Instance Action
+			restricted
+			Parameters
+				PrmRunGroup                is a RunGroup
+				
+			Action Rules
+				RunGroup   = PrmRunGroup
+				
+		InterfaceInventoryTransactionLineDetails is a Set Action    
+			restricted
+			Parameters
+				PrmRunGroup					is a RunGroup
+				PrmResult                   is like InventoryTransactionInterfaceResult
+				
+			Local Fields
+				LocalInventoryTransaction 			   is like InventoryTransaction
+				LocalInventoryTransactionRecordInError is Boolean
+				LocalHasError                          is Boolean
+			
+			Instance Selection			
+				where  (RunGroup		= PrmRunGroup
+				and     Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+				
+			Sort Order
+				RunGroup
+				Company	
+				InventoryLocation
+				InventoryTransactionImport
+				
+			Action Rules
+				Empty Set Rules
+				
+					invoke FinishLoadInterface InventoryTransactionImport
+						invoked.PrmRunGroup  		= PrmRunGroup
+						invoked.PrmResult    		= PrmResult
+					
+				RunGroup Set Rules
+					Exit Rules
+						
+						invoke FinishLoadInterface InventoryTransactionImport
+							invoked.PrmRunGroup  		= PrmRunGroup
+							invoked.PrmResult    		= PrmResult
+			
+				InventoryTransactionImport Set Rules
+					
+					Entrance Rules
+						LocalInventoryTransaction 				= InventoryTransactionImport.InventoryTransactionNumber
+						LocalInventoryTransactionRecordInError 	= InventoryTransactionImport.RecordInError
+						
+				Instance Rules
+					LocalInterfaceResult       = PrmResult
+					
+					if   (LocalInventoryTransactionRecordInError = false
+					or    LocalInterfaceResultsRel.IncludeInventoryTransactionsInError)
+						LocalHasError 	= false
+						invoke Unreleased.Create InventoryTransactionLineDetail
+							resume on error
+								LocalHasError  		= true
+								LocalErrorMessage	= error message
+							fill in fields from this instance
+							invoked.InventoryTransaction      	        = LocalInventoryTransaction
+							invoked.InventoryTransactionLine.LineNumber = InventoryTransactionImportLine
+							invoked.TransactionSystemCode          		= InventoryTransactionImportLine.TransactionSystemCode
+						
+						if (LocalHasError)
+							invoke SetError InventoryTransactionImport
+								invoked.PrmErrorMessage = LocalErrorMessage
+								invoked.PrmResult       = PrmResult
+								invoked.PrmErrorLevel   = 3
+						else
+						if (!LocalHasError)
+							if (!OtherDetailsForLineExist)
+								invoke FastDelete InventoryTransactionImportLine
+							invoke FastDelete
+								
+        	

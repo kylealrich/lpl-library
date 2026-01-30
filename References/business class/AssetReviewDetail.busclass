@@ -1,0 +1,755 @@
+AssetReviewDetail is a BusinessClass
+    owned by am
+    prefix is ASRD
+
+    Ontology
+        symbolic key is AssetReviewDetail
+
+    Persistent Fields
+        Asset
+        ReviewStatus					is Numeric size 1
+            States
+                NotReviewed 	value is 1
+                Reviewed	    value is 2
+                PendingApproval	value is 3
+                ReviewComplete	value is 4
+        RejectedComment                 is Alpha up to 250
+        ReviewCode 						is a AssetReasonCode
+        ReviewCompleted         		is Date
+        ReviewApproved          		is Date
+        AssetCost            			is an InternationalAmount
+			precision is Asset.TransactionNumberOfDecimals
+		AssetOwner    					is an Employee
+        AssetType
+		ApprovalCode
+		AssetLocation
+		AssetDivision
+		AssetDimensionGroup				is an AssetAccountingUnitGroup
+		Rejected						is Boolean
+		SequenceNumber         			is a Sequence
+        ApprovalLevel					is Numeric 8
+		Approver						is a FinanceResource
+		ApproverTeam					is a FinanceTeam
+		WorkUnit						is a PfiWorkunit
+
+    Local Fields
+        LocalApprovalCode				is like ApprovalCode
+		LocalApprovalLevel				is Numeric 8
+		LocalApprover					is a FinanceResource
+		LocalApproverTeam				is a FinanceTeam
+		LocalApproverList				is Alpha 250
+		LocalFirstApproverAssigned		is Boolean
+		LocalComment					is Alpha size up to 500
+		LocalNewLine					is LPLText
+		LocalCompany					is a Company
+		LocalAssetReview				is Date
+		LocalAssetReviewDetail 			is like AssetReviewDetail
+		LocalSequenceNumber        		is a Sequence
+
+	Context Fields
+		AssetCompany
+
+    Rule Blocks
+        GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalCode		= ApprovalCode
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalCode
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+			
+		GetNextEscalationApprovalLevel
+			LocalApprovalCode		= ApprovalCode
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+
+		InitiateAssetReviewApprovalFlow
+			if(LocalSequenceNumber entered)
+				initiate AssetReviewApproval process
+					title is "Asset_reviews_are_awaiting_approval"
+					Variables
+						LocalCompany
+						LocalAssetReview
+						LocalAssetReviewDetail
+						LocalSequenceNumber
+					URLs
+						"<linkback(webapp is JournalApprover navigation is MultipleAssetReviewProcessFlowForm text is \"ViewAssetReviewDetails\")>"
+			else
+				initiate AssetReviewApproval process
+					title is "Asset<Asset>_-_<Asset.Description>_review_is_awaiting_approval"
+					Variables
+						LocalCompany
+						LocalAssetReview
+						LocalAssetReviewDetail
+					URLs
+						"<linkback(webapp is JournalApprover navigation is AssetReviewProcessFlowForm text is \"ViewAssetReviewDetail\")>"
+
+		CancelWorkUnit
+			if(SequenceNumber not entered)
+				cancel AssetReviewApproval process
+			else
+				if(!AssetReviewDetailsForSequenceNumberRel exists)
+					invoke Cancel PfiWorkunitRel
+				initialize SequenceNumber
+
+	Derived Fields
+		DerivedRejectionMessage is a DerivedField
+			type is LPLText
+			DerivedRejectionMessage = RejectedComment
+
+		DerivedCurrentApprovalResource is a DerivedField
+			type is Numeric 9
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorList
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+		
+		DerivedAssetProject is a DerivedField
+			type is like Project
+			return Asset.AssetProject
+			
+    Conditions
+		IsATeamMember
+			restricted
+            when (any FinanceTeamMembersFromCurrentApprovalLevelRel.FinanceTeamMember.TeamMember = actor.agent(Employee).Employee)
+
+		IsMoveToNotReviewedValid
+            restricted
+            when(ReviewStatus.Reviewed
+			or ReviewStatus.ReviewComplete)
+
+		IsMoveToReviewedValid
+            restricted
+            when(ReviewStatus.NotReviewed)
+
+		IsSubmitForApprovalValid
+            restricted
+            when(ReviewStatus.Reviewed)
+
+        IsManualActionValid
+            restricted
+            when(ReviewStatus.PendingApproval)
+
+		IsValidForUpdate
+			restricted
+			when(ReviewStatus.NotReviewed
+			or ReviewStatus.Reviewed)
+
+    Form Invokes
+        CreateUnreleasedAssetTransfer
+			if (!AssetRel.CloseInProgress)
+				invoke Create AssetTransferRel
+			else
+				constraint (!AssetRel.CloseInProgress)
+					"ActionNotAvailableWhileCloseIsInProgress"
+
+        CreateUnreleasedAssetDisposal
+			if (!AssetRel.CloseInProgress)
+				if (UnreleasedAssetDisposalRel exists)
+					invoke Unreleased.Update AssetDisposalRel
+				else
+					invoke Unreleased.Dispose AssetDisposalRel
+			else
+				constraint (!AssetRel.CloseInProgress)
+					"ActionNotAvailableWhileCloseIsInProgress"
+
+    Relations
+		AssetCompaniesRel
+			one-to-many relation to AssetCompany
+			Field Mapping uses symbolic key
+			Instance Selection
+				where(related.IsValidForActorContext)
+
+		AssetReviewDetailsForSequenceNumberRel
+			one-to-many relation to AssetReviewDetail
+			Field Mapping uses symbolic key
+            	related.Company	                = Company
+            	related.AssetReview	            = AssetReview
+			Instance Selection
+				where(related.SequenceNumber = SequenceNumber
+				and related.AssetReviewDetail != AssetReviewDetail)
+
+        AssetRel
+            one-to-one relation to Asset
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+            	related.Asset	                = Asset
+
+        AssetBooksRel
+            one-to-many relation to AssetBook
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+            	related.Asset	                = Asset
+
+        UnreleasedAssetDisposalRel
+			one-to-one relation to AssetDisposal
+			Field Mapping uses UnreleasedAssetDisposal
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.Asset 					= Asset
+				related.AssetDisposal 			= Asset.LastAssetSequence
+
+        AssetDisposalRel
+			one-to-one relation to AssetDisposal
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.Asset    				= Asset
+				related.AssetDisposal 			= Asset.LastAssetSequence
+
+        AssetTransferRel
+			one-to-one relation to AssetTransfer
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.Asset 					= Asset
+				related.AssetTransfer 			= Asset.LastAssetSequence
+
+        ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+
+        LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.ApprovalCode			= LocalApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+			
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= AssetReview.FinanceEnterpriseGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		PfiWorkunitRel
+			one-to-one relation to PfiWorkunit
+			Field Mapping uses symbolic key
+				related.PfiWorkunit	= WorkUnit
+	
+	Sets
+		Set1
+			indexed
+			Sort Order
+				AssetReview
+				Company
+				Asset
+
+    Actions
+        Create is a Create Action
+			restricted
+
+        Update is an Update Action
+			valid when (IsValidForUpdate)
+			Entrance Rules
+				if(ReviewCode entered)
+					constraint(ReviewCode.Type.ReviewCode)
+						"ReviewCodeTypeAssetReasonCodeIsRequired"
+
+        Delete is a Delete Action
+			Entrance Rules
+				if(ReviewStatus.PendingApproval)
+					include CancelWorkUnit
+
+		UpdateReviewCode is an Instance Action
+			valid when (IsValidForUpdate)
+			Parameters
+                PrmReviewCode  			is a AssetReasonCode
+                    default label is "ReviewCode"
+			Action Rules
+				if(PrmReviewCode entered)
+					constraint(PrmReviewCode.Type.ReviewCode)
+						"ReviewCodeTypeAssetReasonCodeIsRequired"
+				ReviewCode	= PrmReviewCode
+
+        MoveToNotReviewed is an Instance Action
+			valid when (IsMoveToNotReviewedValid)
+			default label is "NotReviewed"
+			Action Rules
+                ReviewStatus 	= ReviewStatus.NotReviewed
+				initialize ReviewCompleted
+				initialize ReviewApproved
+
+        MoveToReviewed is an Instance Action
+			valid when (IsMoveToReviewedValid)
+			default label is "Reviewed"
+			Action Rules
+                ReviewStatus 	= ReviewStatus.Reviewed
+                ReviewCompleted = current corporate date
+
+        SubmitForApproval is an Instance Action
+			valid when (IsSubmitForApprovalValid)
+			Entrance Rules
+				constraint(ApprovalCode entered)
+					"FieldApprovalCodeIsRequired"
+			Action Rules
+                initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam	
+				initialize SequenceNumber
+				constraint (ApprovalCode.HasApprovalLevels)
+					"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+				constraint (!ApprovalCode.HasTeamWithNoMembers)
+					"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+				constraint (!ApprovalCode.HasInvalidEscalations)
+					"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+				constraint (!ApprovalCode.HasInactiveResources)
+					"CannotComplete;TheApprovalCodeHasInactiveResources"
+				include GetNextApprovalLevel
+				ApprovalLevel = LocalApprovalLevel
+				Approver 	  = LocalApprover
+				ApproverTeam  = LocalApproverTeam
+				LocalCompany				= Company
+				LocalAssetReview			= AssetReview
+				LocalAssetReviewDetail      = AssetReviewDetail
+                ReviewStatus = ReviewStatus.PendingApproval
+				Rejected = false
+				include InitiateAssetReviewApprovalFlow
+
+        MassSubmitForApproval is a Set Action
+			Parameters
+                PrmCompany              is an AssetCompany
+                PrmReviewCode 	        is a AssetReasonCode
+				PrmApprovalCode		    is a ApprovalCode
+				PrmAssetOwner           is an Employee
+				PrmAssetType			is an AssetType
+				PrmAssetDimensionGroup  is an AssetAccountingUnitGroup
+			Parameter Rules
+				PrmCompany
+					initial value is AssetCompany
+					required
+					constraint(PrmCompany.ApprovalProcessStatus.NoPendingAction)
+						"<PrmCompany.ApprovalProcessStatus>,PleaseWait"
+				PrmApprovalCode
+					required
+						"FieldApprovalCodeIsRequired"
+					constraint (PrmApprovalCode.HasApprovalLevels)
+						"CannotComplete;TheApprovalCodeHasNoApprovalLevels"
+					constraint (!PrmApprovalCode.HasTeamWithNoMembers)
+						"CannotComplete;TheApprovalCodeHasATeamWithNoMembers"
+					constraint (!PrmApprovalCode.HasInvalidEscalations)
+						"CannotComplete:TheApprovalCodeHasInvalidEscalationSettings"
+					constraint (!PrmApprovalCode.HasInactiveResources)
+						"CannotComplete;TheApprovalCodeHasInactiveResources"
+			Local Fields
+				LocalCompany			    is a Company
+				LocalAssetReview			is Date
+				LocalAssetReviewDetail      is like AssetReviewDetail
+				LocalSequenceNumber         is a Sequence
+			Instance Selection
+				where  (ReviewStatus.Reviewed
+				and PrmCompany = Company
+				and PrmApprovalCode = ApprovalCode
+				and (PrmAssetType not entered or ((PrmAssetType.Type = AssetType.Type) and (PrmAssetType.SubType = AssetType.SubType)))
+				and (PrmAssetDimensionGroup not entered or PrmAssetDimensionGroup = AssetDimensionGroup)
+				and (PrmAssetOwner not entered or PrmAssetOwner = AssetOwner)
+                and (PrmReviewCode not entered  or PrmReviewCode = ReviewCode))
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						increment AssetReview.LastSubmittedSequence
+						invoke Update Company
+							invoked.ApprovalProcessStatus = 1
+						LocalSequenceNumber 		= AssetReview.LastSubmittedSequence
+						LocalCompany				= Company
+						LocalAssetReview			= AssetReview
+						LocalAssetReviewDetail     	= AssetReviewDetail
+					Exit Rules
+						include InitiateAssetReviewApprovalFlow
+
+				Instance Rules
+					initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam	
+					initialize SequenceNumber
+					include GetNextApprovalLevel
+					ApprovalLevel 	= LocalApprovalLevel
+					Approver 		= LocalApprover
+					ApproverTeam 	= LocalApproverTeam
+					SequenceNumber  =  LocalSequenceNumber
+					ReviewStatus 	= ReviewStatus.PendingApproval
+					Rejected 		= false
+
+		ManualMassApprove is a Set Action
+			default label is "MassApprove"
+			confirmation required
+				"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+			Parameters
+				FinanceEnterpriseGroup
+			Parameter Rules
+				FinanceEnterpriseGroup
+					for each AssetCompaniesRel
+						constraint(each.ApprovalProcessStatus.NoPendingAction)
+							"<each.ApprovalProcessStatus>,PleaseWait"
+			Instance Selection
+				where(ReviewStatus.PendingApproval
+				and ((Approver not entered and IsATeamMember)
+				or Approver = actor.agent(Employee).Employee))
+			Sort Order 
+				Company
+			Action Rules
+				Company Set Rules
+					Entrance Rules
+						invoke Update Company
+							invoked.ApprovalProcessStatus = 2
+					Exit Rules
+						invoke Update Company
+							invoked.ApprovalProcessStatus = 0
+				Instance Rules
+                    initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam
+					ReviewApproved  = current corporate date
+					ReviewStatus = ReviewStatus.ReviewComplete
+					include CancelWorkUnit
+		
+		ManualMassReject is a Set Action
+			default label is "MassReject"
+			confirmation required
+				"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+			Parameters
+				FinanceEnterpriseGroup		
+				PrmRejectedComment  			is Alpha up to 250
+					default label is "RejectionComment"
+			Parameter Rules
+				FinanceEnterpriseGroup
+					for each AssetCompaniesRel
+						constraint(each.ApprovalProcessStatus.NoPendingAction)
+							"<each.ApprovalProcessStatus>,PleaseWait"
+				PrmRejectedComment
+					required
+			Instance Selection
+				where(ReviewStatus.PendingApproval
+				and ((Approver not entered and IsATeamMember)
+				or Approver = actor.agent(Employee).Employee))
+			Sort Order 
+				Company
+			Action Rules
+				Company Set Rules
+					Entrance Rules
+						invoke Update Company
+							invoked.ApprovalProcessStatus = 3
+					Exit Rules
+						invoke Update Company
+							invoked.ApprovalProcessStatus = 0
+				Instance Rules
+					LocalNewLine		= "\u000a"
+					RejectedComment +=  LocalNewLine + PrmRejectedComment
+					ReviewStatus = ReviewStatus.NotReviewed
+					Rejected		= true
+					initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam
+					initialize ReviewCompleted
+					include CancelWorkUnit
+
+		ManualApprove is an Instance Action
+			valid when (IsManualActionValid)
+			default label is "Approve"
+			Action Rules
+				constraint(Company.ApprovalProcessStatus.NoPendingAction)
+					"<Company.ApprovalProcessStatus>,PleaseWait"
+				confirmation required
+					"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				ReviewApproved  = current corporate date
+				ReviewStatus = ReviewStatus.ReviewComplete
+				include CancelWorkUnit
+
+		ManualReject is an Instance Action
+			valid when (IsManualActionValid)
+			default label is "Reject"
+			Parameters
+				PrmRejectedComment  		is Alpha up to 250
+                    default label is "RejectionComment"
+			Parameter Rules
+				PrmRejectedComment
+					required
+			Action Rules
+				constraint(Company.ApprovalProcessStatus.NoPendingAction)
+					"<Company.ApprovalProcessStatus>,PleaseWait"
+				confirmation required
+					"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+				LocalNewLine		= "\u000a"
+				RejectedComment +=  LocalNewLine + PrmRejectedComment
+				ReviewStatus = ReviewStatus.NotReviewed
+				Rejected		= true
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ReviewCompleted
+				include CancelWorkUnit
+
+		PflowApprove is an Instance Action
+			restricted
+			Action Rules
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				ReviewStatus = ReviewStatus.ReviewComplete
+                ReviewApproved  = current corporate date
+
+		PflowReject is an Instance Action
+			restricted
+			action comment required
+			Action Rules
+				ReviewStatus 	 = ReviewStatus.NotReviewed
+				LocalComment	 = action comment
+				LocalNewLine	 = "\u000a"
+				RejectedComment +=  LocalNewLine + LocalComment
+				Rejected		 = true
+				initialize ApprovalLevel
+				initialize Approver
+				initialize ApproverTeam
+				initialize ReviewCompleted
+
+		UpdateApprovalLevel is an Instance Action
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+			Action Rules
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+
+		MassUpdateApprovalLevel is a Set Action
+			restricted
+			Parameters
+				ParmEscalate		 is Boolean
+				PrmWorkUnit	   		 is a PfiWorkunit
+				PrmAssetReviewDetail is like AssetReviewDetail
+			Instance Selection
+				where  (PrmWorkUnit = WorkUnit
+				and PrmAssetReviewDetail ! = AssetReviewDetail)
+			Action Rules
+				Instance Rules
+					if (ParmEscalate)
+						include GetNextEscalationApprovalLevel
+						ApprovalLevel		= LocalApprovalLevel
+						Approver			= LocalApprover
+						ApproverTeam		= LocalApproverTeam
+					else
+						include GetNextApprovalLevel
+						ApprovalLevel		= LocalApprovalLevel
+						Approver			= LocalApprover
+						ApproverTeam		= LocalApproverTeam
+
+		PflowMassApprove is a Set Action
+			restricted
+			Parameters
+				PrmSequenceNumber         is a Sequence
+				PrmAssetReview			  is Date
+				PrmCompany      		  is an AssetCompany
+			Instance Selection
+				where  (PrmCompany = Company
+				and PrmSequenceNumber = SequenceNumber
+				and PrmAssetReview = AssetReview)
+			Action Rules
+				Set Rules
+				Instance Rules
+					initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam
+                    ReviewStatus = ReviewStatus.ReviewComplete
+               		ReviewApproved  = current corporate date
+
+		PflowMassReject is a Set Action
+			restricted
+			Parameters
+				PrmSequenceNumber        is a Sequence
+				PrmAssetReview			 is Date
+				PrmRejectedComment  	 is Alpha up to 250
+				PrmCompany      		 is an AssetCompany
+			Instance Selection
+				where  (PrmCompany = Company
+				and PrmSequenceNumber = SequenceNumber
+				and PrmAssetReview = AssetReview)
+			Action Rules
+				Set Rules
+				Instance Rules
+					initialize ApprovalLevel
+					initialize Approver
+					initialize ApproverTeam
+					initialize ReviewCompleted
+                    ReviewStatus 		= ReviewStatus.NotReviewed
+					LocalNewLine		= "\u000a"
+					RejectedComment    +=  LocalNewLine + PrmRejectedComment
+					Rejected			= true
+
+		UpdateWorkunitFromFlow is a Set Action
+			restricted
+			Parameters
+				PrmCompany         is an AssetCompany
+				PrmAssetReview	   is Date
+				PrmSequenceNumber  is a Sequence
+				PrmWorkUnit	   	   is a PfiWorkunit
+			Instance Selection
+				where  (PrmCompany = Company
+				and PrmSequenceNumber = SequenceNumber
+				and PrmAssetReview = AssetReview)
+			Action Rules
+				Set Rules
+					Entrance Rules
+					Exit Rules
+						invoke Update PrmCompany
+							invoked.ApprovalProcessStatus = 0
+				Instance Rules
+					WorkUnit = PrmWorkUnit
+
+		UpdateApprovalCode is a Set Action
+			Parameters
+                PrmCompany      		is an AssetCompany
+                PrmReviewCode 			is a AssetReasonCode
+				PrmAssetOwner 			is an Employee
+				PrmAssetType			is an AssetType
+				PrmAssetDimensionGroup  is an AssetAccountingUnitGroup
+				PrmApprovalCode			is a ApprovalCode
+			Parameter Rules
+				PrmCompany
+					initial value is AssetCompany
+					required
+			Instance Selection
+				where (PrmCompany = Company
+				and (ReviewStatus.NotReviewed or ReviewStatus.Reviewed)
+				and (PrmAssetType not entered or ((PrmAssetType.Type = AssetType.Type) and (PrmAssetType.SubType = AssetType.SubType)))
+				and (PrmAssetDimensionGroup not entered or PrmAssetDimensionGroup = AssetDimensionGroup)
+				and (PrmAssetOwner not entered or PrmAssetOwner = AssetOwner)
+                and (PrmReviewCode not entered  or PrmReviewCode = ReviewCode))
+			Action Rules
+				Instance Rules
+					ApprovalCode = PrmApprovalCode
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				if(ReviewStatus.PendingApproval)
+					include CancelWorkUnit
+		
+		AssetReviewDetailPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany      					is an AssetCompany
+				PrmAssetReview						is Date
+                    default label is "AssetReview"
+				PrmReviewCode 						is a AssetReasonCode
+                    default label is "ReviewCode"
+				PrmApprovalCode						is a ApprovalCode
+                    default label is "ApprovalCode"
+				PrmAssetOwner 						is an Employee
+                    default label is "AssetOwner"
+				PrmAssetType						is an AssetType
+                    default label is "AssetType"
+				PrmAssetDimensionGroup  			is an AssetAccountingUnitGroup
+                    default label is "AssetDimensionGroup"
+
+			Local Fields
+				LocalActor						is an Actor
+				LocalNotification				is LPLText
+				LocalNewLine					is LPLText
+				LocalAssetReviewDetailCount		is Numeric 10
+
+			Parameter Rules
+				PrmCompany
+					required
+
+			Instance Selection
+				include deleted records
+				where  (PrmCompany = Company
+				and (PrmAssetReview not entered or PrmAssetReview = AssetReview)
+				and (PrmApprovalCode not entered or PrmApprovalCode = ApprovalCode)
+				and (PrmAssetType not entered or ((PrmAssetType.Type = AssetType.Type) and (PrmAssetType.SubType = AssetType.SubType)))
+				and (PrmAssetDimensionGroup not entered or PrmAssetDimensionGroup = AssetDimensionGroup)
+				and (PrmAssetOwner not entered or PrmAssetOwner = AssetOwner)
+                and (PrmReviewCode not entered  or PrmReviewCode = ReviewCode))
+
+			Action Rules
+				Empty Set Rules
+					LocalActor = actor
+					send notification
+						to LocalActor
+						description is "AssetReviewDetailPurgeDetails"
+						priority is high
+						detail is "ThereAreNoAssetReviewDetailRecordsToPurge"
+				Set Rules
+					Exit Rules
+						LocalNewLine		= "\u000a"
+						LocalNotification   = "Number of records that have been purged " + LocalNewLine
+						LocalNotification	+= "AssetReviewDetail: " + LocalAssetReviewDetailCount + LocalNewLine
+
+						LocalActor = actor
+						send notification
+							to LocalActor
+							description is "AssetReviewDetailPurgeDetails"
+							priority is high
+							detail is "<LocalNotification>"
+				Instance Rules
+					LocalAssetReviewDetailCount += 1
+					invoke Purge

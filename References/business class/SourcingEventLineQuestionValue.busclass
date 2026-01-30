@@ -1,0 +1,226 @@
+SourcingEventLineQuestionValue is a BusinessClass
+    owned by ss
+    prefix is SELV
+
+    Ontology
+    	symbolic key is SourcingEventLineQuestionValue
+    
+    Patterns
+		implements DynamicCreation
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+    		
+    Dynamic Creation Rules
+    	DynamicallyCreated = true
+    	constraint (parentcontext.name = "SourcingEventLineQuestionAllocation")
+    		"TheAnswer-<SourcingEventLineQuestionValue>-ForQuestion-<SourcingEventLineQuestion.QuestionText>-DoesNotExist"
+    		
+    Persistent Fields
+    	DisplayOrder
+		QuestionToCreate		is like Question
+
+	Transient Fields
+		NewDisplayOrder			is a DisplayOrder
+    	DynamicallyCreated		is Boolean
+		FromTemplateOrCopy		is Boolean
+
+	Local Fields
+		LastDisplayOrder			is a DisplayOrder		
+		LocalConditionalQuestion	is like Question
+
+	Conditions
+		EventAndLineInActionableState
+			restricted
+			when (SourcingEvent.InActionableState
+			and	  SourcingEventLine.InLineActionableState)
+			
+		CreateActionValid
+			restricted
+			when (SourcingEventLineQuestion.ResponseType.List
+			and	  EventAndLineInActionableState)
+
+		RepositoryHasConditionalQuestions 
+			restricted
+			when (RepositoryConditionalQuestionRel exists)
+
+		HasSourcingEventLineConditionalQuestions
+			restricted
+			when (ConditionalQuestionRel exists)
+	
+	Relations
+
+		ConditionalQuestionRel 
+			one-to-many relation to ConditionalQuestion 
+			Field Mapping uses symbolic key 
+				related.ProcurementGroup			= Company.SourcingGroup 
+				related.Question					= SourcingEventLineQuestion.Question 
+
+		LocalConditionalQuestionRel 
+			one-to-many relation to ConditionalQuestion 
+			Field Mapping uses symbolic key 
+				related.ProcurementGroup			= Company.SourcingGroup 
+				related.Question					= SourcingEventLineQuestion.Question 
+				related.QuestionAnswer				= SourcingEventLineQuestionValue 
+
+		SameRepositoryLineQuestionRel 
+			one-to-many relation to SourcingEventLineQuestion 
+			Field Mapping uses ByQuestion
+				related.Company										= Company 
+				related.SourcingEvent								= SourcingEvent
+				related.SourcingEventLine							= SourcingEventLine 
+				related.Question									= LocalConditionalQuestion 
+
+		RepositoryConditionalQuestionRel 
+			one-to-many relation to ConditionalQuestion 
+			Field Mapping uses ByListAnswer
+				related.ProcurementGroup										= Company.SourcingGroup 
+				related.Question                        						= SourcingEventLineQuestion.Question 
+				related.QuestionAnswer.QuestionAnswerGroup.QuestionListValue	= SourcingEventLineQuestionValue 		
+
+    Sets
+    	ByDisplayOrder
+    		duplicates
+    		Sort Order
+    			Company
+    			SourcingEvent
+    			SourcingEventLine
+    			SourcingEventLineQuestion
+    			DisplayOrder
+    
+    Actions
+    	Create is a Create Action
+			valid when (CreateActionValid)
+			Field Rules
+				DisplayOrder
+					if (!SourcingEvent.CreateByCopy)
+						autosequence using SourcingEventLineQuestion.LastQuestionValueDisplayOrder
+
+    		Action Rules
+    			constraint (SourcingEventLineQuestion.ResponseType.List)
+    				"CanOnlyAddValuesToListTypeQuestions"
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddQuestionValueWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (SourcingEventLine.InLineActionableState)
+					"CannotAddQuestionValueWhileLineIsPendingAward,Cancelled,OrAwarded"
+
+    			if (!DynamicallyCreated
+    			and	SourcingEventLineQuestion.Question entered)  
+    				invoke Update SourcingEventLineQuestion
+    					initialize invoked.Question				
+
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddQuestion)
+					invoke Amend Open.Notified SourcingEvent
+								
+    	CreateDisplay is a Create Action
+			restricted
+			valid when (CreateActionValid)
+			Field Rules
+				DisplayOrder
+					if (!SourcingEvent.CreateByCopy)
+						autosequence using SourcingEventLineQuestion.LastQuestionValueDisplayOrder
+
+    		Action Rules
+    			constraint (SourcingEventLineQuestion.ResponseType.List)
+    				"CanOnlyAddValuesToListTypeQuestions"
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddQuestionValueWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (SourcingEventLine.InLineActionableState)
+					"CannotAddQuestionValueWhileLineIsPendingAward,Cancelled,OrAwarded"
+
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddQuestion)
+					invoke Amend Open.Notified SourcingEvent
+
+    	CreateDisplayValue is a Create Action
+			restricted
+			valid when (CreateActionValid)
+    		Action Rules
+    			constraint (SourcingEventLineQuestion.ResponseType.List)
+    				"CanOnlyAddValuesToListTypeQuestions"
+				constraint (SourcingEvent.InActionableState)
+					"CannotAddQuestionValueWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (SourcingEventLine.InLineActionableState)
+					"CannotAddQuestionValueWhileLineIsPendingAward,Cancelled,OrAwarded"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddQuestion)
+					invoke Amend Open.Notified SourcingEvent
+
+			Exit Rules
+				if (LastDisplayOrder entered)
+					if (LastDisplayOrder > SourcingEventLineQuestion.LastQuestionValueDisplayOrder)
+						invoke Update SourcingEventLineQuestion
+							invoked.LastQuestionValueDisplayOrder = LastDisplayOrder
+
+    	Update is an Update Action
+    		valid when (EventAndLineInActionableState)
+    		Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotUpdateQuestionValueWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (SourcingEventLine.InLineActionableState)
+					"CannotUpdateQuestionValueWhileLineIsPendingAward,Cancelled,OrAwarded"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.UpdateQuestion)
+					invoke Amend Open.Notified SourcingEvent
+							
+		CreateConditionalQuestion is an Instance Action
+			valid when (SourcingEventLineQuestion.CanCreateConditionalListQuestion)
+			Parameters 
+				ParmConditionalQuestion is a Question
+					default label is "ConditionalQuestion"
+
+			Parameter Rules 
+				ParmConditionalQuestion 
+					required
+			Action Rules
+
+				constraint (ParmConditionalQuestion.Active)
+					"CannotUseAnInactiveQuestion"
+				LocalConditionalQuestion	= ParmConditionalQuestion
+				constraint (SameRepositoryLineQuestionRel !exists)
+					"ConditionalQuestionAlreadyExistsAsASourcingEventLineQuestion"
+				constraint (LocalConditionalQuestionRel !exists)
+					"ConditionalQuestionAlreadyExists"
+				if (SourcingEventLineQuestion.Question entered)
+					constraint (ParmConditionalQuestion != SourcingEventLineQuestion.Question)
+						"ConditionalQuestionCannotBeTheSameAsQuestion"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    	Delete is a Delete Action
+    		valid when (EventAndLineInActionableState)
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotDeleteQuestionValueWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (SourcingEventLine.InLineActionableState)
+					"CannotDeleteQuestionValueWhileLineIsPendingAward,Cancelled,OrAwarded"
+
+    			if (SourcingEventLineQuestion.Question entered) 
+    				invoke Update SourcingEventLineQuestion
+    					initialize invoked.Question				
+
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.DeleteQuestion)
+					invoke Amend Open.Notified SourcingEvent

@@ -1,0 +1,361 @@
+CalculateWithholdingAmount is a Field
+
+	Representation
+		Group Fields
+			PayablesCompany
+			PayablesInvoice
+			PayablesInvoicePayment
+			PaymentExchangeRate		is a CurrencyExchangeRate
+
+	Transient Fields
+		TotalWithholdingAmount is a FinanceCurrencyAmountGroup
+
+	Context Fields
+
+	Derived Fields
+		WithholdingAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			LocalPaymentPercent	= PayablesInvoicePayment.PaymentAmount.CurrencyAmount / PayablesInvoice.InvoiceAmount.CurrencyAmount
+
+			for each PayablesInvoiceWithholdingRel
+				initialize LocalWithholdingRate
+				if (each.Type.Accrued)
+					if (LocalPaymentPercent != 1)					
+						LocalEachWithholdingAmount	= each.InvoiceWithholdingAmount * LocalPaymentPercent
+						round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+						if (((each.DerivedPaidAccruedWithholdingAmount + LocalEachWithholdingAmount) >= each.InvoiceWithholdingAmount)
+						or  ((each.InvoiceWithholdingAmount - each.DerivedPaidAccruedWithholdingAmount - LocalEachWithholdingAmount) < 1))
+							LocalLastPaymentRecord = true
+							LocalEachWithholdingAmount = each.InvoiceWithholdingAmount - each.DerivedPaidAccruedWithholdingAmount
+						else
+							LocalLastPaymentRecord = false
+					else
+						LocalEachWithholdingAmount = each.InvoiceWithholdingAmount
+					LocalTotalAccruedWithholding += LocalEachWithholdingAmount
+					if (LocalPaymentPercent = 1
+					or  LocalLastPaymentRecord)					
+						invoke FastUpdate each
+							invoked.Reportable = false
+					invoke CreateFromPaymentCycle PayablesInvoiceWithholding
+						fill in fields from each
+						invoked.Company							= PayablesCompany
+						invoked.PayablesInvoice					= PayablesInvoice
+						invoked.PayablesInvoicePayment			= PayablesInvoicePayment
+						invoked.PayablesInvoiceDistribution		= each.PayablesInvoiceDistribution
+						invoked.InvoiceReportableAmount			= each.InvoiceReportableAmount * LocalPaymentPercent		
+						invoked.InvoiceWithholdingAmount		= LocalEachWithholdingAmount								
+						invoked.WithholdingDate					= PayablesInvoicePayment.CheckDate
+						invoked.PaymentExchangeRate				= PaymentExchangeRate
+						invoked.ReportableAmount				= ((each.InvoiceReportableAmount * PaymentExchangeRate) * LocalPaymentPercent)		
+						invoked.WithholdingAmount				= (LocalEachWithholdingAmount * PaymentExchangeRate)		
+						invoked.Reportable						= true
+						if (LocalPaymentPercent !=1)			
+							invoked.TransientLastPayment		= LocalLastPaymentRecord
+							initialize invoked.PaymentWithholdingAmount
+				else
+					LocalWithholdingCode		= each.IncomeWithholdingCode
+					LocalWithholdingCategory	= each.WithholdingCategory
+					if (LocalPaymentPercent != 1)
+						LocalReportableAmount	= each.InvoiceReportableAmount * LocalPaymentPercent
+						round LocalReportableAmount to nearest DerivedLocalRoundTo
+					else
+						LocalReportableAmount	= each.InvoiceReportableAmount
+					
+					if (each.IncomeWithholdingCode.IncludeDiscount
+					and PayablesInvoicePayment.DiscountAmount.CurrencyAmount entered
+					and !PayablesInvoicePayment.DiscountLost)
+						if(!PayablesInvoicePayment.Vendor.LineLevelWithholding)
+							if (LocalPaymentPercent != 1)
+								LocalReportableAmount = ((each.InvoiceReportableAmount - PayablesInvoicePayment.DiscountAmount.CurrencyAmount) * LocalPaymentPercent)
+								round LocalReportableAmount to nearest DerivedLocalRoundTo
+							else
+								LocalReportableAmount = each.InvoiceReportableAmount - PayablesInvoicePayment.DiscountAmount.CurrencyAmount	
+						else
+							LocalLineDiscountAmount = each.InvoiceReportableAmount * PayablesInvoicePayment.DiscountPercent
+							round LocalLineDiscountAmount to nearest DerivedLocalRoundTo
+							if (LocalPaymentPercent != 1)
+								LocalReportableAmount = ((each.InvoiceReportableAmount - LocalLineDiscountAmount) * LocalPaymentPercent)
+								round LocalReportableAmount to nearest DerivedLocalRoundTo
+							else
+								LocalReportableAmount = each.InvoiceReportableAmount - LocalLineDiscountAmount
+							
+					if (PaymentExchangeRate != 1)
+						LocalPaymentReportableAmount	= LocalReportableAmount * PaymentExchangeRate
+						round LocalPaymentReportableAmount to nearest DerivedLocalRoundTo
+					else
+						LocalPaymentReportableAmount = LocalReportableAmount
+					if (last IncomeWithholdingRateRel.WithholdingScale !entered)
+						if (PayablesInvoicePayment.Vendor.EnrolledWithholding)
+							LocalWithholdingRate		= last IncomeWithholdingRateRel.EnrolledRate
+						else
+							LocalWithholdingRate		= last IncomeWithholdingRateRel.Rate
+					if (LocalWithholdingCode.Accumulated)
+						initialize LocalEachWithholdingAmount			
+						LocalPeriodWithheldAmount = VendorWithholdingBalanceRel.PeriodWithheldAmount.WithheldAmount[PayablesInvoicePayment.CheckDate month]
+						if (last IncomeWithholdingRateRel.PeriodInvoicedThreshold entered)			
+							if ((LocalPaymentReportableAmount + VendorWithholdingBalanceRel.PeriodPaidAmount.PaidAmount[PayablesInvoicePayment.CheckDate month]) > (last IncomeWithholdingRateRel.PeriodInvoicedThreshold))
+								LocalBaseForWithholding = LocalPaymentReportableAmount + VendorWithholdingBalanceRel.PeriodPaidAmount.PaidAmount[PayablesInvoicePayment.CheckDate month]
+							else
+								if (LocalPaymentReportableAmount	>= last IncomeWithholdingRateRel.MinimumInvoicedAmount)
+									LocalBaseForWithholding = LocalPaymentReportableAmount
+									LocalEachWithholdingAmount	= LocalBaseForWithholding * LocalWithholdingRate
+									round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+								else
+									LocalBaseForWithholding = 0
+						else
+							LocalBaseForWithholding = LocalPaymentReportableAmount + VendorWithholdingBalanceRel.PeriodPaidAmount.PaidAmount[PayablesInvoicePayment.CheckDate month] - (last IncomeWithholdingRateRel.ExemptAmount)
+						if (LocalBaseForWithholding > 0)
+							if (PayablesInvoicePayment.Vendor.EnrolledWithholding
+							and last IncomeWithholdingRateRel.WithholdingScale entered)
+								LocalSurplusAmount = ((LocalBaseForWithholding - last WithholdingScaleDetailRel.FromAmount) * last WithholdingScaleDetailRel.PlusPercentage)
+								round LocalSurplusAmount to nearest DerivedLocalRoundTo
+								LocalEachWithholdingAmount = last WithholdingScaleDetailRel.AmountToWithhold + LocalSurplusAmount - LocalPeriodWithheldAmount
+								if (last IncomeWithholdingRateRel.EnrolledMinimumWithholding entered)
+									if (LocalEachWithholdingAmount >= 0
+									and LocalEachWithholdingAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+										initialize LocalEachWithholdingAmount
+									if (LocalEachWithholdingAmount < 0) 
+										LocalCalculatedAmount = LocalPeriodWithheldAmount + LocalEachWithholdingAmount
+										if (LocalCalculatedAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+											LocalEachWithholdingAmount = (LocalPeriodWithheldAmount * -1) 
+							else
+								if (PayablesInvoicePayment.Vendor.EnrolledWithholding)
+									LocalEachWithholdingAmount	= LocalBaseForWithholding * LocalWithholdingRate
+									round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+									LocalEachWithholdingAmount	= LocalEachWithholdingAmount - LocalPeriodWithheldAmount
+									if (last IncomeWithholdingRateRel.EnrolledMinimumWithholding entered)
+										if (LocalEachWithholdingAmount >= 0
+										and LocalEachWithholdingAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+											initialize LocalEachWithholdingAmount
+										if (LocalEachWithholdingAmount < 0) 
+											LocalCalculatedAmount = LocalPeriodWithheldAmount + LocalEachWithholdingAmount
+											if (LocalCalculatedAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+												LocalEachWithholdingAmount = (LocalPeriodWithheldAmount * -1) 
+								else
+									if (LocalEachWithholdingAmount !entered)			
+										LocalEachWithholdingAmount	= LocalBaseForWithholding * LocalWithholdingRate
+										round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+										LocalEachWithholdingAmount	= LocalEachWithholdingAmount - LocalPeriodWithheldAmount
+									if (last IncomeWithholdingRateRel.MinimumWithholding entered)
+										if (LocalEachWithholdingAmount >= 0
+										and LocalEachWithholdingAmount < last IncomeWithholdingRateRel.MinimumWithholding)
+											initialize LocalEachWithholdingAmount
+										if (LocalEachWithholdingAmount < 0) 
+											LocalCalculatedAmount = LocalPeriodWithheldAmount + LocalEachWithholdingAmount
+											if (LocalCalculatedAmount < last IncomeWithholdingRateRel.MinimumWithholding)
+												LocalEachWithholdingAmount = (LocalPeriodWithheldAmount * -1) 
+						else
+							if (LocalBaseForWithholding		< 0
+							and LocalPeriodWithheldAmount	entered) 
+								LocalEachWithholdingAmount = (LocalPeriodWithheldAmount * -1) 
+							else
+								initialize LocalEachWithholdingAmount
+					else
+						if (LocalPaymentReportableAmount < 0) 
+							LocalCalculatedAmount = (LocalPaymentReportableAmount * -1)
+						if (LocalPaymentReportableAmount	>= last IncomeWithholdingRateRel.MinimumInvoicedAmount
+						or  LocalCalculatedAmount			>= last IncomeWithholdingRateRel.MinimumInvoicedAmount)
+							if (PayablesInvoicePayment.Vendor.EnrolledWithholding)
+								LocalEachWithholdingAmount	= LocalPaymentReportableAmount * LocalWithholdingRate
+								round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+								if (last IncomeWithholdingRateRel.EnrolledMinimumWithholding entered)
+									if (LocalEachWithholdingAmount >= 0
+									and LocalEachWithholdingAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+										initialize LocalEachWithholdingAmount
+									if (LocalEachWithholdingAmount < 0)
+										LocalCalculatedAmount = (LocalEachWithholdingAmount * -1)
+										if (LocalCalculatedAmount < last IncomeWithholdingRateRel.EnrolledMinimumWithholding)
+											initialize LocalEachWithholdingAmount
+							else
+								LocalEachWithholdingAmount	= LocalPaymentReportableAmount * LocalWithholdingRate
+								round LocalEachWithholdingAmount to nearest DerivedLocalRoundTo
+								if (last IncomeWithholdingRateRel.MinimumWithholding entered)
+									if (LocalEachWithholdingAmount >= 0
+									and LocalEachWithholdingAmount < last IncomeWithholdingRateRel.MinimumWithholding)
+										initialize LocalEachWithholdingAmount
+									if (LocalEachWithholdingAmount < 0)
+										LocalCalculatedAmount = (LocalEachWithholdingAmount * -1)
+										if (LocalCalculatedAmount < last IncomeWithholdingRateRel.MinimumWithholding)
+											initialize LocalEachWithholdingAmount
+						else
+							initialize LocalEachWithholdingAmount
+					LocalTotalWithholdingAmount += LocalEachWithholdingAmount
+					if (LocalEachWithholdingAmount entered
+					and PaymentExchangeRate	!= 1)
+						LocalWithholdingAmount	= LocalEachWithholdingAmount / PaymentExchangeRate
+					else
+						LocalWithholdingAmount	= LocalEachWithholdingAmount
+					invoke CreateFromPaymentCycle PayablesInvoiceWithholding
+						invoked.Company								= PayablesCompany
+						invoked.PayablesInvoice						= PayablesInvoice
+						invoked.PayablesInvoicePayment				= PayablesInvoicePayment
+						invoked.PayablesInvoiceDistribution			= each.PayablesInvoiceDistribution
+						invoked.InvoiceReportableAmount				= LocalReportableAmount
+						invoked.PaymentExchangeRate					= PaymentExchangeRate
+						invoked.ReportableAmount					= LocalPaymentReportableAmount
+						if (LocalWithholdingCode.Accumulated)
+							invoked.BasisForWithholding				= LocalBaseForWithholding
+						else
+							invoked.BasisForWithholding				= LocalPaymentReportableAmount
+						invoked.WithholdingAmount					= LocalEachWithholdingAmount
+						invoked.WithholdingRate						= LocalWithholdingRate
+						if (PayablesInvoicePayment.Vendor.EnrolledWithholding)
+							invoked.WithholdingScale				= last IncomeWithholdingRateRel.WithholdingScale
+						invoked.InvoiceWithholdingAmount			= LocalWithholdingAmount 
+						invoked.WithholdingCategory					= LocalWithholdingCategory
+						invoked.WithholdingDate						= PayablesInvoicePayment.CheckDate
+						invoked.PostDate							= PayablesInvoicePayment.CheckDate
+						invoked.IncomeWithholdingCode				= LocalWithholdingCode
+						invoked.PaymentCurrency						= PayablesInvoicePayment.CashCode.Currency
+						invoked.ExemptAmount						= last IncomeWithholdingRateRel.ExemptAmount
+						invoked.PeriodTotalPaidAmount				= VendorWithholdingBalanceRel.PeriodPaidAmount.PaidAmount[PayablesInvoicePayment.CheckDate month]
+						invoked.PeriodTotalWithheldAmount			= LocalPeriodWithheldAmount
+						invoked.Reportable							= true
+					if (LocalWithholdingCode.Accumulated)
+						invoke Update VendorWithholdingBalanceRel
+							invoked.TransientPaymentAmount	= LocalPaymentReportableAmount
+							invoked.TransientWithheldAmount = LocalEachWithholdingAmount
+							invoked.TransientPaymentDate	= PayablesInvoicePayment.CheckDate
+
+			if (LocalTotalWithholdingAmount	entered
+			and PaymentExchangeRate != 1)
+				LocalTotalWithholdingAmount	= (LocalTotalWithholdingAmount / PaymentExchangeRate)
+				round LocalTotalWithholdingAmount to nearest DerivedLocalRoundTo
+			
+			return LocalTotalWithholdingAmount + LocalTotalAccruedWithholding
+
+		DerivedLocalRoundTo is a DerivedField
+			type is Decimal 5.4
+			restricted
+			if (PayablesInvoicePayment.InvoiceCurrency.NumberOfDecimals = 2)
+				return .01
+			else
+			if (PayablesInvoicePayment.InvoiceCurrency.NumberOfDecimals = 0)
+				return 1
+			else
+			if (PayablesInvoicePayment.InvoiceCurrency.NumberOfDecimals = 3)
+				return .001
+			else
+			if (PayablesInvoicePayment.InvoiceCurrency.NumberOfDecimals = 4)
+				return .0001
+
+		SummarizePaymentWithholdingAmounts  is a DerivedField
+			type is Boolean
+			initialize TotalWithholdingAmount
+			for each PayablesInvoicePaymentWithholdingRel
+				TotalWithholdingAmount.CurrencyAmount											+= each.PaymentWithholdingAmount.CurrencyAmount
+				TotalWithholdingAmount.FunctionalAmount.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.FunctionalAmount.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount2.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount2.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount3.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount3.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount1.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount1.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount2.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount2.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount3.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount3.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount4.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount4.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount5.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount5.EnteredCurrencyAmount
+
+		SummarizeAccruedWithholdingAmounts  is a DerivedField
+			type is Boolean
+			initialize TotalWithholdingAmount
+			for each PaidAccruedPayablesInvoiceWithholdingRel		
+				TotalWithholdingAmount.CurrencyAmount											+= each.PaymentWithholdingAmount.CurrencyAmount
+				TotalWithholdingAmount.FunctionalAmount.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.FunctionalAmount.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount2.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount2.EnteredCurrencyAmount
+				TotalWithholdingAmount.AlternateAmount3.EnteredCurrencyAmount					+= each.PaymentWithholdingAmount.AlternateAmount3.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount1.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount1.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount2.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount2.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount3.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount3.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount4.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount4.EnteredCurrencyAmount
+				TotalWithholdingAmount.ReportAmount5.EnteredCurrencyAmount						+= each.PaymentWithholdingAmount.ReportAmount5.EnteredCurrencyAmount
+
+		RemoveWithholding is a DerivedField
+			type is Boolean
+			invoke FastUpdate AccruedPayablesInvoiceWithholdingRel
+				invoked.Reportable	= true
+			invoke Delete PayablesInvoicePaymentWithholdingRel
+
+	Local Fields
+		LocalEachWithholdingAmount		is an InternalAmount
+		LocalTotalWithholdingAmount		is an InternationalAmount
+		LocalTotalAccruedWithholding	is an InternationalAmount
+		LocalReportableAmount			is an InternalAmount
+		LocalPaymentReportableAmount	is an InternalAmount
+		LocalWithholdingAmount			is an InternalAmount
+		LocalLineDiscountAmount			is an InternalAmount
+		LocalWithholdingCode			is an IncomeWithholdingCode
+		LocalWithholdingCategory		is a WithholdingCategory
+		LocalWithholdingRate			is a ChrgRate
+		LocalPaymentPercent				is a Percent
+		LocalPeriodWithheldAmount		is an InternationalAmount
+		LocalCalculatedAmount			is an InternationalAmount
+		LocalBaseForWithholding			is an InternationalAmount
+		LocalSurplusAmount				is an InternalAmount
+		LocalLastPaymentRecord			is Boolean
+
+	Conditions
+
+	Relations
+		PayablesInvoiceWithholdingRel
+			one-to-many relation to PayablesInvoiceWithholding
+			Field Mapping uses symbolic key
+				related.Company					= PayablesCompany
+				related.PayablesInvoice			= PayablesInvoice
+			Instance Selection
+				where (related.InvoiceReportableAmount	entered
+				and    related.PayablesInvoicePayment	!entered)
+
+
+		PayablesInvoicePaymentWithholdingRel
+			one-to-many relation to PayablesInvoiceWithholding
+			Field Mapping uses symbolic key
+				related.Company					= PayablesCompany
+				related.PayablesInvoice			= PayablesInvoice
+				related.PayablesInvoicePayment	= PayablesInvoicePayment
+
+		AccruedPayablesInvoiceWithholdingRel
+			one-to-many relation to PayablesInvoiceWithholding
+			Field Mapping uses ByAccruedCategoryWithholdingCode
+				related.Company							= PayablesCompany
+				related.PayablesInvoice					= PayablesInvoice
+				related.Type							= 1		
+			Instance Selection
+				where (related.PayablesInvoicePayment !entered)
+
+		PaidAccruedPayablesInvoiceWithholdingRel				
+			one-to-many relation to PayablesInvoiceWithholding
+			Field Mapping uses ByAccruedCategoryWithholdingCode
+				related.Company							= PayablesCompany
+				related.PayablesInvoice					= PayablesInvoice
+				related.Type							= 1		
+			Instance Selection
+				where (related.PayablesInvoicePayment	= PayablesInvoicePayment)
+
+		IncomeWithholdingRateRel
+			one-to-many relation to IncomeWithholdingRate
+			Field Mapping uses symbolic key
+				related.VendorGroup				= PayablesCompany.VendorGroup
+				related.IncomeWithholdingCode	= LocalWithholdingCode
+				related.WithholdingCategory		= LocalWithholdingCategory
+			Instance Selection
+				where (related.EffectiveDate <= PayablesInvoicePayment.CheckDate)
+
+		WithholdingScaleDetailRel
+			one-to-many relation to WithholdingScaleDetail
+			Field Mapping uses ByFromAmount
+				related.VendorGroup				= PayablesCompany.VendorGroup
+				related.WithholdingScale		= last IncomeWithholdingRateRel.WithholdingScale
+			Instance Selection
+				where (related.FromAmount	 	<= LocalBaseForWithholding)
+
+
+		VendorWithholdingBalanceRel
+			one-to-one relation to VendorWithholdingBalance
+			Field Mapping uses symbolic key
+				related.VendorGroup				= PayablesCompany.VendorGroup
+				related.Vendor					= PayablesInvoicePayment.Vendor
+				related.IncomeWithholdingCode	= LocalWithholdingCode
+				related.Year					= PayablesInvoicePayment.CheckDate year
+
+

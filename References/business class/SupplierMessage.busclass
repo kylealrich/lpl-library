@@ -1,0 +1,194 @@
+SupplierMessage is a BusinessClass
+    owned by procurement
+    prefix is SPREM
+
+    Ontology
+    	symbolic key is SupplierMessage
+    	    		
+	Persistent Fields
+		RunGroup            
+		CreationDateTime	is TimeStamp
+		MessageTitle		is Alpha 100
+		MessageText			is Text
+		Status				is Numeric 1
+			States
+				Unread			value is 1
+				Read			value is 2
+				Deleted			value is 3
+				HardDeleted		value is 4
+		ReleaseStatus		is Numeric 1
+			States
+				Draft			value is 1
+				Released		value is 2
+		Priority			is Numeric 1
+			States
+				Low				value is 1
+				Normal			value is 2
+				High			value is 3
+		Attachment
+		MessageOwner        is an Employee
+			default label is "DialogContact"
+										
+	Derived Fields
+	
+		DialogContactName is a StringField
+			type is Alpha up to 101
+			default label is "DialogContact"
+			MessageOwner.FirstLastName	
+
+	Local Fields
+		LocalSupplierSourceId 	is a SupplierSourceId
+		LocalRelease            is Boolean
+
+	Conditions
+		MessageBySupplier
+			restricted
+ 			when (Supplier = actor.agent(SupplierSourceId).Supplier)
+
+		Deleted
+			restricted
+			when (Status = 3)	
+			
+		Read
+			restricted
+			when (Status = 2)	
+		
+		Unread
+			restricted
+			when (Status = 1)	
+			
+		Active
+			restricted
+			when (Status = 1
+			or    Status = 2)
+			
+		HasAttachment
+			restricted
+			when (Attachment entered)	
+
+	Sets
+		ByCreationDateTime
+			Sort Order
+				SupplierGroup
+    			CreationDateTime
+ 				SupplierMessage
+ 				Supplier		
+
+		ByPriority
+			Sort Order
+				SupplierGroup
+    			Priority
+ 				SupplierMessage
+ 				Supplier
+
+	Relations
+      	ActiveSupplierContacts
+      		one-to-many relation to SupplierSourceId
+      		Field Mapping uses symbolic key
+      			related.SupplierGroup 		= SupplierGroup
+      			related.Supplier 			= Supplier
+      		Instance Selection
+        		where (related.Active		= true)
+
+      	SupplierContactMessageRel
+      		one-to-many relation to SupplierContactMessage
+      		Field Mapping uses symbolic key
+      			related.SupplierGroup 		= SupplierGroup
+      			related.Supplier 			= Supplier
+      			related.SupplierSourceId 	= LocalSupplierSourceId
+      		Instance Selection
+      			where (related.SupplierMessage		= SupplierMessage)
+
+		SupplierGroupPortalContactsRel
+			one-to-many relation to SupplierGroupPortalContacts
+			Field Mapping uses ByEmployee
+				related.Contact         = MessageOwner	
+				related.SupplierGroup   = SupplierGroup
+
+	Field Rules
+		MessageTitle
+			required
+			
+		CreationDateTime
+			initial value is current timestamp
+			default to current timestamp
+			
+		Status
+			initial value is Status.Unread
+		
+		Priority
+			initial value is Priority.Normal
+		
+		ReleaseStatus
+			initial value is ReleaseStatus.Draft
+
+ 	Actions
+		Create is a Create Action
+			Action Rules
+				if (MessageOwner entered)
+					constraint (SupplierGroupPortalContactsRel exists)
+						"DialogContactMustBeAValidSupplierGroupPortalContact"
+			
+			Exit Rules
+				
+				ReleaseStatus	= ReleaseStatus.Draft
+				if (LocalRelease)
+					invoke Release
+
+		Update is an Update Action
+			valid when (ReleaseStatus.Draft)
+
+			Exit Rules
+				if (LocalRelease)
+					invoke Release
+
+		Delete is an Action
+			valid when (ReleaseStatus.Draft)
+		
+		ReleaseAllMessagesForRunGroup is a Set Action
+			Parameters
+				ParmRunGroup 	is a RunGroup
+					default label is "RunGroup"
+				
+			Parameter Rules
+				ParmRunGroup
+					required
+			
+			Instance Selection
+				where (ParmRunGroup = RunGroup)
+				
+			Action Rules
+				Instance Rules
+					invoke Release	
+
+		Release is an Instance Action
+			valid when (ReleaseStatus.Draft)
+
+			Action Rules
+				ReleaseStatus	= ReleaseStatus.Released
+				for each ActiveSupplierContacts
+					invoke Create SupplierContactMessage
+						invoked.SupplierGroup 		= each.SupplierGroup
+						invoked.Supplier 			= each.Supplier
+						invoked.SupplierSourceId 	= each.SupplierSourceId
+						invoked.SupplierMessage		= SupplierMessage
+						invoked.CreationDateTime	= CreationDateTime
+						invoked.MessageTitle 		= MessageTitle
+						invoked.MessageText 		= MessageText
+						invoked.Status 				= Status.Unread
+						invoked.Priority 			= Priority
+						invoked.Attachment 			= Attachment
+						invoked.ReleaseStatus		= ReleaseStatus.Released
+						invoked.MessageOwner        = MessageOwner
+
+					if (each.ReceiveEmailNotification)
+						send email
+							to each.EmailAddress
+							from MessageOwner.EmployeeWorkEmailAddress
+							subject "PleaseCheckSupplierPortalMessagesForTheFollowingTitle:<MessageTitle>"
+							Contents
+								"PleaseCheckSupplierPortalMessagesForTheFollowingTitle:<MessageTitle>"
+								"AndTakeAppropriateAction"
+								
+							
+										

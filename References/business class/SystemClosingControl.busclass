@@ -1,0 +1,263 @@
+SystemClosingControl is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLSCC
+
+	Ontology
+		symbolic key is SystemClosingControl
+
+    Patterns
+        implements StaticJava
+
+	Context Fields
+		GeneralLedgerCloseConfiguration
+
+	Persistent Fields
+		CurrencyTable
+		Control					is Boolean
+		ValidEntryDate			is a DateRange
+		ClosedPeriod			is a GeneralLedgerClosePeriod
+		OpenPeriods				is Numeric 2
+		AutoPost				is Boolean
+        HoldCode				is a GeneralLedgerHoldCode
+
+	Transient Fields
+
+	Local Fields
+		LocalDate				is Date
+		LocalCount				is Numeric 3
+		LocalCalendarPeriod		is a GeneralLedgerCalendarPeriod
+		
+	Derived Fields
+		ValidBeginDate		is a DerivedField
+			type is Date
+
+#ifdef module glif
+			if (ValidSystemCodes)
+				return ValidEntryDate.Begin
+			else
+				return first CompanySystemClosingControlRel.ValidEntryDate.Begin
+#endif
+#ifndef module glif
+				return ValidEntryDate.Begin
+#endif
+		ValidEndDate		is a DerivedField
+			type is Date
+
+#ifdef module glif
+			if (ValidSystemCodes)
+				return ValidEntryDate.End
+			else
+				return first CompanySystemClosingControlRel.ValidEntryDate.End
+#endif
+#ifndef module glif
+				return ValidEntryDate.End
+#endif
+		DerivedOpenPeriods		is a DerivedField
+			type is Numeric 2
+
+#ifdef module glif
+			if (ValidSystemCodes)
+				return OpenPeriods
+			else
+				return first CompanySystemClosingControlRel.OpenPeriods
+#endif
+#ifndef module glif
+			return OpenPeriods
+#endif
+		CurrentPeriodEndDate	is a DerivedField
+			type is Date
+			restricted
+			return AccountingEntity.CurrentPeriod.GeneralLedgerCalendarPeriod.Date
+		CurrentPeriodBeginDate	is a DerivedField
+			type is Date
+			LocalCalendarPeriod	= AccountingEntity.PreviousPeriod
+			return (LocalCalendarPeriod.Date + 1)
+		NextPeriodBeginDate	is a DerivedField
+			type is Date
+			restricted
+			return (CurrentPeriodEndDate + 1)
+		DerivedEndDate			is a DerivedField
+			type is Date
+			restricted
+			if (!OpenPeriods entered)
+				LocalDate	= last AllAccountingEntityPeriodRel.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date 
+			else 
+				if (!ClosedPeriod entered)
+					LocalCount = 2
+					for each AllAccountingEntityPeriodRel
+						LocalDate = each.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date
+						if (LocalCount 	= OpenPeriods)
+							end for each
+						else
+							LocalCount 	+= 1
+				else
+					LocalCount = 1
+					for each AllAccountingEntityPeriodRel
+						LocalDate = each.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod.Date
+						if (LocalCount 	= OpenPeriods)
+							end for each
+						else
+							LocalCount 	+= 1
+			return LocalDate
+
+	Relations
+		AllAccountingEntityPeriodRel
+			one-to-many relation to AccountingEntityPeriod
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= FinanceEnterpriseGroup
+				related.AccountingEntity					= AccountingEntity
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod > AccountingEntity.CurrentPeriod)
+#ifdef module glif
+		CompanySystemClosingControlRel
+			one-to-many relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode				= GeneralLedgerSystemCode
+
+			Instance Selection
+				where (related.Company.AccountingEntity	= AccountingEntity)
+		CompanySystemClosingRel
+			one-to-many relation to CompanySystemClosingControl
+			Field Mapping uses BySystemCode
+				related.GeneralLedgerSystemCode				= GeneralLedgerSystemCode
+#endif
+				
+	Sets
+    	ByControl
+    		Sort Order
+    			FinanceEnterpriseGroup
+    			AccountingEntity
+    			Control
+    			ClosedPeriod
+    			GeneralLedgerSystemCode
+
+	Conditions
+		ValidSystemCodes
+			restricted
+			when (GeneralLedgerSystemCode 	= "PS"
+			or    GeneralLedgerSystemCode	= "CA"
+			or    GeneralLedgerSystemCode	= "GL"
+			or    GeneralLedgerSystemCode 	= "RJ")
+
+
+
+
+
+
+
+
+
+
+		
+			
+		CurrentPeriodClosed
+			restricted
+			when (ClosedPeriod >= DerivedEndDate) 	
+						
+	Field Rules
+		Control
+
+
+		ValidEntryDate
+			if (Control)
+				if (!ValidEntryDate.Begin entered)
+					ValidEntryDate.Begin	= NextPeriodBeginDate
+				if (!ValidEntryDate.End entered)
+					ValidEntryDate.End		= DerivedEndDate
+        HoldCode
+			constraint (!AutoPost)
+				"CannotEnterHoldCodeWhenAutoPostSelected"
+	
+	Attach Rules
+
+	Rule Blocks
+		ValidEntryDateUpdate
+			if (!Control)
+				initialize ValidEntryDate
+				initialize OpenPeriods
+			else
+				if (!ValidEntryDate.Begin entered)
+					if (!ClosedPeriod entered)
+						ValidEntryDate.Begin	= CurrentPeriodBeginDate
+					else
+						ValidEntryDate.Begin	= NextPeriodBeginDate
+				if (!ValidEntryDate.End entered)
+					ValidEntryDate.End		= DerivedEndDate
+
+	Actions
+		T2VCreate is a Create Action
+			restricted
+			default label is untranslatable
+			bypass field rules
+
+		Create is a Create Action
+
+ 			Entrance Rules 	
+				if (Control)
+					constraint (!GeneralLedgerSystemCode.RecordType.User)
+						"ControlFieldCannotBeCheckedForUserDefinedSystemCodes"				
+					constraint (ValidSystemCodes)
+						"<GeneralLedgerSystemCode>ClosingControlMustBeCreatedOnThe_Company_System_Closing_ControlForm"
+ 			Action Rules 	
+				include ValidEntryDateUpdate
+
+		Update is an Update Action
+ 			Entrance Rules 	
+				if (Control)
+					constraint (!GeneralLedgerSystemCode.RecordType.User)
+						"ControlFieldCannotBeCheckedForUserDefinedSystemCodes"		
+
+ 			Action Rules 	
+				include ValidEntryDateUpdate
+
+		Delete is a Delete Action
+ 			Entrance Rules 	
+#ifdef module glif
+				constraint (!CompanySystemClosingControlRel exists)
+					"<GeneralLedgerSystemCode>SystemClosingControlCannotBeDeleted,RecordExistsInCompanySystemClosingControl"
+#endif
+
+		AutoDelete is a Delete Action
+			restricted
+
+		AutoCreate is a Create Action
+			restricted
+ 			Action Rules 	
+				include ValidEntryDateUpdate
+
+		UpdateFromSubSystem is an Update Action
+			restricted
+ 			Action Rules 	
+ 				if (Control)
+					ClosedPeriod			= AccountingEntity.CurrentPeriod
+					ValidEntryDate.Begin	= NextPeriodBeginDate 
+					ValidEntryDate.End		= DerivedEndDate
+
+		UpdateSystemClosingControl is an Instance Action
+			restricted
+			Parameters
+				PrmEnterpriseGroup				is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmAccountingEntity				is like AccountingEntity
+					default label is "AccountingEntity"
+				PrmSystem						is like GeneralLedgerSystemCode
+					default label is "System"
+				PrmNewBeginDate					is Date
+					default label is "NewBeginDate"
+			Parameter Rules
+				PrmEnterpriseGroup
+					required
+				PrmAccountingEntity
+					required
+				PrmSystem
+					required
+
+ 			Action Rules 	
+ 				if (Control)
+					ClosedPeriod			= AccountingEntity.CurrentPeriod
+					if (PrmNewBeginDate entered
+					and PrmNewBeginDate		> ValidEntryDate.Begin)
+						ValidEntryDate.Begin	= PrmNewBeginDate
+					else
+						ValidEntryDate.Begin	= NextPeriodBeginDate 
+					ValidEntryDate.End		= DerivedEndDate

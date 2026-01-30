@@ -1,0 +1,345 @@
+TaskCompletionApprovalResource is a BusinessClass
+    owned by closemgmt
+    prefix is TCAR
+    sql name is TCApprovalResource
+
+    Ontology
+    	symbolic key is TaskCompletionApprovalResource
+
+	Patterns
+		implements Resequence on ApprovalLevel
+			new sequence field is NewApprovalLevel
+			set is ByApprovalLevel
+
+    Persistent Fields
+    	ApprovalLevel						is a DisplayOrder
+		Approver							is a FinanceResource
+			delete ignored
+		ApprovalTeam						is a FinanceTeam
+			delete ignored
+		EscalationDays						is Numeric 3
+		EscalationHours						is Decimal 5.2
+		EscalateTo							is Numeric 1
+			States
+				NextApprovalLevel		value is 1
+				SpecificApprovalLevel	value is 2
+		EscalationApprovalLevel				is a TaskCompletionApprovalResource
+		EscalationLevelFromCode				is Numeric 8
+
+
+	Transient Fields
+		NewApprovalLevel			is a DisplayOrder
+		CreateFromApprovalCode		is Boolean
+
+	Local Fields
+		DeletingLastLevel	is Boolean
+
+	Derived Fields
+		DerivedDescription is a DerivedField
+			type is Alpha 230
+			if (Approver entered)
+				return Approver.PreferredSimplePresentationName
+			else
+			if (ApprovalTeam entered)
+				return ApprovalTeam.Description
+			else
+				return ""
+
+		DerivedApprovalLevelPlusOne is a DerivedField
+			type is Numeric 8
+			return ApprovalLevel + 1
+
+		DerivedNextApprovalLevel is a DerivedField
+			type is Alpha 3
+			default label is "NextApprovalLevel"
+			if (LastApprovalLevel)
+				return "N/A"
+			else
+				return DerivedApprovalLevelPlusOne
+
+		DerivedNextApprovalLevelApprover is a DerivedField
+			type is Alpha size 230
+			return first NextApprovalLevelRel.Approver.PreferredSimplePresentationName
+			
+		DerivedNextApprovalLevelTeam is a DerivedField
+			type is Alpha 100
+			return first NextApprovalLevelRel.ApprovalTeam.Description
+
+		InvalidNextLevelEscalationMessage is a MessageField
+			"Invalid:EscalatingToNextLevelWhenNoNextLevelExists"
+			
+		InvalidSpecificLevelEscalationMessage is a MessageField
+			"Invalid:EscalatingToSpecificLevelWhereTheLevelIsNotGreaterThanTheCurrentLevel"
+			
+		NumberOfLevels is a ComputeField
+			type is Numeric 8
+			(instance count of ApprovalLevelRel)
+
+	Conditions
+		EscalationApprovalLevelApproverEntered
+			when (EscalationApprovalLevel.Approver entered)
+		EscalationApprovalLevelApprovalTeamEntered
+			when (EscalationApprovalLevel.ApprovalTeam entered)
+		ShowEscalationApprovalLevel
+			when (EscalationDays > 0
+			and	  EscalateTo.SpecificApprovalLevel)
+		LastApprovalLevel
+			when (!ApprovalLevelRel exists
+			or	  ApprovalLevel = last ApprovalLevelRel.ApprovalLevel)
+		IsTeam
+			when (ApprovalTeam entered)
+		IsResource
+			when (Approver entered)
+		IsCurrentApprovalLevelOnTask
+			when (ClosePeriodTask.ApprovalLevel = ApprovalLevel)
+		ResourceIsCurrentApproverOnTask
+			when (IsCurrentApprovalLevelOnTask
+			and   !IsTeam)
+		TeamIsCurrentApproverOnTask
+			when (IsCurrentApprovalLevelOnTask
+			and   IsTeam)
+		TeamHasNoMembers
+			when (IsTeam
+			and   ApprovalTeam.HasNoMembers)
+		NextApprovalLevelExists
+			when (first NextApprovalLevelRel exists)
+		NextApprovalLevelApproverEntered
+			when (first NextApprovalLevelRel.Approver entered)
+		NextApprovalLevelApprovalTeamEntered
+			when (first NextApprovalLevelRel.ApprovalTeam entered)
+		EscalateToNextLevel
+			when (EscalateTo.NextApprovalLevel)
+		InvalidNextLevelEscalation
+			when (EscalateTo.NextApprovalLevel
+			and   !NextApprovalLevelExists)
+		InvalidSpecificLevelEscalation
+			when (EscalateTo.SpecificApprovalLevel
+			and   EscalationApprovalLevel.ApprovalLevel <= ApprovalLevel)
+		InvalidEscalation
+			when (InvalidNextLevelEscalation
+			or    InvalidSpecificLevelEscalation)
+		ApproverResourceInactive
+			when (Approver entered
+			and   !Approver.Active)
+		ApproverTeamMemberInactive
+			when (IsTeam
+			and   ApprovalTeam.HasInactiveMembers)
+		HasInactiveResources
+			when (ApproverResourceInactive
+			or    ApproverTeamMemberInactive)
+		TaskIsOpen
+			when (ClosePeriodTask.TaskStatus.Scheduled
+			or    ClosePeriodTask.TaskStatus.InProcess
+			or    ClosePeriodTask.TaskStatus.PendingApproval)
+		AllowUpdateOrDelete
+			when (TaskIsOpen
+			and   !IsCurrentApprovalLevelOnTask)
+		TaskIsPendingApproval
+			when (ClosePeriodTask.TaskStatus.PendingApproval)
+
+	Relations
+		DuplicateApproverRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses symbolic key 
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and	   related.Approver = Approver)
+
+		DuplicateApprovalTeamRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses symbolic key 
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and	   related.ApprovalTeam = ApprovalTeam)
+
+		ThisApprovalLevelRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses symbolic key 
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+			Instance Selection
+				where (related.UniqueID = UniqueID)
+
+		ApprovalLevelRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses ByApprovalLevel 
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+
+		NextApprovalLevelRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses ByApprovalLevel
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+				related.ApprovalLevel			= DerivedApprovalLevelPlusOne
+
+		FinanceTeamMemberRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= CloseManagementGroup
+				related.FinanceTeam				= ApprovalTeam
+
+		EscalationLevelFromCodeRel
+			one-to-many relation to TaskCompletionApprovalResource
+			Field Mapping uses ByApprovalLevel 
+				related.CloseManagementGroup	= CloseManagementGroup
+				related.ClosePeriod				= ClosePeriod
+				related.ClosePeriodTask			= ClosePeriodTask
+				related.ApprovalLevel			= EscalationLevelFromCode
+
+	Field Rules
+		Approver
+        	constraint (!DuplicateApproverRel exists)
+    			"ApproverAlreadyDefinedForThisTask"
+			constraint (!ApprovalTeam entered)
+				"EnterEitherAnApproverOrAnApprovalTeam"
+			if (ApprovalTeam not entered)
+				required
+					"MustEnterEitherAnApproverOrAnApprovalTeam"
+
+		ApprovalTeam
+        	constraint (!DuplicateApprovalTeamRel exists)
+    			"ApprovalTeamAlreadyDefinedForThisTask"
+    		constraint (!TeamHasNoMembers)
+    			"ApprovalTeamHasNoMembers"
+    		constraint (!ApproverTeamMemberInactive)
+    			"TeamHasMemberThatIsInactive"
+
+		EscalationDays
+			if (EscalationDays entered)
+				constraint (EscalationDays >= 0)
+					"CannotEnterNegativeEscalationDays"
+
+		EscalationHours
+			if (!CreateFromApprovalCode)
+				constraint (NextApprovalLevelRel exists)
+					"CannotSetEscalation;ThereAreNoLevelsDefinedBelowThisOne"
+				
+			constraint (EscalationHours >= 0)
+				"CannotEnterNegativeEscalationHours"
+
+		EscalateTo
+			if (EscalationHours entered)
+				default to 1
+
+			constraint (EscalationHours entered)
+				"CannotSetAnEscalateToWithoutEnteringEscalationHours"
+				
+			if (!CreateFromApprovalCode)
+				if (EscalateTo.NextApprovalLevel)
+					constraint (NextApprovalLevelRel exists)
+						"CannotSetToNextApproval;NoNextApprovalLevelExists"
+
+		ApprovalLevel
+			autosequence using ByApprovalLevel
+
+		EscalationApprovalLevel
+			if (!CreateFromApprovalCode)
+				if (EscalateTo.SpecificApprovalLevel)
+					required
+						"EscalationApprovalLevelIsRequiredWhenEscalatingToASpecificApprovalLevel"
+					constraint (EscalationApprovalLevel.ApprovalLevel > ApprovalLevel)
+						"EscalationApprovalLevel<EscalationApprovalLevel.ApprovalLevel>MustBeGreaterThanCurrentApprovalLevel<ApprovalLevel>"
+
+	Attach Rules
+
+	Sets
+		ByApprovalLevel
+			duplicates
+			Sort Order
+ 				CloseManagementGroup
+				ClosePeriod
+ 				ClosePeriodTask
+ 				ApprovalLevel
+ 				
+ 		ByApprover
+ 			Sort Order
+ 				CloseManagementGroup
+				ClosePeriod
+ 				ClosePeriodTask
+ 				Approver
+ 			Instance Selection
+ 				where (IsResource)
+ 				
+ 		ByApprovalTeam
+ 			Sort Order
+ 				CloseManagementGroup
+				ClosePeriod
+ 				ClosePeriodTask
+ 				ApprovalTeam
+ 			Instance Selection
+ 				where (IsTeam)
+			
+	Actions
+		Create is a Create Action
+			valid when (TaskIsOpen)
+
+
+			Exit Rules
+				invoke UpdateApprovalLevel first ApprovalLevelRel
+					invoked.NewApprovalLevel = 1
+		
+		Update is an Update Action
+			valid when (AllowUpdateOrDelete)
+			Action Rules
+				if (EscalateTo changed
+				and (EscalateTo not entered
+				or   EscalateTo.NextApprovalLevel))
+					EscalationApprovalLevel = 0	
+		
+		Delete is a Purge Action
+			valid when (AllowUpdateOrDelete)
+			Entrance Rules
+				if (NumberOfLevels = 1)
+					confirmation required
+						"RemovingTheOnlyLevelOfApprovalWillSetTheTaskToNotRequireApprovalsUponCompletion.Continue?"
+					DeletingLastLevel = true	
+
+			Exit Rules
+				if (DeletingLastLevel)
+					invoke RemoveApprovals ClosePeriodTask
+				else
+
+
+					invoke UpdateApprovalLevel first ApprovalLevelRel
+						invoked.NewApprovalLevel = 1
+
+		DeleteForRemoval is a Purge Action
+			restricted
+
+		UpdateApprovalLevel is an Update Action
+			restricted
+		
+		UpdateEscalationLevel is a Set Action
+			restricted
+			Parameters
+				PrmCloseManagementGroup		is a CloseManagementGroup
+				PrmClosePeriod				is a ClosePeriod
+				PrmClosePeriodTask			is a ClosePeriodTask
+				
+			Sort Order
+				CloseManagementGroup
+				ClosePeriod
+				ClosePeriodTask
+				TaskCompletionApprovalResource
+
+			Instance Selection
+				where (CloseManagementGroup		= PrmCloseManagementGroup
+				and    ClosePeriod				= PrmClosePeriod
+				and    ClosePeriodTask			= PrmClosePeriodTask
+				and    EscalateTo.SpecificApprovalLevel)
+
+			Action Rules
+				Instance Rules
+					EscalationApprovalLevel = first EscalationLevelFromCodeRel.TaskCompletionApprovalResource
+					
+

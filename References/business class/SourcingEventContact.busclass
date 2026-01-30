@@ -1,0 +1,213 @@
+SourcingEventContact is a BusinessClass 
+	owned by ss
+	prefix is EVCT
+	representative image is Contact.ResourcePicture.File
+		missing image is random background
+			foreground text is "<DerivedInitials>"
+
+	Ontology
+		symbolic key is SourcingEventContact
+
+	Persistent Fields
+		ContactType			is a PurchasingContactType
+		Contact				is an Employee
+			default label is "Employee"
+		Name				is a PersonName 
+			holds pii
+		Address				is a PostalAddressV2	
+			holds pii
+		Phone				is a Telephone 
+			holds pii
+		Email				is an EmailAddressMulti 
+			holds pii
+			default label is "EmailAddress"
+		PrimaryContact		is Boolean
+		PurchasingContact	is Boolean
+		SupplierCanView
+
+	Derived Fields
+
+		DerivedName is a DerivedField
+			type is Alpha 101
+			default label is "Name"
+			if (ContactEntered)
+				return Contact.FirstLastName
+			else
+				return Name.FirstAndLastName
+
+		DerivedInitials is a DerivedField
+			type is Alpha 101
+			default label is "Initials"
+			if (ContactEntered)
+				return Contact.Name.Initials
+			else
+				return Name.Initials
+
+		DerivedPhone is a DerivedField
+			type is Alpha 100
+			default label is "PhoneNumber"
+			if (ContactEntered)
+				return Contact.EmployeeWorkTelephone
+			else
+				return Phone.TelephoneDisplay
+
+		DerivedEmail is a DerivedField 
+			type is EmailAddressField with multiple addresses
+			holds pii
+			default label is "EmailAddress"
+			if (ContactEntered)
+				return Contact.EmployeeWorkEmailAddress
+			else
+				return Email
+				
+		PrimaryTag is a MessageField
+			"Primary"
+
+	Conditions
+		EligibleForCM
+			restricted
+			when (SourcingEvent.ContractOutputExists
+			or    SourcingEvent.ContractOutput)
+			
+		ContactFromRepository	
+			restricted	
+			when (Contact entered)
+
+		EmailAddressExists	
+			restricted	
+			when (DerivedEmail entered)
+
+		PhoneNumberExists	
+			restricted	
+			when (DerivedPhone entered)
+
+		IsPrimary	
+			restricted	
+			when (PrimaryContact)
+
+		ContactEntered	
+			restricted	
+			when (Contact entered)
+
+	Relations
+		
+		EventContactRel 
+			one-to-many relation to SourcingEventContact
+			Field Mapping uses ByContactInCompany
+				related.Contact				= Contact
+			Instance Selection
+				where (related.Contact 	        = Contact
+				and    related.Company	     	= Company
+				and    Contact                  entered)
+				
+		HasAnotherPrimaryContactRel
+			one-to-many relation to SourcingEventContact
+			Field Mapping uses symbolic key
+				related.Company 						= Company
+				related.SourcingEvent					= SourcingEvent
+			Instance Selection
+				where ((related.SourcingEventContact		!= SourcingEventContact)
+				and    (related.PrimaryContact))
+	
+	Sets
+		ByContact
+			Sort Order
+				Company
+				SourcingEvent
+				Contact
+				SourcingEventContact
+									
+		ByContactType
+			Sort Order
+				Company
+				SourcingEvent
+				ContactType
+				Contact
+				SourcingEventContact
+				
+		ByContactInCompany
+			Sort Order
+				Contact
+				Company
+				SourcingEvent
+				SourcingEventContact
+
+	Actions
+		CreateAdHocContact is a Create Action
+			valid when (SourcingEvent.InEditableState)
+			Field Rules
+				PurchasingContact
+					if (!SourcingEvent.CreateByCopy)
+						default to true
+						
+				SupplierCanView
+					if (ContactType entered)
+						default to ContactType.DefaultSupplierCanView
+					else
+						default to true
+				
+
+			Action Rules
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddContact)
+					invoke Amend Open.Notified SourcingEvent 
+					
+				if (PrimaryContact)
+					if (HasAnotherPrimaryContactRel exists)
+						invoke UpdateSourcingEventContact HasAnotherPrimaryContactRel
+							invoked.PrimaryContact = false
+
+		CreateContactFromEmployee is a Create Action
+			valid when (SourcingEvent.InEditableState)
+			Field Rules
+				PurchasingContact
+					if (!SourcingEvent.CreateByCopy)
+						default to true
+						
+				SupplierCanView
+					if (ContactType entered)
+						default to ContactType.DefaultSupplierCanView
+					else
+						default to true
+
+			Action Rules
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.AddContact)
+					invoke Amend Open.Notified SourcingEvent 
+					
+				if (PrimaryContact)
+					if (HasAnotherPrimaryContactRel exists)
+						invoke UpdateSourcingEventContact HasAnotherPrimaryContactRel
+							invoked.PrimaryContact = false 
+		
+		Update is an Update Action
+			valid when (SourcingEvent.InEditableState)
+			Action Rules
+					
+				constraint (SourcingEvent.InActionableState)
+					"CannotUpdateContactWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotUpdateContactWhileEventIsPendingEventApproval"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.UpdateContact)
+					invoke Amend Open.Notified SourcingEvent
+					
+				if (PrimaryContact)
+					if (HasAnotherPrimaryContactRel exists)
+						invoke UpdateSourcingEventContact HasAnotherPrimaryContactRel
+							invoked.PrimaryContact = false
+					
+		UpdateSourcingEventContact is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			valid when (SourcingEvent.InEditableState)
+			Action Rules
+				constraint (SourcingEvent.InActionableState)
+					"CannotDeleteContactWhileEventIsPendingAward,Cancelled,OrClosed"
+				constraint (!SourcingEvent.NeedsApproval)
+					"CannotDeleteContactWhileEventIsPendingEventApproval"
+				if (SourcingEvent.InInitiateAmendmentState
+				and Company.AmendmentCriteria.DeleteContact)
+					invoke Amend Open.Notified SourcingEvent     
+	   		

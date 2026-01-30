@@ -1,0 +1,204 @@
+TrueCostAssetManagementInterface is a BusinessClass
+	default label is "AssetManagementInterface"
+	owned by truecost
+	sql name is TrueCostAssetInterface
+	prefix is TCAMI
+	
+	Ontology
+		symbolic key is TrueCostAssetManagementInterface
+	
+	Patterns
+		disable Auditing
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		
+	Persistent Fields
+		
+		TrueCostConfiguration				is like TrueCostConfiguration
+		AccountingEntity					is like AccountingEntity	
+		AssetAccountingUnitGroup			is AlphaUpper 10
+		Asset								is Numeric 15
+		CurrentPeriodDepreciation			is Decimal 19.3
+		YearEndDate							is Date
+		Period								is Alpha 2
+		ErrorDescription					is Alpha 200
+		
+
+	Local Fields
+		LocalLastSequence					is Numeric 12
+		LocalRunGroup						is like RunGroup
+		LocalTrueCostConfiguration			is like TrueCostConfiguration
+		
+	Derived Fields
+
+		AverageResourceRate				is a ComputeField
+			type is Decimal 19.3
+			(CurrentPeriodDepreciation / YearEndDate days in month)
+				
+		EffectivePeriod					is a DerivedField
+			type is Alpha 12
+			EffectivePeriod	=	YearEndDate year
+			if (Period size = 1)
+				EffectivePeriod += "0"+Period
+			else
+			if (Period size = 2)
+				EffectivePeriod += Period
+				
+			EffectivePeriod += 28
+			return EffectivePeriod
+												
+				
+	Field Rules
+	
+	Conditions
+		HasError
+			restricted
+			when (ErrorDescription entered)		
+					
+	Relations
+	
+		TrueCostAssetManagementInterfaceRel
+			one-to-many relation to TrueCostAssetManagementInterface
+			Field Mapping uses symbolic key
+			Instance Selection
+				where(related.TrueCostConfiguration = TrueCostConfiguration
+				or related.TrueCostConfiguration != TrueCostConfiguration)
+		
+		RunGroupRel
+			one-to-many relation to TrueCostAssetManagementInterface
+			Field Mapping uses symbolic key
+			Instance Selection
+				where(related.TrueCostAssetManagementInterface.RunGroup = LocalRunGroup)
+				
+		CopyRunGroupRel
+			one-to-many relation to TrueCostPracticalCapacityInt
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration								= LocalTrueCostConfiguration
+			Instance Selection
+				where(related.TrueCostPracticalCapacityInt.RunGroup = LocalRunGroup)
+		
+		
+	Rule Blocks
+					
+	Actions
+		
+		Create is a Create Action
+			Entrance Rules			
+				LocalLastSequence = last TrueCostAssetManagementInterface.Sequence			
+				if(!TrueCostAssetManagementInterface.Sequence entered)
+					TrueCostAssetManagementInterface.Sequence = (LocalLastSequence + 1)
+					
+		Update is an Update Action
+					
+		Delete is a Delete Action
+			Action Rules
+			
+		Purge is a Purge Action
+			restricted
+			
+		GenerateResourceCapacityRates	is a Set Action	
+			Parameters
+				PrmRunGroup			is a RunGroup	
+					default label is "RunGroup"			
+			Parameter Rules
+				PrmRunGroup
+					required
+						"RunGroup_is_required"
+					LocalRunGroup = PrmRunGroup
+					constraint(RunGroupRel exists)
+						"RunGroup_does_not_exist"
+			Instance Selection
+				where(TrueCostAssetManagementInterface.RunGroup = PrmRunGroup)
+			Local Fields
+				LocalFirstCount						is Numeric 10
+				LocalFinalCount						is Numeric 10
+				LocalActor							is an Actor
+									
+			Action Rules
+				Empty Set Rules
+
+				Set Rules
+					Entrance Rules						
+						LocalFirstCount =	instance count of RunGroupRel
+						LocalActor = actor
+											
+					Exit Rules
+						
+						LocalFinalCount =	LocalFirstCount - instance count of TrueCostAssetManagementInterfaceRel					
+						send notification
+							to LocalActor
+							description is "GenerateResourceRateDataHasCompleted"
+							priority is high
+							detail is "NumberOfSuccessfulRecords<LocalFinalCount>.___NumberOfFailedRecords<instance count of TrueCostAssetManagementInterfaceRel>.___TotalRecordsProcessed<LocalFirstCount>."
+				Instance Rules
+
+					if(!ErrorDescription entered)
+						invoke Create TrueCostResourceRateTable
+							resume on error
+								ErrorDescription = error message	
+							
+							invoked.TrueCostConfiguration							=	TrueCostConfiguration
+							invoked.TrueCostResourceRateTable.AccountingEntity		=	AccountingEntity
+							invoked.TrueCostResourceRateTable.Department			=	AssetAccountingUnitGroup
+							invoked.TrueCostResourceRateTable.ResourceName			=	Asset
+							invoked.AverageResourceRate								=	AverageResourceRate
+							invoked.TrueCostResourceRateTable.EffectivePeriod		=	EffectivePeriod
+													
+					if (!ErrorDescription entered)
+						invoke Purge
+						
+		DeleteAllTransactionsForRunGroup is a Set Action
+			default label is "DeleteAllTransactionsForRunGroup"
+			Parameters
+				PrmRunGroup						is a RunGroup
+					default label is "RunGroup"
+			Parameter Rules
+				PrmRunGroup
+					required
+						"RunGroup_is_required"D
+					LocalRunGroup		=	PrmRunGroup				
+					constraint(RunGroupRel exists)
+						"RunGroup_does_not_exist"
+			Instance Selection
+				where(TrueCostAssetManagementInterface.RunGroup = PrmRunGroup)
+			
+			Action Rules
+				Instance Rules
+					invoke Delete
+						
+		CopyRunGroup					is a Set Action
+			default label is "CopyRunGroup"
+			
+			Parameters
+				PrmTCConfig				is a TrueCostConfiguration
+					default label is "True\CostConfiguration"
+				PrmRunGroupFrom			is a RunGroup
+					default label is "Copy_from_RunGroup"
+				PrmRunGroupTo			is a RunGroup
+					default label is "Copy_to_RunGroup"
+					
+			Parameter Rules
+				PrmTCConfig
+					required
+				PrmRunGroupFrom
+					required
+					LocalTrueCostConfiguration = PrmTCConfig
+					LocalRunGroup = PrmRunGroupFrom
+					constraint (CopyRunGroupRel exists)
+						"Source_Run_Group_does_not_exist"
+					constraint (PrmRunGroupFrom != PrmRunGroupTo)
+						"CopyFrom_Run_GroupCannotBeTheSameAsCopyTo_Run_Group"
+				PrmRunGroupTo
+					required
+					
+			Instance Selection
+				where (TrueCostConfiguration = PrmTCConfig
+				and TrueCostAssetManagementInterface.RunGroup = PrmRunGroupFrom)
+				
+			Action Rules
+				
+				Instance Rules
+					invoke Create TrueCostAssetManagementInterface
+						fill in fields from this instance
+							except invoked.RunGroup
+						invoked.RunGroup				= PrmRunGroupTo

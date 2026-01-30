@@ -1,0 +1,727 @@
+UserListView is a BusinessClass
+    owned by repository
+    prefix is ulv
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+
+		implements AuditLogEntryActions
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ActorFolderSet
+
+    Ontology
+        symbolic key is UserListView
+        
+    Persistent Fields
+    	Owner is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+    	Actor
+        UserFolder
+        	delete cascades
+    	BusinessView
+        BusinessList is LPLName
+        Name 			is Alpha size 50
+    	Status 			is a UserObjectStatus
+    	Description		is a ConfigDescription
+    	IsDefault		is Boolean
+    	    default label is "Default"
+    	DisplayOrder	is Numeric size 3
+    	SearchState		is JSONObject
+    	SubscribedTo 	is a UserListView
+    		delete cascades
+    
+	Transient Fields
+		NewDisplayOrder is Numeric size 3
+        	default label is "ModifyDisplayOrder"
+   
+		TBusinessList is a BusinessList
+			default label is "BusinessList"
+			derive value from DerivedBusinessList 
+			
+		TName 			is Alpha size 50
+			default label is "Name"
+			derive value from DerName
+    	TDescription	is a ConfigDescription
+    		default label is "Description"
+    		derive value from DerDescription
+    	TSearchState	is JSONObject
+    		default label is "SearchState"
+    		derive value from SearchState
+        	
+    Derived Fields
+
+    	DerivedBusinessList is a DerivedField
+    		type is LPLName
+    		restricted
+    		if (BusinessListRel exists)
+    			return BusinessList
+
+    		return blank
+
+    	ContextKey is a DerivedField
+    		type is LPLName
+    		if (Actor entered)
+	    		return  "Actor  '" + Actor + "', " + BusinessView + ", " + BusinessList + ", " + DisplayOrder
+    		if (UserFolder entered)
+    			return "Folder '" + UserFolder.Name + "', " + BusinessView + ", " + BusinessList + ", " + DisplayOrder
+    		return  "blank, " + BusinessView + ", " + BusinessList + ", " + DisplayOrder
+
+		ConfigActor is a ConditionalField
+			type is Actor
+			default label is "Actor"
+			if (IsFolder)
+				UserFolder.Actor
+			else
+				Actor
+				
+		SharedUserListViewNotificationDescription is a MessageField
+            "SomeoneHasSharedAUserListViewWithYou!"				
+
+		SharedUserListViewNotificationDetails is a MessageField
+            "AUserListViewWasSharedWithYou.ThisOriginatedFrom_Owner:<Owner>And_Actor:<Actor>.SharedBy:<authenticated actor>."
+
+		DefaultLabel is a MessageField
+			"Default"
+
+		DerivedLastChange is a MessageField
+            "LastChanged<update stamp>"
+        
+        DerBusinessList is a DerivedField
+        	type is LPLName
+        	default label is "BusinessList"
+        	if (SubscribedTo entered)
+        		return SubscribedTo.BusinessList
+        	return BusinessList
+        	
+        DerName is a DerivedField
+        	type is Alpha size 50
+        	default label is "Name"
+        	if (SubscribedTo entered)
+        		return SubscribedTo.Name
+        	return Name
+        	
+       	DerDescription is a DerivedField
+        	type is Alpha size up to 500
+        	default label is "Description"
+        	if (SubscribedTo entered)
+        		return SubscribedTo.Description
+        	return Description
+    			
+    	DerSearchState is a DerivedField
+        	type is JSONObject
+        	default label is "SearchState"
+        	if (SubscribedTo entered)
+        		return SubscribedTo.SearchState
+        	return SearchState
+
+    Rule Blocks
+		RemoveDefault
+			for each OtherDefaultRel
+				invoke Update each
+					invoked.IsDefault = false
+
+		ValidateBusinessList
+			if (TBusinessList entered)
+				if (BusinessList entered)
+					constraint (BusinessList = TBusinessList)
+						"OnlyListOrSelectFromListCanBeEntered" 
+
+				BusinessList = TBusinessList
+				initialize TBusinessList 
+
+		ResequencePersonalization
+			if (NewDisplayOrder > blank and NewDisplayOrder != DisplayOrder)
+				invoke Update UserListView
+				
+		CreateSubscription
+			if (LibraryItem)
+
+				invoke Create UserListView 
+					invoked.Owner 			= Owner
+					invoked.Actor 			= actor
+	    			invoked.UserFolder 		= UserFolder
+					invoked.BusinessView 	= BusinessView
+	    			invoked.BusinessList 	= BusinessList
+	    			invoked.Name 			= blank
+					invoked.Status 			= Status
+					invoked.Description		= blank
+					invoked.SearchState		= blank
+					invoked.SubscribedTo 	= UserListView
+					
+		ValidateDuplicateSubscribtions
+			if (SubscribedTo entered)
+				constraint (not OtherSubscribedToRel exists)
+					"AlreadySubscribedToThisLibrayItem"
+				
+
+    Field Rules
+		Owner
+			default to actor
+		
+    	BusinessView
+    		required
+    		cannot be changed
+
+    	BusinessList
+    		required
+    		cannot be changed
+    		
+    		constraint (BusinessListRel exists)
+    			"List<BusinessList>DoesNotExistForBusinessView<BusinessView>"
+
+    	UserFolder
+			constraint (UserFolder.IsList)
+				"FolderMustBeListBased"
+				
+			cannot be changed
+			
+			if (UserFolder entered)
+				if (BusinessView not entered)
+					BusinessView = UserFolder.BusinessClass
+				else
+					constraint (BusinessView = UserFolder.BusinessClass)
+						"BusinessView<BusinessView>DoesNotMatchFolderBusinessClass<UserFolder.BusinessClass>" 
+				
+				if (BusinessList not entered and TBusinessList not entered)
+					BusinessList = UserFolder.ListName
+				else
+					constraint (BusinessList = UserFolder.ListName or TBusinessList = UserFolder.ListName)
+						"ListDoesNotMatchFolderList<UserFolder.ListName>" 
+						
+
+    	Actor
+    		if (Actor changed and Actor entered) 
+    			cannot be changed
+
+		Name
+			if (not SubscribedTo entered)
+				required
+			else
+				cannot be entered
+				
+		Description
+			if (SubscribedTo entered)
+				cannot be entered
+		
+		SearchState
+			if (not SubscribedTo entered)
+				required
+			else
+				cannot be entered
+
+		DisplayOrder
+			autosequence using ActorFolderSet
+			
+		IsDefault
+			if (IsDefault and OtherDefaultRel exists)
+				confirmation required
+					"AnotherRecordIsMarkedAsDefaultAndWillBeChanged.Continue?"
+				
+				include RemoveDefault	
+				
+		SubscribedTo
+			constraint (SubscribedTo not entered or Actor entered)
+				"SubscribedToIsNotValidOnLibraryItems"
+
+    Conditions
+    	IsFolder
+    		default label is "Folder"
+   			when (UserFolder entered)
+
+   		IsActor
+   			default label is "Actor"
+   			when (Actor entered)
+
+    	GlobalUserListView
+    		when (!IsActor)
+
+
+
+		PersonalizationCanMoveUp
+			when (not GlobalUserListView and DisplayOrder > first ByViewListActorRel.DisplayOrder)
+
+		PersonalizationCanMoveDown
+			when (not GlobalUserListView and DisplayOrder < last ByViewListActorRel.DisplayOrder)
+
+		GlobalCanMoveUp
+			when (GlobalUserListView and DisplayOrder > first GlobalUserListViewRel.DisplayOrder)
+
+		GlobalCanMoveDown
+			when (GlobalUserListView and DisplayOrder < last GlobalUserListViewRel.DisplayOrder)
+
+		CanMoveUp
+			restricted
+			when (PersonalizationCanMoveUp
+			or GlobalCanMoveUp)
+
+		CanMoveDown
+			restricted
+			when (PersonalizationCanMoveDown
+			or GlobalCanMoveDown)
+			
+		LibraryItem
+			when (not Actor entered and (not UserFolder entered or (UserFolder entered and not UserFolder.Actor entered)) and not SubscribedTo entered)
+		
+		SharingAllowed
+			restricted
+			when (not IsFolder and not LibraryItem)
+	
+	Create Rules
+		include ValidateBusinessList
+		
+	Create Exit Rules
+		include ResequencePersonalization
+		include CreateSubscription
+
+    Actions
+    	Create is a Create Action
+    		Entrance Rules
+    			include ValidateDuplicateSubscribtions
+
+
+    	Update is an Update Action
+    		Entrance Rules
+    			if (not LibraryItem
+    			and (Name entered
+    			or  Description entered
+    			or  SearchState entered and SearchState changed))	 
+					constraint (Owner = actor)
+						"OnlyTheOwnerCanUpdateALibraryItem"
+					
+				if (SubscribedTo entered)
+					confirmation required
+						"ThisIsASubscriptionItemAndTheDescription,NameAndSearchStateCannotBeChanged.ProceedingWillUpdateTheLibrayItem.Continue?"
+						
+					invoke Update SubscribedTo
+						if (Name entered)
+							invoked.Name = Name
+						if (Description entered)
+							invoked.Description = Description
+						if (SearchState entered)
+							invoked.SearchState = SearchState
+							
+					initialize Name
+					initialize Description
+					initialize SearchState
+
+    	Delete is a Delete Action
+    		Entrance Rules
+	    		if (LibraryItem and SubscribedMembers exists)
+	    			confirmation required 
+	    				"SubscriptionsExitAndWillAlsoBeDeleted.AreYouSure?"
+
+		Purge is a Purge Action
+			confirmation required
+				"ThisWillRemoveTheRecordFromTheDatabaseAndCannotBeRecovered.AreYouSure?"
+			Entrance Rules
+	    		if (LibraryItem and SubscribedMembers exists)
+	    			confirmation required 
+	    				"SubscriptionsExitAndWillAlsoBePurged.AreYouSure?"
+				
+		InternalPurge is a Purge Action
+			restricted
+
+		SaveUserListView is a Create Action
+			restricted
+			Entrance Rules
+    			include ValidateDuplicateSubscribtions
+
+				
+		Subscribe is an Instance Action
+			valid when (LibraryItem)
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				
+			Parameter Rules
+				ParamActor
+					required
+					
+			Action Rules
+				invoke Create UserListView 
+					invoked.Owner 			= ParamActor
+					invoked.Actor 			= ParamActor
+        			invoked.UserFolder 		= UserFolder
+    				invoked.BusinessView 	= BusinessView
+        			invoked.BusinessList 	= BusinessList
+        			invoked.Name 			= blank
+    				invoked.Status 			= Status
+    				invoked.Description		= blank
+    				invoked.SearchState     = blank
+    				invoked.SubscribedTo 	= UserListView
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		completion message is "Activated"
+    		Action Rules
+    			Status = Status.Active
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		completion message is "Deactivated"
+    		Action Rules
+    			Status = Status.Inactive
+
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+    			
+   		MakeGlobal is an Instance Action
+   			valid when (IsActor)
+   			restricted
+   			Action Rules
+   				initialize Actor
+   				DisplayOrder = last GlobalUserListViewRel.DisplayOrder + 1
+   			Exit Rules
+   				include CreateSubscription
+
+
+
+
+        ShareUserListView is an Instance Action
+        	valid when (SharingAllowed)
+        	restricted
+            Parameters
+                CopyToActor	is an Actor
+                CopyToName	is AlphaUpper size 50						
+
+            Parameter Rules
+                CopyToActor
+                    required
+                    
+                    if (CopyToActor = Actor)
+                    	confirmation required
+                    		"AreYouSureYouWantToCopyToTheSameActor?" 
+                  
+				CopyToName
+					required
+					initial value is Name
+                    		
+            Action Rules
+                invoke Create UserListView
+                    invoked.Owner               = CopyToActor
+                    invoked.Actor               = CopyToActor
+                    invoked.BusinessView        = BusinessView
+                    invoked.BusinessList        = BusinessList
+                    invoked.SearchState         = SearchState
+
+                    invoked.Status              = Status
+                    invoked.Name              	= CopyToName
+                    invoked.Description         = Description
+
+                if (CopyToActor != Actor)
+                    invoke CreateMessage UserNotification
+                        invoked.ParamActor 			= CopyToActor
+                        invoked.ParamPriority 		= 5
+                        invoked.ParamDescription	= this instance(locale of Actor.IsoLocale).SharedUserListViewNotificationDescription
+                        invoked.ParamDetails		= this instance(locale of Actor.IsoLocale).SharedUserListViewNotificationDetails
+
+		DeleteUserListViewsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						constraint (ParamDeletedActor = blank or ParamDeletedActor = ParamActor)
+							"PleaseEnterOnlyOneOf<ParamActor label>Or<ParamDeletedActor label>"
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				where (Actor = ParamDeletedActor and UserFolder not entered)
+
+			Sort Order is ActorFolderSet
+
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+		PurgeUserListViewsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						constraint (ParamDeletedActor = blank or ParamDeletedActor = ParamActor)
+							"PleaseEnterOnlyOneOf<ParamActor label>Or<ParamDeletedActor label>"
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				include deleted records
+				where (Actor = ParamDeletedActor and UserFolder not entered)
+
+			Sort Order is ActorFolderSet
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+					
+		PurgeInvalidUserListViews is a Set Action
+			Parameters
+				ParamOption is Numeric size 1
+					default label is "Option"
+					States
+						All 		value is 1
+						GlobalOnly 	value is 2
+						ActorOnly	value is 3
+						FolderOnly	value is 4
+				
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+				ParamFolder is a UserFolder
+					default label is "Folder"
+				ParamDeletedFolder is like UserFolder
+					default label is "DeletedFolder"
+
+			Parameter Rules
+				ParamOption
+					required
+						initial value is 1
+				ParamActor
+					if (ParamActor entered)
+						constraint (ParamDeletedActor = blank or ParamDeletedActor = ParamActor)
+							"PleaseEnterOnlyOneOf<ParamActor label>Or<ParamDeletedActor label>"
+						ParamDeletedActor = ParamActor
+				ParamFolder
+					if (ParamFolder entered)
+						constraint (ParamDeletedFolder = blank or ParamDeletedFolder = ParamFolder)
+							"PleaseEnterOnlyOneOf<ParamFolder label>Or<ParamDeletedFolder label>"
+						ParamDeletedFolder = ParamFolder
+						
+			Instance Selection
+				include deleted records
+				where (ParamOption.All 
+				or (ParamOption.GlobalOnly and Actor = blank and UserFolder = blank)
+				or (ParamOption.ActorOnly and UserFolder not entered and (ParamDeletedActor = blank or Actor = ParamDeletedActor))
+				or (ParamOption.FolderOnly and UserFolder entered and (ParamDeletedFolder = blank or UserFolder = ParamDeletedFolder)))
+
+			Sort Order is ActorFolderSet
+
+			Action Rules
+				Instance Rules
+
+					if ((UserFolder entered and not UserFolder exists)
+					or  (UserFolder not entered and Actor entered and not Actor exists)
+					or   not BusinessView exists
+					or   not BusinessListRel exists)
+						invoke Purge
+
+		ReassignOwner is an Instance Action
+			Parameters
+				PrmNewOwner is an Actor
+					default label is "NewOwner"
+			Parameter Rules
+				PrmNewOwner
+					required
+						"MustEnterNewOwner"
+			Action Rules
+				Owner = PrmNewOwner
+				
+		MakeDefault is an Instance Action
+			valid when (not IsDefault)
+			disable multiple instance selection
+			Entrance Rules
+				if (not Status.Active)
+					confirmation required
+						"RecordIsNotActive,AreYouSureYouWantToMarkAsDefault?"
+						
+			Action Rules
+				include RemoveDefault
+				IsDefault = true
+
+		RemoveDefault is an Instance Action
+			valid when (IsDefault)
+			disable multiple instance selection
+			Action Rules
+				IsDefault = false
+
+		Rename is an Instance Action
+			disable multiple instance selection
+			Parameters
+				PrmName is Alpha size 50
+					default label is "Name"
+				PrmDescription is Alpha size up to 500
+					default label is "Description"
+
+			Parameter Rules
+				PrmName
+					required
+					initial value is TName
+				PrmDescription
+				    initial value is TDescription
+
+			Action Rules
+				constraint (not LibraryItem or Owner = actor)
+					"OnlyTheOwnerCanUpdateALibraryItem"
+					
+				if (SubscribedTo entered)
+					confirmation required
+						"ThisIsASubscriptionItemAndTheNameAndDescriptionCannotBeChanged.ProceedingWillUpdateTheLibrayItem.Continue?"
+						
+					invoke Rename SubscribedTo
+						invoked.PrmName = PrmName
+						invoked.PrmDescription = PrmDescription
+				else
+					Name = PrmName
+					Description = PrmDescription
+
+		UpdateDescription is an Instance Action
+			disable multiple instance selection
+			Parameters
+				PrmDescription is Alpha size up to 500
+					default label is "Description"
+
+			Parameter Rules
+				PrmDescription
+				    initial value is TDescription
+
+			Action Rules
+				constraint (not LibraryItem or Owner = actor)
+					"OnlyTheOwnerCanUpdateALibraryItem"
+					
+				if (SubscribedTo entered)
+					confirmation required
+						"ThisIsASubscriptionItemAndTheDescriptionCannotBeChanged.ProceedingWillUpdateTheLibrayItem.Continue?"
+						
+						invoke UpdateDescription SubscribedTo
+							invoked.PrmDescription = PrmDescription
+				else
+					Description = PrmDescription
+
+		MoveToTop is an Instance Action
+			valid when (CanMoveUp)
+			disable multiple instance selection
+			Action Rules
+				NewDisplayOrder = 1
+			Exit Rules
+				include ResequencePersonalization
+
+		MoveToBottom is an Instance Action
+			valid when (CanMoveDown)
+			disable multiple instance selection
+			Action Rules
+				if (GlobalUserListView)
+					DisplayOrder = last GlobalUserListViewRel.DisplayOrder + 1
+				else
+					DisplayOrder = last ByViewListActorRel.DisplayOrder + 1
+
+		MoveUp is an Instance Action
+			valid when (CanMoveUp)
+			disable multiple instance selection
+			Action Rules
+				NewDisplayOrder = DisplayOrder - 1
+			Exit Rules
+				include ResequencePersonalization
+
+		MoveDown is an Instance Action
+			valid when (CanMoveDown)
+			disable multiple instance selection
+			Action Rules
+				NewDisplayOrder = DisplayOrder + 1
+			Exit Rules
+				include ResequencePersonalization
+
+	Sets
+    	ActorFolderSet
+    		Sort Order
+    			Actor
+    			UserFolder
+    			BusinessView
+        		BusinessList
+        		DisplayOrder
+
+		ByViewListActor
+			sql name is ulvBYVLA
+			Sort Order
+				BusinessView
+				BusinessList
+				Actor
+				UserFolder
+				DisplayOrder
+
+		ByListViewActor
+			sql name is ulvBYLVA
+			Sort Order
+				BusinessList
+				BusinessView
+				Actor
+				UserFolder
+				DisplayOrder
+				
+		SubcribedToSet
+			Sort Order
+  				SubscribedTo
+  				UserListView
+
+	Relations				
+		BusinessListRel
+			one-to-one relation to BusinessList
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+				related.BusinessList = BusinessList
+				
+		GlobalUserListViewRel
+			one-to-many relation to UserListView
+			Field Mapping uses ActorFolderSet
+				related.Actor 			= blank
+				related.UserFolder 		= blank
+				related.BusinessView	= BusinessView
+				related.BusinessList	= BusinessList
+
+		ByViewListActorRel
+			one-to-many relation to UserListView
+			Field Mapping uses ByViewListActor
+				related.BusinessView = BusinessView
+				related.BusinessList = BusinessList
+				related.Actor        = Actor
+				related.UserFolder   = UserFolder
+				
+		OtherDefaultRel
+			one-to-many relation to UserListView 
+			Field Mapping uses ByViewListActor
+				related.BusinessView = BusinessView
+				related.BusinessList = BusinessList
+				related.Actor		 = Actor
+				related.UserFolder   = UserFolder
+			Instance Selection
+				where (related.UserListView != UserListView
+				and    related.IsDefault = true)
+				
+		OtherSubscribedToRel
+			one-to-many relation to UserListView 
+			Field Mapping uses ByViewListActor
+				related.BusinessView = BusinessView
+				related.BusinessList = BusinessList
+				related.Actor		 = Actor
+				related.UserFolder   = UserFolder
+			Instance Selection
+				where (related.UserListView != UserListView
+				and    related.SubscribedTo = SubscribedTo)
+
+		SubscribedMembers
+			one-to-many relation to UserListView 
+			delete cascades
+			Field Mapping uses SubcribedToSet
+				related.SubscribedTo = UserListView

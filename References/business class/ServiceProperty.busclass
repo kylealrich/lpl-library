@@ -1,0 +1,139 @@
+ServiceProperty is a BusinessClass
+    owned by security
+    prefix is SVPRP
+    stored in environment
+	contains environment data
+	disable data area copy
+		preserve target data
+
+    Ontology
+        part of Service
+            relative key is ServiceProperty is Alpha size 40
+
+    Patterns
+    	implements SecurityCache
+        implements CRUD
+        disable AuditIndex
+
+    Persistent Fields
+        PropertyValue is a ServicePropertyValue
+		PropertyBlob is BinaryObject
+
+    Transient Fields
+    	PGPKeyStatus is Alpha size up to 25
+		
+	Derived Fields
+		PGPPublicKey is a NativeField
+			type is BinaryObject
+	
+	Conditions
+		IsExternalEntityIdProp
+			default label is untranslatable
+			when ServiceProperty = "ExternalEntityId"
+
+		IsPGPPublicKeyProp
+			default label is untranslatable
+			when ServiceProperty = "PGPPublicKey"
+		
+	Sets
+		ExternalEntityIdSet
+            Sort Order
+                PropertyValue
+			Instance Selection
+                where (IsExternalEntityIdProp)
+                
+    Relations
+    	SecurityAdminActorRoleRel 
+            one-to-many relation to ActorRole
+			Field Mapping uses ByRoleAndActor
+				related.ActorRole.Role = "SecurityAdministrator_ST"
+			Instance Selection
+				where (related.ActorRole.Actor exist)
+				
+		PGPKeyExpirationAlertsSentRel is a ServiceProperty set
+			Instance Selection
+				where (related.ServiceProperty = "PGPKeyExpirationAlertsSent")  
+				
+	Actions
+        Create is a Create Action
+
+        Delete is a Delete Action
+       		Local Fields
+        		PKEAlertsSentServiceProperty		is Alpha size 40
+        		
+        	Action Rules
+        		if (ServiceProperty = "PGPPublicKey")
+        			PKEAlertsSentServiceProperty = first PGPKeyExpirationAlertsSentRel.ServiceProperty
+        		
+        			if (PKEAlertsSentServiceProperty != blank)
+	        			invoke Delete first PGPKeyExpirationAlertsSentRel
+
+
+        Update is an Update Action
+        
+        UploadPGPPublicKey is a Create Action
+            Field Rules
+                ServiceProperty default to "PGPPublicKey"
+					
+        DownloadPGPPublicKey is an Update Action
+        
+        NotifyAdminOfExpiredPGPKey is a Set Action
+        	run in background
+        	Local Fields
+        		SendNotification						is Boolean
+        		ServicePropertyAction					is Alpha size 6
+        		MaxPGPKeyExpirationAlerts 				is Numeric size 5
+        		PKEAlertsSentServiceProperty			is Alpha size 40
+        		PKEAlertsSentServicePropertyValue		is a ServicePropertyValue
+        		TempPKEAlertsSent						is Numeric size 5
+        				
+			Instance Selection 
+				where (IsPGPPublicKeyProp)
+
+			Action Rules
+				Set Rules
+					Entrance Rules
+						MaxPGPKeyExpirationAlerts = config(security).MaxPGPKeyExpirationAlerts
+
+				Instance Rules
+					if(PGPKeyStatus = "expired" or com.lawson.rdtech.type.Field.startsWith(PGPKeyStatus, "expiring"))
+					
+						PKEAlertsSentServiceProperty = first PGPKeyExpirationAlertsSentRel.ServiceProperty
+						
+						if(PKEAlertsSentServiceProperty = blank)
+							SendNotification = true
+							ServicePropertyAction = "CREATE"
+						else
+							PKEAlertsSentServicePropertyValue = first PGPKeyExpirationAlertsSentRel.PropertyValue
+							
+							if(com.lawson.apps.security.base.Security_ActionBase.isNumeric(PKEAlertsSentServicePropertyValue))
+								TempPKEAlertsSent = java.lang.Integer.parseInt(PKEAlertsSentServicePropertyValue)
+							else
+								TempPKEAlertsSent = 1	
+								
+
+							if(MaxPGPKeyExpirationAlerts != blank and TempPKEAlertsSent >= MaxPGPKeyExpirationAlerts)
+								SendNotification = false
+							else
+								SendNotification = true
+								ServicePropertyAction = "UPDATE"
+						
+						if (SendNotification)
+		                    for each SecurityAdminActorRoleRel
+		                        send notification
+								    to each.Actor
+								    description is "<Service>PGPPublicKeyIs<PGPKeyStatus>"
+								    detail is "ThePGPPublicKeyForService<Service>Is<PGPKeyStatus>"		
+								    
+							if (ServicePropertyAction = "UPDATE")
+								TempPKEAlertsSent = TempPKEAlertsSent + 1
+								
+								invoke Update first PGPKeyExpirationAlertsSentRel
+									invoked.PropertyValue = TempPKEAlertsSent 
+									
+							if (ServicePropertyAction = "CREATE")
+								invoke Create ServiceProperty
+									invoked.Service = Service
+									invoked.ServiceProperty = "PGPKeyExpirationAlertsSent"
+									invoked.PropertyValue = 1
+        

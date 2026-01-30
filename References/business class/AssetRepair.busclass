@@ -1,0 +1,180 @@
+AssetRepair is a BusinessClass
+    owned by am
+    prefix is ASR
+    classic name is AMASTRPAIR
+
+    Ontology
+        symbolic key is AssetRepair
+            classic set name is ASRSET1
+            classic name for AssetRepair.SequenceNumber is SEQ-NUMBER
+
+    Patterns
+        implements ContextualParent
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        System                             is a GeneralLedgerSystemCode 
+        TagNumber
+            classic name is TAG-NBR
+        Project							   is a FinanceCodeBlockLikeProjectOnly		 
+            classic name is ACTIVITY
+        Description
+        TransactionRepairCost              is an InternationalAmount
+            classic name is REPAIR-TRAN
+                precision is Asset.TransactionNumberOfDecimals
+        TransactionRepairTax               is an InternationalAmount
+            classic name is REPAIR-TX-TRAN
+                precision is Asset.TransactionNumberOfDecimals
+        BaseRepairCost                     is an InternationalAmount
+            classic name is REPAIR-BASE
+                precision is Asset.BaseNumberOfDecimals
+        BaseRepairTax                      is an InternationalAmount
+            classic name is REPAIR-TX-BASE
+                precision is Asset.BaseNumberOfDecimals
+        Currency
+            classic name is CURRENCY-CODE
+        TransactionNumberOfDecimals        is a CurrencyNumberOfDecimals
+            classic name is TRAN-ND
+        BaseNumberOfDecimals
+            classic name is BASE-ND
+        CreationDate                       is TimeStamp
+        CreatedBy                          is an Operator 
+        	holds pii
+            classic name is CREATOR-ID
+        InvoiceAndPurchaseOrderInformation
+            classic name for InvoiceAndPurchaseOrderInformation.InvoiceCompany is INV-COMPANY
+            classic name for InvoiceAndPurchaseOrderInformation.DistributionSequence is DIST-SEQ-NBR
+            classic name for InvoiceAndPurchaseOrderInformation.PurchaseOrder is PO-NBR
+ 
+ 	Derived Fields
+ 		AmountAndCurrency is a MessageField
+			"<TransactionRepairCost>_<Currency>"
+			 
+ 	Conditions
+		UpdateAllowed
+			restricted
+			when (!Asset.AssetProcess.Disposal
+			and !Asset.Status.Disposed)	
+
+		ApprovalUpdateAllowed
+			when (UpdateAllowed
+			and !Asset.ApprovalStatus.Submitted)
+	
+	Relations
+		AssetRel
+			one-to-many relation to Asset
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.Asset    				= Asset		
+			Instance Selection
+		    	include deleted records
+
+	Field Rules
+		AssetRepair
+			required
+			constraint (AssetRepair.RepairDate entered)
+				"RepairDateIsRequired"
+			if (AssetRepair.SequenceNumber not entered)
+				increment Asset.LastAssetSequence
+				AssetRepair.SequenceNumber	= Asset.LastAssetSequence
+
+		Description
+			required
+				"DescriptionIsRequired"				
+
+		System
+			default to "AM"
+
+		TagNumber
+			default to Asset.TagNumber
+
+		Currency
+			initial value is Asset.Currency
+			default to Asset.Currency
+
+		TransactionNumberOfDecimals
+			default to Asset.TransactionNumberOfDecimals
+
+		BaseNumberOfDecimals
+			default to Asset.BaseNumberOfDecimals
+
+		TransactionRepairCost
+			required
+				"RepairAmountIsRequired"			
+
+		CreationDate
+			default to current timestamp
+
+		CreatedBy
+			default to actor
+
+	Actions
+		Create is a Create Action
+			valid when (ApprovalUpdateAllowed) 
+            
+		Update is an Update Action
+			valid when (ApprovalUpdateAllowed) 
+			
+		Delete is a Delete Action            
+			valid when (ApprovalUpdateAllowed) 
+
+		PurgeAssetRepairs is a Set Action
+			restricted
+			
+			Parameters
+				PrmCompany				is an AssetCompany
+				PrmFromDate				is Date
+				PrmToDate				is Date
+				PrmAssetGroup			is like AssetGroup
+				PrmAssetType			is like AssetType
+				PrmAssetSubType			is like AssetType
+				PrmPurgeSimulated		is Boolean
+				
+			Instance Selection
+				include deleted records
+				where (((Asset.Simulated and PrmPurgeSimulated) or (not Asset.Simulated and not PrmPurgeSimulated))
+				and    AssetRel.Company = PrmCompany
+				and    (PrmFromDate not entered or AssetRepair.RepairDate >= PrmFromDate)
+				and    (PrmToDate not entered or AssetRepair.RepairDate <= PrmToDate) 
+				and    (PrmAssetGroup not entered or Asset.AssetGroup = PrmAssetGroup)
+				and    (PrmAssetType not entered or Asset.AssetType.Type = PrmAssetType)
+				and    (PrmAssetSubType not entered or Asset.AssetType.SubType = PrmAssetSubType))
+				
+			Action Rules
+				Instance Rules
+					invoke Purge
+					
+		PurgeDisposedAssetRepairs is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is an AssetCompany
+				PrmAsset					is an Asset
+				PrmFinanceEnterpriseGroup	is like FinanceEnterpriseGroup
+				PrmLeaseCompany				is like GeneralLedgerCompany
+				PrmLocationName				is like AssetLocation
+				PrmDivision					is like AssetDivision
+				PrmAssetGroup				is like AssetGroup
+				PrmFromDate					is Date
+				PrmToDate					is Date
+				
+			Instance Selection
+				include deleted records
+				where (Asset.Company = PrmCompany
+				and   (PrmAsset not entered or (Asset = PrmAsset and Asset.Company.FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup))
+				and   (PrmLeaseCompany not entered or Asset.AssetLease.LeaseCompany = PrmLeaseCompany)
+				and   (PrmLocationName not entered or Asset.AssetLocation = PrmLocationName)
+				and   (PrmDivision not entered or Asset.AssetDivision = PrmDivision)
+				and   (PrmAssetGroup not entered or Asset.AssetGroup = PrmAssetGroup)
+				and   (PrmFromDate not entered or Asset.AssetDisposalDate >= PrmFromDate)
+				and   (PrmToDate not entered or Asset.AssetDisposalDate <= PrmToDate)
+				and   Asset.Status.Disposed)
+				
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules

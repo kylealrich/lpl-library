@@ -1,0 +1,191 @@
+BillingInterfaceResult is a BusinessClass
+	owned by bl
+	
+	prefix is BLIR
+	
+	Ontology
+		symbolic key is BillingInterfaceResult
+		
+	Patterns
+	
+	Persistent Fields
+		RunGroup
+		RunTime					is TimeStamp
+		Status					is Numeric 1
+			disable Auditing 
+			States
+				InProcess						value is 0
+				Complete						value is 1
+		Company					is a BillingCompany
+		CompanyGroup			is a GeneralLedgerCompanyGroup 
+		BillingProcessLevel
+		Currency
+		Description
+		ReleaseOption           is AlphaUpper size 1
+	        States
+	            DoNotReleaseBatch            value is "N"
+	            ReleaseBatchToInvoicePrint   value is "Y"
+	            ReleaseAndBypassInvoicePrint value is "B"
+		RecordsProcessed		is Numeric 10
+		BillingInterfaceCounts
+	
+	Derived Fields
+		NoRecordsToProcessMsg is a MessageField
+			"NoInterfaceRecordsToProcess"
+		
+		InProgressMessage is a MessageField
+			restricted
+			"InProgress"
+			
+		CompleteMessage is a MessageField
+        	restricted
+        	"Complete"
+        
+        InCompleteMessage is a MessageField
+        	restricted
+        	"Incomplete"
+        
+        InterfacedTransactionsCount is a ComputeField
+			type is Numeric 7	
+			(instance count of BillingInvoicesRel)
+        	
+		InterfaceResultStatus is a DerivedField
+        	type is Alpha 50
+        	if (Status.InProcess)
+        		return InProgressMessage
+        	else
+        	if (Status.Complete
+        	and !HasIncompleteImportRecords)
+        		return CompleteMessage
+        	else
+        	if (Status.Complete
+        	and HasIncompleteImportRecords)
+        		return InCompleteMessage
+    			
+		InvoiceSuccessfulCount is a DerivedField
+			type is Numeric 12	
+			return (sum BillingInvoicesRel.DerivedTransactionCount)
+			
+		InvoiceErrorCount is a DerivedField
+			type is Numeric 12	
+			return (BillingInterfaceCounts.TotalBillingInvoiceCount - InvoiceSuccessfulCount)
+	
+	Field Rules
+			
+	
+	Conditions
+		NoRecordsToProcess
+			when (Status entered
+			and   RecordsProcessed not entered
+			and   !HasIncompleteImportRecords)
+			
+		HasIncompleteImportRecords
+			when (BillingInvoiceImportRel exists)
+			
+		HasTransactionsCreated
+			restricted
+			when (BillingInvoicesRel exists
+			and  (!BillingInvoicesRel.IsInvoiceAmountExceedingCreditLimit
+			or   !ReleaseOption.ReleaseAndBypassInvoicePrint))
+
+		HasTransactionsExceedingCreditLimit
+            restricted
+            when (BillingInvoicesRel exists
+            and   BillingInvoicesRel.IsInvoiceAmountExceedingCreditLimit
+            and   ReleaseOption.ReleaseAndBypassInvoicePrint)
+			
+		SecurityGroupAllowsAccess
+    		when((Company not entered and CompanyGroup not entered)
+    		or  (Company entered and Company.SecurityGroupAllowsAccess)
+    		or	(CompanyGroup entered and actor.context.CompanySecurityGroup.FinanceDimensionStructure = CompanyGroup))	
+
+		HasOnlyRunGroup
+			restricted
+			when (Company not entered
+			and   CompanyGroup not entered)
+
+		HasOnlyCompany
+			restricted
+			when (Company entered
+			and   CompanyGroup not entered)
+			
+		HasOnlyCompanyGroup
+			restricted
+			when (Company not entered
+			and   CompanyGroup entered)
+  		
+	
+	Relations
+		BillingInvoicesRel
+			one-to-many relation to BillingInvoice
+			Field Mapping uses symbolic key
+			Instance Selection
+                where (related.OriginatingInterfaceRun	= BillingInterfaceResult
+                and    !related.InterfaceInProcess)
+		
+		BillingInvoiceImportRel
+			one-to-many relation to BillingInvoiceImport
+			Field Mapping uses ByInterfaceRun
+				related.InterfaceRun = BillingInterfaceResult
+		
+	Sets			
+		ByRunTime
+			Sort Order
+				FinanceEnterpriseGroup
+				RunTime descending
+				BillingInterfaceResult
+	
+	Actions
+		Create is a Create Action
+			restricted
+			
+		DeleteReleasedBatch is an Instance Action
+			Action Rules
+				invoke DeleteReleasedBatch BillingManualInvoiceHeader
+					invoked.PrmOriginatingInterfaceRun	= BillingInterfaceResult
+			
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			
+		RerunForErrors is an Instance Action
+			valid when (HasIncompleteImportRecords)
+			Parameters
+				ResubmitFinanceEnterpriseGroup   	is a FinanceEnterpriseGroup
+				ResubmitRunGroup				is a RunGroup
+				ResubmitCompany					is a BillingCompany
+				ResubmitCompanyGroup					is a GeneralLedgerCompanyGroup
+				ResubmitBillingProcessLevel		is a BillingProcessLevel
+				ResubmitCurrency				is a Currency
+				ResubmitDescription				is AlphaUpper size 30
+				ResubmitReleaseOption			is AlphaUpper size 1
+				
+			Parameter Rules
+				ResubmitFinanceEnterpriseGroup
+					default to actor.context.FinanceEnterpriseGroup
+				ResubmitRunGroup
+					initial value is RunGroup
+				ResubmitCompany
+					initial value is Company
+				ResubmitCompanyGroup
+					initial value is CompanyGroup
+				ResubmitBillingProcessLevel
+					initial value is BillingProcessLevel
+				ResubmitCurrency
+					initial value is Currency
+				ResubmitDescription
+					initial value is Description
+				ResubmitReleaseOption
+					initial value is ReleaseOption
+				
+			Action Rules
+				invoke InterfaceInvoices BillingInvoiceImport
+					invoked.PrmFinanceEnterpriseGroup	= ResubmitFinanceEnterpriseGroup
+					invoked.PrmRunGroup					= ResubmitRunGroup
+					invoked.PrmCompany    				= ResubmitCompany
+					invoked.PrmCompanyGroup				= ResubmitCompanyGroup
+					invoked.PrmProcessLevel				= ResubmitBillingProcessLevel
+					invoked.PrmCurrencyCd       		= ResubmitCurrency
+					invoked.PrmDescription				= ResubmitDescription
+					invoked.PrmReleaseOption			= ResubmitReleaseOption

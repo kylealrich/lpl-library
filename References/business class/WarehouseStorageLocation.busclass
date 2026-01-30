@@ -1,0 +1,253 @@
+WarehouseStorageLocation is a BusinessClass
+    owned by wh
+    prefix is WHSL
+
+    Ontology
+	    symbolic key is WarehouseStorageLocation
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex    
+
+    Persistent Fields
+        Name
+        StorageLocationType
+        Active
+        WarehouseZone
+        WarehouseZoneComponent
+        Row                                     is Numeric size 2
+        AllowCommingling                        is Boolean
+        IsBin                                   is Boolean
+            protected
+        DefaultForShipmentLoadConsolidation     is Boolean
+        DefaultForPicking                       is Boolean
+        DefaultForPacking                       is Boolean
+        DefaultForReleaseShipment               is Boolean
+        DefaultForInspection                    is Boolean
+        DefaultForReturns                       is Boolean
+    Field Rules
+        Name
+            required
+
+        StorageLocationType
+            if (StorageLocationType changed
+            and old StorageLocationType.StagingLocation)
+                constraint (not HasShipmentLoadConsolidation)
+                    "CannotChange._StorageLocationIsAssociatedToA_Shipment_Load_Consolidation"
+            
+            if (StorageLocationType.StagingLocation
+            and BinExists)
+                cannot be entered
+                    "CannotChangeTo_Staging_Location._BinsAreAlreadyAssigned"
+
+        Active
+            if (Active changed
+            and not Active)
+                constraint (StockOnHandDetailRel not exists)
+                    "CannotInactivate;_StockOnHandDetailExists"
+
+                constraint (not HasShipmentLoadConsolidation)
+                    "CannotInactivate._StorageLocationIsAssociatedToA_Shipment_Load_Consolidation"
+
+        WarehouseZone
+            if (WarehouseZoneComponent entered
+            and WarehouseZone not entered)
+                required
+        
+        DefaultForShipmentLoadConsolidation
+            if (not Active
+            and DefaultForShipmentLoadConsolidation)
+                if (DefaultForShipmentLoadConsolidation changed)
+                    cannot be entered
+                        "CannotSetAs_Default;_Warehouse_Storage_LocationIsInactive"
+                else
+                    initialize DefaultForShipmentLoadConsolidation 
+                
+            if (DefaultForShipmentLoadConsolidation
+            and DefaultForShipmentLoadConsolidationRel exists)
+                cannot be entered
+                    "CannotChange;StorageLocation<first DefaultForShipmentLoadConsolidationRel.WarehouseStorageLocation>HasBeenSetAsDefault"
+
+    Derived Fields
+		WarehouseStorageLocationIDName is a MessageField
+            default label is "WarehouseStorageLocation"
+            "<WarehouseStorageLocation>_-_<Name>"
+
+        StorageLocationExistsLabel is a LabelField
+            "<WarehouseStorageLocationIDName>|<InventoryLocation.DerivedInventoryLocationIDName>"
+
+        CreateMessage is a LabelField
+            "Create_Storage_Location"
+
+        DerivedFormTitle is a DerivedField
+            type is MessageField
+            if (RecordExists)
+                return StorageLocationExistsLabel
+            else
+                return CreateMessage
+
+        DerivedZoneComponentAisle is a DerivedField
+            type is Text
+            default label is "Aisle"
+            return WarehouseZoneComponent.WarehouseAisle.WarehouseAisleAndDescription
+
+        DerivedWarehouseZoneAndDescription is a DerivedField
+            type is Text
+            default label is "Zone"
+            return WarehouseZone.WarehouseZoneAndDescription
+
+        DerivedWarehouseZoneComponentAndDescription is a DerivedField
+            type is Text
+            default label is "Storage_System_Unit"
+            return WarehouseZoneComponent.WarehouseZoneComponentAndDescription
+
+        DerivedWarehouseZoneComponentTypeAndDescription is a DerivedField
+            type is Text
+            default label is "Storage_System"
+            return WarehouseZoneComponent.WarehouseComponentType.WarehouseComponentTypeAndDescription
+            
+		DerivedZoneAisleRow	is a StringField
+			type is Alpha 45
+			WarehouseZone
+			"|"
+			WarehouseZoneComponent.WarehouseAisle
+			"|"
+			Row
+
+    Conditions
+        RecordExists
+            restricted
+			when (WarehouseStorageLocation exists)
+
+        ValidForAllowCommingling
+            restricted
+            when (StorageLocationType.BasicItemStorage
+            or    StorageLocationType.BulkStorage
+            or    StorageLocationType.ForwardPickingStorage)
+
+        CanDelete
+            restricted
+            when ((not IsBin
+            or     WarehouseStorageLocationIsUsedByMultipleBinsRel not exists)
+            and    not StockOnHandDetailRel exists
+            and    not ItemStorageLocationRel exists)
+
+        RequireWarehouseZone
+            restricted
+            when (WarehouseZoneComponent entered)
+
+        BinExists
+            restricted
+            when (StorageLocationBinsRel exists)
+        
+        HasShipmentLoadConsolidation 
+            restricted
+            when (ShipmentLoadConsolidationRel exists)
+    Sets
+        ByStorageLocationType
+            Sort Order
+                StorageLocationType
+                Company
+                InventoryLocation
+                WarehouseStorageLocation
+
+    Relations     
+        WarehouseZoneComponentRel
+            one-to-one relation to WarehouseZoneComponent
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.WarehouseZone                   = WarehouseZone
+                related.WarehouseZoneComponent          = WarehouseZoneComponent   
+
+        WarehouseZoneRel
+            one-to-one relation to WarehouseZone
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.WarehouseZone                   = WarehouseZone
+
+        StorageLocationBinsRel
+            one-to-many relation to Bin
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.WarehouseStorageLocation = WarehouseStorageLocation)
+
+        StockOnHandDetailRel
+            one-to-many relation to StockOnHandDetail
+            Field Mapping uses symbolic key
+                related.Company                                 = Company
+                related.InventoryLocation                       = InventoryLocation
+            Instance Selection
+                where (related.DerivedWarehouseStorageLocation  = WarehouseStorageLocation)
+
+        ItemStorageLocationRel
+            one-to-many relation to ItemStorageLocation
+            Field Mapping uses ByStorageLocation
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+                related.WarehouseStorageLocation        = WarehouseStorageLocation
+
+		WarehouseStorageLocationIsUsedByMultipleBinsRel
+			one-to-many relation to Bin
+			Field Mapping uses symbolic key
+				related.Company							= Company
+				related.InventoryLocation				= InventoryLocation
+			Instance Selection
+				where (related.WarehouseStorageLocation = WarehouseStorageLocation)
+
+        BinsWithoutWarehouseStorageLocationRel
+            one-to-many relation to Bin
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.WarehouseStorageLocation not entered)
+        
+        DefaultForShipmentLoadConsolidationRel
+            one-to-many relation to WarehouseStorageLocation
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.DefaultForShipmentLoadConsolidation
+                and    related.WarehouseStorageLocation not = WarehouseStorageLocation)
+        
+        ShipmentLoadRel
+            one-to-many relation to ShipmentLoad
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection
+                where (related.ReadyForDispatch)
+
+        ShipmentLoadConsolidationRel
+            one-to-many relation to ShipmentLoadConsolidation
+            Field Mapping uses symbolic key
+                related.Company                         = Company
+                related.InventoryLocation               = InventoryLocation
+            Instance Selection 
+                where (related.WarehouseStorageLocation = WarehouseStorageLocation
+                and    related.LoadReadyForDispatch)
+
+    Attach Rules
+        if (parentcontext.name = "ItemStorageLocation")
+            constraint (Active)
+                "Warehouse_Storage_Location<WarehouseStorageLocation>IsNotActive"
+
+    Actions
+        Create is a Create Action
+
+        Update is an Update Action
+
+        Delete is a Delete Action
+            valid when (CanDelete)
+
+        FastUpdate is an Update Action
+            restricted
+            bypass field rules
+
+        DeleteWarehouseStorageLocation is a Delete Action
+            restricted

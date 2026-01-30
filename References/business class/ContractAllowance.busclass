@@ -1,0 +1,362 @@
+ContractAllowance is a BusinessClass
+	owned by po
+	
+	prefix is CCOA
+	
+	Ontology
+		symbolic key is ContractAllowance
+			
+	Patterns
+	
+	Persistent Fields
+		Description
+		Amount  		is a ContractUnitCost          
+			precision is DerivedNumberOfDecimalsCost
+		Quantity
+			precision is DerivedNumberOfDecimalsQuantity
+		Committed       is Boolean
+		Closed          is Boolean
+	
+	Derived Fields
+	
+		DerivedNumberOfDecimalsCost is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ContractLine entered)
+				if (ContractLine.ItemType.Itemmast
+				or  ContractLine.ItemNumber exists)
+					ContractLine.ItemNumber.NumberOfDecimalsCost
+				else
+					ItemGroupRel.DefaultNumberOfDecimalsCost
+			else
+			if (!ContractLine entered)	
+				ItemGroupRel.DefaultNumberOfDecimalsCost
+			else
+				8
+
+		DerivedNumberOfDecimalsQuantity is a ConditionalField
+			type is Numeric size 1
+			restricted
+			if (ContractLine.ItemType.Itemmast
+			or  ContractLine.ItemNumber exists)
+				ContractLine.ItemNumber.NumberOfDecimalsQuantity
+			else
+				4		
+
+		DerivedDocumentQuantity is a DerivedField   
+			type is Alpha 12
+			if (Quantity entered)
+				return Quantity
+			else
+				return blank
+
+		DerivedDocumentLine is a DerivedField 
+			type is Alpha 4
+			if (ContractLine entered)
+				return ContractLine
+			else
+				return blank		
+
+		DerivedExtendedAmount is a DerivedField
+			type is like ContractUnitCost
+				precision is DerivedNumberOfDecimalsCost
+			if (Quantity entered)
+				return (Quantity * Amount)
+			else
+				return (Amount)
+		
+		DerivedOriginalAmount is a DerivedField
+			type is like ContractUnitCost
+				precision is DerivedNumberOfDecimalsCost
+			default label is "OriginalAmount"
+			return (Amount + (sum ChangeOrdersDrawDownRel.AllowanceAmount) + (sum ChangeOrdersAdjustmentRel.AllowanceAmount * -1))
+			
+		DerivedChangeOrderAmount is a DerivedField
+			type is like ContractUnitCost
+				precision is DerivedNumberOfDecimalsCost			
+			default label is "ChangeOrderAmount"
+			return ((sum ChangeOrdersDrawDownRel.AllowanceAmount * -1) + (sum ChangeOrdersAdjustmentRel.AllowanceAmount))  
+
+	Transient Fields
+	
+		AllowancePercentOfMaxAmount is a Percent
+
+	Conditions
+	
+		HasMaxAmount
+			restricted
+			when ((ContractLineEntered
+			and    ContractLine.LifetimeMaximumAmount entered)
+			or    (NoLine
+			and    Contract.MaximumAmount entered))
+		
+		AllowanceExists
+			restricted
+			when (ContractAllowance entered)
+
+		NoLine
+			restricted
+			when (ContractLine !entered)
+			
+		ContractLineEntered
+			restricted
+			when (ContractLine entered)
+		
+		HasChangeOrders
+			restricted
+			when (ChangeOrdersRel exists)
+
+		NotAmountService
+			restricted
+			when (ContractLine entered
+			and   ContractLine.ServiceCode != "Q")
+
+		ContractHasBeenActivated
+			restricted
+			when (Contract.HasBeenActivated)
+		
+		OpenChangeOrdersExist
+			restricted
+			when (ChangeOrdersOpenRel exists)
+		
+		CanClose
+			restricted
+			when (ContractHasBeenActivated
+			and   Contract.ChangeOrderAllowUpdates
+			and  !Closed)
+		
+		CanManage
+			restricted
+			when  (Contract.NotClosed
+			and   !Closed
+			and   !Contract.BudgetEditInProgress
+			and   !Contract.HasBeenActivated)
+	
+	Relations
+		ItemGroupRel
+			one-to-one relation to ItemGroup
+			Field Mapping uses symbolic key
+				related.ItemGroup = ContractGroup
+
+		ChangeOrdersRel
+			one-to-many relation to ContractChangeOrder
+			delete restricted
+			Field Mapping uses ByAllowance
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ForAllowance  = ContractAllowance				
+
+		ChangeOrdersOpenRel
+			one-to-many relation to ContractChangeOrder
+			delete restricted
+			Field Mapping uses ByAllowance
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ForAllowance  = ContractAllowance
+			Instance Selection
+				where (related.ContractVersion.ChangeOrderStatus = 1
+				or     related.ContractVersion.ChangeOrderStatus = 2)	
+						
+		ChangeOrdersDrawDownRel
+			one-to-many relation to ContractChangeOrder
+			delete restricted
+			Field Mapping uses ByAllowance
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ForAllowance  = ContractAllowance	
+			Instance Selection
+				where (related.AllowanceOptions.DrawDown)
+				
+		ChangeOrdersAdjustmentRel
+			one-to-many relation to ContractChangeOrder
+			delete restricted
+			Field Mapping uses ByAllowance
+				related.ContractGroup = ContractGroup
+				related.Contract      = Contract
+				related.ForAllowance  = ContractAllowance	
+			Instance Selection
+				where (related.AllowanceOptions.AllowanceChangeOnly)
+
+		DuplicateAllowanceRel
+			one-to-many relation to ContractAllowance
+			Field Mapping uses ByAllowance
+				related.ContractGroup 		= ContractGroup
+				related.Contract      		= Contract
+				related.ContractAllowance  	= ContractAllowance 				 
+
+		ContractLineDistributionRel
+			one-to-many relation to ContractLineDistribution
+			Field Mapping uses symbolic key
+				related.ContractGroup 		= ContractGroup
+				related.Contract      		= Contract			
+				related.ContractLine        = ContractLine
+			Instance Selection
+				where (ContractLine entered)
+
+	Sets
+	
+		ByAllowance
+			duplicates
+			Sort Order
+				ContractGroup
+				Contract
+				ContractAllowance
+				ContractLine
+
+	Field Rules
+		
+		Amount
+			
+			if (AllowancePercentOfMaxAmount !entered)
+				constraint (Amount > 0)
+					"AmountMustBeGreaterThanZero"
+			required
+			
+		Quantity
+			
+			if (ContractLine entered
+			and ContractLine.ServiceCode = "Q")
+				required
+				constraint (Quantity >= 0)
+					"IfAQuantityIsEnteredQuantityMustBeGreaterThanZero" 
+			
+			if (ContractLine entered
+			and Quantity entered)
+				constraint (ContractLine.ServiceCode = "Q")
+					"CanOnlyEnterAnAllowanceQuantityForAQuantityService"
+	
+	Actions
+	
+		Create is a Create Action
+			valid when (CanManage) 
+		
+			Action Rules
+			
+				constraint (DuplicateAllowanceRel !exists)
+					"AllowanceAlreadyExists"
+				
+				if (AllowancePercentOfMaxAmount entered)
+					if (ContractLine entered)
+						Amount = (AllowancePercentOfMaxAmount * ContractLine.LifetimeMaximumAmount)
+					else 
+						Amount = (AllowancePercentOfMaxAmount * Contract.MaximumAmount)
+
+			Exit Rules
+			
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 
+
+		CreateIndirect is a Create Action
+			restricted
+			
+			Exit Rules
+			
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 
+
+		Update is an Update Action
+			valid when (CanManage)
+			
+			Exit Rules
+			
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 
+
+		UpdateFromChangeOrder is an Instance Action
+			restricted
+			Parameters
+				ParmAmount		is a ContractUnitCost		
+				ParmQuantity    is a Quantity
+			Action Rules
+			
+				Amount			+= ParmAmount
+				Quantity		+= ParmQuantity
+				
+				if (Amount      = 0
+				and Quantity	= 0)
+					Closed = true				
+
+			Exit Rules
+
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 
+		
+		Delete is a Delete Action
+			valid when (CanManage)
+		
+			Exit Rules
+			
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 			
+
+		CloseAllowance is an Instance Action
+			valid when (CanClose)
+			
+			Action Rules
+				constraint (!OpenChangeOrdersExist)
+					"CannotClose;OpenChangeOrdersExistThatReferenceThisAllowance"
+				
+				confirmation required
+					"ThisAllowanceWillBeClosedAndCannotBeReused;DoYouWishToContinue?"
+				
+				Closed 		= true
+				Amount 		= 0
+				Quantity	= 0				
+				
+			Exit Rules
+			
+				if (Committed
+				and Contract.UseHeaderCommitments)
+					invoke UpdateCommitmentFromAllowance Contract
+
+				if (Committed
+				and ContractLineEntered
+				and Contract.UseLineCommitments
+				and ContractLine.UseCommitments)
+					for each ContractLineDistributionRel
+						invoke UpdateCommitmentFromAllowance each 		
+		
+		
+		
+		
+	

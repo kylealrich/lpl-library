@@ -1,0 +1,209 @@
+PurgeActionDefinition is a BusinessClass
+    owned by la
+    prefix is PADF
+    
+    Ontology
+    	symbolic key is PurgeActionDefinition
+    
+    Patterns
+    	disable Auditing
+		disable EffectiveDated
+		implements CreateStamp
+		implements UpdateStamp
+
+    Persistent Fields
+		Description is Text
+			translatable
+        Inactive	is Boolean
+        LastRunTime	is TimeStamp
+        Delivered 	is Boolean
+		
+	Conditions
+		DisplayYellowArchiveAlertThisBusClassImpl
+			restricted
+			when (ArchivingEnabled and not BusinessView.ImplementsArchivable)
+			
+		DisplayYellowArchiveAlertThisBusClass
+			restricted
+			when (ArchivingEnabled and not BusinessView.ArchivingEnabledForBusinessClass)
+			
+		DisplayYellowArchiveAlertOtherBusClass
+			restricted
+			when (OtherNonArchivable exists)
+				
+		DisplayYellowArchiveDisabledAlertOtherBusClass
+			restricted
+			when (OtherArchiveDisabled exists)
+		
+		DisplayBCYellowAlert
+			default label is untranslatable
+			when (DisplayYellowArchiveAlertThisBusClassImpl or DisplayYellowArchiveAlertThisBusClass)
+		
+		DisplayYellowAlert
+			default label is untranslatable
+			when (DisplayYellowArchiveAlertOtherBusClass or DisplayYellowArchiveDisabledAlertOtherBusClass)
+			
+		HasAsyncRequests
+			default label is "AsyncRequestsExist"
+			when (AsyncRequests exists)
+				
+		HasPendingAsyncRequests
+			default label is "PendingAsyncRequestsExist"
+			when (PendingAsyncRequests exists)
+				
+		HasMaintenanceAsyncRequests
+			default label is "MaintenanceAsyncRequestsExist"
+			when (MaintenanceAsyncRequests exists)	
+		
+		ShowRunActionButton
+			when (not Inactive and ((BusinessAction.ActionType.Set or BusinessAction.ActionType.Import) or BusinessView.Type.BusinessTask))
+			
+		ShowMaintenanceRequestsButton
+			when (HasMaintenanceAsyncRequests and not HasPendingAsyncRequests)
+			
+		AllowEdits
+			when (not Delivered or DeveloperMode)		
+	
+	Derived Fields
+		DeveloperMode is a NativeField
+			type is Boolean
+			restricted 
+			
+		ArchivingEnabled is a NativeField
+			type is Boolean
+			default label is "WillArchive"
+
+			 
+		BCNotArchivableMessage is a MessageField
+			restricted
+			"<BusinessView>IsNotArchivable"
+			
+		BCArchivableNotEnabledMessage is a MessageField
+			restricted
+			"<BusinessView>IsArchivableButArchivingIsNotEnabledForThisBusinessClass"
+			
+		OtherNotArchivableMessage is a MessageField
+			restricted
+			"DefinitionContainsBusinessClassesThatAreNotArchivable"
+			
+		OtherArchivingNotEnabledeMessage is a MessageField
+			restricted
+			"DefinitionContainsBusinessClassesThatAreArchivableButArchivingItNotEnabled"
+			
+		OtherArchivingeMessage is a MessageField
+			restricted
+			"DefinitionContainsBusinessClassesThatAreNotArchivableAndBusinessClassesThatAreArchivableButForWhichArchivingItNotEnabled"
+			
+		BCYellowAlertMessage is a DerivedField
+    		type is MessageField
+    		default label is untranslatable
+    		
+    		if (DisplayYellowArchiveAlertThisBusClassImpl)
+    			return BCNotArchivableMessage
+    		else
+    		if (DisplayYellowArchiveAlertThisBusClass)
+    			return BCArchivableNotEnabledMessage
+			
+		OtherYellowAlertMessage is a DerivedField
+    		type is MessageField
+    		default label is untranslatable
+    		
+    		if (OtherNonArchivable exists)
+    			if (OtherArchiveDisabled exists)
+    				return OtherArchivingeMessage
+    				
+    			return OtherNotArchivableMessage
+    		else
+    		if (OtherArchiveDisabled exists)
+    			return OtherArchivingNotEnabledeMessage
+			
+	Field Rules
+		Delivered
+			initial value is DeveloperMode
+			
+			if (not DeveloperMode)
+				cannot be changed
+					"DeliveredFlagCannotBeChangedOutsideOfDeveloperMode"
+			else
+			if (not Delivered)
+				confirmation required
+					"DeveloperModeIsEnabledAndPurgeActionDefinitionIsNotMarkedAsDelivered.IsThisCorrect?"
+					
+	Create Rules
+		if (not BusinessAction.ActionType.Set and not BusinessAction.ActionType.Import and not BusinessView.Type.BusinessTask)
+			confirmation required
+				"ActionTypeIsNotASet,ImportAction,OrForABusinessTask.RecordIsInformationalOnly.Continue?"
+			
+	Actions
+		Create is a Create Action
+			valid when (AllowEdits)
+			
+		Update is an Update Action
+			valid when (AllowEdits)
+			
+		Delete is a Delete Action
+			valid when (AllowEdits)
+		
+		RunAction is an Update Action
+			valid when (not Inactive)
+			
+		SetLastRunTime is an Instance Action
+			restricted
+			
+			Parameters
+				ParamLastRunTime is TimeStamp
+					default label is "LastRunTime"
+					
+			Action Rules
+				LastRunTime = ParamLastRunTime
+		
+	Sets
+		ByActionBusClass
+			indexed
+			Sort Order
+				BusinessAction
+				BusinessView
+				
+	Relations
+		AsyncRequests
+			one-to-many relation to AsyncActionRequest
+			Field Mapping uses ByDataAreaAction
+				related.DataArea 			= parentcontext.dataarea
+				related.ImplementingClass 	= BusinessView
+				related.AsyncAction 		= BusinessAction
+				
+		PendingAsyncRequests
+			one-to-many relation using AsyncRequests
+			Instance Selection
+				where (related.PendingScheduling = true)	
+				
+		MaintenanceAsyncRequests
+			one-to-many relation using AsyncRequests
+			Instance Selection
+				where (related.SystemRequest = 7 and related.IsScheduled) 
+		
+		PurgeResults
+			one-to-many relation to PurgeActionResult
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+				related.BusinessAction = BusinessAction
+
+		OtherNonArchivable
+			one-to-many relation to PurgeActionBusinessClass
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+			    related.BusinessAction = BusinessAction
+			Instance Selection
+				where (related.PurgeActionBusinessClass.PurgeBusinessClass != BusinessView
+				and    not related.PurgeActionBusinessClass.PurgeBusinessClass.ImplementsArchivable)
+				
+		OtherArchiveDisabled
+			one-to-many relation to PurgeActionBusinessClass
+			Field Mapping uses symbolic key
+				related.BusinessView = BusinessView
+			    related.BusinessAction = BusinessAction
+			Instance Selection
+				where (related.PurgeActionBusinessClass.PurgeBusinessClass != BusinessView
+				and    related.PurgeActionBusinessClass.PurgeBusinessClass.ImplementsArchivable
+				and    not related.PurgeActionBusinessClass.PurgeBusinessClass.ArchivingEnabledForBusinessClass)
+				

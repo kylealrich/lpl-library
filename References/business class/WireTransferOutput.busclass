@@ -1,0 +1,277 @@
+WireTransferOutput is a BusinessClass
+    owned by cb
+    prefix is WTO
+
+    Ontology
+        symbolic key is WireTransferOutput
+
+    Patterns
+        disable AuditIndex
+
+    Persistent Fields
+        FinancialInstitution
+		FinancialInstitutionBranch
+		CreateDate					is TimeStamp
+        DataFileName				is AlphaUpper size 100
+		DataFile					is a PaymentAttachment
+    	FTPConfiguration
+    	WireTransferBatch
+		ProcessedByThirdParty			is Boolean				
+		KyribaJSONResponse 				is JSONObject			
+		GTreasuryJSONResponse 			is JSONObject			
+		ErrorId							is Alpha up to 100		
+		KyribaFileAttachment 			is a MultiPart			
+		
+    Derived Fields
+        DataFileNameOutputFileName is a DerivedField
+            type is AlphaUpper up to 100
+			if (WireTransferBatch entered)
+				return WireTransferBatch.FinalFileName
+			else
+				return DataFileName
+		
+		DerivedStatus is a DerivedField
+			type is Alpha 20
+			default label is "Status"
+			if (DetailsNotProcessedOrRejectedRel exists)
+				return "Pending Confirmation"
+			else
+				return "Processed"
+
+		FTPConfigurationName is a DerivedField
+			type is Alpha 100
+			if (FTPConfiguration.System)
+				return "system"
+			else
+			if (FTPConfiguration.System1)
+				return "system1"
+			else
+			if (FTPConfiguration.System2)
+				return "system2"
+			else
+			if (FTPConfiguration.System3)
+				return "system3"
+			else
+			if (FTPConfiguration.System4)
+				return "system4"
+				
+		KyribaJSONRequest is a DerivedField
+			type is JSONObject
+			KyribaJSONRequest = template.KyribaWireRequest_Template document for this instance
+
+		KyribaFileAttachmentName is a StringField
+			type is Alpha 100
+			restricted
+			"infor-trigger-wire-"
+			WireTransferOutput
+			"@infor.com"
+
+		KyribaFileAttachmentFileName is a StringField
+			type is Alpha 100
+			restricted
+			"infor-trigger-wire-"
+			WireTransferOutput
+			".json"
+
+		GTreasuryJSONRequest is a DerivedField		
+			type is JSONObject
+			GTreasuryJSONRequest = template.GTreasuryWireRequest_Template document for this instance
+
+		GTreasuryCompanyId is a DerivedField 		
+			type is Alpha 250
+			return CashManagementGroup.InforTreasurySubscriptionKey
+
+	Relations
+		DetailsNotProcessedOrRejectedRel is a WireTransferOutputDetail set
+			Instance Selection
+				where (!related.Status.Processed
+				and	   !related.Status.Rejected)
+			
+    Conditions
+		HasDataFileAttachment
+			restricted
+			when (DataFile entered)
+
+		CanReset
+			restricted
+			when (all WireTransferOutputDetail set.NotProcessedOrRejected)
+			
+		CanPurge
+			restricted
+			when (all WireTransferOutputDetail set.ProcessedOrRejected)
+
+		IsKyribaIntegration		
+			restricted
+			when (CashManagementGroup.InforTreasuryIntegrationType.Kyriba)
+
+		IsGTreasuryIntegration	
+			restricted
+			when (CashManagementGroup.InforTreasuryIntegrationType.GTreasury)
+
+    Sets
+    	ByCreateDate
+    		Sort Order
+    			CashManagementGroup
+    			CreateDate			descending
+    			WireTransferBatch
+    			WireTransferOutput
+
+		ByWireTransferBatch
+			Sort Order
+				CashManagementGroup
+				WireTransferBatch
+				CreateDate
+				WireTransferOutput
+				
+    Field Rules
+        FinancialInstitution
+			required
+			
+		FinancialInstitutionBranch
+			required
+			
+		CreateDate
+            default to current timestamp
+            
+		DataFileName
+			default to "WireTransfer"
+
+		FTPConfiguration
+			default to WireTransferBatch.FTPConfiguration
+			default to 1	
+			
+	Actions
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+
+		CreateWireTransferFile is an Instance Action
+
+			Action Rules
+				if (WireTransferBatch.OutputFileType.BODOutput)
+                	invoke TriggerWireTransferBOD WireTransferBatch
+				else
+				if (WireTransferBatch.OutputFileType.InforTreasury)			
+					if (IsKyribaIntegration)
+						invoke TriggerKyribaWireTransferFile
+					else
+					if (IsGTreasuryIntegration)	
+						invoke TriggerGTreasuryWireTransferFile
+				else
+					trigger "WireTransferFile" PA service
+						resume on error
+						title is "CreateWireTransferFile"
+						Variables
+							CashManagementGroup
+							WireTransferOutput
+
+		ResetWireTransferBatch is a Set Action
+			valid when (CanReset)
+			run in foreground
+			completion message is "ResetOfWireTransferOutputRecordsHasCompleted"
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup					
+				PrmWireTransferBatch		is a WireTransferBatch
+				PrmCreateDateRange			is a DateRange 
+				
+			Parameter Rules
+				PrmCashManagementGroup
+					required
+					
+				PrmWireTransferBatch
+					constraint (PrmCreateDateRange not entered)
+						"EnterEitherAWireTransferBatchOrACreateDateRange"
+						
+				PrmCreateDateRange
+					constraint (PrmWireTransferBatch not entered)
+						"EnterEitherAWireTransferBatchOrACreateDateRange"
+			
+			Sort Order
+				CashManagementGroup
+				WireTransferBatch
+				CreateDate
+				WireTransferOutput
+									
+			Instance Selection
+				where  (PrmCashManagementGroup = CashManagementGroup
+				and   ((PrmWireTransferBatch entered
+				and     WireTransferBatch = PrmWireTransferBatch)
+				or	   (PrmCreateDateRange entered
+				and     CreateDate within PrmCreateDateRange)))
+	
+			Action Rules
+				WireTransferBatch Set Rules
+					Entrance Rules
+						invoke Reset Released WireTransferBatch
+						 
+				Instance Rules
+					invoke Purge
+					
+		PurgeWireTransferOutput is a Set Action
+			valid when (CanPurge)
+			run in foreground
+			completion message is "PurgeOfWireTransferOutputRecordsHasCompleted"
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup
+				PrmWireTransferBatch		is a WireTransferBatch
+				PrmCreateDateRange			is a DateRange 
+				
+			Parameter Rules
+				PrmCashManagementGroup
+					required
+					
+				PrmWireTransferBatch
+					constraint (PrmCreateDateRange not entered)
+						"EnterEitherAWireTransferBatchOrACreateDateRange"
+						
+				PrmCreateDateRange
+					constraint (PrmWireTransferBatch not entered)
+						"EnterEitherAWireTransferBatchOrACreateDateRange"
+					
+			Instance Selection
+				where (CashManagementGroup = PrmCashManagementGroup
+				and	 ((PrmCreateDateRange entered
+				and	   CreateDate date within PrmCreateDateRange)
+				or	  (PrmWireTransferBatch entered
+				and    WireTransferBatch = PrmWireTransferBatch)))
+	
+			Action Rules
+				Instance Rules
+					invoke Purge
+					
+		TriggerKyribaWireTransferFile is an Instance Action				
+		 	default label is untranslatable
+		 	restricted
+			Action Rules
+				KyribaFileAttachment.Name = KyribaFileAttachmentName
+				KyribaFileAttachment.FileName = KyribaFileAttachmentFileName
+				KyribaFileAttachment.Content = KyribaJSONRequest
+				KyribaFileAttachment.ContentType = "application/json"
+				invoke RunWireActualsWithFile KyribaDataHub
+					invoked.Request												= KyribaFileAttachment
+					invoked.KYRIBADATAHUBWSIHTTPHEADEROCPAPIMTRACE 				= "true"
+					invoked.KYRIBADATAHUBWSIHTTPHEADEROCPAPIMSUBSCRIPTIONKEY 	= CashManagementGroup.InforTreasurySubscriptionKey
+					KyribaJSONResponse											= result.Response
+				ErrorId = KyribaJSONResponse select "$['errorId']"
+
+		TriggerGTreasuryWireTransferFile is an Instance Action			
+		 	default label is untranslatable
+		 	restricted
+			Action Rules
+				invoke PaymentTrigger GTreasuryCallout
+					invoked.GTREASURYCALLOUTWSIHTTPHEADERCONTENTTYPE  	= "application/json"
+					invoked.Request								    	= GTreasuryJSONRequest
+					GTreasuryJSONResponse				    			= result.Response
+					
+
+
+
+                ErrorId = GTreasuryJSONResponse select "$.errors.message"					

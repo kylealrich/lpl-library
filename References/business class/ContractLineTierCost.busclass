@@ -1,0 +1,291 @@
+ContractLineTierCost is a BusinessClass
+	owned by po
+	
+	prefix is Cont
+	
+	Ontology
+		symbolic key is ContractLineTierCost
+		
+	Persistent Fields
+	
+		TierCost						is a ContractUnitCost	
+			precision is ContractLine.DerivedNumberOfDecimalsCost	
+		EffectiveDate 					is Date
+		ExpirationDate 					is Date
+	
+	Local Fields
+		LocalCompareContract            is Numeric size 15
+		LocalCompareContractLine        is a ContractLine
+		LocalTier                       is like ContractTier
+		RoundedValue
+		ToleranceExceeded		        is Boolean
+		CostToleranceExceeded           is Boolean
+		PercentToleranceExceeded        is Boolean
+		TierCostDifference              is like ContractUnitCost         
+			
+	Transient Fields
+		ItemNumber						is a Item
+			derive value from ContractLine.ItemNumber
+		NonManualUpdate                 is Boolean  
+
+	Derived Fields
+	
+		DerivedTolerancePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (Contract.DerivedTolerancePercent * 100)
+
+		ChangePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (((TierCost - old TierCost) / (old TierCost)) * 100)
+			
+		DerivedChangePercent is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (old TierCost not = 0)
+				if (ChangePercent < 0)
+					return ChangePercent * -1
+				else
+					return ChangePercent
+			else
+				return 0
+
+	Conditions
+		
+		LineMembersExist
+			restricted
+			when (ContractLineMemberRel exists)
+			
+		AvailableToCreateOrUpdate
+			restricted
+			when (ContractLine.CanAddLine
+			and  !ContractLine.ContractLineState.Closed)
+
+		HasToleranceErrors
+			restricted
+			when (ContractLinePriceUpdateRel exists)
+	
+	Relations
+	
+        ContractLineMemberRel
+        	one-to-many relation to ContractLineMember
+        	Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+           		related.Contract	  = Contract
+           		related.ContractLine  = ContractLine
+           	Instance Selection
+           		where (related.MfgContractTierInfo.Tier = ContractTier)
+           		
+        DistributorContractLineRel
+			one-to-many relation to ContractLine
+			Field Mapping uses ByDistributorContractLines
+				related.ContractGroup            = ContractGroup
+				related.ManufacturerContract     = Contract          
+				related.ManufacturerContractLine = ContractLine 
+				
+		ContractLineTierCostRel 
+			one-to-one relation to ContractLineTierCost
+			Field Mapping uses symbolic key
+				related.ContractGroup	= ContractGroup
+        		related.Contract        = LocalCompareContract
+        		related.ContractLine    = LocalCompareContractLine
+        		related.ContractTier    = LocalTier
+        		
+		ContractLinePriceUpdateRel
+			one-to-many relation to ContractLinePriceChange
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+				related.ContractLine  = ContractLine
+			Instance Selection
+				where ((related.ProcessingType = 1
+				or      related.ProcessingType = 6)
+				and     related.ContractTier = ContractTier)		
+
+
+       
+	Field Rules
+	
+		TierCost
+		
+			constraint (!TierCost < 0)
+				"TierCostCannotBeLessThanZero"	
+				
+	Rule Blocks
+	
+		ManualCostChangeTolerances
+			
+			CostToleranceExceeded		= false
+			PercentToleranceExceeded	= false
+			ToleranceExceeded 			= false		
+			for each ContractLinePriceUpdateRel
+				invoke Delete each
+			if (Contract.DerivedToleranceAmount > 0)
+				TierCostDifference = (TierCost - old TierCost)
+				if (TierCostDifference < 0)
+					TierCostDifference = (TierCostDifference * -1)
+				if (TierCostDifference > Contract.DerivedToleranceAmount)
+					CostToleranceExceeded = true
+			if (DerivedTolerancePercent > 0)
+				if (DerivedChangePercent > DerivedTolerancePercent)
+					PercentToleranceExceeded = true
+			if ((Contract.DerivedConnector !entered
+			or   Contract.DerivedConnector = "O")  
+			and (CostToleranceExceeded
+			or   PercentToleranceExceeded))
+				ToleranceExceeded = true
+			if (Contract.DerivedConnector = "A"
+			and CostToleranceExceeded
+			and PercentToleranceExceeded)
+				ToleranceExceeded = true
+			if (Contract.DerivedToleranceHandling = 1)
+				if (ToleranceExceeded = true)
+					confirmation required
+						"CostChangeTolerancesOnTheContractClassificationHaveBeenExceeded;ManageItemsOverToleranceInToleranceErrorsOnLine"						
+					invoke Create ContractLinePriceChange
+						invoked.ProcessingType      	= 6
+						invoked.ContractGroup			= ContractGroup
+						invoked.Contract				= Contract
+						invoked.ContractLine            = ContractLine
+				 		invoked.ItemNumber				= ContractLine.ItemNumber		
+						invoked.VendorItem              = ContractLine.VendorItem        
+						invoked.UOM                     = ContractLine.UOM
+						invoked.EffectiveDate       	= EffectiveDate
+						invoked.ExpirationDate 			= ExpirationDate
+						invoked.ContractTier            = ContractTier
+						invoked.ManufacturerInformation.Manufacturer = ContractLine.Manufacturer
+						invoked.ManufacturerInformation.ManufacturerNumber = ContractLine.ManufacturerNumber		
+						invoked.FutureCost      		= TierCost
+						invoked.BaseCost                = old TierCost
+					TierCost		= old TierCost
+			else
+			if (Contract.DerivedToleranceHandling = 2)
+				constraint (ToleranceExceeded = false)
+					"CannotChangeTierCost;TolerancesOnTheContractClassificationHaveBeenExceeded"
+		
+	Actions
+	
+		Create is a Create Action
+			valid when (AvailableToCreateOrUpdate)
+			
+			Action Rules
+			
+				EffectiveDate                    = ContractLine.EffectiveDate
+				ExpirationDate                   = ContractLine.ExpirationDate
+					
+			Exit Rules
+			
+				if (LineMembersExist)
+					for each ContractLineMemberRel
+						invoke UpdateDefault each  
+							invoked.FromTierCost   = true  
+							
+					if (DistributorContractLineRel exists)
+						invoke FastUpdateWithoutEdits ContractLine
+							invoked.ManufacturerLineMemberModified = true
+							
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+		
+		Update is an Update Action
+			valid when (AvailableToCreateOrUpdate)
+			
+			Action Rules
+			
+				if (Contract.DerivedHasCostChangeTolerances
+				and NonManualUpdate = false)
+					include ManualCostChangeTolerances 
+
+				if (LineMembersExist)
+					for each ContractLineMemberRel
+						invoke UpdateDefault each  
+							invoked.FromTierCost   = true  
+							if (ContractLine.HasBeenActivated)
+								if (EffectiveDate > current corporate date)
+									invoked.effective date 		= EffectiveDate
+					
+					if (DistributorContractLineRel exists)
+						invoke FastUpdateWithoutEdits ContractLine
+							invoked.ManufacturerLineMemberModified = true
+							
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine	
+						
+		Delete is a Delete Action
+			valid when (AvailableToCreateOrUpdate)
+			
+		UpdateDates is an Instance Action 
+			restricted 
+			Parameters 
+				ParmEffectiveDate 			is Date 
+				ParmExpirationDate          is Date 
+
+			Action Rules 
+				EffectiveDate		= ParmEffectiveDate
+				ExpirationDate      = ParmExpirationDate
+
+		
+		CompareContractLineTierCost is an Instance Action
+			restricted
+			Parameters
+				CompareContract		    is a Contract
+				CompareContractLine     is a ContractLine
+				ShowZeroDifference      is Boolean
+				CompareFromTier         is like ContractTier
+				EffectiveDate           is Date
+				ExpirationDate          is Date
+				
+			Action Rules
+				LocalCompareContract     = CompareContract
+				LocalCompareContractLine = CompareContractLine
+				LocalTier                = CompareFromTier
+				if  (TierCost != ContractLineTierCostRel.TierCost
+				or   ShowZeroDifference
+				or   Contract = CompareContract)
+					invoke Create ContractLinePriceChange
+						invoked.FromContract	        = Contract
+						invoked.FromLineNumber          = ContractLine
+						invoked.ContractGroup			= ContractGroup
+						invoked.Contract				= CompareContract
+						invoked.ContractLine            = CompareContractLine
+						invoked.FromTier                = CompareFromTier
+						invoked.ContractTier            = ContractTier
+						invoked.ProcessingType      	= 3 
+						invoked.ItemNumber				= ContractLine.ItemNumber		
+						invoked.VendorItem              = ContractLine.VendorItem        
+						invoked.UOM                     = ContractLine.UOM
+						invoked.ManufacturerInformation.Manufacturer = ContractLine.Manufacturer	
+						invoked.ManufacturerInformation.ManufacturerNumber = ContractLine.ManufacturerNumber
+						invoked.BaseCost                = ContractLineTierCostRel.TierCost
+						invoked.FutureCost              = TierCost
+						invoked.EffectiveDate           = EffectiveDate
+						invoked.ExpirationDate          = ExpirationDate
+						invoked.FutureCostDate          = ContractLine.EffectiveDate
+		
+		DeleteFromTierDeletion is a Set Action
+			restricted
+			Parameters
+				PrmContractGroup	is a ContractGroup
+				PrmContract	        is a Contract
+				PrmContractTier     is like ContractTier
+				
+			Instance Selection
+				where (ContractGroup		= PrmContractGroup
+				and    Contract		        = PrmContract
+				and    ContractTier         = PrmContractTier)
+				
+			Sort Order
+								
+			Action Rules
+					
+				Instance Rules
+	
+					invoke Delete
+
+
+		Purge is a Purge Action
+			restricted
+			

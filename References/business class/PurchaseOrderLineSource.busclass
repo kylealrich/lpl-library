@@ -1,0 +1,1251 @@
+PurchaseOrderLineSource is a BusinessClass
+    owned by po
+    prefix is PLS
+    classic name is POLINESRC
+
+    Ontology
+        symbolic key is PurchaseOrderLineSource
+            classic set name is PLSSET0
+            classic name for PurchaseOrderLineSource.SourceDocumentOrigin is ORIGIN-CD
+            classic name for PurchaseOrderLineSource.OperatingCompany is OPER-COMPANY
+            classic name for PurchaseOrderLineSource.SourceDocumentNumeric is SOURCE-DOC-N
+            classic name for PurchaseOrderLineSource.SourceDocumentAlpha is SOURCE-DOC-A
+            classic name for PurchaseOrderLineSource.SourceDocumentLineNumber is SRC-LINE-NBR
+            classic name for PurchaseOrderLine is LINE-NBR
+
+    Patterns
+        implements ContextualParent
+        implements StaticJava
+        disable AuditIndex
+        enable explicit context override
+        implements Archivable
+
+    Persistent Fields
+
+        RequestingLocation
+            classic name is REQ-LOCATION
+            context of PurchaseOrderLineSource.OperatingCompany
+        Requester
+        DeliverTo
+        RequestedDeliveryDate  is Date
+            classic name is REQ-DEL-DATE
+        AllocationPriority
+            classic name is ALLOC-PRI
+        Quantity							is like Quantity
+        	precision is PurchaseOrderLine.DerivedNumberOfDecimalsQuantity
+        DeliveredQuantity
+            classic name is DELIVERED-QTY
+			protected        
+			precision is PurchaseOrderLine.DerivedNumberOfDecimalsQuantity
+        ProcessedQuantity      is Decimal size 13.4
+            classic name is PROCESSED-QTY
+			protected
+			precision is PurchaseOrderLine.DerivedNumberOfDecimalsQuantity        
+        EnteredUOM             is a UnitOfMeasure
+        EnteredUOMMultiplier   is an UOMMultiplier
+            classic name is ENT-UOM-MULT
+        BillingInvoiceQuantity is Decimal size 13.4
+            classic name is BL-INVC-QTY
+            precision is PurchaseOrderLine.DerivedNumberOfDecimalsQuantity
+        BillingUnitCost        is an InternationalCost
+            classic name is BILL-UNIT-CST
+            precision is PurchaseOrderLine.DerivedNumberOfDecimalsCost
+        GlobalLineType
+            classic name is GLBL-LINE-TYPE
+            
+    Transient Fields
+    	TransientSourceDocument 	is AlphaUpper size 10
+			derive value from DerivedSourceDocument
+	Local Fields
+		LocalQuantityLeftToProcess	is like Quantity 
+		LocalChangeQuantity         is like Quantity
+		LocalReduceBudgetAmount     is Boolean
+		LocalUOMCalculation			is a UOMCalculation
+		LocalCurrencyExchange		is a CurrencyExchange
+		LocalCurrencyTable          is a CurrencyTable
+		LocalExcessQuantity 		is like Quantity
+		LocalTotalLineSourceQuantity is like Quantity 
+		LocalTotalDemandQuantity 	is like Quantity
+		RoundedValue
+		ValidateBuyer
+		LocalFromCurrency			is like Currency
+		LocalToCurrency 			is like Currency
+
+
+		SavedTransactionAmount		is a CurrencyAmount
+		SavedExchangeDate			is a ExchangeDate
+		SavedFromCurrency			is a FromCurrency
+		LocalOperatingCompany       is like InventoryCompany
+        LocalSourceDocumentNumeric  is a SourceDocumentNumeric
+        LocalSourceDocumentLineNumber is Numeric size 6
+		LocalQuantity               is like Quantity
+		LocalFromRequisition        is Boolean
+
+		LocalPOLineSourceAE			is Alpha size 22
+		LocalConfigurationParameter	is Alpha size up to 200
+
+	
+	Context Fields
+		SupplyManagementReportContext	is a SupplyManagementReport
+	
+	Rule Blocks
+		UpdatePurchaseOrderLineQuantity
+			if (PurchaseOrderLine.PurchaseOrderLineLifeCycleState.Unreleased)
+				invoke Update Unreleased PurchaseOrderLine
+					invoked.Quantity = LineTotalSourceQuantity
+					invoked.BypassQuantityFromSource = true
+			else
+			if (PurchaseOrderLine.PurchaseOrderLineLifeCycleState.Released)
+				invoke Update Released PurchaseOrderLine
+					invoked.Quantity = LineTotalSourceQuantity
+					invoked.BypassQuantityFromSource = true
+	
+		WarehouseDemandProcessing
+  			if (WarehouseDemandLineRel exists)
+      			LocalWarehouseDemand = WarehouseDemandLineRel.WarehouseDemand
+      			LocalWarehouseSupply = SupplyWarehouseDemandLineRel.WarehouseDemand
+      			if (NoOtherSourceForRequisition) 
+	      			invoke Delete WarehouseDemandLineRel
+	      			invoke Delete SupplyWarehouseDemandLineRel
+	      		else
+	      			if (PurchaseOrderLine.IsCatchWeightItem)
+	      				LocalQuantity = Quantity
+	      			else
+	      				LocalQuantity = DerivedQuantityInStockUOM
+
+					LocalTotalLineSourceQuantity	= LocalQuantity
+					for each FromSameRequisitionSourceRel 
+						if (PurchaseOrderLine.IsCatchWeightItem)
+							LocalTotalLineSourceQuantity += each.Quantity								
+						else
+							LocalTotalLineSourceQuantity += each.Quantity * each.EnteredUOMMultiplier 	
+					
+					LocalTotalDemandQuantity	= WarehouseDemandLineRel.Quantity
+					LocalExcessQuantity			= LocalTotalLineSourceQuantity - LocalTotalDemandQuantity
+					
+					LocalDemandCancelQuantity 	= LocalQuantity - LocalExcessQuantity 
+
+					if (LocalDemandCancelQuantity > 0)
+
+						invoke CancelDemand WarehouseDemandLineRel
+							invoked.PrmCancelQuantity	= LocalDemandCancelQuantity	
+
+
+						invoke CancelDemand SupplyWarehouseDemandLineRel
+							invoked.PrmCancelQuantity	= LocalDemandCancelQuantity
+      			
+
+      			if (LocalWarehouseDemand.WarehouseDemandLine set not exists)
+      				invoke Delete LocalWarehouseDemand
+      			if (LocalWarehouseSupply.WarehouseDemandLine set not exists)
+      				invoke Delete LocalWarehouseSupply
+
+	Field Rules
+		RequestingLocation
+			if (FromOrderEntry)
+				cannot be entered
+					"CanNotEnter_\Requesting_\LocationFor_\OrderEntryOr_\Inventory_\Control"
+				
+			if (not RequisitionLineRel.Status.Processed)
+				constraint (RequestingLocation.Active)
+					"Requesting_\LocationIs_\Inactive"
+					
+            if (FromPurchaseOrder) 
+	            if  (action type.Create
+	            or  (action type.Update 
+	            and  RequestingLocation changed))
+					initialize ValidateBuyer
+					ValidateBuyer.InPurchasingCompany		= Company
+					ValidateBuyer.InShipToLocation			= PurchaseOrderLine.ShipToLocation
+					ValidateBuyer.InRequestingLocation		= RequestingLocation
+					constraint (ValidateBuyer.IsValidBuyer)
+						"<ValidateBuyer.ErrorMessage>"
+						
+		Requester
+			if (FromOrderEntry
+			or FromInventoryControl)
+				cannot be entered
+					"CannotEnter_\RequesterFor_\O\E,_\C\XOr_\I\C"
+
+		RequestedDeliveryDate
+			default to PurchaseOrderLine.EarlyDeliveryDate	
+			
+			if (AllocationPriority = 0
+			and RequestedDeliveryDate not entered
+			and PurchaseOrderLine.ItemType.Service)
+				required
+					"MustEnterRequestedDeliveryDate"
+				
+			
+		Quantity			
+			required	
+				"QuantityMustBeEntered"
+				
+			if (PurchaseOrderLine.ServiceCode.Amount)
+				constraint (Quantity = 1)
+					"QuantityMustEqualOneForAmountTypeService"
+		
+		EnteredUOM
+			default to PurchaseOrderLine.EnteredBuyUOM
+			
+		EnteredUOMMultiplier
+			default to PurchaseOrderLine.EnteredBuyUOMMultiplier
+			
+    Derived Fields
+
+		MobileQuantityDisplay is a LabelField
+			"<Quantity>_<EnteredUOM>"
+
+    
+    	ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforPurchaseOrderLineSource"
+			
+    	ContextMessageText is a MessageField
+			restricted
+			"PurchaseOrderLineSource<DerivedSourceDocumentLineNumber>FromPurchaseOrderLine<PurchaseOrderLine>OfPurchaseOrder<PurchaseOrder>"
+
+        DerivedSourceDocument       is a DerivedField
+            type is AlphaUpper size 10
+            classic name is SOURCE-DOC
+            restricted
+            if (PurchaseOrderLineSource.SourceDocumentAlpha entered)
+                return PurchaseOrderLineSource.SourceDocumentAlpha
+            else
+	            return PurchaseOrderLineSource.SourceDocumentNumeric
+                
+        DerivedQuantityInStockUOM is a DerivedField
+			type is like Quantity
+				precision is PurchaseOrderLine.Item.NumberOfDecimalsQuantity
+			restricted
+    		return (Quantity * EnteredUOMMultiplier)
+
+        DerivedQuantity is a DerivedField
+			type is like Quantity
+				precision is PurchaseOrderLine.Item.NumberOfDecimalsQuantity
+    		return (Quantity * EnteredUOMMultiplier)
+		
+		LineTotalSourceQuantity is a DerivedField	
+			type is like Quantity		
+				precision is PurchaseOrderLine.Item.NumberOfDecimalsQuantity
+			restricted
+			return (sum PurchaseOrderLine.PurchaseOrderLineSource set.Quantity)
+
+
+		EventToPurchaseOrderDays is a DerivedField
+			type is Numeric size 3
+			if (PurchaseOrderLine.SourcingEvent entered)
+				if (PurchaseOrderLine.SourcingEvent.BestAndFinalCloseDate entered)
+					return (PurchaseOrder.PurchaseOrderDate - PurchaseOrderLine.SourcingEvent.BestAndFinalCloseDate)
+				else
+				if (PurchaseOrderLine.SourcingEvent.StepTwoCloseDate entered)
+					return (PurchaseOrder.PurchaseOrderDate - PurchaseOrderLine.SourcingEvent.StepTwoCloseDate)
+				else
+					return (PurchaseOrder.PurchaseOrderDate - PurchaseOrderLine.SourcingEvent.CloseDate)
+			else
+				return 0
+
+		RequisitionToPurchaseOrderDays is a DerivedField
+			type is Numeric size 2
+			if (PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions)
+				return (PurchaseOrder.PurchaseOrderDate - RequisitionRel.ReleasedDate)
+			else
+				return 0
+				
+		RequisitionUnitCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (FromRequisition)
+				if (RequisitionLineRel.TransactionCurrencyCode = PurchaseOrder.Currency)
+					return (RequisitionLineRel.TransactionUnitCost)
+				else
+					return (RequisitionLineRel.UnitCost)
+			else
+				return 0
+
+		DerivedRequisitionUnitCostInStockUOM is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (RequisitionUnitCost entered
+	    	and RequisitionLineRel.EnteredUOM != PurchaseOrderLine.Item.StockUOM)
+	    		return RequisitionUnitCost * EnteredUOMMultiplier
+			else
+				return RequisitionUnitCost						
+
+		DerivedRequisitionBaseUnitCostInStockUOM is a DerivedField
+			type is like InternationalCost
+			restricted
+			if (FromRequisition
+			and RequisitionLineRel.UnitCost entered)
+				if (RequisitionLineRel.EnteredUOM != PurchaseOrderLine.Item.StockUOM)
+		    		return RequisitionLineRel.UnitCost * EnteredUOMMultiplier
+				else
+					return RequisitionLineRel.UnitCost	
+			else
+				return 0
+		
+		DerivedOriginalExtendedAmount is a DerivedField  
+			type is like InternationalAmount
+			restricted 
+			if ((Quantity + (sum FromSameRequisitionSourceRel.Quantity)) >= RequisitionLineRel.Quantity)
+				return (RequisitionUnitCost * (RequisitionLineRel.Quantity - sum FromSameRequisitionSourceRel.Quantity))
+			else
+				return (RequisitionUnitCost * Quantity)
+
+    	DerivedSourceDocumentOrigin is a DerivedField
+    		type is like SourceDocumentOrigin
+    		return PurchaseOrderLineSource.SourceDocumentOrigin
+    
+    	DerivedSourceDocumentLineNumber is a DerivedField
+    		type is Numeric size 6
+    		return PurchaseOrderLineSource.SourceDocumentLineNumber
+    
+    	DerivedQuantityToDeliver is a DerivedField
+    		type is like Quantity
+	    		precision is PurchaseOrderLine.DerivedNumberOfDecimalsQuantity
+    		restricted
+    		return Quantity - DeliveredQuantity
+    		
+
+    	DerivedSourceDocumentType is a DerivedField
+			type is Alpha size 22
+			restricted
+			if(PurchaseOrderLineSource.SourceDocumentOrigin = "OE")
+				return "SalesOrder"
+			else
+				if(PurchaseOrderLineSource.SourceDocumentOrigin = "RQ")
+					return "Requisition"
+				else 
+					return ""
+					
+		DerivedDelimiter is a DerivedField
+			type is Alpha size 5
+			restricted
+			return PurchaseOrder.DerivedDelimiter
+								
+		DerivedRequiredCleanDocId is a DerivedField
+			type is Alpha size 60
+			restricted
+			return PurchaseOrder.DerivedRequiredCleanDocId
+					
+		DerivedRequestingLocation is a DerivedField
+			type is Alpha size 60
+			restricted
+			if(DerivedRequiredCleanDocId = "Y")
+				return RequestingLocation
+			else 
+				return Company using "%d" +DerivedDelimiter+ RequestingLocation
+		
+		DerivedTransientSourceDocument is a DerivedField
+			type is Alpha size 60
+			restricted
+			if(DerivedRequiredCleanDocId = "Y")
+				return TransientSourceDocument
+			else 
+				return Company using "%d" +DerivedDelimiter+ TransientSourceDocument
+				
+		ProcessBODAccountingEntity	is a DerivedField
+			type is AlphaUpper size 22
+			restricted
+			return PurchaseOrder.ProcessBODAccountingEntity
+				
+		BODAccountingEntity	is a DerivedField
+			type is AlphaUpper size 22
+			restricted
+			return PurchaseOrder.BODAccountingEntity
+				
+
+				
+    Conditions
+		IsMyRequisition
+			restricted
+			when (Requester = actor.agent(Employee).Employee and IsValidForActorContext)
+            
+		IsValidForActorContext
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   GeneralLedgerCompanyRel.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))	
+			
+        NoUnitCostOrQuantityDifference
+        	restricted
+        	when (RequisitionUnitCost = PurchaseOrderLine.EnteredUnitCost
+            and   !RequisitionQuantityDifference)
+        
+        FromOrderEntryOrRequisition
+            classic name is ALLOCATECND
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.OrderEntry
+            or    PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions)
+
+        Backordered
+            classic name is BACKORDER
+            restricted
+            when (Quantity >  DeliveredQuantity
+            and   ProcessedQuantity not entered
+            and   (PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions
+                or    PurchaseOrderLineSource.SourceDocumentOrigin.PurchaseOrder))
+
+
+
+
+
+
+        FromInventoryControl
+            classic name is INVENTORY-CTRL
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.InventoryControl)
+
+        HasSourceDocumentNumeric
+            classic name is NUMERIC-DOC
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentNumeric entered)
+
+        IsOpen
+        	restricted
+            when (Quantity >  DeliveredQuantity
+            and   ProcessedQuantity != Quantity 
+            and   (PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions
+                or    PurchaseOrderLineSource.SourceDocumentOrigin.PurchaseOrder
+                or    PurchaseOrderLineSource.SourceDocumentOrigin.InventoryControl))
+
+        FromOrderEntry
+            classic name is ORDER-ENTRY
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.OrderEntry)
+
+        FromPurchaseOrderOrRequisition
+            classic name is PO-OR-RQ
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.PurchaseOrder
+            or    PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions)
+
+        FromPurchaseOrder
+            classic name is PO-SOURCE
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.PurchaseOrder)
+
+        FromRequisition
+            classic name is REQUISITIONS
+            restricted
+            when (PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions)
+		
+		FromEvent
+			restricted
+			when (PurchaseOrderLineSource.SourceDocumentOrigin.StrategicSourcing)
+			
+		FromEventOrRequisition
+			restricted
+			when (FromRequisition
+			or    FromEvent)
+			
+		BuyerLocationExists
+			restricted
+			when (BuyerRequestingLocationRel exist)
+		
+		EventRequired
+			restricted
+			when (PurchaseOrderLine.SourcingEvent entered)
+			
+		AnotherSourceForRequisition
+			restricted
+			when (FromSameRequisitionSourceRel exists)
+
+		NoOtherSourceForRequisition
+			restricted
+			when (FromSameRequisitionSourceRel not exists)
+			
+		RequisitionCommitmentsExist
+			restricted
+			when (GeneralLedgerSystemCodeForRQRel.EncumbranceOption.TrackAndEdit
+			or    GeneralLedgerSystemCodeForRQRel.EncumbranceOption.Track)
+			
+		POCommitmentsExist
+			restricted
+			when (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+			or    GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+		
+		InventoryItem
+			restricted
+			when (PurchaseOrderLine.ItemType.Inventoried)
+			
+		RequisitionQuantityDifference
+			restricted
+			when (FromRequisition
+			and  (Quantity + (sum FromSameRequisitionSourceRel.Quantity)) != RequisitionLineRel.Quantity) 
+
+		IsServiceCodeAmount
+			restricted
+			when (PurchaseOrderLine.IsServiceCodeAmount)
+			
+		HasSourceDocument
+			restricted
+			when (DerivedSourceDocument entered)
+			
+		IsNotFullyDelivered
+			restricted
+			when (DeliveredQuantity < Quantity)
+		
+		IsIgnoreSubstituteReplenishment  
+			restricted
+			when (RequisitionLineRel.IgnoreSubstituteReplenishment
+			or   (TransientSourceDocument = "IC_REORDER"
+			and   PurchaseOrderLine.Item.ItemGroup.IgnoreSubstituteItemsInReplenishment))
+					
+    Relations
+
+		InventoryCompanyRel
+			one-to-one relation to InventoryCompany
+			Field Mapping uses symbolic key
+				related.Company	= Company
+
+	    MatchCompanyRel
+            one-to-one relation to MatchCompany
+            required
+            Field Mapping uses symbolic key
+                related.Company = Company
+
+		RequesterEmployeeRel
+			one-to-one relation to Employee
+			Field Mapping uses symbolic key
+				related.HROrganization	= actor.context.HROrganization
+				related.Employee		= Requester
+
+        CustomerOrderLineRel
+            one-to-one relation to CustomerOrderLine
+            valid when (FromOrderEntry)
+            required
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.CustomerOrder     = PurchaseOrderLineSource.SourceDocumentNumeric
+                related.CustomerOrderLine = PurchaseOrderLineSource.SourceDocumentLineNumber
+                
+        GeneralLedgerSystemCodeForRQRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "RQ"
+        
+        GeneralLedgerSystemCodeRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "PO"
+        
+        RequisitionRel
+        	one-to-one relation to Requisition
+            valid when (FromRequisition)
+            Field Mapping uses symbolic key
+                related.Company         = PurchaseOrderLineSource.OperatingCompany
+                related.Requisition     = PurchaseOrderLineSource.SourceDocumentNumeric
+        	
+		RequisitionHeaderAOCDistributionRel
+			one-to-many relation to RequisitionLineDistribution
+			Field Mapping uses symbolic key
+				related.Company         = PurchaseOrderLineSource.OperatingCompany
+                related.Requisition     = PurchaseOrderLineSource.SourceDocumentNumeric
+            Instance Selection    
+                where (related.RequisitionLine = 0
+                and    related.AddOnCharge entered)
+		
+		RequisitionLineAOCInventoryDistributionRel
+			one-to-many relation to RequisitionLineDistribution
+			Field Mapping uses symbolic key
+				related.Company         = PurchaseOrderLineSource.OperatingCompany
+                related.Requisition     = PurchaseOrderLineSource.SourceDocumentNumeric
+                related.RequisitionLine = PurchaseOrderLineSource.SourceDocumentLineNumber                
+            Instance Selection    
+                where (related.AddOnCharge entered)
+
+		RequisitionLineDistributionRel
+			one-to-many relation to RequisitionLineDistribution
+			Field Mapping uses symbolic key
+				related.Company         = PurchaseOrderLineSource.OperatingCompany
+                related.Requisition     = PurchaseOrderLineSource.SourceDocumentNumeric
+                related.RequisitionLine = PurchaseOrderLineSource.SourceDocumentLineNumber                
+            Instance Selection    
+                where (related.RequisitionLine >0
+                and    related.AddOnCharge !entered)
+
+		PurchaseOrderRequisitionInterfaceRel
+			one-to-one relation to PurchaseOrderInterface
+			Field Mapping uses Set10
+				related.PurchaseOrderInterface.SourceDocumentOrigin     = PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions
+                related.PurchaseOrderInterface.OperatingCompany         = PurchaseOrderLineSource.OperatingCompany
+                related.PurchaseOrderInterface.SourceDocumentNumeric    = PurchaseOrderLineSource.SourceDocumentNumeric
+                related.PurchaseOrderInterface.LineNumber             	= PurchaseOrderLineSource.SourceDocumentLineNumber
+                related.PurchaseOrderInterface.SourceDocumentAlpha      = PurchaseOrderLineSource.SourceDocumentAlpha
+                related.PurchaseOrderInterface.RequestingLocation       = PurchaseOrderLineSource.SourceDocumentLineNumber
+        
+        RequisitionLineRel
+            one-to-one relation to RequisitionLine
+            valid when (FromRequisition)
+            required
+            Field Mapping uses symbolic key
+                related.Company         = PurchaseOrderLineSource.OperatingCompany
+                related.Requisition     = PurchaseOrderLineSource.SourceDocumentNumeric
+                related.RequisitionLine = PurchaseOrderLineSource.SourceDocumentLineNumber
+                
+        LocalRequisitionLineRel
+            one-to-one relation to RequisitionLine
+            required
+            Field Mapping uses symbolic key
+                related.Company         = LocalOperatingCompany
+                related.Requisition     = LocalSourceDocumentNumeric
+                related.RequisitionLine = LocalSourceDocumentLineNumber
+                
+
+        SamePurchaseOrderLineSourceRel
+        	one-to-one relation to PurchaseOrderLineSource
+        	Field Mapping uses Set1
+        		related.Company						= Company
+                related.PurchaseOrder				= PurchaseOrder
+                related.PurchaseOrderLine			= PurchaseOrderLine
+                related.PurchaseOrderLineSource		= PurchaseOrderLineSource
+
+
+         
+
+        WarehouseDemandLineRel
+            one-to-one relation to WarehouseDemandLine
+            Field Mapping uses Set9
+                related.Company 					   					= Company
+                related.WarehouseDemand.DemandSystemCode 				= "RQ"
+                related.WarehouseDemand.DemandDocument 					= PurchaseOrderLineSource.SourceDocumentNumeric
+				related.WarehouseDemand.DemandCompany					= PurchaseOrderLineSource.OperatingCompany
+                related.WarehouseDemandLine.LineNumber 					= PurchaseOrderLineSource.SourceDocumentLineNumber
+                related.InventoryLocation              					= PurchaseOrderLine.ShipToLocation
+                related.WarehouseDemandLine.ComponentSequence			= blank
+                
+
+        SupplyWarehouseDemandLineRel
+            one-to-one relation to WarehouseDemandLine
+            Field Mapping uses Set7
+                related.Company 					   					= Company
+                related.InventoryLocation              					= RequestingLocation
+                related.WarehouseDemand.DemandSystemCode 				= "RQ"
+                related.WarehouseDemand.DemandDocument 					= PurchaseOrderLineSource.SourceDocumentNumeric
+				related.WarehouseDemand.DemandCompany					= Company
+                related.WarehouseDemandLine.LineNumber 					= PurchaseOrderLineSource.SourceDocumentLineNumber
+                related.WarehouseDemandLine.ComponentSequence			= blank
+                
+        BuyerRequestingLocationRel
+        	one-to-many relation to BuyerLocation
+        	Field Mapping uses Set5
+        		related.HROrganization			= GeneralLedgerCompanyRel.FinanceEnterpriseGroup.HROrganization
+                related.Buyer					= PurchaseOrder.Buyer
+                related.Company					= Company
+                related.RequestingLocation		= RequestingLocation
+                
+        BuyerLocationsRel
+			one-to-many relation to BuyerLocation
+			Field Mapping uses Set4
+				related.HROrganization        = GeneralLedgerCompanyRel.FinanceEnterpriseGroup.HROrganization
+            	related.Buyer                 = PurchaseOrder.Buyer
+    		Instance Selection
+    			where (related.IsByRequestingLocation)	
+
+        RQGeneralLedgerSystemCodeRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "RQ"	
+
+		FromSameRequisitionSourceRel
+			one-to-many relation to PurchaseOrderLineSource
+			Field Mapping uses Set2
+				related.PurchaseOrderLineSource.OperatingCompany   		= PurchaseOrderLineSource.OperatingCompany
+				related.PurchaseOrderLineSource.SourceDocumentOrigin 	= PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions
+				related.PurchaseOrderLineSource.SourceDocumentNumeric   = PurchaseOrderLineSource.SourceDocumentNumeric    
+    			related.PurchaseOrderLineSource.SourceDocumentLineNumber = PurchaseOrderLineSource.SourceDocumentLineNumber
+    		Instance Selection
+    			where (related.UniqueID  != UniqueID)	
+    			
+    	PurchaseOrderLineDistributionRel
+    		one-to-many relation to PurchaseOrderLineDistribution
+    		Field Mapping uses symbolic key
+    			related.Company                               = Company
+    			related.PurchaseOrder                         = PurchaseOrder
+    			related.PurchaseOrderLine                     = PurchaseOrderLine
+
+
+        FSMBODConfigurationParameterRel
+        	one-to-one relation to FSMBODConfigurationParameter
+			Field Mapping uses symbolic key
+            	related.FSMBODConfigurationParameter 		= LocalConfigurationParameter
+
+
+		GeneralLedgerCompanyRel
+			one-to-one relation to GeneralLedgerCompany
+			Field Mapping uses symbolic key
+				related.Company			= Company
+
+		CurrencyRelationshipRel
+			one-to-one relation to CurrencyRelationship
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				 = GeneralLedgerCompanyRel.FinanceEnterpriseGroup
+				related.CurrencyRelationship.FromCurrency	 = LocalFromCurrency
+				related.CurrencyRelationship.ToCurrency		 = LocalToCurrency
+
+    Sets
+
+        Set10
+            indexed
+            Sort Order
+                Company
+                RequestingLocation
+                PurchaseOrder
+                PurchaseOrderLine
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentAlpha
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+
+        Set2
+            indexed
+            Instance Selection
+                where (HasSourceDocumentNumeric)
+            Sort Order
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+                PurchaseOrder
+                PurchaseOrderLine
+
+
+
+
+
+
+
+
+
+
+
+        Set4
+            indexed
+            Instance Selection
+                where (IsOpen)
+            Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+                AllocationPriority
+                RequestedDeliveryDate
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentAlpha
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                RequestingLocation
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+
+        Set5
+            indexed
+            Instance Selection
+                where (Backordered)
+            Sort Order
+                Company
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLineSource.SourceDocumentAlpha
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+                PurchaseOrder
+                PurchaseOrderLine
+
+        Set7
+            indexed
+            Instance Selection
+                where (FromOrderEntryOrRequisition)
+            Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+
+        Set9
+            indexed
+            Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentAlpha
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+
+        Set1
+            not indexed
+            Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+                PurchaseOrderLineSource
+                
+		BySourceDocument
+			indexed
+			Sort Order
+                Company
+                PurchaseOrder
+                PurchaseOrderLineSource.SourceDocumentOrigin
+                PurchaseOrderLineSource.SourceDocumentNumeric
+                PurchaseOrderLine
+                PurchaseOrderLineSource.OperatingCompany
+                PurchaseOrderLineSource.SourceDocumentAlpha
+                PurchaseOrderLineSource.SourceDocumentLineNumber
+                
+        FromStrategicSourcing
+        	duplicates
+        	Instance Selection
+        		where (FromEventOrRequisition)
+        	Sort Order
+        		PurchaseOrderLineSource.SourceDocumentOrigin
+        		PurchaseOrderLineSource.OperatingCompany
+        		PurchaseOrderLineSource.SourceDocumentNumeric
+				PurchaseOrderLineSource.SourceDocumentLineNumber
+                PurchaseOrderLine
+    	
+    	BySet1ReversedOrder
+    		indexed
+            Sort Order            	            	            
+                Company
+                PurchaseOrder
+                PurchaseOrderLine
+				PurchaseOrderLineSource.SourceDocumentOrigin 
+                PurchaseOrderLineSource.SourceDocumentLineNumber descending
+            	PurchaseOrderLineSource.OperatingCompany 
+            	PurchaseOrderLineSource.SourceDocumentNumeric 
+            	PurchaseOrderLineSource.SourceDocumentAlpha 
+        		    	                                
+    Create Rules
+
+		if (instance count of PurchaseOrderLine.PurchaseOrderLineSource set > 1)
+			constraint (not PurchaseOrderLine.ServiceCode.Amount)
+				"CanOnlyHaveOneSourceRecordForAmountTypeService"
+			constraint (PurchaseOrderLine.PunchoutId not entered)
+				"CanOnlyHaveOneSourceRecordForAnItemFromPunchout"
+		
+		if (PurchaseOrderLine.Closed.Yes)
+			constraint ((PurchaseOrderLine.ItemType.Service
+			or  PurchaseOrder.Dropship)
+			and PurchaseOrderLine.CostOption.NoCharge)
+				"CannotAddOrChange,PurchaseOrderLineIsClosed"		
+
+    Actions
+    
+
+	    CopyComment is an Instance Action
+			restricted
+			Parameters
+				PrmFrmPurchaseOrderLineSource	is like PurchaseOrderLineSource
+	
+			Parameter Rules
+				PrmFrmPurchaseOrderLineSource
+					required
+	
+			Action Rules
+				for each PurchaseOrderLineSourceComment set
+					invoke SystemCreate PurchaseOrderLineSourceComment
+						fill in fields from each
+						invoked.PurchaseOrderLineSource = PrmFrmPurchaseOrderLineSource
+								
+    	SystemCreate is a Create Action		
+	    	restricted
+	    	
+    	Create is a Create Action		
+    		valid when (not PurchaseOrderLine.RestrictPOLineChanges)
+			Local Fields
+				LocalSourceDocument			is AlphaUpper size 10
+			Entrance Rules
+				if (FromPurchaseOrder)
+    				constraint (RequestingLocation entered)
+						"Requesting_\LocationRequired"
+			Action Rules
+	            if (FromPurchaseOrder
+	            and PurchaseOrderLineSource.SourceDocumentNumeric not entered)
+	            	LocalSourceDocument = TransientSourceDocument
+	            	constraint (LocalSourceDocument entered)
+	            		"SourceDocumentRequired"
+	            	PurchaseOrderLineSource.SourceDocumentAlpha = TransientSourceDocument
+	            		
+	    	Exit Rules
+	    		include UpdatePurchaseOrderLineQuantity
+    			
+    			if (!InventoryItem
+      			and RequisitionCommitmentsExist
+      			and POCommitmentsExist)
+      				for each PurchaseOrderLineDistributionRel
+      					invoke UpdateGLCommitmentIndirect each	
+      						invoked.AddSourceReversal = true
+	    		
+    	Update is an Update Action
+    		valid when (not PurchaseOrderLine.RestrictPOLineChanges)
+    		Entrance Rules
+    			if (FromPurchaseOrder)
+    				constraint (RequestingLocation entered)
+						"Requesting_\LocationRequired"		
+    			
+    			if (PurchaseOrderLine.Closed.Yes)
+	    			constraint ((PurchaseOrderLine.ItemType.Service
+	    			or  PurchaseOrder.Dropship)
+	    			and PurchaseOrderLine.CostOption.NoCharge)
+	    				"CannotAddOrChange,PurchaseOrderLineIsClosed" 	
+
+		    	if (FromOrderEntry)
+					constraint (old Quantity = Quantity)
+						"CannotChangeQuantitiesForOrderEntryDocuments"
+		    						
+	    		constraint (Quantity >= ProcessedQuantity
+	    		or 			Quantity >= DeliveredQuantity)
+					"ChangedQuantityIsLessThanProcessedOrDelivered"		
+					
+				if (Quantity < old Quantity)
+   					LocalChangeQuantity = old Quantity - Quantity	
+
+	    	Exit Rules
+				include UpdatePurchaseOrderLineQuantity
+
+	    		if (FromOrderEntry
+	    		and Quantity = 0)
+	    			invoke Delete   
+	    			
+				if (LocalChangeQuantity > 0)
+	      					
+	      			invoke UpdateAmountsForRequisitionLines
+					if (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	            	or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)		
+						for each PurchaseOrderLineDistributionRel
+		      				invoke UpdateGLCommitmentIndirect each
+		      					invoked.ReduceFromSourceAmount = (LocalChangeQuantity * RequisitionUnitCost) 
+	    			
+    	UpdatePurchaseorderLineSource is an Instance Action
+    		restricted
+    		Parameters
+    			PrmDeliveredQuantity		is a Quantity
+    			PrmProcessedQuantity		is a Quantity
+    		Action Rules
+				DeliveredQuantity 		= PrmDeliveredQuantity
+    			
+    			ProcessedQuantity		+= PrmProcessedQuantity / EnteredUOMMultiplier
+    			
+    	UpdateSourceQuantityFromLine is an Update Action
+    		restricted
+    		
+    		Action Rules
+    		
+    			if  (Quantity < old Quantity
+    			and  Quantity < RequisitionLineRel.Quantity)
+   					LocalChangeQuantity = RequisitionLineRel.Quantity - Quantity
+    							
+    	UpdateFromReceivingOrMatch is an Instance Action	
+    		restricted
+    		Parameters
+    			PrmUOM						is a UnitOfMeasure 
+
+    			PrmQuantityToProcess		is like Quantity 
+    			PrmInvoiceUnitCost			is an InternationalCost 
+    			PrmCurrency					is a Currency 
+    			PrmBaseCurrency				is a BaseCurrency 
+    		Local Fields
+    			LocalUnprocessedQuantity	is like Quantity
+    		Action Rules
+    			if	((PrmUOM != EnteredUOM) and (PrmQuantityToProcess entered))
+    				initialize LocalUOMCalculation
+       				LocalUOMCalculation.InputUOM					= PrmUOM
+					LocalUOMCalculation.InputToUOM					= EnteredUOM
+					LocalUOMCalculation.InputQuantity				= PrmQuantityToProcess
+					LocalUOMCalculation.DoRounding					= true
+					LocalUOMCalculation.Method						= LocalUOMCalculation.Method.ConvertToAlternate	
+    				PrmQuantityToProcess 							= LocalUOMCalculation.OutputQuantity
+    			
+    			LocalUnprocessedQuantity = Quantity - ProcessedQuantity
+    			
+    			if (LocalUnprocessedQuantity >= PrmQuantityToProcess)
+    				ProcessedQuantity += PrmQuantityToProcess
+    			else
+    				ProcessedQuantity			 = Quantity
+    				LocalQuantityLeftToProcess   = PrmQuantityToProcess - LocalUnprocessedQuantity
+    				
+    			if ((PrmUOM != EnteredUOM) and (LocalQuantityLeftToProcess entered))
+    				initialize LocalUOMCalculation
+    				LocalUOMCalculation.InputUOM					= EnteredUOM
+					LocalUOMCalculation.InputToUOM					= PrmUOM
+					LocalUOMCalculation.InputQuantity				= LocalQuantityLeftToProcess
+					LocalUOMCalculation.DoRounding					= true
+					LocalUOMCalculation.Method						= LocalUOMCalculation.Method.ConvertToAlternate
+    				LocalQuantityLeftToProcess 						= LocalUOMCalculation.OutputQuantity
+    				
+    			BillingUnitCost = PrmInvoiceUnitCost
+    			if (PurchaseOrder.Currency != Company.Currency)
+					initialize LocalCurrencyExchange
+					SavedFromCurrency							= PurchaseOrder.Currency
+					LocalCurrencyExchange.ToCurrency			= Company.Currency
+					SavedExchangeDate							= RequestedDeliveryDate
+					SavedTransactionAmount						= BillingUnitCost
+
+    				LocalCurrencyTable                          = PurchaseOrder.CurrencyTable
+					LocalFromCurrency	      					= PurchaseOrder.Currency
+					LocalToCurrency	      						= Company.Currency
+					if (CurrencyRelationshipRel.MultDiv.Divide)
+						BillingUnitCost								/= (LocalCurrencyExchange.OutputCurrencyRate)
+					else
+						BillingUnitCost								*= (LocalCurrencyExchange.OutputCurrencyRate)
+
+    				
+    			if (not PrmUOM = EnteredUOM)
+    				initialize LocalUOMCalculation
+    				LocalUOMCalculation.InputUOM					= EnteredUOM
+					LocalUOMCalculation.InputToUOM					= PrmUOM
+					LocalUOMCalculation.InputQuantity				= PrmQuantityToProcess
+					LocalUOMCalculation.InputUnitCost				= BillingUnitCost
+					LocalUOMCalculation.DoRounding					= true
+					LocalUOMCalculation.Method						= LocalUOMCalculation.Method.ConvertToAlternate
+    				BillingUnitCost 								= LocalUOMCalculation.OutputUnitCost
+    				
+    	Delete is a Delete Action
+    		valid when (PurchaseOrder.AllowDelete)
+    		Local Fields
+				LocalWarehouseDemand	is a WarehouseDemand
+				LocalWarehouseSupply	is a WarehouseDemand
+				LocalDemandCancelQuantity	is like Quantity
+    		Entrance Rules
+    			constraint (FromPurchaseOrder or FromRequisition)
+    				"SystemDoesNotExist"
+    			
+    			constraint (not FromOrderEntry)
+    				"CannotCancelOrDeletePurchaseOrderCreatedFromOrderEntry"
+    					
+    			constraint (ProcessedQuantity <= 0
+    			and DeliveredQuantity <= 0)
+    				"CanNotDelete,ActivityExists"
+    			
+    			if (FromRequisition)
+	      			include WarehouseDemandProcessing
+
+	      			invoke Processed.UpdateInterfaceCancelQuantity RequisitionLineRel
+	      				invoked.PrmCancelQuantity	= Quantity
+	      				
+	      			if (!InventoryItem
+	      			and RequisitionCommitmentsExist
+	      			and POCommitmentsExist)
+	      				for each PurchaseOrderLineDistributionRel
+	      					invoke UpdateGLCommitmentIndirect each	
+	      						invoked.DeleteSourceReversal = true
+	      						
+	      		if(PurchaseOrderLine.PurchaseOrderLineLifeCycleState.Released)				
+		      		invoke CancelLine PurchaseOrderLine
+	                	invoked.PrmLocalDeletePurchaseOrderLineSourceFlag = true
+		      			if (IsServiceCodeAmount)
+		      				invoked.PrmServiceCancelAmount	= PurchaseOrderLine.EnteredUnitCost
+		      			else
+		      				invoked.PrmCancelQuantity		= PurchaseOrderLine.CancelQuantity + Quantity
+
+    	DeleteFromPurchaseOrderLine is a Delete Action
+    		restricted
+    		Local Fields
+				LocalWarehouseDemand	is a WarehouseDemand
+				LocalWarehouseSupply	is a WarehouseDemand
+				LocalDemandCancelQuantity	is like Quantity
+    		Entrance Rules
+    			if (not PurchaseOrder.ForHeaderDeletion)
+					constraint (ProcessedQuantity <= 0
+					and DeliveredQuantity <= 0)
+						"CanNotDelete,ActivityExists"
+
+    			if (FromRequisition)
+	      			include WarehouseDemandProcessing
+	      		
+	      			LocalFromRequisition 			= true
+	      			LocalOperatingCompany           = PurchaseOrderLineSource.OperatingCompany
+                	LocalSourceDocumentNumeric      = PurchaseOrderLineSource.SourceDocumentNumeric
+                	LocalSourceDocumentLineNumber   = PurchaseOrderLineSource.SourceDocumentLineNumber
+                	LocalQuantity                   = Quantity
+	      	
+	      	Action Rules
+	      			
+	      		if (LocalFromRequisition)	
+	      			invoke Processed.UpdateInterfaceCancelQuantity LocalRequisitionLineRel
+	      				invoked.PrmCancelQuantity	= LocalQuantity
+						if (not PurchaseOrderLine.PurchaseOrderLineLifeCycleState.Unreleased)
+							invoked.PrmFromPOLineDelete	= true
+	      				
+		Cancel is an Instance Action
+			restricted
+			Parameters
+				PrmForceClose		is Boolean
+				PrmCloseNoCharge 	is Boolean
+				PrmSkipCommitment   is Boolean
+				PrmFromPOLineCancel is Boolean
+			Action Rules
+				if (PurchaseOrderLineSource.SourceDocumentOrigin.Requisitions)
+					if (RequisitionLineRel.IsOpen)
+						if (RequisitionLineRel.Status.Processed)
+							if (not PrmCloseNoCharge
+							or (PrmCloseNoCharge
+							and RequisitionLineRel.CostOption.NoCharge))
+	                        	invoke Processed.Close RequisitionLineRel
+	                        		invoked.PrmFromPOLineCancel = PrmFromPOLineCancel
+	                        		invoked.PrmCloseFromSource 	= PrmForceClose
+	                        		invoked.ParmSkipCommitment 	= PrmSkipCommitment
+	                    else
+	                    if (RequisitionLineRel.Status.Rejected)
+	                    	if (not PrmCloseNoCharge
+							or (PrmCloseNoCharge
+							and RequisitionLineRel.CostOption.NoCharge))
+	                        	invoke Rejected.Close RequisitionLineRel
+                    
+	                    if (RequisitionRel.Status.Processed
+	                    and not RequisitionRel.Closed)
+		                	invoke Processed.Close RequisitionRel
+		                    	invoked.SkipLineLevelClose = true
+		
+		UpdateAmountsForRequisitionLines is an Instance Action   
+			restricted                                           
+			Parameters
+				FromPORelease is Boolean
+			
+			Action Rules
+			
+				if (!PurchaseOrderLine.PreviouslyReleased)
+					invoke UpdateContractAmounts RequisitionLineRel
+						invoked.PrmQuantity			= Quantity * -1
+						invoked.PrmFromPORelease    = FromPORelease
+					
+					if (RequisitionCommitmentsExist)
+
+						if  ((RequisitionLineRel.IsIntraLocation
+						and	  PurchaseOrderLine.IsInventoryType)
+						or	  not PurchaseOrderLine.IsInventoryType)
+							for each RequisitionLineRel.RequisitionLineDistribution set
+								invoke UpdateGLCommitmentIndirect each
+									invoked.FromPORelease 		= FromPORelease	
+
+
+#ifdef property federal						
+									invoked.RQToPurchaseOrder	= PurchaseOrder
+									invoked.RQToPOUniqueID		= PurchaseOrder.UniqueID
+#endif							
+									if (LocalReduceBudgetAmount)
+										invoked.ApprovalReject = true  
+						
+						if  (PurchaseOrderLine.ItemType.Inventoried)
+							for each RequisitionLineAOCInventoryDistributionRel							
+								if (!each.GLCommitRel.Status.History)
+									invoke UpdateGLCommitmentIndirect each
+										if (LocalReduceBudgetAmount)
+											invoked.ApprovalReject = true 
+
+						for each RequisitionHeaderAOCDistributionRel
+							if (!each.GLCommitRel.Status.History)
+								invoke UpdateGLCommitmentIndirect each
+									if (LocalReduceBudgetAmount)
+										invoked.ApprovalReject = true 
+									
+		UpdateQuantities is an Instance Action  
+			restricted
+			Parameters
+				PrmCancelQuantity 	is a Quantity
+				PrmSkipCommitment 	is Boolean
+				PrmFromPOLineCancel is Boolean
+			Action Rules
+				Quantity = PrmCancelQuantity						
+				if (PurchaseOrderRequisitionInterfaceRel not exist)
+					invoke Cancel			
+						invoked.PrmSkipCommitment = PrmSkipCommitment
+						invoked.PrmFromPOLineCancel = PrmFromPOLineCancel
+		
+
+
+
+
+
+		BatchCopyPurchaseOrderLineSource is a Set Action
+			restricted
+			Parameters
+				PrmCompany							is a PurchasingCompany
+				PrmPurchaseOrder                    is like PurchaseOrder 
+				PrmCopyFromPurchaseOrder			is a PurchaseOrder
+
+			Instance Selection
+				where  (Company			= PrmCompany
+				and		PurchaseOrder	= PrmCopyFromPurchaseOrder
+				and		PurchaseOrderLine.LineCanBeCopied)
+
+			Sort Order
+				Company
+				PurchaseOrder
+				PurchaseOrderLineSource.SourceDocumentOrigin
+				PurchaseOrderLineSource.SourceDocumentNumeric
+				PurchaseOrderLine
+				PurchaseOrderLineSource.OperatingCompany
+				PurchaseOrderLineSource.SourceDocumentAlpha
+				PurchaseOrderLineSource.SourceDocumentLineNumber
+
+			Action Rules
+				Instance Rules
+					invoke SystemCreate
+						resume on error
+						fill in fields from this instance
+							except invoked.DeliveredQuantity
+							except invoked.ProcessedQuantity
+						invoked.PurchaseOrder									= PrmPurchaseOrder
+						invoked.PurchaseOrderLineSource.SourceDocumentOrigin	= SourceDocumentOrigin.PurchaseOrder
+
+		
+		SourceDeliveryUpdate is an Instance Action
+			restricted
+			Parameters
+				PrmPurchaseOrderReceipt		is like PurchaseOrderReceipt
+				PrmDeliveredQuantity 		is like Quantity
+				PrmCatchWeightQuantity		is like Quantity
+			Action Rules
+
+				DeliveredQuantity 			+= PrmDeliveredQuantity
+				
+
+				if (RequisitionLineRel exists)
+	    			invoke Create RequisitionTransaction
+	    				invoked.RequisitionTransaction.RequisitionSequence 		= RequisitionRel.LastDeliverySequence + 1
+	    				invoked.Company 								   		= Company
+	    				invoked.FromCompanyLocation 					   		= RequisitionRel.FromCompanyLocation
+	    				invoked.RequisitionTransaction.RequisitionDocumentType 	= RequisitionDocumentType.PoReceiving
+	    				invoked.RequisitionTransaction.DocumentNumberNumeric 	= PrmPurchaseOrderReceipt
+	    				invoked.RequisitionTransaction.Requisition 				= PurchaseOrderLineSource.SourceDocumentNumeric
+	    				invoked.RequisitionTransaction.RequisitionLine 			= PurchaseOrderLineSource.SourceDocumentLineNumber
+	    				invoked.TransactionDate 								= current corporate date
+	    				invoked.ItemType 										= PurchaseOrderLine.ItemType
+	    				invoked.Item 											= PurchaseOrderLine.Item
+	    				invoked.TransactionUnitCost 							= DerivedRequisitionUnitCostInStockUOM
+	    				invoked.UnitCost										= DerivedRequisitionBaseUnitCostInStockUOM
+	    				invoked.StockUOM 										= PurchaseOrderLine.Item.StockUOM
+	    				invoked.RequestingLocation  							= RequestingLocation
+	    				invoked.Note 											= DeliverTo
+						if (PurchaseOrderLine.IsCatchWeightItem)
+							invoked.Quantity 									= PrmCatchWeightQuantity
+						else
+							initialize RoundedValue
+							RoundedValue.RoundInput								= PrmDeliveredQuantity * EnteredUOMMultiplier
+							RoundedValue.RoundingType 							= RoundedValue.RoundingType.Normal
+							RoundedValue.RoundTo								= 1
+							invoked.Quantity									= RoundedValue.RoundResult
+
+
+					invoke Processed.Close RequisitionLineRel
+						invoked.ParmSkipCommitment = true
+
+		Purge is a Purge Action
+			restricted
+
+		IncreaseDeliveredQuantity is an Instance Action
+			restricted
+
+			Parameters
+				PrmDeliveredQuantity		is like Quantity
+			
+			Action Rules
+				DeliveredQuantity		+=	PrmDeliveredQuantity

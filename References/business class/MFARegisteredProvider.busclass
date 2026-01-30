@@ -1,0 +1,933 @@
+MFARegisteredProvider is a BusinessClass
+    owned by security
+    prefix is MFARP
+    stored in environment
+
+    Ontology
+        symbolic key is MFARegisteredProvider
+
+    Patterns
+    	implements CreateStamp
+        disable AuditIndex
+        disable AsOfDateProcessing
+        disable EffectiveDated
+        disable Auditing
+
+    Persistent Fields
+        DeviceId 			is Alpha size 50
+        DeviceName 			is Alpha size 50
+        ProviderName        is Alpha size 10
+        ProviderId          is Alpha size 50
+        IdentifierId        is Alpha size 30
+        IdentifierValue     is Alpha size 50
+        IsDefault    		is Boolean
+            default label is "Default"
+
+    Transient Fields
+        DeviceType                    is Alpha size 10
+            States
+                Email                   value is "email"
+
+                TOTP                    value is "totp"
+                    default label is "One-\Time_password"
+
+        ExternalEntity
+        ExternalEntityJSON              is JSONObject
+        EUserIdentifier
+
+        EUReferenceId                   is Alpha size 50
+
+        MFACode                         is Alpha size 8
+
+        TransientRawText                is RichText
+        ErrorMessage                    is Alpha 200
+ 
+        RegistrationStatus              is Numeric size 2
+        MFARegistrationStatus           is Numeric size 2
+            States
+                NONE                         value is 0
+                MFACodeSent                  value is 1
+                MFACodeSentFailed            value is 2
+                VerifyCode                   value is 3
+                MFACodeVerified              value is 4
+                MFACodeVerificationFailed    value is 5
+                MFADeviceRegistered          value is 6
+                ResendMFACode                value is 7
+                DeviceUnregistered           value is 8
+                DeviceUnregistrationFailed   value is 9
+                DeviceChanged                value is 10
+
+        InitializingRegistrationProcess          is Boolean
+        
+        QRCodeForMFADevice              is RichText
+
+
+        UIPadding   is Alpha 10
+        
+        RegistrationGUID is Alpha 40 
+            derive value from GUID
+    
+    Local Fields        
+		EUAPICallResp					is JSONObject
+		EUAPICallStatus					is Alpha 10
+		EUAPICallRespNode				is Alpha 1000
+        
+		EuIdentifierType				is Alpha 20
+		ElementCount					is Numeric 2
+		ElementSize						is Numeric 2
+		Index							is Numeric 2
+		ErrorText						is Alpha 100
+		ErrorCode   					is Alpha 20
+
+    Conditions
+        IsTOTPDevice
+			default label is "IsTotpDevice"
+            when (ProviderName = "TOTP")
+
+		MFACodeSentStatus
+			when (RegistrationStatus = MFARegistrationStatus.MFACodeSent or MFACodeResentStatus)
+
+		MFACodeSentFailedStatus
+			when (RegistrationStatus = MFARegistrationStatus.MFACodeSentFailed)
+            
+		MFACodeVerificationFailedStatus
+			when (RegistrationStatus = MFARegistrationStatus.MFACodeVerificationFailed)
+            
+		MFACodeResentStatus
+			when (RegistrationStatus = MFARegistrationStatus.ResendMFACode)
+
+        IsEUEnabled
+            when (EUEnabled and EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+
+    Relations
+        IdentityRel
+            one-to-one relation to Identity
+            Field Mapping uses symbolic key
+                related.Service = Service
+                related.Identity = Identity
+
+        RegisteredMFAProviderRel
+			one-to-many relation to MFARegisteredProvider
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+
+        RegisteredMFAProviders
+			one-to-many relation to MFARegisteredProvider
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+            Instance Selection
+                where (related.Service    = Service
+                and related.Identity = Identity)
+
+        RegisteredMFAEmailProvidersRel
+			one-to-many relation to MFARegisteredProvider
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+            Instance Selection
+                where (related.ProviderName = "EMAIL")
+        
+        RegisteredTOTPDeviceWithDeviceNameRel
+
+            one-to-many relation to MFARegisteredProvider
+			Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+            Instance Selection
+                where (related.ProviderName    = "TOTP"
+                and related.DeviceName      not = blank
+                and related.DeviceName      = DeviceName)
+        
+        ExternalUserIdentifierRel
+            one-to-many relation to EUserIdentifier
+            Field Mapping uses symbolic key
+                related.Service  = Service
+                related.Identity = Identity
+
+    Rule Blocks
+        ParseMFAErrorResponse
+            ElementCount = 0
+            ElementSize = 0
+            EUAPICallRespNode = blank
+            ErrorCode = blank
+            ErrorMessage = blank
+
+            EUAPICallRespNode = {EUAPIResponseNode} select "$.errorlist[*]"
+
+            if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+            else
+                ElementSize = 1
+
+            while (ElementCount < ElementSize)
+                ErrorCode = EUAPICallResp select "$..errorlist[<ElementCount>].code"
+                ErrorMessage = EUAPICallResp select "$..errorlist[<ElementCount>].languagetext"
+
+                ElementCount += 1
+
+        ParseExternalEntity
+            ExternalEntity.EntityId         = {ExtEntityJSON} select "$..entityid"
+            ExternalEntity.EntityName       = {ExtEntityJSON} select "$..entityname"
+            ExternalEntity.EntityCode       = {ExtEntityJSON} select "$..entitycode"
+            ExternalEntity.Description      = {ExtEntityJSON} select "$..description"
+            ExternalEntity.Status           = {ExtEntityJSON} select "$..status"
+            ExternalEntity.MFAEnforce       = {ExtEntityJSON} select "$..mfaenforce"
+            ExternalEntity.MFAEnable        = {ExtEntityJSON} select "$..mfaenable"
+            ExternalEntity.MFAEmail         = {ExtEntityJSON} select "$..mfaEmail"
+            ExternalEntity.MFATotp          = {ExtEntityJSON} select "$..mfaTOTP"
+
+
+        GetRegisteredMFADeviceInfo
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    if(MFARegisteredProvider not entered)
+                        EUAPICallResp = blank
+                        ElementCount = 0
+
+                        invoke GetRegisteredMFADeviceInfo ExternalUserExecutor
+                            resume on error
+                            assign result to EUAPICallResp
+
+                            invoked.EntityId = EUEntityId
+                            invoked.UserIdentity = IdentityRel.FormBasedIdentityProperties.User
+
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "Failure"))
+
+                            include ParseMFAErrorResponse
+                                replace EUAPIResponseNode with EUAPICallResp
+                        else
+                            if(not com.lawson.apps.security.base.JSON_ActionBase.isArrayEmpty(EUAPICallResp, "mfaprovider"))
+
+                                EUAPICallRespNode = EUAPICallResp select "$.mfaprovider[*]"
+
+                                if (com.lawson.apps.security.base.Security_ActionBase.isNumeric(EUAPICallRespNode))
+                                    ElementSize = java.lang.Integer.parseInt(EUAPICallRespNode)
+                                else
+                                    ElementSize = 1
+
+                                while (ElementCount < ElementSize)
+                                    
+                                    invoke Create MFARegisteredProvider
+                                        invoked.Identity                = Identity
+                                        invoked.Service                 = Service
+                                        invoked.DeviceId                = EUAPICallResp select "$..mfaprovider[<ElementCount>].deviceId"
+                                        invoked.DeviceName              = EUAPICallResp select "$..mfaprovider[<ElementCount>].deviceName"
+                                        invoked.IsDefault               = EUAPICallResp select "$..mfaprovider[<ElementCount>].isDefault"
+                                        invoked.ProviderName            = EUAPICallResp select "$..mfaprovider[<ElementCount>].providerName"
+                                        invoked.ProviderId              = EUAPICallResp select "$..mfaprovider[<ElementCount>].providerID"
+                                        invoked.IdentifierId            = EUAPICallResp select "$..mfaprovider[<ElementCount>].identifierid"
+                                        invoked.IdentifierValue         = EUAPICallResp select "$..mfaprovider[<ElementCount>].identifiervalue"
+ 
+                                    ElementCount += 1
+
+        GetExternalEntity
+            if (EUEnabled)
+                if(EUEntityId != blank)
+                    EUAPICallResp = blank
+                    ExternalEntity = blank
+                    
+                    if ( ExternalEntityJSON not entered)
+
+                        invoke GetExternalEntity ExternalUserExecutor
+                            assign result to EUAPICallResp
+                            invoked.EntityId = EUEntityId
+                        
+                        EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "failure"))
+                            include ParseMFAErrorResponse
+                                replace EUAPIResponseNode with EUAPICallResp
+
+                        else
+                            EUAPICallResp = EUAPICallResp select "$..externalentity"
+
+                            include ParseExternalEntity
+                                replace ExtEntityJSON with EUAPICallResp
+
+
+                            ExternalEntityJSON = "{"
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "entityid" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.EntityId + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "entityname" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.EntityName + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "entitycode" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.EntityCode + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "description" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.Description + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "status" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.Status + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "mfaenforce" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.MFAEnforce + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "mfaenable" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.MFAEnable + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "mfaEmail" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.MFAEmail + DoubleQuote + Comma
+                            ExternalEntityJSON = ExternalEntityJSON + DoubleQuote + "mfaTOTP" + DoubleQuote + Colon + DoubleQuote + ExternalEntity.MFATotp + DoubleQuote 
+                            ExternalEntityJSON = ExternalEntityJSON + "}"
+
+                    else
+                        include ParseExternalEntity
+                            replace ExtEntityJSON with ExternalEntityJSON
+                            
+    
+        VerifyMFADevice
+            if (EUEnabled)
+                if(EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    EUAPICallResp = blank
+                    ErrorText = ""
+                    EUAPICallStatus = blank
+                    ErrorMessage = blank
+
+                    invoke VerifyMFADevice ExternalUserExecutor
+                        assign result to EUAPICallResp
+
+                        invoked.EntityId = EUEntityId
+                        invoked.UserIdentity = IdentityRel.FormBasedIdentityProperties.User
+                        invoked.MFACode = MFACode
+                        invoked.CacheGUID = RegistrationGUID
+
+                        if ( DeviceType = DeviceType.Email )
+                            invoked.ReferenceId = EUReferenceId
+                            invoked.IdentifierId = EUserIdentifier.IdentifierId
+                            invoked.IdentifierValue = EUserIdentifier.IdentifierValue
+                            
+                        if( DeviceType = DeviceType.TOTP )
+                            invoked.ReferenceId = EUReferenceId
+                            invoked.DeviceName = DeviceName
+
+                    EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+                    
+                    if(EUAPICallStatus = blank)
+                        ErrorMessage = UnknowErrorMessage + ContactAdministratorMessage
+                        RegistrationStatus = MFARegistrationStatus.NONE
+
+                    if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "success"))
+
+                        RegistrationStatus = MFARegistrationStatus.MFACodeVerified
+                    else
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "failure"))
+                            include ParseMFAErrorResponse
+                                replace EUAPIResponseNode with EUAPICallResp
+                            
+                            RegistrationStatus = MFARegistrationStatus.MFACodeVerificationFailed
+                            MFACode = blank
+
+
+                            EUReferenceId = EUAPICallResp select "$..referenceId"
+
+        SendMFACodeToDevice
+            MFACode = blank
+            EUAPICallResp = blank
+
+            if( RegistrationStatus = MFARegistrationStatus.VerifyCode or RegistrationStatus = MFARegistrationStatus.MFACodeVerified or RegistrationStatus = MFARegistrationStatus.MFACodeSent)
+                return
+
+            if ( EUserIdentifier entered and DeviceType = DeviceType.Email)
+
+                include RegisterMFADevice
+
+            return EUReferenceId
+
+        GetQRCodeForDeviceRegistration
+            MFACode = blank
+            EUAPICallResp = blank   
+                        
+            if( RegistrationStatus = MFARegistrationStatus.VerifyCode or RegistrationStatus = MFARegistrationStatus.MFACodeVerified)
+                return
+           
+            if( DeviceType = DeviceType.TOTP )
+                invoke RegisterMFADevice ExternalUserExecutor
+                    assign result to EUAPICallResp
+
+                    invoked.EntityId = EUEntityId
+                    invoked.UserIdentity = IdentityRel.FormBasedIdentityProperties.User
+                    invoked.ProviderName = DeviceType
+
+                if(EUAPICallResp not = blank)
+                    ErrorMessage = blank
+                    ErrorText = ""
+                    EUReferenceId = blank
+                    MFACode = blank
+
+                    EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+                    if( EUAPICallStatus = blank or EUAPICallStatus = "" ) 
+                        ErrorMessage = MFARegistrationErrorMessage
+                        RegistrationStatus = MFARegistrationStatus.MFACodeSentFailed
+                        EUReferenceId = blank
+                    else 
+                        if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "failure"))
+                            include ParseMFAErrorResponse
+                                replace EUAPIResponseNode with EUAPICallResp
+                        else 
+                            if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "success"))
+                                QRCodeForMFADevice = EUAPICallResp select "$..qrcode"
+                                EUReferenceId = EUAPICallResp select "$..referenceId"
+
+        RegisterMFADevice
+
+            ErrorMessage = blank
+            ErrorText = ""
+            MFACode = blank
+
+            if (EUserIdentifier not entered)
+                return
+
+            if ( RegistrationStatus = MFARegistrationStatus.VerifyCode or RegistrationStatus = MFARegistrationStatus.MFACodeVerificationFailed )
+                return
+
+            invoke RegisterMFADevice ExternalUserExecutor
+                assign result to EUAPICallResp
+
+                invoked.EntityId = EUEntityId
+                invoked.UserIdentity = IdentityRel.FormBasedIdentityProperties.User
+                invoked.IdentifierId = EUserIdentifier.IdentifierId
+                invoked.IdentifierValue = EUserIdentifier.IdentifierValue
+                invoked.ProviderName = EUserIdentifier.IdentifierType
+
+            EUAPICallStatus = EUAPICallResp select "$.responsestatus"
+
+            if( EUAPICallStatus = blank or EUAPICallStatus = "" ) 
+                ErrorMessage = MFARegistrationErrorMessage
+                RegistrationStatus = MFARegistrationStatus.MFACodeSentFailed
+                EUReferenceId = blank
+
+            else
+                if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "failure"))
+                    RegistrationStatus = MFARegistrationStatus.MFACodeSentFailed
+                    include ParseMFAErrorResponse
+                        replace EUAPIResponseNode with EUAPICallResp
+
+                else
+                    if (com.lawson.apps.security.base.Security_ActionBase.isEqualIgnoreCase(EUAPICallStatus, "success"))
+                        RegistrationStatus = MFARegistrationStatus.MFACodeSent
+
+                        EUReferenceId = EUAPICallResp select "$..referenceId"
+            
+    Derived Fields
+        GUID is a NativeField
+            type is Alpha 40
+
+        DoubleQuote        is a StringField
+            type is Alpha size 1
+            restricted
+            "\""
+
+        Comma is a StringField
+            type is Alpha size 1
+            restricted
+            ","
+        
+        Colon is a StringField
+            type is Alpha size 1
+            restricted
+            ":"
+
+        TotalSupportedMFADevices is a ComputeField
+            type is Numeric 2
+            restricted
+            (10)
+
+        InvalidVerificationCodeError is a ComputeField
+            type is Numeric 3
+            restricted
+            (227)
+
+        EUEnabled is a ConditionalField
+			type is Boolean
+			default label is "ExternalUserEnabled"
+			if (instance count of Service.ServicePropertyEntityCodeRel = 1) 
+				(true)
+			else
+				(false)
+								
+		EUEntityId is a DerivedField
+			type is Alpha size up to 50
+			default label is "ExternalUserEntity_ID"
+			for each Service.ServicePropertyEntityCodeRel 
+				if (each.PropertyValue != blank)
+					return each.PropertyValue
+
+        MFASupportedForIdentity     is a ConditionalField
+            type is Boolean
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    (true)
+                else
+                    (false)
+            else
+                (false)
+
+        MFASupportedForExternalEntity is a ConditionalField
+            type is Boolean
+
+            if (not ExternalEntity.MFAEnable )
+                (false)
+            else
+            if ( not ExternalEntity.MFAEmail and not ExternalEntity.MFATotp)
+                (false)
+            else
+                (true)
+
+        DefaultDevice           is a DerivedField
+            type is Alpha size 10
+            if (IsDefault)
+                return "Default"
+            return blank
+
+        DeviceDisplayName       is a ConditionalField
+            type is Alpha size 50
+            if (ProviderName = "EMAIL")
+                IdentifierValue
+            else 
+            if (ProviderName = "TOTP")
+                DeviceName
+            else
+                blank
+                
+        RegisteredDevices is a ComputeField
+            type is Numeric 2
+            (instance count of RegisteredMFAProviderRel)
+
+        CanRemoveDevice is a ConditionalField
+            type is Boolean
+
+            if ( IsDefault )
+                if(RegisteredDevices = 1)
+                    (true)
+                else
+                    (false)        
+            else
+                (true)
+        
+        CanRegisterNewDevice is a ConditionalField
+            type is Boolean
+
+            if (RegisteredDevices = 0)
+                (false)
+
+
+            else
+            if(RegisteredDevices < TotalSupportedMFADevices)
+                (true)
+            else 
+                (false)
+
+        MFARegistrationEnabled is a ConditionalField
+            type is Boolean
+
+            if ( ExternalEntity.MFAEnable )
+                if( (ExternalEntity.MFATotp) or (not ExternalEntity.MFATotp and ExternalEntity.MFAEmail and  RegisteredEmailDevice not entered))
+                    (true)
+                else 
+                    (false)
+            else
+                (false)
+                
+        ResendMFACodeToDevice is a DerivedField
+            type is Alpha 100
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+
+                    if ( DeviceType = DeviceType.Email )
+
+                        if (InitializingRegistrationProcess)
+                            return
+                        
+                        if(MFACodeSentStatus or MFACodeSentFailedStatus)
+                            
+                            ErrorMessage = blank
+                            MFACode = blank
+                            EUAPICallResp = blank
+
+                            if(EUserIdentifier not entered )
+                                return blank
+                            else
+                                if(EUserIdentifier entered)
+                                    EUReferenceId = blank
+
+                                    invoke ClearMFARegistrationCache Identity
+                                        resume on error
+                                        invoked.ForceCacheClear = true
+
+                                    include RegisterMFADevice
+
+                                    RegistrationStatus = MFARegistrationStatus.ResendMFACode
+
+            return EUReferenceId
+            
+        SendMFACodeToDevice is a DerivedField
+            type is Alpha 100
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    ErrorMessage = blank
+
+                    if (RegistrationStatus = MFARegistrationStatus.VerifyCode)
+                        return EUReferenceId
+
+                    if (DeviceType = blank)
+                        DeviceType = InitializeDeviceType
+
+                    if ( DeviceType = DeviceType.Email )
+                        if(EUserIdentifier not entered  )
+                            return blank
+
+                        if(RegisteredEmailDevice not = blank)
+                            ErrorMessage = MFADeviceAlreadyRegisteredMessage
+                            RegistrationStatus = MFARegistrationStatus.NONE
+                            DeviceType = blank
+                            return blank
+
+                        include SendMFACodeToDevice
+
+            return EUReferenceId
+
+        DeviceRegistrationQRCode is a DerivedField            
+            type is RichText
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    ErrorMessage = blank
+
+                    if (DeviceType = blank)
+                        DeviceType = InitializeDeviceType
+
+                    if ( DeviceType = DeviceType.TOTP )
+                        if (RegistrationStatus not = MFARegistrationStatus.VerifyCode and QRCodeForMFADevice = blank)
+                            include GetQRCodeForDeviceRegistration
+                        
+                        if (QRCodeForMFADevice not = blank)
+                            return "<img height=\"200\" width=\"\" src=\""+ QRCodeForMFADevice +"\" title=\""+ MFADeviceRegistrationQRCodeMessage +"\"/>"
+
+                        return "NoQRCode"
+    
+        DeviceChangeValidation is a DerivedField
+            type is Boolean
+
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    ErrorMessage = blank
+
+                    if (DeviceType = DeviceType.Email and  RegisteredMFAEmailProvidersRel exists)
+                        ErrorMessage = EmailDeviceAlreadyRegistered
+                        DeviceType = blank
+
+                        return false
+            return true
+
+        ExternalEntityInfo  is a DerivedField
+            type is Alpha 50
+            if (EUEnabled)
+                if (EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    include GetExternalEntity
+
+
+                constraint ( ExternalEntity.MFAEnable )
+                    "Multifactor_authentication_support_is_not_enabled.Please_enable_multifactor_authentication_support_to_proceed."
+
+            return ExternalEntity
+
+        InitializationComplete is a DerivedField
+            type is Boolean
+            InitializingRegistrationProcess = false
+
+            return InitializingRegistrationProcess
+
+        InitializeExternalEntityJSON is a DerivedField
+            type is JSONObject
+
+            if ( MFASupportedForIdentity )
+                if (ExternalEntityJSON not entered)
+                    include GetExternalEntity
+
+            return ExternalEntityJSON          
+
+
+        MFADeviceRegistrationQRCodeMessage          is a MessageField
+            "Scan_the_QRCode_using_a_authenticator_application_on_your_mobile"
+
+        MFADeviceRegisteredMessage                  is a MessageField
+            "Your_device_<EUserIdentifier.IdentifierValue>_has_been_successfully_registered."
+
+        MFACodeVerificationFailedMessage            is a MessageField
+            "Unable_to_register_device_for_multi_factor_authentication."
+
+        MFACodeVerificationSentMessage              is a MessageField
+            "Verification_code_sent_to_<EUserIdentifier.IdentifierValue>"
+            
+        MFACodeSentEmailFailedMessage              is a MessageField
+            "Unable_to_send_Verification_code_to_the_selected_Email.Please_contact_your_administrator_for_more_details."
+
+        MFARegistrationErrorMessage                 is a LabelField
+            "Unexpected_error_occured_while_trying_to_register_MFA_device._Please_try_after_sometime."
+
+        EmailDeviceAlreadyRegistered is a MessageField
+            "An_email_<RegisteredEmailDevice>_has_already_been_registered_for_MFA.Please_remove_the_existing_MFA_device_before_proceeding."
+
+        MFACodeRequiredMessage                      is a LabelField
+            "Please_provide_the_verification_code_sent_to_<EUserIdentifier.IdentifierValue>"
+
+        TOTPRequiredMessage                      is a LabelField
+            "Please_provide_the_verification_code_displayed_in_authentication_app"
+
+        MFADeviceNameRequiredMessage                is a LabelField
+            "Please_specify_a_device_name"
+
+        MFADeviceAlreadyRegisteredMessage           is a LabelField
+            "MFA_for_device_<EUserIdentifier.IdentifierValue>_is_already_registered.Please_remove_an_existing_MFA_device_before_proceeding."
+
+        ContactAdministratorMessage                 is a MessageField
+            "Please_contact_your_administrator_for_more_details."
+
+        UnknowErrorMessage                          is a MessageField
+            "An_error_occured_while_performing_requested_operation."
+
+        DeviceNameAlreadyUsed                       is a MessageField
+            "A_device_with_same_device_name_is_already_registered.Please_use_a_different_device_name."
+        
+        DeviceRegisteredSuccessfully                is a MessageField
+            "New_device_added_successfully"
+        
+        DeviceRemovedSuccessfully                   is a MessageField
+            "Registered_device_removed_successfully"
+        
+        DeviceRegistrationFailed                    is a MessageField
+            "Device_registration_failed_with_error.Please_try_again_:_"
+
+        DeviceNotAdded                        is a MessageField
+            "No_device_added"
+            
+        MFAEmailDeviceRegisterionEnabled is a ConditionalField
+            type is Boolean
+            if(ExternalEntity.MFAEmail and RegisteredEmailDevice entered)
+                (false)
+            else
+                (true)
+
+        AllowMFARegistration is a ConditionalField
+            type is Boolean
+
+            if ( not ExternalEntity.MFATotp and ExternalEntity.MFAEmail and RegisteredEmailDevice entered )
+                (false)
+            
+            else
+            if (not ExternalEntity.MFATotp and not ExternalEntity.MFAEmail)
+                (false)
+
+            else
+            if ( not ExternalEntity.MFATotp and RegisteredEmailDevice entered)
+                (false)
+            else
+                (true)
+
+        RegisteredEmailDevice is a DerivedField
+            type is Alpha 50
+            default label is "RegisteredEmailDevice"
+            if (EUEnabled)
+                if(EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    for each RegisteredMFAEmailProvidersRel
+                        if (each.ProviderName = "EMAIL")
+                            return (each.IdentifierValue)
+
+            return blank
+
+        RegisteredEmailDeviceId is a DerivedField
+            type is Alpha 50
+            default label is "RegisteredEmailDeviceId"
+            if (EUEnabled)
+                if(EUEntityId != blank and IdentityRel.FormBasedIdentityProperties.User != blank)
+                    for each RegisteredMFAEmailProvidersRel
+                        if (each.ProviderName = "EMAIL")
+                            return (each.DeviceId)
+
+            return blank
+
+        NumberOfRegisteredProviders is a ComputeField
+            type is Numeric 2
+            (instance count of RegisteredMFAProviders)
+        
+        EmailIdentifiers is a ComputeField
+            type is Numeric 2
+            (instance count of ExternalUserIdentifierRel)
+            
+        SelectedEmailIdentifier is a DerivedField
+            type is Numeric 10
+
+
+
+
+
+
+
+
+
+
+
+            return EUserIdentifier
+        
+        HasSelectedEmailIdentifier is a ConditionalField
+            type is Boolean
+            if (SelectedEmailIdentifier entered)
+                (true)
+            else
+                (false)
+
+        InitializeDeviceType is a DerivedField
+            type is Alpha 10
+
+
+
+
+            include GetExternalEntity
+
+            if (not ExternalEntity.MFAEmail and ExternalEntity.MFATotp)
+                DeviceType = DeviceType.TOTP
+            else 
+                if( ExternalEntity.MFAEmail and not ExternalEntity.MFATotp and RegisteredEmailDevice not entered)
+                    DeviceType = DeviceType.Email
+
+
+                    InitializingRegistrationProcess = true
+                    EUserIdentifier = SelectedEmailIdentifier
+                    
+            if ( ExternalEntity.MFATotp and RegisteredEmailDevice entered)
+                DeviceType = DeviceType.TOTP
+
+            return DeviceType
+
+    Actions
+        Create is an Action
+            restricted
+			
+		Update is an Action
+			restricted
+		
+		Delete is an Action
+            restricted
+
+		Purge is a Purge Action
+            restricted
+
+        RemoveRegisteredDevice is an Instance Action
+			completion message is "Registered_device_removed_successfully."
+            confirmation required
+                "Are_you_sure_you_want_to_remove_the_registered_device?"
+            Action Rules
+                invoke RemoveMFADeviceWithId Identity
+                    invoked.MFADeviceId = DeviceId
+			
+        RegisterAsDefault is an Instance Action
+			completion message is "Default_device_changed_successfully."
+            Action Rules
+                invoke RegisterMFADeviceAsDefault Identity
+                    invoked.MFADeviceId = DeviceId
+        
+        UpdateDeviceName is an Instance Action
+			completion message is "Device_name_changed_successfully."
+            Parameters
+                NewDeviceName           is Alpha size 50
+            Parameter Rules
+                NewDeviceName
+                    required
+                    constraint ( NewDeviceName matches "^[a-zA-Z\d]+([\s]*[a-zA-Z\d])*$")
+                        "Device_name_cannot_contain_special_characters_or_start_with_spaces"
+            Action Rules
+                invoke UpdateMFADeviceName Identity
+                    invoked.MFADeviceId = DeviceId
+                    invoked.NewDeviceName = NewDeviceName
+
+        RegisterMFADevice is a Create Action
+
+            default label is "RegisterDeviceForMultifactorAuthentication" 
+            completion message is "<CompletionMessage>"
+
+            Local Fields
+                CompletionMessage is Alpha 50
+
+            Field Rules
+                DeviceName
+                    if ( MFARegistrationEnabled )
+                        if (DeviceType = DeviceType.TOTP)
+                            required
+                                "DeviceNameIsRequired"
+
+                            constraint ( DeviceName matches "^[a-zA-Z\d]+([\s]*[a-zA-Z\d])*$")
+                                "Device_name_cannot_contain_special_characters_or_start_with_spaces"
+                    
+                            constraint (RegisteredTOTPDeviceWithDeviceNameRel not exists)
+                                "<DeviceNameAlreadyUsed>"
+
+                EUserIdentifier
+                    if ( MFARegistrationEnabled )
+                        if (DeviceType = DeviceType.Email)
+                            required
+                                "EmailIsRequired"
+
+                DeviceType
+                    if ( MFARegistrationEnabled )
+                        required
+                            "SelectAContactMethodToProceedWithRegistration"
+
+                        if (DeviceType = "email")
+                            constraint (ExternalEntity.MFAEmail)
+                                "MFANotSupportedForEmail"
+
+                            constraint (RegisteredMFAEmailProvidersRel not exists)
+                                "EmailDeviceAlreadyRegistered"
+
+                            constraint (RegisteredEmailDevice = blank)
+                                "MFA_for_device_<RegisteredEmailDevice>_is_already_registered.Please_remove_the_existing_MFA_device_before_proceeding."
+
+                        if (DeviceType = "totp")
+                            constraint (ExternalEntity.MFATotp)
+                                "MFANotSupportedForTotp"
+
+                MFACode
+                    if ( MFARegistrationEnabled )
+                        required
+                            "VerificationCodeIsRequired"
+
+            Entrance Rules
+                if ( ExternalEntity.MFAEnable )
+                    invoke Delete RegisteredMFAProviders
+
+                    include GetRegisteredMFADeviceInfo
+                    include GetExternalEntity
+
+                    constraint (NumberOfRegisteredProviders < TotalSupportedMFADevices)
+                        "Maximum_no_of_supported_devices_are_already_registered.Please_remove_an_existing_device_if_you_want_register_a_new_device."
+
+                else 
+                    constraint ( false )
+                        "Multifactor_authentication_support_is_not_enabled.Please_enable_multifactor_authentication_support_to_proceed."
+
+            Action Rules
+
+            Exit Rules                
+
+                CompletionMessage = ""
+
+                if ( not MFASupportedForExternalEntity )
+                    CompletionMessage = DeviceNotAdded
+                
+                if ( ExternalEntity.MFAEnable )
+                    if ( MFARegistrationEnabled )
+                        RegistrationStatus = MFARegistrationStatus.VerifyCode
+
+                        invoke ClearMFARegistrationCache Identity
+                            resume on error
+                            invoked.CacheGUID = RegistrationGUID
+                            invoked.ForceCacheClear = false
+
+                        include VerifyMFADevice
+
+                        constraint (ErrorMessage not entered)
+                            "<ErrorMessage>"
+                                                
+                        CompletionMessage = DeviceRegisteredSuccessfully
+
+                        if (ErrorMessage != blank)
+                            CompletionMessage = ErrorMessage
+                    else
+                        if ( ExternalEntity.MFAEmail and RegisteredEmailDevice entered )
+                            invoke RemoveMFADeviceWithId Identity
+                                invoked.MFADeviceId = RegisteredEmailDeviceId
+
+                            CompletionMessage = DeviceRemovedSuccessfully
+
+                invoke LoadRegisteredMFADevices Identity 

@@ -1,0 +1,577 @@
+GLColumn is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLCOL
+
+	Ontology
+		symbolic key is GLColumn
+
+	Patterns
+		implements Resequence on DisplayOrder
+			new sequence field is NewDisplayOrder
+			set is ByDisplayOrder
+
+	Persistent Fields
+		GLColumnType
+		ColumnName			is Alpha 100
+		ColumnValue       	is Alpha 300
+			is related value for "GeneralLedgerTotal"
+				measures only
+					Show Periods
+						Period
+						Month
+						Quarter
+						Year
+		ColumnComputeValue	is a GeneralLedgerTotal compute
+		ColumnHeader		is Alpha 100
+			translatable
+		GroupHeader			is Alpha 100
+			translatable
+		ColumnGroupHeader	is Alpha 100
+		AlternateColumnName	is Alpha 100
+		ColumnSize 			is Numeric 3
+		OffsetPadding		is Numeric 2  
+		NumberOfDecimals	is Numeric 1  
+		SuppressCommas		is Boolean
+		ShowColumnOnReport	is Boolean
+		ShowColumnHeader	is Boolean
+		ShowInThousands		is Boolean
+		ShowInMillions		is Boolean
+		ShowAsPercentage	is Boolean
+		SuppressTotal		is Boolean
+		SuppressZeros		is Boolean
+		ColumnFilter		is LPLText
+			is condition for "GeneralLedgerTotal"
+		DisplayOrder	   	is like GLColumn
+			disable Auditing
+		UpdateInProgress	is Boolean
+
+	Transient Fields
+		NewDisplayOrder	is like GLColumn
+		AdvancedFilter	is Boolean
+
+	Field Rules
+		ColumnName
+			required
+			LocalColumnRegex = "^([A-Za-z0-9 _.-])*$"
+			constraint (ColumnName matches LocalColumnRegex)
+				"ColumnNameOnlyAllowsSpecialCharacters:__Underscore,_Period_and__Hyphen"
+			
+		ColumnValue
+			if (GLColumnType.Standard)
+				required
+
+	        constraint (ColumnValue not like "*week*")
+	            "WeekIsNotSupportedAtThisTime"
+
+		DisplayOrder
+			default to (instance count of GLColumnRel + 1)
+			
+		ColumnSize
+			initial value is 10
+			constraint(ColumnSize >= 5)
+				"ColumnSizeMustBeGreaterThanOrEqualTo5"				
+			required
+		
+		ShowColumnOnReport
+			initial value is true
+			
+		ShowColumnHeader
+			initial value is true
+
+		OffsetPadding
+			if (GLColumnView.ShowGroupHeader)
+				force default to 0
+		
+		GLColumnType
+			cannot be changed
+
+	Local Fields
+		LocalCalculationColumn			is a GLColumn
+		LocalColumnOperator				is Numeric 1
+		LocalCalculationOrder			is Numeric 2
+		LocalCalculationExpression		is Alpha 1000
+		LocalCalculationExpressionSize	is Numeric 10
+		LocalBuildCalcExpressionDone	is Boolean
+		LocalOperator					is Alpha 2
+		LocalLastCalculationOrder		is Numeric 2
+		LocalColumnRegex				is Alpha 200
+		LocalHasMultiValueFilter		is Boolean
+		I1								is Numeric 3
+		LocalCount						is Numeric 2
+		LocalCalculationValue			is Alpha 300
+		LocalGLColumnFilterDim 			is Numeric 4 
+	Rule Blocks
+
+		PurgeGLColumnCalculationField
+			invoke Purge GLColumnCalculationFieldRel
+
+		CreateNewGLColumnCalculationField
+			invoke Create GLColumnCalculationField
+				invoked.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				invoked.GLColumnView				= GLColumnView
+				invoked.GLColumn					= GLColumn
+				invoked.CalculationColumn			= LocalCalculationColumn
+				invoked.ColumnOperator				= LocalColumnOperator
+				invoked.CalculationOrder			= LocalCalculationOrder
+
+
+		BuildCalculationExpression
+			if (!LocalBuildCalcExpressionDone)
+				LocalOperator = ""
+				LocalLastCalculationOrder = 1
+				LocalCalculationExpression = "("
+				for each GLColumnCalculationFieldRel
+					if (each.ColumnOperator.Add)
+						LocalOperator = "+"
+					else
+					if (each.ColumnOperator.Subtract)
+						LocalOperator = "-"
+					else
+					if (each.ColumnOperator.Multiply)
+						LocalOperator = "*"
+					else
+					if (each.ColumnOperator.Divide)
+						LocalOperator = "/"
+
+					if (each.Type.Standard)
+						LocalCalculationValue = "[" + each.CalculationColumn.ColumnName + "]"
+					else
+					if (each.Type.Numeric)
+						LocalCalculationValue = each.NumericValue
+
+					if (each.CalculationOrder > LocalLastCalculationOrder)
+						LocalCalculationExpression += ")"
+						LocalCalculationExpression = "(" + LocalCalculationExpression + ")"
+						LocalCalculationExpression += " " + LocalOperator 
+						LocalCalculationExpression += " (" + LocalCalculationValue
+					else						
+						LocalCalculationExpression += " " + LocalOperator + " " + LocalCalculationValue
+					
+					LocalLastCalculationOrder = each.CalculationOrder
+					
+				LocalCalculationExpression += ")"
+				LocalBuildCalcExpressionDone = true
+
+		UpdateExitRules
+			if (IsGLColumnUpdated)
+				if (GLReportRel exists)
+					for each GLReportRel
+						if (each.IntegrationStatus = 1)
+							invoke UpdateGLReport each
+								invoked.PrmIntegrationStatus = 2
+
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+
+		checkColumnPeriodOperator
+			if (instance count of GLColumnRel >= 1)
+				for each GLColumnRel
+					if(each.GLColumnType = 0 and GLColumnType = 0)
+						if (each.ColumnValue contains "quarter")
+							constraint(ColumnValue not contains "month" and DerivedNoOfWords != 1 and ColumnValue not contains "period")
+								"MonthOr_PeriodIsNotAllowed"
+						if (each.ColumnValue contains "month" or each.ColumnValue contains "period" or each.DerivedNoOfWords = 1)
+							constraint(ColumnValue not contains "quarter")
+								"QuarterIsNotAllowed"
+
+	Derived Fields
+		ColumnComputeStatement is a DerivedField
+			type is Alpha size 5000
+			restricted
+			return ColumnComputeValue.Compute
+
+		ColumnExpression is a DerivedField
+			type is Alpha 1000
+			include BuildCalculationExpression
+			
+			return LocalCalculationExpression
+
+		GLStandardColumnCount is a DerivedField
+			type is Numeric 2
+			restricted
+			return instance count of StandardGLColumnRel
+			
+		IsGLColumnUpdated is a DerivedField
+			type is Boolean
+			restricted
+			if(GLColumnType changed
+			or ColumnName changed
+			or ColumnValue changed
+			or ColumnComputeValue changed
+			or ColumnHeader changed
+			or GroupHeader changed
+			or ColumnFilter changed
+			or SuppressTotal changed
+			or DisplayOrder changed
+			or ShowColumnOnReport changed
+			or ShowColumnHeader changed
+			or ColumnGroupHeader changed
+			or AlternateColumnName changed
+			or ShowAsPercentage changed
+			or SuppressCommas changed
+			or NumberOfDecimals changed
+			or SuppressZeros changed
+			or SuppressTotal changed
+			or OffsetPadding changed
+			or NewDisplayOrder changed)
+				return true
+			else
+				return false
+
+		DerivedScenarioFilterValue is a DerivedField
+			type is Alpha 100
+			restricted
+			return first ScenarioDimensionFilterFieldRel.GLColumnFilterDimensionField.FilterValue
+
+		DerivedHasMultiValueColumnFilter is a DerivedField
+			type is Boolean
+			restricted
+			LocalHasMultiValueFilter = false
+
+			for each GLColumnFilterDimensionRel
+				if (each.FilterDimensionFieldCount > 1)
+					LocalHasMultiValueFilter = true
+					end for each
+
+			return LocalHasMultiValueFilter
+
+		DerivedNoOfWords is a DerivedField
+			type is Numeric 2
+			restricted
+			initialize I1
+			initialize LocalCount
+			while(I1 <= ColumnValue size)
+				if (ColumnValue[I1] = "")
+					LocalCount = LocalCount + 1
+				I1 = I1 + 1
+			return LocalCount
+
+		DerivedDimensionFilterDisplayValuesIsNotEntered is a DerivedField
+			type is Boolean
+			restricted
+			initialize LocalGLColumnFilterDim
+			if(ScenarioColFilterDimensionRel not exist)
+				return true
+			else
+				for each GLColumnFilterDimensionRel
+					LocalGLColumnFilterDim = each.GLColumnFilterDimension
+					if (GLColumnFilterDimensionFieldEnteredRel not exists)
+						return true
+				return false
+		
+		DerivedAlertMessage is a DerivedField
+	    	type is Alpha 50
+			restricted
+			if (ScenarioColFilterDimensionRel not exists)
+				return "Column Scenario Dimension Filter Missing"
+			else
+			if (ScenarioDimensionFilterFieldRel not exists)
+	    		return "Column Scenario Dimension Filter Value Missing"
+			else
+			if (DimFilterDisplayValuesIsNotEntered)
+				return "No Filter Value Added For The Dimension"
+
+		DerivedMaxAllowedColumnsOnGLReport is a DerivedField
+			type is Numeric size 2
+			restricted
+			if (config(config).MaxAllowedColumnsOnGLReport != blank)
+				return config(config).MaxAllowedColumnsOnGLReport
+			else
+				return 30
+
+		DerivedColumnsCount is a DerivedField
+			type is Numeric size 2
+			restricted
+			return (instance count of GLColumnRel)
+	    	 	
+	Conditions
+		StandardColumnExists
+			restricted
+			when (StandardGLColumnRel exists 
+			and instance count of StandardGLColumnRel >=2)
+		
+		ValidForCalculation
+			restricted
+			when (StandardColumnExists 
+			and GLColumnType.Calculated)
+			
+		NotValidForCalculation
+			restricted
+			when (!StandardColumnExists 
+			and GLColumnType.Calculated)
+				
+		ColumnGroupHeaderIsEntered
+			restricted
+			when (ColumnGroupHeader != blank)
+
+		DimFilterDisplayValuesIsNotEntered
+			restricted
+			when (DerivedDimensionFilterDisplayValuesIsNotEntered
+			and GLColumnType.Standard)
+		
+		NotValidForBlank
+			restricted
+			when (StandardGLColumnRel not exists
+			and GLColumnType.Blank)
+		
+		SingleStandardColumn
+			restricted 
+			when (StandardGLColumnRel exists 
+			and instance count of StandardGLColumnRel = 1)
+
+		ScenarioFilterExists
+			restricted
+			when (ScenarioColFilterDimensionRel  exists
+			and GLColumnType.Standard)
+
+		ScenarioFilterValueExists
+			restricted
+			when (ScenarioDimensionFilterFieldRel  exists
+			and GLColumnType.Standard)
+
+	Commit Rules
+		if (action type.Update
+		and (NewDisplayOrder entered
+		or   ColumnGroupHeader changed)
+		and GLColumnView.ShowGroupHeader)
+			invoke ColumnGroupOrderCheck GLColumnView
+
+
+	Actions
+		Create is an Action
+			Entrance Rules
+				constraint (DerivedColumnsCount < DerivedMaxAllowedColumnsOnGLReport)
+					"TotalNumberOfColumnsOnTheReportCannotBeMoreThan<DerivedMaxAllowedColumnsOnGLReport>"
+				if (GLColumnView.Lock)	
+					constraint(GLColumnView.DerivedCreatedBy = actor)
+						"ThisHasBeenLockedForEditing"
+				constraint(!NotValidForCalculation)
+                        "GLColumnViewMustHaveAtleastTwoStandardTypeColumnsForCalculatedColumn"
+				constraint(!NotValidForBlank)
+					"GLColumnMustHaveAtLeastOneStandardTypeColumnForBlankColumn"
+			Exit Rules
+				include checkColumnPeriodOperator
+				if (GLColumnView.ShowGroupHeader)
+					invoke ColumnGroupOrderCheck GLColumnView
+				
+				if (GLReportRel exists)
+					for each GLReportRel
+						if (each.IntegrationStatus = 1)
+							invoke UpdateGLReport each
+								invoked.PrmIntegrationStatus = 2
+				
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+		Update is an Action
+			Entrance Rules
+				constraint (DerivedColumnsCount < DerivedMaxAllowedColumnsOnGLReport)
+					"TotalNumberOfColumnsOnTheReportCannotBeMoreThan<DerivedMaxAllowedColumnsOnGLReport>"
+				UpdateInProgress = true
+				if (GLColumnView.Lock)
+					constraint(create stamp.actor = actor)
+						"ThisHasBeenLockedForEditing"
+				if (NewDisplayOrder entered)
+					if(GLColumnCalculationStdRel exists)
+						constraint(!GLColumnType.Standard)
+							"CannotUpdateSequenceBecauseThisColumnIsUsedInACalculation"
+						constraint(!GLColumnType.Calculated)
+							"CannotUpdate;TheSequenceChangeWillMakeTheCalculationInvalid"
+
+			Exit Rules 
+				include UpdateExitRules
+				include checkColumnPeriodOperator
+				UpdateInProgress = false
+
+		Delete is an Action
+			Entrance Rules
+				if (GLColumnView.Lock)
+					constraint(create stamp.actor = actor)
+						"ThisHasBeenLockedForEditing"
+				if (GLColumnType.Standard and BlankGLColumnRel exists)
+					constraint(!SingleStandardColumn)
+						"DeleteNotCompleted:OneStandardTypeColumnIsRequired"
+			Exit Rules
+				if (GLColumnView.ShowGroupHeader)
+					invoke ColumnGroupOrderCheck GLColumnView
+				
+				if (GLReportRel exists)
+					for each GLReportRel
+						if (each.IntegrationStatus = 1)
+							invoke UpdateGLReport each
+								invoked.PrmIntegrationStatus = 2
+				
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+
+		CreateCalculation is an Instance Action
+			restricted
+			confirmation required
+				"ExistingCalcuationFieldsWillBeRemoved.Continue?"	
+
+			Parameters
+				CalculationType	is Numeric 1
+					States
+						VarianceAmount	value is 0
+						VariancePercent	value is 1
+						Ratio			value is 2
+				
+				Column1 is a GLColumn
+				Column2 is a GLColumn
+
+			Action Rules
+				include PurgeGLColumnCalculationField
+
+				if (CalculationType.VarianceAmount)
+					ShowAsPercentage = false				
+					LocalCalculationColumn = Column1
+					LocalColumnOperator = 0
+					LocalCalculationOrder = 1
+					include CreateNewGLColumnCalculationField
+					LocalCalculationColumn = Column2
+					LocalColumnOperator = 2	
+					LocalCalculationOrder = 1
+					include CreateNewGLColumnCalculationField
+
+				if (CalculationType.VariancePercent)
+					ShowAsPercentage = true
+					LocalCalculationColumn = Column1
+					LocalColumnOperator = 0
+					LocalCalculationOrder = 1
+					include CreateNewGLColumnCalculationField
+					LocalCalculationColumn = Column2
+					LocalColumnOperator = 2	
+					LocalCalculationOrder = 1
+					include CreateNewGLColumnCalculationField
+					LocalCalculationColumn = Column2
+					LocalColumnOperator = 4	
+					LocalCalculationOrder = 2
+					include CreateNewGLColumnCalculationField
+
+				if (CalculationType.Ratio)
+					ShowAsPercentage = true				
+					LocalCalculationColumn = Column1
+					LocalColumnOperator = 0
+					LocalCalculationOrder = 1
+					include CreateNewGLColumnCalculationField
+					LocalCalculationColumn = Column2
+					LocalColumnOperator = 4	
+					LocalCalculationOrder = 2
+					include CreateNewGLColumnCalculationField
+
+	Sets
+		ByDisplayOrder
+			Sort Order
+				FinanceEnterpriseGroup
+				GLColumnView
+				DisplayOrder
+				GLColumn
+
+		ByColumnName
+			Sort Order
+				FinanceEnterpriseGroup
+				GLColumnView
+				ColumnName
+
+		ByGLColumnType
+			Sort Order	
+				FinanceEnterpriseGroup
+				GLColumnView
+				GLColumnType
+				GLColumn
+
+	Relations
+		GLColumnFilterDimensionRel
+			one-to-many relation to GLColumnFilterDimension
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView 			= GLColumnView
+				related.GLColumn 	   			= GLColumn
+
+		ScenarioColFilterDimensionRel
+			one-to-many relation to GLColumnFilterDimension
+			delete cascades
+			Field Mapping uses ByDimensionParam
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView 			= GLColumnView
+				related.GLColumn 	   			= GLColumn
+				related.Dimension 	   			= "Scenario"
+
+		ScenarioDimensionFilterFieldRel
+			one-to-many relation to GLColumnFilterDimensionField
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView 			= GLColumnView
+				related.GLColumn 	   			= GLColumn
+				related.GLColumnFilterDimension	= ScenarioColFilterDimensionRel.GLColumnFilterDimension
+
+		GLColumnCalculationFieldRel
+			one-to-many relation to GLColumnCalculationField
+			Field Mapping uses ByColumnOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+				related.GLColumn				= GLColumn
+
+		StandardGLColumnRel
+			one-to-many relation to GLColumn
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			Instance Selection
+				where (related.GLColumnType.Standard)
+				
+		GLColumnRel
+			one-to-many relation to GLColumn
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			
+   		GLReportRel
+			one-to-many relation to GLReport
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where( related.ColumnView				= GLColumnView)
+		
+		SubReportRel
+			one-to-many relation to GLReportElement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.SubReport.ColumnView		= GLColumn.GLColumnView)
+
+		GLColumnCalculationStdRel
+			one-to-many relation to GLColumnCalculationField
+			Field Mapping uses ByColumnOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			Instance Selection
+				where (related.CalculationColumn.DisplayOrder = DisplayOrder or
+						related.CalculationColumn.DisplayOrder = NewDisplayOrder)
+
+		GLColumnFilterDimensionFieldEnteredRel
+			one-to-many relation to GLColumnFilterDimensionField
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView 			= GLColumnView
+				related.GLColumn 	   			= GLColumn
+				related.GLColumnFilterDimension = LocalGLColumnFilterDim
+		
+		BlankGLColumnRel
+			one-to-many relation to GLColumn
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			Instance Selection
+				where (related.GLColumnType.Blank)

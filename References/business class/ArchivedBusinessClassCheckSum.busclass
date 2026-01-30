@@ -1,0 +1,211 @@
+ArchivedBusinessClassCheckSum is a BusinessClass
+	prefix is ABCS
+	owned by la
+	
+	Patterns
+		implements LightweightAuditing
+		disable AuditIndex
+		implements AuditLogEntryActions
+	
+	Ontology
+		symbolic key is ArchivedBusinessClassCheckSum
+		
+	Persistent Fields
+		CheckSumField is a BusinessField
+		Condition 	is LPLText
+			is condition for ArchivedBusinessClass
+			
+	Local Fields
+    	LocalErrorField 					is Text
+
+	Field Rules
+		CheckSumField
+			required
+			
+			constraint (CheckSumField.Type.Persistent
+			and        (CheckSumField.RepresentationType.Numeric
+			or          CheckSumField.RepresentationType.Integer
+			or          CheckSumField.RepresentationType.Decimal
+			or          CheckSumField.RepresentationType.Currency
+			or          CheckSumField.RepresentationType.Percent 
+			or          CheckSumField.RepresentationType.DecVar
+			or          CheckSumField.RepresentationType.Double))
+				"CheckSumFieldMustBeAPeristentNumericField"
+				
+			if (CheckSumField changed)
+				confirmation required
+					"ChangingTheFieldNameWillAffectExistingCheckSumValues."
+			
+		Condition
+			constraint (ValidCondition)
+				"ConditionCanOnlyReferenceResidentDeliveredPersistentFieldsAndConstantsAndCanOnlyBeASingleComparison.FirstError:<LocalErrorField>"
+				
+			if (Condition changed)
+				confirmation required
+					"ChangingTheConditionWillAffectExistingCheckSumValues,YouMayRecomputeToSynchronizeValues." 
+		
+	Derived Fields
+		NumberCheckSumRecords is a ComputeField
+			type is Numeric 10
+			default label is untranslatable:"NumberCheckSumRecords"
+    		(instance count of ArchivedBusinessClass.ArchivedBusinessClassCheckSum set)
+    		
+   		ValidCondition is a NativeField
+			type is Boolean
+
+			
+		CheckSumInUse is a DerivedField
+			type is Boolean
+			for each ArchivedBusinessClass.PurgedCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true
+			
+			for each ArchivedBusinessClass.ActualInArchiveCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true	
+					
+			for each ArchivedBusinessClass.RestoredCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true	
+					
+			for each ArchivedBusinessClass.CreatedCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true	
+			
+			for each ArchivedBusinessClass.UpdatedCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true	
+					
+			for each ArchivedBusinessClass.PurgedFromArchiveCheckSum.CheckSumField
+				if (each.Name = ArchivedBusinessClassCheckSum)
+					return true					
+			
+			return false
+			
+	Conditions
+		CanCreate
+			default label is untranslatable
+			when (NumberCheckSumRecords < 4)
+			
+	Create Rules
+		constraint (CanCreate)
+			"AlreadyAtTheMaxiumAllowedCheckSumRecords."
+				
+	Actions
+		Create is a Create Action
+			valid when (CanCreate)
+			
+		Update is an Update Action
+			Action Rules
+				if ((CheckSumField changed or Condition changed) and ArchivedBusinessClass.IsPurgable and ArchivedBusinessClass.AnyInArchiveValues) 
+					confirmation required
+						"ThisChangeWillRequireARecomputeOfThisCheckSum.ProceedingWillSubmitABackgroundRecompute.Continue?"
+						
+					invoke RecomputeFromArchived in background
+		
+		Delete is a Delete Action
+			Entrance Rules
+				if (CheckSumInUse)
+					confirmation required
+						"CheckSumNameIsInUse.DeletingWillClearValues.Continue?"
+						
+					invoke ClearCheckSumValues ArchivedBusinessClass
+						invoked.ParamName = ArchivedBusinessClassCheckSum
+						
+		RecomputeFromArchived is an Instance Action
+			valid when (ArchivedBusinessClass.IsPurgable)
+			confirmation required 
+				"AreYouSureYouWantToRecomputeThisCheckSumValue?ThisShouldNotBeRunWhileActivelyPurging."
+			run in background
+
+			
+		RecomputeAllFromArchived is a Set Action
+			restricted
+			default label is untranslatable
+			
+			Parameters
+				ParamArchivedBusinessClass is a ArchivedBusinessClass
+					default label is "BusinessClass"
+
+			Parameter Rules
+				ParamArchivedBusinessClass
+					required
+					
+					constraint (ParamArchivedBusinessClass.IsPurgable)
+						"BusinessClass<ParamArchivedBusinessClass>IsNotValidForArchiveData"
+					
+			Instance Selection
+				where (ArchivedBusinessClass = ParamArchivedBusinessClass)
+			
+			Sort Order is primary
+			
+			Action Rules
+				Empty Set Rules
+					invoke RecomputeCountFromArchived ParamArchivedBusinessClass
+				
+				Instance Rules
+					invoke RecomputeFromArchived
+		
+		ValidateArchivedDataValues is an Instance Action
+			restricted
+			valid when (ArchivedBusinessClass.IsPurgable)
+			confirmation required 
+				"AreYouSureYouWantToValidateThisCheckSumValue?ThisShouldNotBeRunWhileActivelyPurging."
+			run in background
+			
+
+			Parameters
+				ParamResult is a ArchivedBusinessClassValidationResult
+					default label is "ValidationResult"
+
+			Parameter Rules
+				ParamResult
+					required
+
+			 
+		ValidateAllArchivedDataValues is a Set Action
+			restricted
+			default label is untranslatable
+			
+			Parameters
+				ParamArchivedBusinessClass is a ArchivedBusinessClass
+					default label is "BusinessClass"
+				ParamResult is a ArchivedBusinessClassValidationResult
+					default label is "ValidationResult"
+
+			Parameter Rules
+				ParamArchivedBusinessClass
+					required
+					
+					constraint (ParamArchivedBusinessClass.IsPurgable)
+						"BusinessClass<ParamArchivedBusinessClass>IsNotValidForArchiveData"
+				
+				ParamResult
+					required
+					
+			Instance Selection
+				where (ArchivedBusinessClass = ParamArchivedBusinessClass)
+			
+			Sort Order is primary
+			
+			Action Rules
+				Empty Set Rules
+					invoke ValidateCountFromArchived ParamArchivedBusinessClass
+						invoked.ParamResult = ParamResult
+				
+				Instance Rules
+					invoke ValidateArchivedDataValues
+						invoked.ParamResult = ParamResult
+			
+		Purge is a Purge Action
+			confirmation required
+				"ThisCannotBeUndone,AreYouSureYouWantToPurge?"
+				
+			Entrance Rules
+				if (CheckSumInUse)
+					confirmation required
+						"CheckSumNameIsInUse.DeletingWillClearValues.Continue?"
+						
+					invoke ClearCheckSumValues ArchivedBusinessClass
+						invoked.ParamName = ArchivedBusinessClassCheckSum
+				

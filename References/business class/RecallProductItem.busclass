@@ -1,0 +1,1743 @@
+RecallProductItem is a BusinessClass
+    owned by recall
+    prefix is RMRPI
+
+    Ontology
+    	symbolic key is RecallProductItem
+    
+    Patterns
+    	disable Auditing		
+        disable EffectiveDated	
+        implements ContextualParent
+					
+    Persistent Fields
+   		Item
+   		Description			
+	    TotalQuantityIdentified		 is Decimal size 13.4
+	    	precision is Item.NumberOfDecimalsQuantity
+	    	default label is "QuantityIdentified"
+		ManufacturerInformation		 is a RecallManufacturerInformation
+   		VendorItem 
+   		NDC				             is like NationalDrugCode
+   			default label is "NDCNumber"
+		GTIN                         is an ItemGTIN
+		HibccUpn                      is a HIBCCItemUPN
+			default label is "HIBCC-DI"
+
+   	Local Fields
+   		LocalSpecialItem 	is AlphaUpper size 32
+   		LocalCompany		is like Company 
+		ValidUOM			is Boolean
+		UOMCounter			is Numeric size 2
+		LocalOwner          is like RecallUser
+		LocalTask           is like RecallNoticeTask
+		LocalLocation       is like InventoryLocation
+		LocalReqLocation    is like RequestingLocation
+		LocalItem			is like Item
+		LocalVendorItem		is like VendorItem
+		LocalRecallGroup	is like RecallGroup
+   			
+   	Field Rules
+   		
+   			
+	Derived Fields
+		DuplicateItemNoticeCount is a DerivedField  
+			type is Numeric 3
+			restricted
+			return (instance count of ItemOnAnotherNoticeRel)
+
+		DuplicateItemNotice is a DerivedField 
+			type is Numeric 8
+			restricted
+			return first ItemOnAnotherNoticeRel.RecallNotice
+
+		Duplicate1Message is a MessageField 
+			restricted
+			"ItemAlreadyExistsOnNotice<DuplicateItemNotice>AndOtherNotices"
+			
+		Duplicate2Message is a MessageField 
+			restricted
+			"ItemAlreadyExistsOnNotice<DuplicateItemNotice>"
+		
+		DuplicateItemNoticeMessage is a MessageField
+			restricted
+			"ItemExistsOnOtherNotices"
+			
+		DisplayUom is a DerivedField
+			type is like UnitOfMeasure
+			if (Item exists)
+				return Item.StockUOM
+			else
+				return blank
+				
+		RemainingQuantity is a DerivedField
+			type is like Quantity
+			restricted
+			return (TotalQuantityIdentified - TotalActionQuantities)
+			
+		TotalActionQuantities is a DerivedField		
+			type is like Quantity 	
+			return (sum RecallProductItemActionRel.DerivedQuantity)
+		
+		DisplayDescription is a DerivedField
+   			type is like Description
+   			if (Description entered)
+   				return Description
+   			else
+   			if (VendorItem entered)
+   				return VendorItem.VendorItemDescription
+   			else
+   				return Item.Description
+		
+		DerivedStrippedManufacturerNumber is a DerivedField
+			type is like ManufacturerNumber
+			return com.lawson.apps.procurement.base.StringUtils.stripNonAlphaNumeric(ManufacturerInformation.ManufacturerNumber)
+			
+		DerivedStrippedVendorItem is a DerivedField
+			type is AlphaUpper size 32
+			return com.lawson.apps.procurement.base.StringUtils.stripNonAlphaNumeric(VendorItem)
+			
+		DerivedStrippedNDCNumber is a DerivedField
+			type is AlphaUpper size 32
+			return com.lawson.apps.procurement.base.StringUtils.stripNonAlphaNumeric(NDC)
+
+		ItemByManufacturerNumberCount is a ComputeField
+			type is Numeric 6
+			restricted
+			(instance count of ItemByManufacturerNumberOnlyRel)
+
+		ItemByManufacturerInformationCount is a ComputeField
+			type is Numeric 6
+			restricted
+			(instance count of ItemByMfgNbrRel)			
+
+
+		MobileManufactureInformation is a LabelField
+			"<ManufacturerInformation.Manufacturer>_-_<ManufacturerInformation.ManufacturerNumber>"
+
+			 
+   	Conditions
+   		IsItemMaster
+   			when (Item entered)
+   	
+   		HasSerialTracking
+   			restricted
+   			when (Item.SerialTracked != "N"
+   			or    SerialTrackedItemLocationRel exists)
+   			
+   		HasLotTracking
+   			restricted
+   			when (Item.LotTracked != "N"
+   			or    LotTrackedItemLocationRel exists)
+   		
+   		NotSerialItem
+   			restricted
+   			when (SerialNumberRel exists
+   			and  !HasSerialTracking)
+   			
+   		NotLotItem
+   			restricted
+   			when (LotNumberRel exists
+   			and  !HasLotTracking)
+   		
+   		ItemOnAnotherNotice
+   			restricted
+   			when (SameRecallProductItemRel exists
+			or    SameRecallProductVendorItemRel exists
+			or    SameRecallProductManufInfoRel exists
+			or    SameRecallProductNDCRel exists)
+   			
+		HasVendorReturns
+			restricted
+			when (VendorReturnRel exists)
+			
+		HasInventoryResolutions
+			restricted
+			when (InventoryResolutionsRel exists)   	
+
+   		AllowActions
+   			restricted
+   			when (RecallNotice.Status.Active
+   			and   RecallNotice.AllTasksCompleted
+   			and  !RecallNotice.HasActionsByResponder
+   			and   RemainingQuantity > 0)
+   			
+		CanUpdateItemOnNotice
+			restricted 
+			when (RecallNotice.Status.Pending
+			or    RecallNotice.Status.Active)
+
+		HasActiveTrackingLocations
+			restricted
+			when (ActiveTrackingLocationRel exists)
+			
+		HasActiveTrackingNonConsignmentLocations
+			restricted
+			when (ActiveTrackingNonConsignmentLocationRel exists)
+			
+		AllowReturns
+			restricted
+			when (AllowActions
+			and   RecallGroup.AllowReturnByCoordinator)
+		
+		AllowIssues
+			restricted
+			when (AllowActions
+			and   IsItemMaster
+			and   HasActiveTrackingLocations
+			and   RecallGroup.AllowIssueByCoordinator)
+			
+		AllowTransfers
+			restricted
+			when (AllowActions
+			and   IsItemMaster
+			and   HasActiveTrackingNonConsignmentLocations
+			and   Item.Consignment = false
+			and   RecallGroup.AllowTransferByCoordinator)
+
+		AllowAdjustments
+			restricted
+			when (AllowActions
+			and   IsItemMaster
+			and   HasActiveTrackingLocations
+			and   RecallGroup.AllowAdjustmentByCoordinator)
+			
+		CatchWeight
+			restricted
+			when (Item exists
+			and   !Item.CatchWeightCode.NotCatchWeight)
+			
+		AllowActionsCatchWeight
+			restricted
+			when (AllowActions
+			and   CatchWeight)
+			
+		RecallProductItemExists
+			when (RecallProductItem entered)
+			
+		NDCEntered
+			restricted
+			when (NDC entered)
+			
+		VendorItemEntered
+			restricted
+			when (VendorItem entered)
+		
+		ManufacturerNumberOnOtherNotice
+			restricted
+			when (SameManufacturerNumberRel exists)
+		
+		ManufacturerNumberEntered
+			restricted
+			when (ManufacturerInformation.ManufacturerNumber entered)
+
+		ItemOnRecall
+			restricted 
+			when (SameRecallProductLocalItemRel exists)
+		
+		ItemNotOnRecall
+			restricted
+			when (SameRecallProductLocalItemRel !exists)
+
+		ItemAndVendorItemNotOnRecall
+			restricted
+			when (SameRecallProductLocalItemRel !exists
+			and   SameRecallProductLocalVendorRel !exists)
+			
+		IsOpenRecallNotice
+			restricted
+			when (RecallNotice.Status.Pending 
+			or    RecallNotice.Status.Active 
+			or    RecallNotice.Status.AwaitingApproval)
+		
+   	Sets
+   		ByItem
+   			indexed
+   			Sort Order
+   				RecallGroup
+   				Item
+   				RecallNotice
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (IsItemMaster)	
+   							
+   		ByNoticeNDC
+   			indexed
+   			Sort Order
+   				RecallGroup
+   				RecallNotice
+   				NDC
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (NDCEntered)	
+   		
+		ByGTIN 
+			Sort Order 
+				RecallGroup 
+				GTIN 
+				RecallNotice 
+				RecallProduct 
+				RecallProductItem 				
+
+   		ByNDC
+   			indexed
+   			Sort Order
+   				RecallGroup
+   				NDC
+   				RecallNotice
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (NDCEntered)	
+   		
+   		ByVendorItem
+   			indexed
+   			Sort Order
+   				RecallGroup
+   				VendorItem
+   				RecallNotice
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (VendorItemEntered)
+   		
+   		ByManufacturerNumber
+   			indexed
+   			Sort Order
+   				RecallGroup
+   				ManufacturerInformation.ManufacturerNumber
+   				ManufacturerInformation.Manufacturer
+   				RecallNotice
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (ManufacturerNumberEntered)
+   				
+   		
+   		ByManufInfo
+			indexed
+   			Sort Order
+   				RecallGroup
+   				ManufacturerInformation.Manufacturer
+   				ManufacturerInformation.ManufacturerNumber
+   				RecallNotice
+   				RecallProduct
+   				RecallProductItem
+   			Instance Selection
+   				where (ManufacturerNumberEntered)
+   			
+   	Relations
+		
+		SameRecallProductLocalVendorRel
+			one-to-many relation to RecallProductItem
+			Field Mapping uses ByVendorItem
+				related.RecallGroup				= RecallGroup
+				related.VendorItem				= LocalVendorItem
+				related.RecallNotice			= RecallNotice
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+		SameRecallProductLocalItemRel
+			one-to-many relation to RecallProductItem
+			Field Mapping uses ByItem
+				related.RecallGroup				= RecallGroup
+				related.Item					= LocalItem
+				related.RecallNotice			= RecallNotice
+			Instance Selection
+				where (related.UniqueID != UniqueID)
+		SameRecallProductItemRel
+			one-to-many relation to RecallProductItem
+   			Field Mapping uses ByItem
+   				related.RecallGroup            = RecallGroup
+   				related.Item 				   = Item
+   				related.RecallNotice  		   = RecallNotice
+   			Instance Selection
+   				where (related.UniqueID != UniqueID)
+   	
+		SameRecallProductVendorItemRel
+			one-to-many relation to RecallProductItem
+   			Field Mapping uses ByVendorItem
+   				related.RecallGroup                  = RecallGroup
+   				related.VendorItem 					 = VendorItem
+   				related.RecallNotice  		         = RecallNotice
+   			Instance Selection
+   				where (related.UniqueID != UniqueID)
+		
+		SameRecallProductNDCRel
+			one-to-many relation to RecallProductItem
+   			Field Mapping uses ByNDC
+   				related.RecallGroup                  = RecallGroup
+   				related.NDC		 					 = NDC
+   				related.RecallNotice  		         = RecallNotice
+   			Instance Selection
+   				where (related.UniqueID != UniqueID)
+		
+		
+		SameRecallProductManufInfoRel
+			one-to-many relation to RecallProductItem
+   			Field Mapping uses ByManufInfo
+   				related.RecallGroup   		   		 				= RecallGroup
+   				related.ManufacturerInformation.Manufacturer    	= ManufacturerInformation.Manufacturer
+   				related.ManufacturerInformation.ManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+   				related.RecallNotice  		         				= RecallNotice
+   			Instance Selection
+   				where (related.ManufacturerInformation.ManufacturerNumber = ManufacturerInformation.ManufacturerNumber
+   				and    related.UniqueID != UniqueID)
+		
+		SameManufacturerNumberRel
+			one-to-many relation to RecallProductItem
+			Field Mapping uses ByManufacturerNumber
+				related.RecallGroup                  				= RecallGroup
+				related.ManufacturerInformation.ManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+			Instance Selection
+				where (related.RecallNotice			!= RecallNotice)
+		
+		SerialTrackedItemLocationRel
+			one-to-many relation to ItemLocation
+			Field Mapping uses ByItem
+				related.Item                   = Item
+			Instance Selection
+				where (related.SerialTracked != "N")
+		
+		LotTrackedItemLocationRel
+			one-to-many relation to ItemLocation
+			Field Mapping uses ByItem
+				related.Item                   = Item
+			Instance Selection
+				where (related.LotTracked != "N")
+		
+		ItemByMfgNbrRel
+    		one-to-many relation to Item
+    		Field Mapping uses Set11
+    			related.ItemGroup								   = RecallGroup
+				related.ManufacturerNumberStripped				   = DerivedStrippedManufacturerNumber
+			Instance Selection 
+				where ((ManufacturerInformation.Manufacturer.ManufacturerDivision !entered 
+				and     related.Manufacturer.ManufacturerCode        = ManufacturerInformation.Manufacturer.ManufacturerCode)
+				or     (ManufacturerInformation.Manufacturer.ManufacturerDivision entered
+				and     related.Manufacturer                        = ManufacturerInformation.Manufacturer))
+
+		ItemByManufacturerNumberOnlyRel 
+   			one-to-many relation to Item
+    		Field Mapping uses Set11
+    			related.ItemGroup								   = RecallGroup
+				related.ManufacturerNumberStripped				   = DerivedStrippedManufacturerNumber
+		VendorItemByMfgNbrRel
+        	one-to-many relation to VendorItem
+        	Field Mapping uses ByStrippedManufacturerNumber
+        		related.ProcurementGroup  						    = RecallGroup
+				related.ManufacturerNumberStripped 					= DerivedStrippedManufacturerNumber
+			Instance Selection
+				where  ((!RecallNotice.ManufacturerCodeDivision entered)
+				or	   (RecallNotice.ManufacturerCodeDivision entered
+				and	    related.Manufacturer = RecallNotice.ManufacturerCodeDivision))
+
+        VendorItemByVendorItemRel
+        	one-to-many relation to VendorItem
+        	Field Mapping uses ByStrippedVendorItemFirst
+        		related.ProcurementGroup 	= RecallGroup
+        		related.VendorItemStripped	= DerivedStrippedVendorItem
+		
+		ItemOnAnotherNoticeRel  
+			one-to-many relation to RecallProductItem
+   			Field Mapping uses symbolic key
+   				related.RecallGroup   		   = RecallGroup
+   			Instance Selection
+   				where (related.RecallNotice != RecallNotice
+   				and    !related.RecallNotice.ClosedAsDuplicate
+   				and   ((related.Item                    = Item
+   				and    	Item entered)
+   				or     (related.VendorItem    		    = VendorItem
+   				and     VendorItem entered)
+   				or     (related.ManufacturerInformation = ManufacturerInformation
+   				and     ManufacturerInformation entered)
+   				or     (related.NDC                     = NDC
+   				and     NDC entered)))
+   	
+   		PoCompanyByProcurementGroupRel
+   			one-to-many relation to PurchasingCompany
+   			Field Mapping uses Set2
+   				related.ProcurementGroup = RecallGroup				
+
+		RecallProductTaskItemRel
+			one-to-many relation to RecallProductTaskItem
+			delete cascades
+			Field Mapping uses ByProductItemTask				
+   				related.RecallGroup   			= RecallGroup
+   				related.RecallNotice  			= RecallNotice
+   				related.RecallProduct			= RecallProduct
+   				related.RecallProductItem		= RecallProductItem
+
+		SingleRecallProductTaskItemRel
+			one-to-one relation to RecallProductTaskItem
+			delete cascades
+			Field Mapping uses ByProductItemTask				
+   				related.RecallGroup   			= RecallGroup
+   				related.RecallNotice  			= RecallNotice
+   				related.RecallProduct			= RecallProduct
+   				related.RecallProductItem		= RecallProductItem
+				related.RecallNoticeTask        = LocalTask
+				related.Company                 = LocalCompany
+				related.InventoryLocation       = LocalLocation
+				related.RequestingLocation      = LocalReqLocation
+
+   		RecallProductItemActionRel
+   			one-to-many relation to RecallProductItemAction
+   			Field Mapping uses ByProductItemTask
+				related.RecallGroup					= RecallGroup
+				related.RecallNotice				= RecallNotice
+				related.RecallProduct				= RecallProduct
+				related.RecallProductItem			= RecallProductItem
+				
+   		VendorReturnRel
+   			one-to-many relation to RecallProductItemAction
+   			Field Mapping uses ByProductItemTask
+				related.RecallGroup					= RecallGroup
+				related.RecallNotice				= RecallNotice
+				related.RecallProduct				= RecallProduct
+				related.RecallProductItem			= RecallProductItem
+			Instance Selection
+				where (related.ItemAction.VendorReturn)
+				
+   		InventoryResolutionsRel
+   			one-to-many relation to RecallProductItemAction
+   			Field Mapping uses ByProductItemTask
+				related.RecallGroup					= RecallGroup
+				related.RecallNotice				= RecallNotice
+				related.RecallProduct				= RecallProduct
+				related.RecallProductItem			= RecallProductItem
+			Instance Selection
+				where (related.StockTransaction)
+				
+		ActiveTrackingLocationRel
+			one-to-many relation to ItemLocation
+			Field Mapping uses ByItem
+				related.Item 						= Item
+			Instance Selection
+				where (related.Active
+				and    related.InventoryTracked
+				and    !related.InventoryLocation.LocationType.ParLocation
+				and     related.Company.ItemGroup = RecallGroup
+				and    Item entered)
+	
+		ActiveTrackingNonConsignmentLocationRel
+			one-to-many relation to ItemLocation
+			Field Mapping uses ByItem
+				related.Item 						= Item
+			Instance Selection
+				where (related.Active
+				and    related.InventoryTracked
+				and    related.Consignment = false
+				and    !related.InventoryLocation.LocationType.ParLocation
+				and    Item entered)
+	
+        SerialNumberRel
+        	one-to-many relation to RecallProductSerial
+        	Field Mapping uses symbolic key
+        		related.RecallGroup					= RecallGroup
+				related.RecallNotice				= RecallNotice
+				related.RecallProduct				= RecallProduct
+        		
+        LotNumberRel
+        	one-to-many relation to RecallProductLot
+        	Field Mapping uses symbolic key
+        		related.RecallGroup					= RecallGroup
+				related.RecallNotice				= RecallNotice
+				related.RecallProduct				= RecallProduct
+        
+        ItemForVendorItemRel
+        	one-to-many relation to VendorItem
+        	Field Mapping uses Set3
+        		related.ProcurementGroup = RecallGroup
+        		related.Vendor			 = RecallNotice.Vendor
+        		related.VendorItem		 = VendorItem
+        
+        ItemForNationalDrugCodeRel
+        	one-to-many relation to NationalDrugCode
+        	Field Mapping uses Set6
+        		related.ItemGroup 			= RecallGroup
+        		related.NationalDrugCode	= NDC
+        
+		RecallNoticeOrganizationRel
+			one-to-many relation to RecallNoticeOrganization
+			Field Mapping uses symbolic key
+				related.RecallGroup             = RecallGroup
+				related.RecallNotice            = RecallNotice
+			Instance Selection
+				where (related.AssignedUser     = LocalOwner) 
+
+		RecallNoticeTaskRel
+			one-to-one relation to RecallNoticeTask
+			Field Mapping uses symbolic key
+				related.RecallGroup             = RecallGroup
+				related.RecallNotice            = RecallNotice
+				related.RecallNoticeTask 		= LocalTask		
+
+        RecallUserRel
+   			one-to-many relation to RecallUser
+   			Field Mapping uses symbolic key
+   				related.HROrganization           = actor.agent(Employee).HROrganization
+   				related.RecallUser               = actor.agent(Employee).Employee
+
+   		ItemGTINRel
+   			one-to-many relation to ItemGTIN
+   			Field Mapping uses Set2
+   				related.ItemGroup	= RecallGroup
+   				related.ItemGTIN	= GTIN	
+
+   		HIBCCDIRel
+   			one-to-many relation to HIBCCItemUPN
+   			Field Mapping uses Set2
+  				related.HIBCCItemUPN	= HibccUpn
+				related.ItemGroup		= RecallGroup
+        		
+		RecallProductItemByItemRel
+   			one-to-many relation to RecallProductItem
+   			Field Mapping uses ByItem
+   				related.RecallGroup = LocalRecallGroup
+   				related.Item        = LocalItem
+			Instance Selection
+				where (related.IsOpenRecallNotice)
+        		
+   	Create Exit Rules
+   	
+   		if (ItemOnAnotherNotice)
+   			invoke QuickUpdate RecallNotice
+   				invoked.HasItemsOnOtherNotices = true
+		
+		if (VendorItem entered)
+			if (RecallNotice.Vendor not entered)
+				if (VendorItemByVendorItemRel exists)
+					for each VendorItemByVendorItemRel
+						LocalItem = each.Item
+						LocalVendorItem = each.VendorItem
+						if (ItemNotOnRecall)
+							invoke Create RecallProductItem
+								invoked.RecallGroup				= RecallGroup
+								invoked.RecallNotice			= RecallNotice
+								invoked.RecallProduct	        = RecallProduct
+								invoked.Item					= each.Item
+								invoked.VendorItem              = each.VendorItem
+								invoked.ManufacturerInformation.Manufacturer = each.Manufacturer
+								invoked.ManufacturerInformation.ManufacturerNumber = each.ManufacturerNumber
+								invoked.Description             = each.VendorItemDescription
+ 
+   	Actions
+    	Create is a Create Action
+			restricted
+			Field Rules
+			
+				Description
+		   			
+		   			if (VendorItem exists)
+		   				default to VendorItem.VendorItemDescription
+		   			else
+		   			if (Item exists)
+		   				default to Item.Description
+
+			Action Rules
+				invoke FastUpdate RecallNotice
+					invoked.PrmLastUpdateToProducts = current timestamp
+		
+		CreateSpecialItems is a Create Action
+			restricted
+			
+			Field Rules
+			
+				Description
+		   			
+		   			if (VendorItem exists)
+		   				default to VendorItem.VendorItemDescription
+		   			else
+		   			if (Item exists)
+		   				default to Item.Description
+											
+    	SingleCreate is a Create Action
+    		default label is "Create"
+			valid when (RecallNotice.RecallNoticeUpdatable)
+			Action Rules
+			
+		   		if (Item entered)
+					constraint (!SameRecallProductItemRel exists)
+		   				"Item<Item>IsAlreadyDefinedForProduct:<first SameRecallProductItemRel.RecallProduct.ProductName>"
+		   			
+					constraint (Item exists)
+		   				"CannotEnterAValueInTheItemField;ItemDoesNotExist"
+		   					
+				constraint (Item entered or VendorItem entered or NDC entered or ManufacturerInformation.ManufacturerNumber entered or GTIN entered or HibccUpn entered)
+					"MustEnterAtLeastOneOfItemOrVendorItemOrNDCOrManufacturerNumberOrGTINOrHIBCCUPNToCreateARecord"
+				
+				if (ManufacturerInformation.ManufacturerNumber entered)
+					constraint (NDC !entered)
+						"CannotEnterManufacturerNumberAndNDCNumber" 
+					
+					constraint (!SameRecallProductManufInfoRel exists)
+		   				"ManufacturerInformation<ManufacturerInformation>IsAlreadyDefinedForProduct:<first SameRecallProductManufInfoRel.RecallProduct.ProductName>"
+
+		   		if (ManufacturerInformation.Manufacturer entered)
+					constraint (ManufacturerInformation.ManufacturerNumber entered)
+						"IfManufacturerCodeIsEnteredManufacturerNumberMustBeEntered"
+				
+				if (VendorItem entered)
+					constraint (!SameRecallProductVendorItemRel exists)
+		   				"VendorItem<VendorItem>IsAlreadyDefinedForProduct:<first SameRecallProductItemRel.RecallProduct.ProductName>"
+				
+				if (NDC entered)
+					constraint (ManufacturerInformation.ManufacturerNumber !entered)
+						"CannotEnterManufacturerNumberAndNDCNumber" 
+	
+					constraint (!SameRecallProductNDCRel exists)
+						"NDC<NDC>IsAlreadyDefinedForProduct:<first SameRecallProductItemRel.RecallProduct.ProductName>"
+
+				invoke FastUpdate RecallNotice
+					invoked.PrmLastUpdateToProducts = current timestamp
+
+				if (Item !entered
+				and GTIN entered
+				and ItemGTINRel exists)
+					Item = first ItemGTINRel.Item
+	
+				if (Item !entered
+				and ManufacturerInformation entered
+				and ItemByMfgNbrRel exists)
+					Item = first ItemByMfgNbrRel.Item
+
+				if (Item !entered
+				and ManufacturerInformation.Manufacturer !entered
+				and ManufacturerInformation.ManufacturerNumber entered
+				and ItemByManufacturerNumberOnlyRel exists)
+					Item = first ItemByManufacturerNumberOnlyRel.Item
+				
+				if (Item !entered
+				and RecallNotice.Vendor entered
+				and ManufacturerInformation entered
+				and VendorItemByMfgNbrRel exists
+				and first VendorItemByMfgNbrRel.Vendor = RecallNotice.Vendor)
+					Item = first VendorItemByMfgNbrRel.Item
+					VendorItem = first VendorItemByMfgNbrRel.VendorItem
+				
+				if (Item !entered
+				and RecallNotice.Vendor !entered
+				and ManufacturerInformation entered
+				and VendorItemByMfgNbrRel exists)
+					Item = first VendorItemByMfgNbrRel.Item
+					VendorItem = first VendorItemByMfgNbrRel.VendorItem
+
+				if (Item !entered
+				and VendorItem entered
+				and RecallNotice.Vendor entered
+				and ItemForVendorItemRel exists)
+					Item 								 = first ItemForVendorItemRel.Item
+					ManufacturerInformation.Manufacturer = first ItemForVendorItemRel.Manufacturer	   		
+					ManufacturerInformation.ManufacturerNumber = first ItemForVendorItemRel.ManufacturerNumber
+
+				if (Item !entered
+				and HibccUpn entered
+				and HIBCCDIRel exists)
+					Item = HIBCCDIRel.Item 
+				
+				if (Item !entered
+				and NDC entered
+				and ItemForNationalDrugCodeRel exists)
+					Item   = first ItemForNationalDrugCodeRel.Item  
+
+				if (GTIN entered
+				and ItemGTINRel exists
+				and ManufacturerInformation.ManufacturerNumber !entered)
+					ManufacturerInformation.Manufacturer 		= first ItemGTINRel.Manufacturer
+					ManufacturerInformation.ManufacturerNumber  = first ItemGTINRel.ManufacturerNumber						
+				
+				if (Item entered
+				and ManufacturerInformation.ManufacturerNumber !entered)
+					ManufacturerInformation.Manufacturer 		= Item.Manufacturer
+					ManufacturerInformation.ManufacturerNumber  = Item.ManufacturerNumber
+					
+				if (VendorItem exists)
+					Description = VendorItem.VendorItemDescription
+				else
+				if (Item entered)
+					Description = Item.Description		
+					
+		Update is an Update Action
+			restricted
+			
+		Delete is a Delete Action
+			valid when (RecallNotice.RecallNoticeUpdatable)
+			Action Rules
+				invoke FastUpdate RecallNotice
+					invoked.PrmLastUpdateToProducts = current timestamp
+				
+		Purge is a Purge Action
+			restricted
+			
+		UpdateItemFromExternal is an Instance Action 
+			restricted
+			Parameters
+				ParmItem 		is like Item
+				ParmVendorItem 	is like VendorItem 
+
+			Action Rules 
+
+				Item = ParmItem 
+				if (ParmVendorItem entered)
+					VendorItem = ParmVendorItem
+				invoke FastUpdate RecallNotice 
+					invoked.PrmLastUpdateToProducts = current timestamp	
+
+		CreateTaskItemForLocation is an Instance Action
+			restricted
+			run in foreground
+			Parameters
+				ParmTask			is a RecallNoticeTask
+				
+			Action Rules
+				
+				LocalTask           = ParmTask
+				LocalOwner          = RecallNoticeTaskRel.Owner 
+				
+				for each RecallNoticeOrganizationRel
+					LocalCompany                        = each.RecallOrganization.InventoryCompany
+					LocalLocation                       = each.RecallOrganization.InventoryLocation
+					LocalReqLocation                    = each.RecallOrganization.RequestingLocation
+					if (SingleRecallProductTaskItemRel !exists)
+						invoke Create RecallProductTaskItem
+							invoked.RecallGroup 		= RecallGroup
+							invoked.RecallNotice		= RecallNotice
+							invoked.RecallProduct       = RecallProduct
+							invoked.RecallNoticeTask	= ParmTask
+							invoked.RecallProductItem   = RecallProductItem
+							invoked.Company             = each.RecallOrganization.InventoryCompany
+							invoked.InventoryLocation   = each.RecallOrganization.InventoryLocation
+							invoked.RequestingLocation  = each.RecallOrganization.RequestingLocation
+
+		RunModuleQuery is a Set Action 
+			restricted 
+			Parameters
+				PrmRecallGroup					is a RecallGroup
+				PrmRecallNotice					is a RecallNotice
+				PrmDateRange					is a DateRange
+				PrmTransactionQueryParameters	is a TransactionQueryParameters
+				PrmCreateTasks                  is Boolean
+				PrmPriority						is Numeric size 2
+					States
+		   				High						value is 1
+		   				Medium						value is 2
+		   				Low							value is 3
+				PrmDueDate						is TimeStamp
+				PrmNonLocationActivityUser		is a RecallUser
+				PrmNonLocationInstructions      is a RecallTaskInstruction
+				PrmManufacturerInformation      is a Manufacturer 
+
+			Sort Order
+				RecallGroup
+				RecallNotice
+				RecallProduct
+				RecallProductItem
+				
+			Instance Selection
+				where (RecallGroup	= PrmRecallGroup
+				and    RecallNotice	= PrmRecallNotice)
+			
+			Action Rules
+				RecallNotice Set Rules
+					Exit Rules
+						invoke FastUpdate RecallNotice
+							invoked.PrmLastProductActivityQuery      = current timestamp
+							invoked.PrmLastTransactionQueryDateRange = PrmDateRange
+
+
+				Instance Rules 
+					if (PrmTransactionQueryParameters.PerformProcurementTemplateQuery)
+			   			if   (Item entered
+			   			or    ManufacturerInformation entered)
+				   			invoke RecallProcurementTemplateLineQuery ProcurementTemplateLine
+				   				invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmItem			 		= Item
+								invoked.PrmManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+								invoked.PrmManufacturerCode 	= ManufacturerInformation.Manufacturer.ManufacturerCode
+								invoked.PrmManufacturerDivision = ManufacturerInformation.Manufacturer.ManufacturerDivision
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks
+								
+			   		if (PrmTransactionQueryParameters.PerformContractQuery)
+
+						if (Item entered)
+						
+							invoke RecallContractLineItemQuery ContractLine
+					   			invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmItem			 		= Item
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks
+								invoked.PrmSupplier             = RecallNotice.Supplier
+								
+						if (VendorItem entered
+						and Item !entered)
+						
+							invoke RecallContractLineVendorItemQuery ContractLine
+					   			invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmVendorItem           = VendorItem
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks
+								invoked.PrmSupplier             = RecallNotice.Supplier
+																
+						if (ManufacturerInformation.ManufacturerNumber entered
+						and Item !entered)
+						
+							invoke RecallContractLineManufacturerNumberQuery ContractLine
+					   			invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+								invoked.PrmManufacturerCode 	= ManufacturerInformation.Manufacturer.ManufacturerCode
+								invoked.PrmManufacturerDivision = ManufacturerInformation.Manufacturer.ManufacturerDivision
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks													
+								invoked.PrmSupplier             = RecallNotice.Supplier
+
+						if ((GTIN entered
+						or  HibccUpn entered) 
+						and Item !entered)
+							invoke RecallContractLineGTINQuery ContractLine
+					   			invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmHIBCCDI              = HibccUpn 
+								invoked.PrmGTIN                 = GTIN
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks
+								invoked.PrmSupplier             = RecallNotice.Supplier																	
+
+					if (PrmTransactionQueryParameters.PerformRequisitionQuery)
+						if  (NDC entered
+						or   Item entered
+						or   GTIN entered
+						or   VendorItem entered
+						or   ManufacturerInformation entered)
+							invoke RecallRequisitionLineQuery RequisitionLine 
+								invoked.PrmRecallGroup		= RecallGroup
+								invoked.PrmRecallNotice		= RecallNotice
+								invoked.PrmRecallProduct 	= RecallProduct
+								invoked.PrmRecallProductItem = RecallProductItem 
+								if (Item entered)
+									invoked.PrmItem			= Item
+								else 
+								if (ManufacturerInformation.ManufacturerNumber entered)
+									invoked.PrmItem         = ManufacturerInformation.ManufacturerNumber
+								else 
+								if (DerivedStrippedNDCNumber entered)
+									invoked.PrmItem         = DerivedStrippedNDCNumber
+								else
+								if (GTIN entered)
+									invoked.PrmItem         = GTIN 
+								else 
+								if (VendorItem entered)
+									invoked.PrmItem         = VendorItem  
+								if (Item !entered)
+									invoked.PrmVendorItem       	= VendorItem
+									invoked.PrmManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+									invoked.PrmManufacturerCode 	= ManufacturerInformation.Manufacturer.ManufacturerCode
+									invoked.PrmManufacturerDivision = ManufacturerInformation.Manufacturer.ManufacturerDivision
+								invoked.PrmGTIN             = GTIN
+								invoked.PrmQueryDateRange	= PrmDateRange
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks						
+						
+					if (PrmTransactionQueryParameters.PerformInventoryQuery)
+			   			if (HasActiveTrackingLocations)
+				   			invoke RecallInventoryQuery ItemLocation
+					   			invoked.PrmRecallGroup		= RecallGroup
+								invoked.PrmRecallNotice		= RecallNotice
+								invoked.PrmRecallProduct 	= RecallProduct
+								invoked.PrmItem			 	= Item
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks
+								
+			   		if (PrmTransactionQueryParameters.PerformParLocationQuery)
+			   			if (IsItemMaster)
+				   			invoke RecallParLocationQuery ItemLocation
+				   				invoked.PrmRecallGroup		= RecallGroup
+								invoked.PrmRecallNotice	 	= RecallNotice
+								invoked.PrmRecallProduct	= RecallProduct
+								invoked.PrmItem			 	= Item
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks
+				   			
+					if (PrmTransactionQueryParameters.PerformIntransitTransferQuery)
+			   			if (HasActiveTrackingLocations)
+				   			invoke RecallIntransitTransferQuery InventoryTransactionLine
+				   				invoked.PrmRecallGroup		= RecallGroup
+								invoked.PrmRecallNotice	 	= RecallNotice
+								invoked.PrmRecallProduct	= RecallProduct
+								invoked.PrmItem			 	= Item
+								invoked.PrmQueryDateRange   = PrmDateRange
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks
+								
+			   		if (PrmTransactionQueryParameters.PerformIssueQuery)
+			   			if (HasActiveTrackingLocations)
+				   			invoke RecallIssueQuery InventoryTransactionLine
+				   				invoked.PrmRecallGroup		= RecallGroup
+								invoked.PrmRecallNotice	 	= RecallNotice
+								invoked.PrmRecallProduct	= RecallProduct
+								invoked.PrmItem			 	= Item
+								invoked.PrmQueryDateRange   = PrmDateRange
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks
+				
+					if (PrmTransactionQueryParameters.PerformSerialNumberQuery
+		   			and IsItemMaster
+					and HasSerialTracking)
+						invoke RecallSerialNumberQuery ItemSerialNumber
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+								
+			   			invoke RecallIntransitTransferDetailQuery InventoryTransactionLineDetail
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryDateRange   = PrmDateRange
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+							
+			   			invoke RecallIssueDetailQuery InventoryTransactionLineDetail
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryDateRange   = PrmDateRange
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+								
+					if (PrmTransactionQueryParameters.PerformLotNumberQuery
+		   			and IsItemMaster
+					and HasLotTracking)
+						invoke RecallLotNumberQuery StockOnHandDetail
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+														
+			   			invoke RecallIntransitTransferDetailQuery InventoryTransactionLineDetail
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryDateRange   = PrmDateRange
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+							
+			   			invoke RecallIssueDetailQuery InventoryTransactionLineDetail
+			   				invoked.PrmRecallGroup		= RecallGroup
+							invoked.PrmRecallNotice	 	= RecallNotice
+							invoked.PrmRecallProduct	= RecallProduct
+							invoked.PrmItem			 	= Item
+							invoked.PrmQueryDateRange   = PrmDateRange
+							invoked.PrmQueryPriority	= PrmPriority
+							invoked.PrmQueryDueDate		= PrmDueDate
+							invoked.PrmCreateTasks      = PrmCreateTasks
+								
+
+			   		if (PrmTransactionQueryParameters.PerformPurchaseOrderQuery)
+						if  (NDC entered
+						or   Item entered
+						or   GTIN entered
+						or   VendorItem entered
+						or   NDC entered
+						or   ManufacturerInformation entered)
+							invoke RecallPurchaseOrderLineQuery PurchaseOrderLine 
+								invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice			= RecallNotice
+								invoked.PrmRecallProduct 		= RecallProduct
+								invoked.PrmRecallProductItem 	= RecallProductItem
+								if (Item entered)
+									invoked.PrmItem			= Item
+								else 
+								if (ManufacturerInformation.ManufacturerNumber entered)
+									invoked.PrmItem         = ManufacturerInformation.ManufacturerNumber
+								else 
+								if (DerivedStrippedNDCNumber entered)
+									invoked.PrmItem         = DerivedStrippedNDCNumber
+								else
+								if (GTIN entered)
+									invoked.PrmItem         = GTIN 
+								else 
+								if (VendorItem entered)
+									invoked.PrmItem         = VendorItem  
+								if (Item !entered)
+									invoked.PrmVendorItem       	= VendorItem
+									invoked.PrmManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber
+									invoked.PrmManufacturerCode 	= ManufacturerInformation.Manufacturer.ManufacturerCode
+									invoked.PrmManufacturerDivision = ManufacturerInformation.Manufacturer.ManufacturerDivision
+								invoked.PrmGTIN             = GTIN
+								invoked.PrmQueryDateRange	= PrmDateRange
+								invoked.PrmQueryPriority	= PrmPriority
+								invoked.PrmQueryDueDate		= PrmDueDate
+								invoked.PrmCreateTasks      = PrmCreateTasks												
+
+					if (PrmTransactionQueryParameters.PerformSourcingEventQuery)
+						if  (Item entered
+						or   ManufacturerInformation entered)
+				   			invoke RecallSourcingEventLineQuery SourcingEventLine
+				   				invoked.PrmRecallGroup			= RecallGroup
+								invoked.PrmRecallNotice	 		= RecallNotice
+								invoked.PrmRecallProduct		= RecallProduct
+								invoked.PrmItem			 		= Item
+								invoked.PrmManufacturerNumber 	= DerivedStrippedManufacturerNumber
+								invoked.PrmManufacturerCode 	= ManufacturerInformation.Manufacturer.ManufacturerCode
+								invoked.PrmManufacturerDivision = ManufacturerInformation.Manufacturer.ManufacturerDivision
+								invoked.PrmQueryPriority		= PrmPriority
+								invoked.PrmQueryDueDate			= PrmDueDate
+								invoked.PrmQueryDocumentUser	= PrmNonLocationActivityUser
+								invoked.PrmInstructions         = PrmNonLocationInstructions
+								invoked.PrmCreateTasks          = PrmCreateTasks
+
+		ProductActivityQuery is a Set Action
+			run in foreground
+			restricted
+			Parameters
+				PrmRecallGroup					is a RecallGroup
+				PrmRecallNotice					is a RecallNotice
+				PrmDateRange					is a DateRange
+				PrmTransactionQueryParameters	is a TransactionQueryParameters
+				PrmCreateTasks                  is Boolean
+				PrmPriority						is Numeric size 2
+					States
+		   				High						value is 1
+		   				Medium						value is 2
+		   				Low							value is 3
+				PrmDueDate						is TimeStamp
+				PrmNonLocationActivityUser		is a RecallUser
+				PrmNonLocationInstructions      is a RecallTaskInstruction
+				PrmManufacturerInformation      is a Manufacturer 
+
+			Sort Order
+				RecallGroup
+				RecallNotice
+				RecallProduct
+				RecallProductItem
+				
+			Instance Selection
+				where (RecallGroup	= PrmRecallGroup
+				and    RecallNotice	= PrmRecallNotice
+				and    Item !entered
+				and   (ManufacturerInformation.ManufacturerNumber entered
+				or     VendorItem entered))
+			
+			Action Rules
+
+				Empty Set Rules
+
+					invoke RunModuleQuery
+						invoked.PrmRecallGroup					= PrmRecallGroup
+						invoked.PrmRecallNotice					= PrmRecallNotice
+						invoked.PrmDateRange					= PrmDateRange
+						invoked.PrmTransactionQueryParameters	= PrmTransactionQueryParameters
+						invoked.PrmCreateTasks                  = PrmCreateTasks
+						invoked.PrmPriority						= PrmPriority
+						invoked.PrmDueDate						= PrmDueDate
+						invoked.PrmNonLocationActivityUser		= PrmNonLocationActivityUser
+						invoked.PrmNonLocationInstructions      = PrmNonLocationInstructions
+						invoked.PrmManufacturerInformation      = PrmManufacturerInformation				
+
+				RecallNotice Set Rules
+					
+					Exit Rules
+					
+						invoke RunModuleQuery
+							invoked.PrmRecallGroup					= PrmRecallGroup
+							invoked.PrmRecallNotice					= PrmRecallNotice
+							invoked.PrmDateRange					= PrmDateRange
+							invoked.PrmTransactionQueryParameters	= PrmTransactionQueryParameters
+							invoked.PrmCreateTasks                  = PrmCreateTasks
+							invoked.PrmPriority						= PrmPriority
+							invoked.PrmDueDate						= PrmDueDate
+							invoked.PrmNonLocationActivityUser		= PrmNonLocationActivityUser
+							invoked.PrmNonLocationInstructions      = PrmNonLocationInstructions
+							invoked.PrmManufacturerInformation      = PrmManufacturerInformation
+				
+				Instance Rules
+
+					if (VendorItem entered)
+						if (RecallNotice.Vendor not entered)
+		   					if (VendorItemByVendorItemRel exists)
+		   						for each VendorItemByVendorItemRel
+									LocalItem = each.Item
+									LocalVendorItem = each.VendorItem
+									if (ItemAndVendorItemNotOnRecall)
+										invoke Create RecallProductItem
+											invoked.RecallGroup				= RecallGroup
+											invoked.RecallNotice			= RecallNotice
+											invoked.RecallProduct	        = RecallProduct
+											invoked.Item					= each.Item
+											invoked.VendorItem              = each.VendorItem
+											invoked.ManufacturerInformation.Manufacturer = each.Manufacturer
+											invoked.ManufacturerInformation.ManufacturerNumber = each.ManufacturerNumber
+											invoked.Description             = each.VendorItemDescription
+		
+					if  (ManufacturerInformation.ManufacturerNumber entered
+					and	 ManufacturerInformation.Manufacturer !entered)
+
+						if (RecallNotice.ManufacturerCodeDivision entered)
+							ManufacturerInformation.Manufacturer = RecallNotice.ManufacturerCodeDivision
+						else
+							ManufacturerInformation.Manufacturer = PrmManufacturerInformation
+						if (Item !entered
+						and	ItemByMfgNbrRel exists
+						and ManufacturerInformation.Manufacturer entered)
+							
+							if (ItemByManufacturerInformationCount = 1)
+								LocalItem = first ItemByMfgNbrRel.Item
+								if (ItemNotOnRecall)
+									Item 		= first ItemByMfgNbrRel.Item
+									Description = first ItemByMfgNbrRel.Description
+							else 
+								for each ItemByMfgNbrRel
+									LocalItem = each.Item
+									if (ItemNotOnRecall)
+										invoke Create RecallProductItem 
+											invoked.RecallGroup									= RecallGroup 
+											invoked.RecallNotice    							= RecallNotice 
+											invoked.RecallProduct   							= RecallProduct 
+											invoked.ManufacturerInformation.Manufacturer        = ManufacturerInformation.Manufacturer 
+											invoked.ManufacturerInformation.ManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber 
+											invoked.Item            							= each.Item
+											invoked.Description									= each.Description 	
+
+						if (Item !entered
+						and ManufacturerInformation.Manufacturer !entered
+						and ManufacturerInformation.ManufacturerNumber entered
+						and ItemByManufacturerNumberOnlyRel exists)
+							if (ItemByManufacturerNumberCount = 1)
+								LocalItem = first ItemByManufacturerNumberOnlyRel.Item
+								if (ItemNotOnRecall)
+									Item 		= first ItemByManufacturerNumberOnlyRel.Item
+									Description = first ItemByManufacturerNumberOnlyRel.Description
+							else 
+								for each ItemByManufacturerNumberOnlyRel
+									LocalItem = each.Item
+									if (ItemNotOnRecall)
+										invoke Create RecallProductItem 
+											invoked.RecallGroup									= RecallGroup 
+											invoked.RecallNotice    							= RecallNotice 
+											invoked.RecallProduct   							= RecallProduct 
+											invoked.ManufacturerInformation.ManufacturerNumber 	= ManufacturerInformation.ManufacturerNumber 
+											invoked.Item            							= each.Item
+											invoked.Description									= each.Description 
+
+						if (Item !entered
+						and RecallNotice.Vendor entered
+						and VendorItemByMfgNbrRel exists
+						and first VendorItemByMfgNbrRel.Vendor = RecallNotice.Vendor)
+							LocalItem = first VendorItemByMfgNbrRel.Item
+							if (ItemNotOnRecall)
+								Item = first VendorItemByMfgNbrRel.Item
+								VendorItem = first VendorItemByMfgNbrRel.VendorItem
+						
+						if (Item !entered
+						and RecallNotice.Vendor !entered
+						and VendorItemByMfgNbrRel exists)
+							LocalItem = first VendorItemByMfgNbrRel.Item
+							if (ItemNotOnRecall)
+								Item = first VendorItemByMfgNbrRel.Item
+								VendorItem = first VendorItemByMfgNbrRel.VendorItem
+
+						if (ItemOnRecall)
+							invoke Delete		
+
+		VendorReturn is an Instance Action
+			valid when (AllowReturns)
+			default label is "VendorReturn"
+			
+			Parameters
+		    	ActionType				is AlphaUpper size 1
+		    		States
+		    			Create				value is 1
+		    			Append				value is 2
+		    			Associate			value is 3
+				Quantity 				is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+				TranUom					is AlphaUpper size 4
+				VendorReturnGroup
+				PurchasingCompany
+				VendorReturn  
+				VendorReturnLine  
+				CtwSecondaryQty			is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+
+			Parameter Rules
+				ActionType
+					required
+					initial value is ActionType.Create
+					default to ActionType.Create
+				Quantity
+					required
+					initial value is RemainingQuantity
+					constraint (Quantity !> RemainingQuantity)
+						"CannotExceedRemainingQuantity_(QuantityFoundLessQuantitiesForActionTaken)"
+				TranUom
+					initial value is first RecallProductTaskItemRel.Uom
+					if (!RecallProductItem.IsItemMaster)
+						required
+				PurchasingCompany
+					initial value is RecallUserRel.RecallUser.DefaultCompany
+			
+			Action Rules
+				if (ActionType.Create)
+					invoke CreateVendorReturn RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryLocationGroup.InventoryCompany 	= VendorReturnGroup.InventoryCompany
+						invoked.InventoryLocationGroup.InventoryLocation 	= VendorReturnGroup.InventoryLocation
+						invoked.Vendor										= VendorReturnGroup.Vendor
+						invoked.ProcessLevel								= VendorReturnGroup.PayablesProcessLevel
+						invoked.VendorLocation								= VendorReturnGroup.VendorLocation
+						invoked.Buyer										= VendorReturnGroup.Buyer
+						invoked.Quantity									= Quantity
+						invoked.TranUom										= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+				else
+				if (ActionType.Append)
+					invoke AppendToVendorReturn RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.Quantity									= Quantity
+						invoked.TranUom										= TranUom
+						invoked.InventoryLocationGroup.InventoryCompany 	= VendorReturnGroup.InventoryCompany
+						invoked.InventoryLocationGroup.InventoryLocation 	= VendorReturnGroup.InventoryLocation
+						invoked.VendorReturnLineGroup.PurchasingCompany		= VendorReturnGroup.InventoryCompany
+						invoked.VendorReturnLineGroup.ReturnNumber			= VendorReturn
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+				else
+				if (ActionType.Associate)
+					confirmation required
+						"ThisActionWillSimplyLinkToAnExistingReturnLine.NoVendorReturnLineIsCreated.Continue?"
+					invoke AssociateToVendorReturn RecallProductItemAction
+						invoked.RecallGroup							= RecallGroup
+						invoked.RecallNotice						= RecallNotice
+						invoked.RecallProduct						= RecallProduct
+						invoked.RecallProductItem					= RecallProductItem
+						invoked.VendorReturnLineGroup.PurchasingCompany		= PurchasingCompany
+						invoked.VendorReturnLineGroup.ReturnNumber	= VendorReturn
+						invoked.VendorReturnLineGroup.ReturnLine	= VendorReturnLine
+						invoked.ActionType							= ActionType
+
+		StockIssue is an Instance Action
+			valid when (AllowIssues)
+			default label is "StockIssue"
+			
+			Parameters
+		    	ActionType				is AlphaUpper size 1
+		    		States
+		    			Create				value is 1
+		    			Append				value is 2
+				Quantity 				is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+				TranUom					is a UnitOfMeasure
+				InventoryDocumentGroup
+				TranDate				is Date		
+				PostDate				is Date
+				CtwSecondaryQty			is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+
+			Parameter Rules
+				ActionType
+					required
+					initial value is ActionType.Create
+				Quantity
+					initial value is RemainingQuantity
+					required
+					constraint (Quantity !> RemainingQuantity)
+						"CannotExceedRemainingQuantity_(QuantityFoundLessQuantitiesForActionTaken)"
+				TranUom
+					if (!RecallProductItem.IsItemMaster)
+						required
+				TranDate
+					required
+					initial value is current corporate date
+				PostDate
+					required
+					initial value is current corporate date
+			Action Rules
+				if (ActionType.Create)
+					invoke CreateStockIssue RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany			= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 				= InventoryDocumentGroup.InventoryLocation
+						invoked.ToCompanyLocationGroup						= InventoryDocumentGroup.ToCompanyLocationGroup
+						invoked.TranDate									= TranDate
+						invoked.PostDate									= PostDate
+						invoked.Quantity									= Quantity
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+				else	
+				if (ActionType.Append)
+					invoke AppendStockIssue RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany						= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 					= InventoryDocumentGroup.InventoryLocation
+						invoked.InventoryTransactionLineGroup						= InventoryDocumentGroup.InventoryTransaction
+						invoked.Quantity									= Quantity
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+
+		StockTransfer is an Instance Action
+			valid when (AllowTransfers)
+			default label is "StockTransfer"
+			
+			Parameters
+		    	ActionType				is AlphaUpper size 1
+		    		States
+		    			Create				value is 1
+		    			Append				value is 2
+				Quantity 				is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+				TranUom					is an UnitOfMeasure
+				InventoryDocumentGroup
+				TranDate				is Date		
+				PostDate				is Date
+				CtwSecondaryQty			is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+				ToBin					is AlphaUpper size 7
+
+			Parameter Rules
+				ActionType
+					required
+					initial value is ActionType.Create
+				Quantity
+					required
+					initial value is RemainingQuantity
+					constraint (Quantity !> RemainingQuantity)
+						"CannotExceedRemainingQuantity_(QuantityFoundLessQuantitiesForActionTaken)"
+				TranUom
+					if (!RecallProductItem.IsItemMaster)
+						required
+				TranDate
+					required
+					initial value is current corporate date
+				PostDate
+					required
+					initial value is current corporate date
+
+			Action Rules
+				if (ActionType.Create)
+					invoke CreateStockTransfer RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany			= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 				= InventoryDocumentGroup.InventoryLocation
+						invoked.ToCompanyLocationGroup						= InventoryDocumentGroup.ToCompanyLocationGroup
+						invoked.TranDate									= TranDate
+						invoked.PostDate									= PostDate
+						invoked.Quantity									= Quantity
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+						invoked.ToBin										= InventoryDocumentGroup.ToCompanyLocationGroup.Bin
+				else	
+				if (ActionType.Append)
+					invoke AppendStockTransfer RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany		= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 			= InventoryDocumentGroup.InventoryLocation
+						invoked.InventoryTransactionLineGroup.InventoryTransaction	= InventoryDocumentGroup.InventoryTransaction
+						invoked.Quantity									= Quantity
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+						invoked.ToBin										= ToBin
+						
+		StockAdjustment is an Instance Action
+			valid when (AllowAdjustments)
+			default label is "StockAdjustment"
+			
+			Parameters
+		    	ActionType				is AlphaUpper size 1
+		    		States
+		    			Create				value is 1
+		    			Append				value is 2
+				Quantity 				is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+				TranUom					is an UnitOfMeasure
+				InventoryDocumentGroup
+				TranDate				is Date		
+				PostDate				is Date
+				CtwSecondaryQty			is Decimal size 13.4
+					precision is Item.NumberOfDecimalsQuantity
+
+			Parameter Rules
+				ActionType
+					required
+					initial value is ActionType.Create
+				Quantity
+					required
+					initial value is RemainingQuantity * -1
+					if (Quantity < 1)
+						constraint ((Quantity * -1) !> RemainingQuantity)
+							"CannotExceedRemainingQuantity_(QuantityFoundLessQuantitiesForActionTaken)"
+					else
+						constraint (Quantity !> RemainingQuantity)
+							"CannotExceedRemainingQuantity_(QuantityFoundLessQuantitiesForActionTaken)"
+				TranUom
+					if (!RecallProductItem.IsItemMaster)
+						required
+				TranDate
+					required
+					initial value is current corporate date
+				PostDate
+					required
+					initial value is current corporate date
+
+			Action Rules
+				if (ActionType.Create)
+					invoke CreateStockAdjustment RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany		= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 			= InventoryDocumentGroup.InventoryLocation
+						invoked.TranDate									= TranDate
+						invoked.PostDate									= PostDate
+						if (Quantity < 1)
+							invoked.Quantity									= Quantity
+						else
+							invoked.Quantity									= Quantity * -1
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+				else	
+				if (ActionType.Append)
+					invoke AppendStockAdjustment RecallProductItemAction
+						invoked.RecallGroup									= RecallGroup
+						invoked.RecallNotice								= RecallNotice
+						invoked.RecallProduct								= RecallProduct
+						invoked.RecallProductItem							= RecallProductItem
+						invoked.InventoryTransactionLineGroup.InventoryCompany		= InventoryDocumentGroup.InventoryCompany
+						invoked.InventoryTransactionLineGroup.Location	 			= InventoryDocumentGroup.InventoryLocation
+						invoked.InventoryTransactionLineGroup.InventoryTransaction	= InventoryDocumentGroup.InventoryTransaction
+						if (Quantity < 1)
+							invoked.Quantity									= Quantity
+						else
+							invoked.Quantity									= Quantity * -1
+						if (RecallProductItem.IsItemMaster)
+							invoked.TranUom									= Item.StockUOM
+						else
+							invoked.TranUom									= TranUom
+						invoked.ActionType									= ActionType
+						invoked.CtwSecondaryQty								= CtwSecondaryQty
+						invoked.Bin											= InventoryDocumentGroup.Bin
+						
+		PopulateItemRecallNotice is a Set Action
+			restricted
+
+			Instance Selection
+				where (IsOpenRecallNotice)
+
+			Sort Order
+				RecallGroup
+				Item
+
+			Local Fields
+				LocalMaxRestrictRequisition is Numeric size 2
+				LocalMaxRestrictIssue       is Numeric size 2
+				
+			Action Rules
+				Item Set Rules
+					Entrance Rules
+						initialize LocalMaxRestrictRequisition
+						initialize LocalMaxRestrictIssue
+
+					Exit Rules
+						invoke PopulateRecallNotice Item
+							invoked.PrmRequisitionRecallNotice    = LocalMaxRestrictRequisition
+							invoked.PrmInventoryIssueRecallNotice = LocalMaxRestrictIssue
+
+				Instance Rules
+					if (RecallNotice.RestrictRequisitionCreation > LocalMaxRestrictRequisition)
+						LocalMaxRestrictRequisition = RecallNotice.RestrictRequisitionCreation
+
+					if (RecallNotice.RestrictInventoryIssue > LocalMaxRestrictIssue)
+						LocalMaxRestrictIssue = RecallNotice.RestrictInventoryIssue
+
+		ProcessItemRecallNotice is a Set Action 
+			restricted
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+						
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+	
+
+
+
+
+
+
+
+
+							
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+					
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+						

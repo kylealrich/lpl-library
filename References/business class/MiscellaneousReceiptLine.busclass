@@ -1,0 +1,115 @@
+MiscellaneousReceiptLine is a BusinessClass
+    owned by mscm
+    prefix is MSMRL
+
+    Ontology
+        symbolic key is MiscellaneousReceiptLine
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        CarrierTrackingNumber
+        VendorCarrier           is a MobileSupplyChainVendor
+
+    Local Fields
+
+    Field Rules
+
+    Derived Fields
+
+    Actions
+        Create is a Create Action
+            valid when (IsUnreleased)
+
+        Update is an Update Action
+            valid when (IsUnreleased)
+
+        Delete is a Delete Action
+            valid when (IsUnreleased)
+
+        ProcessDelivery is a Set Action
+
+            Parameters
+                PrmMobileSupplyChainCompany         is a MobileSupplyChainCompany
+                PrmMobileSupplyChainLocation        is a MobileSupplyChainLocation
+                PrmMiscellaneousReceipt             is a MiscellaneousReceipt
+                PrmPrintFlag                        is Boolean
+                PrmMobileSupplyChainDeliveryTicket  is a MobileSupplyChainDeliveryTicket
+
+            Instance Selection
+                where (Company                      = PrmMobileSupplyChainCompany
+                and    MobileSupplyChainLocation    = PrmMobileSupplyChainLocation
+                and    MiscellaneousReceipt         = PrmMiscellaneousReceipt)
+
+            Sort Order is primary
+
+            Local Fields
+                LocalMobileSupplyChainDeliveryEvent     is like MobileSupplyChainDeliveryEvent
+                LocalMobileSupplyChainDeliveryUnitView  is a MobileSupplyChainDeliveryUnit view
+                LocalMobileSupplyChainDeliveryLineView  is a MobileSupplyChainDeliveryLine view
+                LocalLineCounter                        is Numeric size 6
+                AsyncId					                is an AsyncActionRequest
+                LocalMobileSupplyChainCompany           is like MobileSupplyChainCompany
+                LocalMobileSupplyChainLocation          is like MobileSupplyChainLocation
+            Action Rules
+                MiscellaneousReceipt Set Rules
+                    Exit Rules
+                        invoke Update PrmMobileSupplyChainDeliveryTicket
+                            invoked.NumberOfLines = LocalLineCounter
+
+                        invoke CreateDockLogEvent MobileSupplyChainDeliveryLine  in background
+                            assign async action request id to AsyncId
+                            invoked.PrmCompany                          = Company
+                            invoked.PrmMobileSupplyChainLocation        = MobileSupplyChainLocation
+                            invoked.PrmMobileSupplyChainDeliveryTicket  = PrmMobileSupplyChainDeliveryTicket
+                        
+                        invoke CreateEventForAllLines PrmMobileSupplyChainDeliveryTicket  in background
+                            run after AsyncId
+                            invoked.PrmPerformedAction = PerformedAction.Received
+                            invoked.PrmTimeSubmitted   = MiscellaneousReceipt.TimeSubmitted
+                                
+                        if (PrmPrintFlag)
+                            invoke Print PrmMobileSupplyChainDeliveryTicket
+                                invoked.PrmReportPrinter        = MiscellaneousReceipt.ReportPrinter
+                                invoked.PrmLabelPrinter         = MiscellaneousReceipt.LabelPrinter
+
+                Instance Rules
+                    invoke Create MobileSupplyChainDeliveryUnit
+                        assign result to LocalMobileSupplyChainDeliveryUnitView
+                        invoked.Company                             = Company
+                        invoked.MobileSupplyChainLocation           = MobileSupplyChainLocation
+                        invoked.MobileSupplyChainDeliveryTicket     = PrmMobileSupplyChainDeliveryTicket
+                        invoked.CarrierTrackingNumber               = CarrierTrackingNumber
+                        invoked.Status                              = MobileSupplyChainDeliveryUnit.Status.Received
+
+                    invoke Create MobileSupplyChainDeliveryLine
+                        assign result to LocalMobileSupplyChainDeliveryLineView
+                        invoked.Company                             = Company
+                        invoked.MobileSupplyChainLocation           = MobileSupplyChainLocation
+                        invoked.MobileSupplyChainDeliveryTicket     = PrmMobileSupplyChainDeliveryTicket
+                        invoked.MobileSupplyChainDeliveryUnit       = LocalMobileSupplyChainDeliveryUnitView.MobileSupplyChainDeliveryUnit
+                        invoked.LastPerformedAction                 = PerformedAction.Received
+                        invoked.OriginatingLineNumber               = MiscellaneousReceiptLine
+                        
+                    if (MiscellaneousReceipt.DeliveryNoteCode entered)
+                        invoke CreateNote LocalMobileSupplyChainDeliveryUnitView.MobileSupplyChainDeliveryUnit
+                            invoked.PrmDeliveryNoteCode = MiscellaneousReceipt.DeliveryNoteCode
+                            invoked.PrmDeliveryNote     = MiscellaneousReceipt.DeliveryNote
+
+                    increment LocalLineCounter
+                        
+    Sets
+        ByCarrierTrackingNumber
+            Sort Order
+                CarrierTrackingNumber descending
+                VendorCarrier
+                Company
+                MobileSupplyChainLocation
+                MiscellaneousReceipt
+                MiscellaneousReceiptLine
+    
+    Conditions
+        IsUnreleased
+            when (MiscellaneousReceipt.Status.Unreleased)

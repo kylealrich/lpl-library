@@ -1,0 +1,375 @@
+BillOfLading is a BusinessClass
+    owned by wh
+    prefix is BOL
+    classic name is BILLOFLAD
+
+    Ontology
+        symbolic key is BillOfLading
+            classic set name is BOLSET1
+            classic name is BOL-NBR
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Location            is an InventoryLocation
+            classic name is INV-LOCATION
+        Carrier             is a Vendor
+        ShippingMethod
+            classic name is METHOD
+        BillOfLadingPrinted is Boolean
+            classic name is BOL-PRINT-FL
+        NumberOfShipments   is Numeric size 6
+            classic name is SHIP-COUNT
+  	
+  	Local Fields
+  		LocalStatus			   is Numeric size 1
+  		LocalFreightCharges	   is an InternationalAmount
+  		LocalTotalWeight	   is like StockWeight	
+  		LocalTotalCubic		   is like StockVolume 
+  		LocalNumberOfCartons   is like NumberOfCartons
+    	LocalNumberOfShipments is Numeric size 6
+    	LocalDerviedCheck	   is Boolean
+    	LocalShipmentDate	   is Date    	
+    	LocalShipmentStatus    is Numeric size 1
+    	IDMGenerateDocument
+		IDMJob
+		LocalCarrier		   is a Vendor
+		LocalCODOrders		   is AlphaUpper 1
+		LocalBillOfLading	   is like BillOfLading
+		LocalIDMPrinter		   is an IDMPrinter
+		IDMXMLDefinition
+		AttributeCtr				is Numeric 2
+		LocalExecute				is Boolean
+    	
+    Conditions
+
+        IsNotPrinted
+        	restricted
+            when (not BillOfLadingPrinted)
+		
+		HasShipments
+			restricted
+			when (WarehouseShipmentsRel exist)
+    
+    Relations
+
+        PayablescompanyRel
+            one-to-one relation to PayablesCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+
+		WarehouseShipmentsRel
+			one-to-many relation to WarehouseShipment
+			Field Mapping uses Set2
+				related.Company				= Company
+				related.InventoryLocation	= Location 
+				related.BillOfLading		= BillOfLading
+			Instance Selection	
+				where (related.Status <= 3)
+				
+    	WarehouseShipmentsReadyForBolPrint
+    		one-to-many relation to WarehouseShipment
+    		Field Mapping uses Set2
+    			related.Company				= Company
+    			related.InventoryLocation	= Location
+    			related.BillOfLading		= BillOfLading
+    		Instance Selection
+    			where (related.Status    	= LocalShipmentStatus
+    			and    related.ShipDate    <= LocalShipmentDate
+    			and	 ((LocalBillOfLading not entered and related.BillOfLadingIDMDocumentSequence = 0)
+    			or	  (related.BillOfLading = LocalBillOfLading))
+    			and	 ((LocalCODOrders = "N")
+    			or    (LocalCODOrders = "Y" and related.IsCashOnDeliveryShipment)))			
+    			
+    	UserDefaultPrinterRel
+			one-to-one relation to UserDefaultPrinter
+			Field Mapping uses symbolic key
+				related.UserDefaultPrinter.Actor	= actor
+
+		IDMAdditionalAttributesLinesRel
+			one-to-many relation to IDMAdditionalAttributesLines
+			Field Mapping uses symbolic key
+				related.IDMAdditionalAttributesHeader = "FSM_BillOfLading"
+			Instance Selection
+				where(related.IDMAdditionalAttributesHeader.ActivateAdditionalAttributes
+				and	  related.ActivateAdditionalAttributes.Active)
+    
+    Sets
+
+        Set2
+            indexed
+            Instance Selection
+                where (IsNotPrinted)
+            Sort Order
+                Company
+                BillOfLading
+	
+	Rule Blocks
+  		DeriveByCubicOrWeight
+		  	if (!LocalDerviedCheck)
+		  		for each WarehouseShipmentsRel
+		  			LocalTotalCubic  		+= each.StockVolume
+		  			LocalTotalWeight 		+= each.StockWeight
+		  			LocalNumberOfCartons	+= each.NumberOfCartons
+					LocalNumberOfShipments	+= 1
+					LocalDerviedCheck		= true
+	Derived Fields
+		ContextMessageEntityType is a StringField
+			type is Alpha 30
+			restricted
+			"InforPackageLabel"
+
+		ContextMessageText is a MessageField
+			restricted
+			"BillOfLading<BillOfLading>"
+			
+		TotalCubic is a DerivedField
+			type is like StockVolume
+			include DeriveByCubicOrWeight
+			return LocalTotalCubic
+		
+		TotalWeight is a DerivedField
+			type is like StockWeight
+			include DeriveByCubicOrWeight
+			return 	LocalTotalWeight
+		
+		TotalCartons is a DerivedField
+			type is like StockWeight
+			include DeriveByCubicOrWeight
+			return LocalNumberOfCartons 
+			
+		DerivedFileName			is a StringField
+			type is Alpha 100
+			restricted
+			"Bill of Lading "
+			Company
+			"-"
+			Location
+			"-"
+			BillOfLading
+			
+		DerivedCurrentDate is a DerivedField
+			type is Date
+			return current corporate date
+			
+		DerivedCarrier is a DerivedField
+			type is like Vendor
+			return LocalCarrier
+			
+		DerivedCarrierName is a DerivedField 
+			type is like VendorName
+			holds pii
+			return LocalCarrier.VendorName
+			
+		DerivedCODOrders is a DerivedField
+			type is Alpha 3
+			if (LocalCODOrders = "Y")
+				return "Yes"
+			else
+				return "No"
+				
+		DerivedShipmentStatus is a DerivedField
+			type is Alpha 22
+			if (LocalShipmentStatus = 3)
+				return "Shipped Not Released"
+			else
+			if (LocalShipmentStatus = 4)
+				return "Released Not Invoiced"
+			else
+				return "Invoiced"
+				
+		DerivedShipmentDate is a DerivedField
+			type is Date
+			return LocalShipmentDate
+			
+		DerivedBillOfLading	is a DerivedField
+			type is like BillOfLading
+			return LocalBillOfLading
+			
+		DerivedIDMPrinter is a DerivedField
+			type is like IDMPrinter
+			return LocalIDMPrinter
+			
+	Field Rules
+		
+		Company 
+			constraint (PayablescompanyRel exists)
+				"PayablesCompanyDoesNotExist" 			
+		
+		Carrier
+			required
+				"CarrierMustBeAssignedToABillOfLading"   
+		
+		ShippingMethod
+			default to first WarehouseShipmentsRel.ShippingMethod
+		
+		Location
+			required
+			cannot be changed
+				"CannotChangeLocation"		
+	
+	Actions
+		Create is a Create Action
+			restricted
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			restricted
+		
+		AllocateFreight is an Instance Action
+			valid when (HasShipments)
+			Parameters
+				PrmFreightCode			is a BillingFreightCode
+				PrmTotalCharges			is an InternationalAmount
+				PrmAllocateBy			is Alpha size 1
+					States
+						Cubic 			value is "C"
+						Weight			value is "W"
+		  	Parameter Rules
+		  		PrmFreightCode
+					required
+						"FreightCodeIsRequired"	
+				PrmAllocateBy
+					initial value is PrmAllocateBy.Cubic
+					default to PrmAllocateBy.Cubic
+			
+			Action Rules
+				include DeriveByCubicOrWeight
+				LocalStatus	= first WarehouseShipmentsRel.Status
+				
+				for each WarehouseShipmentsRel
+					constraint (each.Status = LocalStatus)
+						"AllShipmentsInBillOfLadingAreNotInTheSameStatus"
+					
+					constraint (!each.Status.Shipped)
+						"CannotAllocateFreightCharges;Shipment<each.WarehouseShipment>IsInShippedState"
+						
+					if (PrmAllocateBy.Cubic)
+						if (LocalTotalCubic entered)
+							LocalFreightCharges = PrmTotalCharges * (each.StockVolume / LocalTotalCubic)
+						else
+							LocalFreightCharges = PrmTotalCharges / LocalNumberOfShipments
+					
+					if (PrmAllocateBy.Weight)
+						if (LocalTotalWeight entered)
+							LocalFreightCharges = PrmTotalCharges * (each.StockWeight / LocalTotalWeight)
+						else
+							LocalFreightCharges = PrmTotalCharges / LocalNumberOfShipments
+					
+					invoke UpdateFromBillOfLading each
+						invoked.PrmFreightCharges = LocalFreightCharges
+						invoked.PrmFreightCode	  = PrmFreightCode
+		
+		Finish is an Instance Action
+			Action Rules
+				for each WarehouseShipmentsRel
+					invoke UpdateStatusFromBillOfLading each
+						invoked.PrmFinish = true				
+						
+		Undo is an Instance Action
+			Action Rules
+				for each WarehouseShipmentsRel
+					invoke UpdateStatusFromBillOfLading each
+
+		UpdateFromWarehouse is an Instance Action
+			restricted
+			Parameters
+				PrmNumberOfShipments is Numeric size 6
+			
+			Action Rules
+				NumberOfShipments += PrmNumberOfShipments 	
+			
+			Exit Rules
+				if (NumberOfShipments = 0)
+					invoke Delete
+					
+		PrintBillOfLading	is an Instance Action
+			restricted
+			Parameters
+				PrmShipmentDate 		is Date
+				PrmShipmentStatus		is Numeric size 1
+				PrmIDMPrinter			is an IDMPrinter
+				PrmCarrier				is a Vendor
+				PrmCODOrders			is AlphaUpper 1
+					States
+                		Yes value is "Y"
+                		No  value is "N"
+                PrmBillOfLading			is like BillOfLading
+				
+			Parameter Rules
+				PrmShipmentDate
+					required
+				PrmShipmentStatus
+					required
+					
+			Local Fields
+				IDMAttributes
+				
+
+			Action Rules
+				LocalShipmentDate 	= PrmShipmentDate
+				LocalShipmentStatus = PrmShipmentStatus
+				LocalCarrier		= PrmCarrier
+				LocalCODOrders		= PrmCODOrders
+				LocalBillOfLading	= PrmBillOfLading
+				LocalIDMPrinter		= PrmIDMPrinter
+				
+				if (((LocalBillOfLading not entered and IsNotPrinted)
+				or  LocalBillOfLading entered)
+				and WarehouseShipmentsReadyForBolPrint exists)
+	    			LocalIDMPrinter = PrmIDMPrinter
+					
+					IDMGenerateDocument.IDMXMLDefinition.Busclass											= reference to this instance
+					IDMGenerateDocument.IDMXMLDefinition.ListName											= "BillOfLadingListForIDM"
+					IDMGenerateDocument.IDMXMLDefinition.DocumentName										= "WarehouseBillOfLading"
+					
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].RelationName			= "WarehouseShipmentsReadyForBolPrint"
+	    			IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListName 			= "WarehouseShipmentListForIDM"
+	    			IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].LevelSection1		= 1
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ListTag				= "ShipmentDetails"
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[1].ItemTag				= "ShipmentDetail"
+					
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].RelationName			= "WarehouseShipmentLinesRel"
+	    			IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListName 			= "WarehouseShipmentLinesListForIDM"
+	    			IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection1		= 1
+	    			IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].LevelSection2		= 1
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ListTag				= "ShipmentLines"
+					IDMGenerateDocument.IDMXMLDefinition.IDMXMLChildren.IDMXMLChild[2].ItemTag				= "ShipmentLine"
+					
+					initialize IDMAttributes
+	 				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName  	= "Company"
+					IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue  	= Company
+					IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName  	= "BillOfLading"
+					IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue  	= BillOfLading
+					IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeName  	= "InventoryLocation"
+					IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeValue  	= Location
+					IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeName  	= "Carrier"
+					IDMAttributes.SingleValue.IDMAttribute[4].IDMAttributeValue  	= Carrier
+					IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeName  	= "CompanyName"
+					IDMAttributes.SingleValue.IDMAttribute[5].IDMAttributeValue  	= Company.Name
+					IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeName  	= "InventoryLocationName"
+					IDMAttributes.SingleValue.IDMAttribute[6].IDMAttributeValue  	= Location.Name
+
+					if (IDMAdditionalAttributesLinesRel exists)
+						AttributeCtr = 7
+						include IDM.IDMAdditionalAttributes
+					
+					IDMGenerateDocument.IDMAttributes		= IDMAttributes
+					IDMGenerateDocument.TemplateUniqueId	= Company.BillOfLadingTemplate.IDMUniqueId
+					IDMGenerateDocument.DocumentType		= "FSM_BillOfLading"
+	    			IDMGenerateDocument.FileName			= DerivedFileName + Company.BillOfLadingTemplate.DerivedOutputFormat
+	    			if (LocalIDMPrinter entered)
+	    				IDMGenerateDocument.IDMPrinter		= LocalIDMPrinter 
+	    			
+	    			IDMGenerateDocument.IDMAccessControlList = "CSFDefined"
+	    			
+	    			invoke CreateFromGenerateDocument IDMJob
+	    				invoked.Actor				= actor
+	    				invoked.Description			= "Warehouse Bill Of Lading"
+	    				invoked.IDMGenerateDocument	= IDMGenerateDocument
+	    			
+	    			for each WarehouseShipmentsReadyForBolPrint
+						invoke UpdateBillOfLadingDocumentSequence each

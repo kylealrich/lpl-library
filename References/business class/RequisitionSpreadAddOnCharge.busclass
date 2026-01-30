@@ -1,0 +1,354 @@
+RequisitionSpreadAddOnCharge is a BusinessClass
+	owned by rq
+	prefix is RSP
+	classic name is RQAOCSPRD
+
+	Ontology
+		symbolic key is RequisitionSpreadAddOnCharge
+            classic set name is RSPSET1
+            classic name for Requisition is REQ-NUMBER
+            classic name for AddOnCharge is AOC-CODE
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		AddOnChargePercent
+			classic name is AOC-RATE
+		EnteredAddOnChargeAmount is an InternationalAmount
+			classic name is ENT-AOC-AMOUNT
+		CalculatedSpreadAmount   is an InternationalAmount
+			protected
+			classic name is CALC-SPRD-AMT
+		SpreadDifference         is an InternationalAmount
+			protected
+			classic name is SPREAD-DIFF
+		SpreadMethod
+		Taxable                         is Boolean
+		TaxCode
+			classic name is TAXABLE-FLAG
+		Accrual                  is AlphaUpper size 1
+			protected
+			classic name is ACCRUAL-FL
+			States
+				Invoiced value is "I"
+				Accrued  value is "A"
+		TaxAmount                is an InternationalCost
+		PrintOnRequisition       is Boolean
+			classic name is AOC-ON-RQ
+		Summarize                is Boolean
+			classic name is SUMMARY-FLAG
+        Vendor
+        PurchaseFromLocation
+            classic name is PURCH-FR-LOC
+        GlobalDocumentType
+            classic name is GLBL-DOC-TYPE
+        PostingAccount 			 is a TransactionCodeBlock
+	
+	Transient Fields
+		TransientZeroCost	is Boolean 
+			derive value from first RequisitionLineAddOnChargesRel.ZeroCost
+			
+		TransientCurrency	is a Currency
+			derive value from first RequisitionLineAddOnChargesRel.Currency
+		
+		TransientTaxEntity	is a TaxEntity
+			derive value from Requisition.FromCompanyLocation.FromCompany.AccountingEntity						
+	
+	Local Fields
+    	LocalRequisitionLine					is a RequisitionLine
+    	LocalAccountingEntity                   is an AccountingEntity
+    	LocalPostingDate                    	is a PostingDate
+		LocalExchangeDate                   	is an ExchangeDate
+		RoundedValue
+	
+	Derived Fields
+		DerivedLineAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (SpreadMethod not entered)
+				SpreadMethod = AddOnCharge.SpreadMethod
+			if (SpreadMethod.Quantity)
+				return LocalRequisitionLine.Quantity
+			if (SpreadMethod.Amount or SpreadMethod.Rate)
+				return LocalRequisitionLine.ApprovalValue
+			if (SpreadMethod.Weight)
+				return LocalRequisitionLine.Item.StockWeight
+			if (SpreadMethod.Volume)
+				return LocalRequisitionLine.Item.StockVolume
+		
+		AddonChargeContextField is a MessageField
+			"<AddOnCharge>_-_<AddOnCharge.Description>"
+	
+	Conditions
+		ValidRequisitionSpreadMethod
+			restricted
+			when (SpreadMethod.Amount
+			or SpreadMethod.Rate
+			or SpreadMethod.Quantity)
+			
+		CanCreate
+			restricted
+			when (!Requisition.InterfaceInProcess
+			and   Requisition.Status.Unreleased)
+			
+		IsSpreadByWeight
+			restricted
+			when (SpreadMethod.Weight)
+
+		IsSpreadByVolume
+			restricted
+			when (SpreadMethod.Volume)
+			
+		IsSpreadByRate
+			restricted
+			when (SpreadMethod.Rate)
+	
+		DisplayAccounting
+			restricted
+			when (RequesterRel.DisplayAccounting)
+		
+		DisplayVendor
+			restricted
+			when (RequesterRel.DisplayVendor)
+		
+		DisplayPurchaseFrom
+			restricted
+			when (RequesterRel.DisplayPurchaseFrom)
+
+		DisplayTaxInfo
+			restricted
+			when (RequesterRel.DisplayTaxInfo)
+			
+	Relations		
+		ValidRequisitionLinesRel
+			one-to-many relation to RequisitionLine
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.Requisition		= Requisition
+			Instance Selection
+				where ((not related.ItemType.Inventoried or (related.CreatePurchaseOrder and not Company.CostingMethod.StandardCosting))
+				and     related.TransactionUnitCost entered)
+		
+		DuplicateRequisitionLineAddOnChargeRel
+			one-to-one relation to RequisitionLineAddOnCharge
+			Field Mapping uses symbolic key
+				related.Company			= Company
+				related.Requisition		= Requisition
+				related.RequisitionLine	= LocalRequisitionLine
+				related.AddOnCharge		= AddOnCharge
+			
+		RequisitionLineAddOnChargesRel
+			one-to-many relation to RequisitionLineAddOnCharge
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.Company		= Company
+				and related.Requisition		= Requisition
+				and related.AddOnCharge		= AddOnCharge
+				and related.RequisitionLine entered)	
+
+		RequesterRel
+			one-to-one relation to Requester
+			Field Mapping uses symbolic key
+				related.HROrganization = actor.agent(Employee).HROrganization
+				related.Requester = actor.agent(Employee).Employee.Requester.Requester	
+		
+	Field Rules
+		AddOnCharge
+			constraint (not AddOnCharge.SpreadMethod.NoSpread)
+				"MustUseAOCCodeWithSpreadMethodOtherThan='N'"
+				
+		AddOnChargePercent
+			if (SpreadMethod.Rate or (SpreadMethod not entered and AddOnCharge.SpreadMethod.Rate))
+				default to AddOnCharge.AddOnChargePercent
+			if (TransientZeroCost)
+				constraint (AddOnChargePercent not entered and AddOnCharge.AddOnChargePercent not entered)
+					"CannotEnterRateAndSpecifyZeroCost"
+			if (not SpreadMethod.Rate or (SpreadMethod not entered and not AddOnCharge.SpreadMethod.Rate))
+				cannot be entered
+					"RateCannotBeEnteredWhenNotSpreadingByRate"
+			if (EnteredAddOnChargeAmount not entered and not TransientZeroCost)
+				if (SpreadMethod.Rate or (SpreadMethod not entered and AddOnCharge.SpreadMethod.Rate))
+					required
+						"MustEnterAddOnCostRate"
+				
+		EnteredAddOnChargeAmount
+			if (AddOnCharge.AddOnChargeType.Cost)
+				constraint (EnteredAddOnChargeAmount > 0)
+					"CostTypeAOC,CannotEnterNegativeTotalOrUnitCost"
+			if (TransientZeroCost)
+				cannot be entered
+					"CannotEnterAmountAndSpecifyZeroCost"
+			if (SpreadMethod.Rate or (SpreadMethod not entered and AddOnCharge.SpreadMethod.Rate))
+				cannot be entered
+					"AmountCannotBeEnteredWhenSpreadingByRate"
+			if (AddOnChargePercent not entered and not TransientZeroCost)
+				required
+					"MustEnterAddOnCostAmount"
+					
+		TaxCode
+			if (AddOnCharge.TaxCode entered)
+				default to AddOnCharge.TaxCode
+			if (Taxable)
+				required
+					"AddOnCostTaxableButNoTaxCodeEntered"
+			else
+				constraint (TaxCode not entered)
+					"CannotHaveTaxCodeAndTaxableFlag='N'"		
+		
+		Taxable
+			if (AddOnCharge.TaxCode entered)
+				force default to true
+				
+		PostingAccount
+			if (AddOnCharge.LandedAddOnCharge)
+				force default to blank
+			else
+				default to AddOnCharge.PostingAccount
+			
+			if (PostingAccount.Project entered)     
+				LocalExchangeDate = Requisition.CreationDate
+				LocalPostingDate  = current corporate date
+				
+		Accrual
+			initial value is TaxCode.TaxCodeAccountsRel.AccruedOrInvoiced
+			default to TaxCode.TaxCodeAccountsRel.AccruedOrInvoiced
+		
+		PrintOnRequisition
+			initial value is true	
+				when (this instance not exists)
+				
+		SpreadMethod
+			default to AddOnCharge.SpreadMethod
+			constraint (not SpreadMethod.NoSpread)
+				"MustUseAddOnChargeWithSpreadMethodOtherThanNO"
+			
+			if (SpreadMethod.Rate)
+				initialize EnteredAddOnChargeAmount
+			else
+				initialize AddOnChargePercent
+				
+			if (SpreadMethod.Weight
+			or  SpreadMethod.Volume)
+				for each Requisition.RequisitionLinesWithCostRel
+					constraint (each.Item.StockWeight entered or not IsSpreadByWeight)
+						"WeightNotDefinedOrAllLinesExcluded"
+					constraint (each.Item.StockVolume entered or not IsSpreadByVolume)
+						"VolumeNotDefinedOrAllLinesExcluded"
+						
+		TransientTaxEntity
+			force default to Requisition.FromCompanyLocation.FromCompany.AccountingEntity
+				
+	Actions
+		Create is a Create Action
+			valid when (CanCreate)
+			Local Fields
+    			LocalSpreadTotal  		 				is an InternationalAmount 
+    			LocalLineSpreadAmount					is an InternationalAmount 
+    			LocalAbsoluteEnteredAmount				is an InternationalAmount
+    			    			
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity
+				if (not TransientZeroCost)
+					constraint (EnteredAddOnChargeAmount entered or AddOnChargePercent entered or AddOnCharge.AddOnChargePercent entered)
+						"MustEnterAtLeastOneCost,Rate,OrZeroCostValue"
+				constraint (not Requisition.Vendor.ERSCapable)
+					"RequisitionVendorIsERSCapable;AOCSpreadNotAllowed"
+				if (not Vendor = Requisition.Vendor and Vendor entered and not Requisition.Vendor.ERSCapable)
+					constraint (not Vendor.ERSCapable)
+						"RequisitionVendorIsNon-ERSCapable;AOCVendorMustAlsoBeNon-ERSCapable"
+				
+				constraint (ValidRequisitionLinesRel exists)
+					"NoLinesToSpreadAgainst"	
+					
+				if (SpreadMethod not entered)
+					if (AddOnChargePercent > 0)
+						SpreadMethod = SpreadMethod.Rate
+					else
+						SpreadMethod = AddOnCharge.SpreadMethod	
+					constraint (not SpreadMethod.Volume and not SpreadMethod.Weight)
+						"CannotSpreadByVolumeOrWeightForRQAocs"
+				
+				if (EnteredAddOnChargeAmount entered)
+					if (AddOnCharge.AddOnChargeType.Allowance)
+						LocalAbsoluteEnteredAmount = EnteredAddOnChargeAmount
+						if (LocalAbsoluteEnteredAmount < 0)	
+							LocalAbsoluteEnteredAmount *= -1
+						constraint (LocalAbsoluteEnteredAmount <= Requisition.ApprovalValue)
+							"AllowanceAOCAmountCannotExceedRequisitionTotal"	
+						if (EnteredAddOnChargeAmount > 0)	
+							EnteredAddOnChargeAmount *= -1
+
+				if (AddOnChargePercent entered)			
+					if (AddOnCharge.AddOnChargeType.Allowance)
+						constraint (AddOnChargePercent <= 100%)
+							"AllowanceAOCRateCannotExceed100Percent"
+			Exit Rules
+				if (not SpreadMethod.NoSpread)					
+					for each ValidRequisitionLinesRel
+						LocalRequisitionLine = each.RequisitionLine
+						constraint (not DuplicateRequisitionLineAddOnChargeRel exists)
+							"CannotAdd,AddOnCostAlreadyExistsOnLine<LocalRequisitionLine>"
+						LocalSpreadTotal += DerivedLineAmount
+				
+				for each ValidRequisitionLinesRel
+					LocalRequisitionLine = each.RequisitionLine
+					if (not SpreadMethod.NoSpread)
+						initialize RoundedValue				
+						RoundedValue.RoundInput			= ((DerivedLineAmount/LocalSpreadTotal)* EnteredAddOnChargeAmount)				
+						RoundedValue.RoundingType		= RoundedValue.RoundingType.Low				
+						RoundedValue.RoundTo			= .01						
+					    LocalLineSpreadAmount  			= RoundedValue.RoundResult
+							
+					invoke Create RequisitionLineAddOnCharge
+						invoked.Company						= Company
+						invoked.Requisition					= Requisition
+						invoked.RequisitionLine				= LocalRequisitionLine
+						invoked.AddOnCharge					= AddOnCharge
+						invoked.Vendor						= Vendor
+						invoked.PurchaseFromLocation	 	= PurchaseFromLocation
+						invoked.Quantity					= LocalRequisitionLine.Quantity
+						invoked.AddOnChargeEntryMethod		= "T"
+						invoked.TotalAddOnChargeAmount		= LocalLineSpreadAmount
+						invoked.AddOnChargePercent		 	= AddOnChargePercent
+						invoked.TaxCode					 	= TaxCode
+						invoked.Taxable						= Taxable
+						invoked.PrintOnRequisition			= PrintOnRequisition
+						invoked.Summarize					= Summarize
+						invoked.ZeroCost					= TransientZeroCost
+						invoked.LandedAddOnCharge			= AddOnCharge.LandedAddOnCharge
+						invoked.Currency					= TransientCurrency
+						invoked.GlobalDocumentType			= GlobalDocumentType
+						invoked.Account						= PostingAccount
+					
+				if (not IsSpreadByRate)
+					for each RequisitionLineAddOnChargesRel
+						CalculatedSpreadAmount += each.TotalAddOnChargeAmount
+					
+					SpreadDifference = EnteredAddOnChargeAmount - CalculatedSpreadAmount
+					
+				if (SpreadDifference entered)
+					invoke AddSpreadDifference first RequisitionLineAddOnChargesRel
+						invoked.PrmSpreadDifference = SpreadDifference
+					CalculatedSpreadAmount += SpreadDifference
+					initialize SpreadDifference 
+		
+		CopyFromRequisition is a Create Action
+			restricted
+			Action Rules
+				LocalAccountingEntity = Company.AccountingEntity	
+						
+		Delete is a Delete Action
+			valid when (!Requisition.InterfaceInProcess)
+			Entrance Rules
+				constraint (Requisition.Status.Unreleased)
+					"CannotChange,RequisitionHasBeenReleased"
+				for each RequisitionLineAddOnChargesRel
+					invoke DeleteRequisitionAddOnCharge each
+
+		Purge is a Purge Action
+			restricted
+			
+					

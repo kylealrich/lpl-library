@@ -1,0 +1,144 @@
+DebtInstrumentRating is a BusinessClass
+	owned by treasury	
+	prefix is DMDIR
+	
+	Ontology
+		symbolic key is DebtInstrumentRating
+
+	Persistent Fields
+		RatingAgency				is Alpha up to 100
+		Description					is Alpha up to 250
+		Rating						is Alpha 10
+		RatingAgencyURL				is an URL
+			default label is "Website"
+		AsOfDate					is Date
+	
+	Local Fields
+		LocalDebtInstrumentGroup	is a DebtInstrumentGroup
+	
+	Derived Fields
+		RatingChangeEmail is a MessageField
+			restricted
+			"RatingsHaveChangedForDebtInstrument<LocalDebtInstrumentGroup.DebtInstrument>:<LocalDebtInstrumentGroup.DebtInstrumentIdentifier>"
+			
+	Field Rules
+		RatingAgency
+			required
+				"RatingAgencyIsRequired"
+		
+		Description
+			default to RatingAgency
+			
+		Rating
+			required
+				"RatingIsRequired"
+		
+		AsOfDate
+			initial value is current corporate date
+			default to current corporate date
+	
+	Relations
+		DebtInstrumentLatestRatingRel
+			one-to-many relation to DebtInstrumentRating
+			Field Mapping uses ByRatingAgencyAsOfDate
+				related.CashManagementGroup	= CashManagementGroup
+				related.DebtInstrument		= DebtInstrument
+				related.RatingAgency		= RatingAgency
+			Instance Selection
+				where (related.AsOfDate > AsOfDate)
+	
+		DebtInstrumentIdentifierRatingNotificationRel
+			one-to-many relation to DebtInstrumentIdentifier
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= CashManagementGroup
+				related.DebtInstrument		= DebtInstrument
+			Instance Selection
+				where (related.DebtInstrument.DebtStatus.Outstanding
+				and	   related.RateDependentOnRating)
+				
+	Conditions
+		IsLatestVersion
+			restricted
+			when (!DebtInstrumentLatestRatingRel exists)
+			
+		URLEntered
+			restricted
+			when (RatingAgencyURL entered)
+	
+	Sets
+		ByAsOfDate
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				AsOfDate	descending
+				DebtInstrumentRating
+		
+		ByRatingAgencyAsOfDate	
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				RatingAgency
+				AsOfDate
+				DebtInstrumentRating
+				
+		ByRatingAgency
+			Sort Order
+				CashManagementGroup
+				DebtInstrument
+				RatingAgency
+				AsOfDate	descending
+				DebtInstrumentRating
+	
+	Rule Blocks
+		RatingChangeNotification
+			if (DebtInstrumentIdentifierRatingNotificationRel exists)
+				for each DebtInstrumentIdentifierRatingNotificationRel
+					LocalDebtInstrumentGroup.DebtInstrument = each.DebtInstrument
+					LocalDebtInstrumentGroup.DebtInstrumentIdentifier = each.DebtInstrumentIdentifier
+					
+					if (each.DebtNotification.FinanceResource entered)
+						send notification
+							to each.DebtNotification.FinanceResource.agent(Actor).Actor	
+							description is "<RatingChangeEmail>"
+							priority is high
+							detail is "<RatingChangeEmail>"
+
+							linkback(webapp is TreasuryManager navigation is DebtInstrumentIdentifierNavigation text is "DebtInstrumentRatingChange")
+										
+						send email
+							to 		each.DebtNotification.FinanceResource.EmailAddress
+							from 	CashManagementGroup.BankInterfaceAdministrator.EmailAddress
+							subject "<RatingChangeEmail>"
+							Contents 
+								"<RatingChangeEmail>"
+					else
+						for each each.DebtNotification.FinanceTeam.FinanceTeamMemberRel
+							send notification
+								to each.FinanceTeamMember.TeamMember.agent(Actor).Actor	
+								description is "<RatingChangeEmail>"
+								priority is high
+								detail is "<RatingChangeEmail>"
+
+								linkback(webapp is TreasuryManager navigation is DebtInstrumentIdentifierNavigation text is "DebtInstrumentRatingChange")
+											
+							send email
+								to 		each.FinanceTeamMember.TeamMember.EmailAddress
+								from 	CashManagementGroup.BankInterfaceAdministrator.EmailAddress
+								subject "<RatingChangeEmail>"
+								Contents 
+									"<RatingChangeEmail>"
+												
+	Actions
+		Create is a Create Action
+			Action Rules
+				include RatingChangeNotification
+				
+		Update is an Update Action
+			Action Rules
+				if (Rating changed)
+					include RatingChangeNotification
+		
+		Delete is a Delete Action
+		
+		Purge is a Purge Action
+			restricted

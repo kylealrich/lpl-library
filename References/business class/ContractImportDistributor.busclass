@@ -1,0 +1,1486 @@
+ContractImportDistributor is a BusinessClass
+	owned by po
+	
+	prefix is CIDI
+	
+	Ontology
+		symbolic key is ContractImportDistributor
+		
+	Patterns
+	
+	Persistent Fields
+		DistributorContractNumber         is a Contract   
+		DistributorPricingCode            is like ContractDistributorPricing  
+		DistributorPricingTitle           is a Description  
+		MarkupPercent					  is a Percent  
+		EffectiveDate                     is Date
+		ExpirationDate                    is Date
+		Priority                          is Numeric size 1
+		GPODistributorSupplier            is a GPOSupplierID
+		DoNotCreateDistributorContract    is Boolean
+				
+	Local Fields
+		LocalNewContract                  is like Contract
+		LocalContractGroup                is like ContractGroup
+		LocalContractImport               is like ContractImport
+		LocalImportDistributor		      is like ContractImportDistributor
+		LocalContract                     is a Contract
+		LocalMemberCompany	 			  is like InventoryCompany
+		LocalMemberLocation	 			  is like InventoryLocation
+		LocalMemberRequestingLocation	  is like RequestingLocation
+		LocalMemberPricingGroup           is like PricingGroup
+		LocalMemberManufacturerContract   is like Contract
+		LocalDistributorContract          is like Contract
+		LocalSupplier                     is like Supplier
+		LocalDistributorPricingCode       is like ContractDistributorPricing  
+		LocalGPOMembership                is like ContractImportGPOMembership 
+		LocalManufacturerNumber           is a ManufacturerNumber 
+		LocalLineNumber                   is like ContractLineImport
+		LocalNewVendor			    	  is like Vendor
+		LocalNewPurchaseFrom			  is like PurchaseFromLocation
+		StandardMarkupCalculation         is Boolean
+		LocalAutoUpdateContracts          is Boolean
+		LocalGPOContract                  is like GPOContractNumber
+		LocalExpirationDate               is Date
+		LocalEffectiveDate                is Date 
+		FromMarkupChange                  is Boolean
+		LocalFromImportUnlink             is Boolean 
+		LocalSupplierSourceId             is like SupplierSourceId
+
+	Transient Fields
+		LeavePercentAtZero                is Boolean
+		FromTierDistributor               is Boolean
+		ContractSupplier                  is a Supplier 
+			derive value from ContractImportDistributor
+
+	Derived Fields
+		
+		DistributorName is a DerivedField
+			type is Alpha size 30
+			return SupplierRel.SupplierName
+		
+		ConvertedPercent is a DerivedField
+			type is Unsigned Decimal size 5.2
+			return MarkupPercent * 100
+			
+	Field Rules
+	
+		DistributorPricingCode
+		
+			if (DistributorContractNumber entered
+			and	DistributorPricingCode changed)
+				constraint (!DistributorPricingExists)
+					"CannotChangePricingCode;CodeIsAlreadyAttachedToDistributorContract"
+
+		DistributorPricingTitle
+		
+			default to DistributorPricingCode
+			
+			if (DistributorPricingTitle entered)
+				constraint (DistributorPricingCode entered)
+					"MustEnterPricingCodeIfPricingTitleEntered"
+	
+		DistributorContractNumber
+			
+			if (DistributorContractNumber entered)
+			
+				constraint (!DistributorContractNumber.ContractStatus.Closed)
+					"CannotEnterAClosedDistributorContract"	
+					
+				constraint (!NoDateOverlap)
+					"CannotUseDistributorContract;TheDateRangeForTheInterfaceContractIsCompetelyOutsideTheDateRangeForTheDistributorContract"		
+			
+			if (DistributorContractNumber changed)
+			
+				if (old DistributorContractNumber entered)
+					LocalDistributorContract = old DistributorContractNumber
+					invoke DeleteParentFromContract RelatedContractRel
+					
+				if (DistributorContractNumber entered)
+					invoke CreateRelatedContract RelatedContract
+						invoked.ContractGroup	  		   = ContractGroup
+						invoked.Contract		  		   = DistributorContractNumber
+						invoked.RelatedContractID 		   = ContractImport
+						invoked.RelatedContractType		   = 15
+						invoked.RelatedSupplierName 	   = SupplierRel.SupplierName
+						invoked.Supplier				   = ContractImportDistributor
+						invoked.Vendor					   = SupplierRel.Vendor
+						invoked.RelatedContractDescription = ContractImport.DerivedRelatedDescription
+						invoked.ManufacturerCodeDivision   = ContractImportGPOSupplierRel.ManufacturerCodeDivision					
+	
+	Conditions
+	
+		DistributorPricingExists
+			restricted
+			when (ContractDistributorPricingRel exists)
+	
+		OpenDistributorPricingExists
+			restricted
+			when (ContractDistributorPricingRel exists
+			and   !first ContractDistributorPricingRel.Contract.ContractStatus.Closed)
+
+		PricingIdentifierExists
+			restricted
+			when (SameContractDistributorPricingRel exists)
+		
+		MarkupPercentChanged   
+			restricted
+			when  (DistributorContractEntered
+			and   (MarkupPercent >= 0
+			and    MarkupPercent != SameContractDistributorPricingRel.DistributorPricing.DistributorPricingAmtPct.PricingPercent)
+			or    (MarkupPercent < 0
+			and    MarkupPercent != SameContractDistributorPricingRel.DistributorPricing.DistributorPricingAmtPct.PricingPercent * -1))
+		
+		DistributorContractEntered
+			restricted
+			when (DistributorContractNumber entered)
+			
+		DistributorContractClosed
+			restricted
+			when (DistributorContractNumber.ContractStatus.Closed)
+
+		ParticipantsAndLinesExist
+			restricted
+			when (ContractImportTierDistributorRel exists
+			and   ContractLineImportDistributorRel exists)
+			
+		NoParticipantsExist 
+			restricted
+			when (ContractImportTierDistributorConditionRel !exists)
+			
+		NoLinesExist  
+			restricted
+			when (ContractLineImportDistributorConditionRel !exists)
+	
+		ParticipantsAndLinesExistForCreation
+			restricted
+			when (ParticipantsExist
+			and   LinesExist)
+
+		ParticipantsExist
+			restricted
+			when (ContractImportTierDistributorConditionRel exists)
+			
+		LinesExist  
+			restricted
+			when (ContractLineImportDistributorConditionRel exists)			
+
+		NewPurchaseFromLocationExists
+			restricted
+			when (NewPurchaseFromLocationRel exists)
+
+		EligibleForContractCreation
+			restricted
+			when (ContractImport.GPOContractNumber entered
+			and   ParticipantsAndLinesExistForCreation
+			and   ContractImport.DerivedToContract entered
+			and   DoNotCreateDistributorContract = false
+			and  (!DistributorContractEntered
+			or   (DistributorContractEntered
+			and   DistributorContractHasNoManufacturerContract)))
+
+		DistributorContractHasNoManufacturerContract
+			restricted
+			when (ManufacturerContractForDistUpdateRel !exists)
+		
+		VendorEntered
+			restricted
+			when (SupplierRel.Vendor entered)
+
+		NewSupplierNotMapped
+			restricted
+			when (!GPODistributorSupplierRel.SupplierMapped)
+			
+		NewSupplierMapped
+			restricted
+			when (GPODistributorSupplierRel.SupplierMapped)
+
+		VendorMapped
+			restricted
+			when (GPODistributorSupplierRel.VendorEntered)	
+
+		SupplierChanged   
+			when (ContractImportGPOSupplierBothMatchRel !exists)
+	
+		SupplierChangedFromMapping
+			when (DistributorContractNumber entered
+			and   ContractImportDistributor != DistributorContractNumber.Supplier)		
+
+		SupplierChangedFromGPOOrMapping
+			when (SupplierChanged
+			or    SupplierChangedFromMapping)
+		
+		ReplenishmentLinesExist
+			restricted
+			when (ContractLineImportDistributorReplenishmentRel exists)
+
+		OpenPOLinesExist
+			restricted
+			when (OpenPurchaseOrderLinesRel exists)
+
+		OpenReqLinesExist
+			restricted
+			when (DistributorContractNumber entered
+			and   OpenRequisitionLinesRel exists)
+
+		MarkupByContract
+			restricted
+			when (CreateGPODistributorContractNumberRel exists)
+		
+		MarkupByManufacturerSupplier
+			restricted
+			when (CreateGPODistributorManufacturerSupplierRel exists)
+
+		MarkupBySupplier
+			restricted
+			when (CreateGPODistributorSupplierOnlyRel exists)
+
+		MembersNeedingACode
+			restricted
+			when (MemberWithDifferentPercent exists
+			and   ContractGroup.GPOIsHealthTrust)
+
+		NoDateOverlap
+			restricted
+  			when (ContractImport.ExpirationDate < DistributorContractNumber.EffectiveDate
+  			or    ContractImport.EffectiveDate > DistributorContractNumber.ExpirationDate)
+
+		HasMissingDistributorContractLines 
+			restricted 
+			when (DistributorContractLinesMissingRel exists)
+		
+		DistributorContractHasManufacturerContract
+			restricted
+			when (ManufacturerContractForDistUpdateRel exists)
+
+		CanAddMissingLines 
+			restricted 
+			when (DistributorContractHasManufacturerContract
+			and   HasMissingDistributorContractLines)
+		
+		CanUpdateSupplierForGPO
+			restricted
+			when ((SupplierChanged
+			and   NewSupplierMapped)
+			or    SupplierChangedFromMapping)	
+
+		HasDistributorLinesWithContracts
+			restricted 
+			when (DistributorContractLineHasContractRel exists)	
+	Relations
+	
+     	DistributorContractLineHasContractRel
+ 			one-to-many relation to ContractLineImportDistributor
+			Field Mapping uses BySupplier 
+				related.ContractGroup 				= ContractGroup 
+				related.ContractImport              = ContractImport
+				related.DistributorSupplier	    	= ContractImportDistributor
+			Instance Selection 
+				where (related.ContractVendorItem entered)
+
+		ContractGPODistributorRel
+			one-to-many relation to ContractGPODistributor
+			Field Mapping uses BySupplier
+				related.GPOContractNumber           = ContractImport.GPOContractNumber
+			Instance Selection
+				where (related.MarkupPercent = ConvertedPercent)  
+
+		CreateGPODistributorContractNumberRel
+			one-to-many relation to ContractGPODistributor
+			Field Mapping uses BySupplier
+				related.GPOContractNumber           = ContractImport.GPOContractNumber
+				related.ItemSupplier                = GPODistributorSupplier
+
+		DistributorContractLinesMissingRel 	
+			one-to-many relation to ContractLineImportDistributor 
+			Field Mapping uses BySupplier 
+				related.ContractGroup 				= ContractGroup 
+				related.ContractImport              = ContractImport
+				related.DistributorSupplier	    	= ContractImportDistributor
+			Instance Selection 
+				where (related.MissingDistributorContractLine)
+		
+		ContractGPOItemRel
+			one-to-many relation to ContractGPOItem
+			Field Mapping uses BySupplier
+				related.GPOContractNumber           = ContractImport.GPOContractNumber
+				related.ItemSupplier                = GPODistributorSupplier 
+
+		ContractGHXItemRel
+			one-to-many relation to ContractGPOGHXInterface
+			Field Mapping uses ByContractVendorEID
+				related.ContractNumber              = ContractImport.GPOContractNumber
+				related.VendorEID                   = GPODistributorSupplier
+
+		ContractGPOParticipantForDistributorRel   
+ 			one-to-many relation to ContractGPOParticipant
+			Field Mapping uses ByItemSupplier
+				related.GPOContractNumber           = ContractImport.GPOContractNumber
+				related.ItemSupplier                = GPODistributorSupplier 
+
+		CreateGPODistributorSupplierOnlyRel
+			one-to-many relation to ContractGPODistributor
+			Field Mapping uses BySupplierOnly
+				related.ItemSupplier                = GPODistributorSupplier
+
+		CreateGPODistributorManufacturerSupplierRel
+			one-to-many relation to ContractGPODistributor
+			Field Mapping uses ByManufacturerSupplierOnly
+				related.ItemSupplier                = GPODistributorSupplier
+				related.ManufacturerSupplier        = ContractImport.ManufacturerSupplier
+
+		ContractGPOTermRel
+			one-to-many relation to ContractGPOTerm
+			Field Mapping uses ByGPOContractNumber
+				related.GPOContractNumber    = ContractImport.GPOContractNumber 
+			Instance Selection
+				where (related.ManufacturerSupplier = GPODistributorSupplier) 
+
+		SameContractImportDistributorRel
+			one-to-many relation to ContractImportDistributor
+			Field Mapping uses symbolic key
+				related.ContractGroup      			= ContractGroup
+				related.ContractImport     			= ContractImport
+				related.ContractImportDistributor 	= LocalSupplier
+
+		ContractImportGPOSupplierRel
+			one-to-many relation to ContractImportGPOSupplier
+			Field Mapping uses ByContractSupplier
+				related.SupplierGroup               = ContractGroup
+				related.ContractSupplier            = ContractImportDistributor 
+		
+		ContractImportGPOSupplierBothMatchRel
+			one-to-many relation to ContractImportGPOSupplier
+			Field Mapping uses ByContractSupplier
+				related.SupplierGroup               = ContractGroup
+				related.ContractSupplier            = ContractImportDistributor
+				related.ContractImportGPOSupplier   = GPODistributorSupplier
+
+		GPODistributorSupplierRel
+			one-to-many relation to ContractImportGPOSupplier
+			Field Mapping uses symbolic key
+				related.SupplierGroup               = ContractGroup
+				related.ContractImportGPOSupplier   = GPODistributorSupplier 
+
+		NewPurchaseFromLocationRel
+			one-to-one relation to PurchaseFromLocation
+			Field Mapping uses symbolic key
+				related.VendorGroup          = ContractGroup
+				related.Vendor               = LocalNewVendor
+				related.PurchaseFromLocation = LocalNewPurchaseFrom 
+
+		SameContractDistributorPricingRel
+			one-to-many relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup     			= ContractGroup
+				related.Contract          			= DistributorContractNumber
+				related.ContractDistributorPricing  = DistributorPricingCode  
+				
+		ContractDistributorPricingRel
+			one-to-many relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup     			= ContractGroup
+				related.Contract          			= DistributorContractNumber
+
+		MatchingPricingIdentifierRel
+			one-to-one relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup     			= ContractGroup
+				related.Contract          			= DistributorContractNumber
+				related.ContractDistributorPricing  = LocalDistributorPricingCode			
+
+		PricingIdentifierRel
+			one-to-one relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = LocalContract
+				related.ContractDistributorPricing     = DistributorPricingCode
+				
+		MemberPricingIdentifierRel
+			one-to-one relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = LocalContract
+				related.ContractDistributorPricing     = LocalDistributorPricingCode
+
+		ManufacturerContractRel
+			one-to-one relation to ManufacturerContract
+			Field Mapping uses ByPivotId
+				related.ContractGroup                  = LocalContractGroup
+				related.Contract                       = LocalContract
+				related.ManufacturerContractNumber     = LocalNewContract 
+
+		ManufacturerContractForDistUpdateRel
+			one-to-one relation to ManufacturerContract
+			Field Mapping uses ByPivotId
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = DistributorContractNumber
+				related.ManufacturerContractNumber     = ContractImport.DerivedToContract 		
+
+		DistributorContractNotLocalRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = DistributorContractNumber
+				
+		DistributorContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = LocalContractGroup
+				related.Contract                       = LocalContract
+								
+		NewSupplierSourceIDRel
+			one-to-one relation to SupplierSourceId
+			Field Mapping uses symbolic key
+				related.SupplierGroup                   = ContractGroup
+				related.Supplier                        = LocalSupplier
+				related.SupplierSourceId                = LocalSupplierSourceId
+
+		DistributorContractNavigationRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.Contract                       = DistributorContractNumber
+
+		ContractImportTierMemberRel
+			one-to-many relation to ContractImportTierMember
+			Field Mapping uses ByMembership
+				related.ContractGroup                  = ContractGroup
+				related.GPOContractNumber              = ContractImport.GPOContractNumber
+				related.ContractImportGPOMembership    = LocalGPOMembership				
+
+		AllContractImportTierMembers2021
+			one-to-many relation to ContractImportTierMember
+			Field Mapping uses symbolic key
+				related.ContractGroup                  = ContractGroup
+				related.ContractImport                 = ContractImport
+
+		ContractImportTierDistributorConditionRel
+			one-to-many relation to ContractImportTierDistributor
+			Field Mapping uses ByDistributor
+				related.ContractGroup                  = ContractGroup
+				related.ContractImport                 = ContractImport
+				related.ContractImportTierDistributor  = ContractImportDistributor
+						
+		ContractImportTierDistributorForNew
+			one-to-many relation to ContractImportTierDistributor
+			Field Mapping uses ByGPOMembership
+				related.ContractGroup                  = LocalContractGroup
+				related.ContractImport                 = LocalContractImport
+				related.ContractImportGPOMembership    = LocalGPOMembership
+				related.ContractImportTierDistributor  = LocalSupplier
+
+		ContractImportTierDistributorRel
+			one-to-many relation to ContractImportTierDistributor
+			Field Mapping uses ByDistributor
+				related.ContractGroup                  = LocalContractGroup
+				related.ContractImport                 = LocalContractImport
+				related.ContractImportTierDistributor  = LocalImportDistributor
+									
+		MemberWithDifferentPercent		
+        	one-to-many relation to ContractImportTierDistributor
+        	Field Mapping uses ByDistributor
+        		related.ContractGroup					= ContractGroup
+        		related.ContractImport  				= ContractImport
+        		related.ContractImportTierDistributor 	= ContractImportDistributor
+        	Instance Selection
+        		where (related.MarkupPercent           != MarkupPercent
+        		and    related.DistributorPricingCode  !entered)
+
+		MemberWithSamePercent		
+        	one-to-many relation to ContractImportTierDistributor
+        	Field Mapping uses ByDistributor
+        		related.ContractGroup					= ContractGroup
+        		related.ContractImport  				= ContractImport
+        		related.ContractImportTierDistributor 	= ContractImportDistributor
+        	Instance Selection
+        		where (related.MarkupPercent            = MarkupPercent)
+
+		ContractLineImportDistributorConditionRel
+			one-to-many relation to ContractLineImportDistributor
+			Field Mapping uses BySupplier
+				related.ContractGroup                  = ContractGroup
+				related.ContractImport                 = ContractImport
+				related.DistributorSupplier            = ContractImportDistributor
+
+		ContractLineImportDistributorReplenishmentRel
+			one-to-many relation to ContractLineImportDistributor
+			Field Mapping uses BySupplier
+				related.ContractGroup                  = ContractGroup
+				related.ContractImport                 = ContractImport
+				related.DistributorSupplier            = ContractImportDistributor
+			Instance Selection
+				where (related.ReplenishmentExists)
+
+		ContractLineImportDistributorRel
+			one-to-many relation to ContractLineImportDistributor
+			Field Mapping uses BySupplier
+				related.ContractGroup                  = LocalContractGroup
+				related.ContractImport                 = LocalContractImport
+				related.DistributorSupplier            = LocalImportDistributor
+
+		DistributorContractNumberRel
+			one-to-many relation to ManufacturerContract
+			Field Mapping uses ByMfgNbr
+				related.ContractGroup                 = ContractGroup
+				related.ManufacturerContractNumber    = LocalContract
+			Instance Selection
+				where (related.Contract.Supplier      = ContractImportDistributor)
+
+		DistributorPricingIdentifierRel
+			one-to-many relation to ContractDistributorPricing
+			Field Mapping uses symbolic key
+				related.ContractGroup                 = ContractGroup
+				related.Contract                      = LocalDistributorContract
+			Instance Selection
+				where (related.DistributorPricing.DistributorPricingAmtPct.PricingPercent = MarkupPercent) 
+		
+		SupplierRel
+			one-to-one relation to Supplier
+			Field Mapping uses symbolic key
+				related.SupplierGroup                  = ContractGroup
+				related.Supplier                       = ContractImportDistributor
+	
+		SupplierSourceIdRel
+			one-to-many relation to SupplierSourceId
+			Field Mapping uses symbolic key
+				related.SupplierGroup                  = ContractGroup
+				related.Supplier                       = ContractImportDistributor
+			Instance Selection
+				where (related.PrimaryContact = true)
+				
+		OpenPurchaseOrderLinesRel
+			one-to-many relation to PurchaseOrderLine
+			Field Mapping uses ByContractLine
+				related.ProcurementGroup      = ContractGroup
+				related.Contract              = DistributorContractNumber
+			Instance Selection
+				where (related.Closed = "N")
+		
+		OpenRequisitionLinesRel
+			one-to-many relation to RequisitionLine
+			Field Mapping uses ByContract
+				related.Contract              = DistributorContractNumber
+			Instance Selection
+				where (related.SourceRecordExists = false
+				and    related.Closed             = false)
+
+		ContractDistributorPricingMemberRel
+			one-to-one relation to ContractDistributorPricingMember
+			Field Mapping uses symbolic key
+				related.ContractGroup                  							= ContractGroup
+				related.Contract                       							= LocalContract                     
+				related.ContractDistributorPricingMember.Company 				= LocalMemberCompany	 			  
+				related.ContractDistributorPricingMember.Location		 		= LocalMemberLocation	 			  
+				related.ContractDistributorPricingMember.RequestingLocation 	= LocalMemberRequestingLocation	  
+				related.ContractDistributorPricingMember.PricingGroup 			= LocalMemberPricingGroup           
+				related.ContractDistributorPricingMember.ManufacturerContract 	= LocalMemberManufacturerContract   
+
+		RelatedContractRel
+			one-to-many relation to RelatedContract
+			Field Mapping uses ByContractType
+				related.ContractGroup               = ContractGroup
+				related.Contract                    = LocalDistributorContract
+				related.RelatedContractType         = 15
+
+		MainItemRel
+			one-to-many relation to ContractLineImport
+			Field Mapping uses ByGPOContractNumber
+				related.ContractGroup               				= ContractGroup
+				related.GPOContractNumber              				= LocalGPOContract
+				related.ManufacturerInformation.ManufacturerNumber  = LocalManufacturerNumber 
+
+		ContractGPOSupplierDatesRel
+			one-to-many relation to ContractGPOSupplier
+			Field Mapping uses ByGPOContractNumber
+				related.GPOContractNumber	= ContractImport.GPOContractNumber 
+				related.GPOSupplier         = GPODistributorSupplier
+			Instance Selection
+				where (related.ContractDistributorEffectiveDate > EffectiveDate)
+				
+		ContractGPOSupplierExpirationDatesRel
+			one-to-many relation to ContractGPOSupplier
+			Field Mapping uses ByGPOContractNumber
+				related.GPOContractNumber	= ContractImport.GPOContractNumber 
+				related.GPOSupplier         = GPODistributorSupplier
+			Instance Selection
+				where (related.ContractDistributorExpireDate > ExpirationDate)				
+				
+	Sets
+	
+		ByDistributorSupplier
+			Sort Order
+				ContractGroup
+				GPODistributorSupplier
+				ContractImport
+				ContractImportDistributor
+
+		ByDistributorContractNumber
+			Sort Order
+				ContractGroup
+				DistributorContractNumber
+				ContractImport
+				ContractImportDistributor				
+	
+	Create Rules
+	
+		DistributorPricingCode                          = ContractGroup.DefaultGPOPricing
+		DistributorPricingTitle                         = ContractGroup.DefaultGPOPricingTitle
+
+	Create Exit Rules
+	
+		DistributorContractNumber = first ContractImportGPOSupplierBothMatchRel.DefaultDistributorContract
+		DoNotCreateDistributorContract = first ContractImportGPOSupplierBothMatchRel.DoNotCreateDistributorContract
+		if (LeavePercentAtZero = false)
+			if (ContractGroup.GPOIsHealthTrust
+			or (ContractGroup.GPOIsHealthTrust2021
+			and MarkupByContract)
+			or  StandardMarkupCalculation)
+				if (MarkupByContract)
+					MarkupPercent                       = first CreateGPODistributorContractNumberRel.MarkupPercent/100
+				else
+					MarkupPercent                       = first CreateGPODistributorSupplierOnlyRel.MarkupPercent/100
+			else
+			if (ContractGroup.GPOIsVizient)
+				if (MarkupByContract)
+					if (first CreateGPODistributorContractNumberRel.MarkupPercent > 1)
+						MarkupPercent                       = (first CreateGPODistributorContractNumberRel.MarkupPercent - 1)
+					else 
+					if (CreateGPODistributorContractNumberRel.MarkupPercent < -1)				
+						MarkupPercent                       = (first CreateGPODistributorContractNumberRel.MarkupPercent + 1)				
+					else
+						MarkupPercent                       = 0					
+				else
+				if (MarkupByManufacturerSupplier)
+					if (first CreateGPODistributorManufacturerSupplierRel.MarkupPercent > 1)
+						MarkupPercent                       = (first CreateGPODistributorManufacturerSupplierRel.MarkupPercent - 1)
+					else
+					if (first CreateGPODistributorManufacturerSupplierRel.MarkupPercent < 1)
+						MarkupPercent                       = ((1- first CreateGPODistributorManufacturerSupplierRel.MarkupPercent) * -1)
+					else
+						MarkupPercent                       = 0						
+				else
+					if (first CreateGPODistributorSupplierOnlyRel.MarkupPercent > 1)
+						MarkupPercent                       = (first CreateGPODistributorSupplierOnlyRel.MarkupPercent - 1)
+					else
+					if (first CreateGPODistributorSupplierOnlyRel.MarkupPercent < 1)
+						MarkupPercent                       = ((1- first CreateGPODistributorSupplierOnlyRel.MarkupPercent) * -1)
+					else
+						MarkupPercent                       = 0
+			else
+			if (ContractGroup.GPOIsGHX)
+				if (MarkupPercent > 1)
+					MarkupPercent 	= MarkupPercent - 1
+				else
+				if (MarkupPercent < 1)
+					MarkupPercent   = 1 - MarkupPercent
+				
+	Actions
+	
+		Create is a Create Action
+			restricted
+			
+			Action Rules
+			
+			Exit Rules
+
+
+		Update is an Update Action
+		
+			Action Rules
+				if (DistributorContractNumber changed
+				and DistributorContractNumber entered)
+				
+					constraint (DistributorContractNumber.IsDistributorContract)
+						"MustEnterADistributorContractInTheDistributorContractNumberField" 
+				
+					constraint (ContractImportDistributor = DistributorContractNumber.Supplier) 
+						"DistributorContractSupplierMustBeTheSameAsDistributor"
+						
+				if (DistributorContractNumber changed
+				and old DistributorContractNumber entered
+				and DistributorContractNumber entered)
+					if (old DistributorContractNumber exists)
+						confirmation required
+							"TheOldDistributorContractStillExistsAndYouAreChangingIt;DoYouWantToContinue?"
+				
+				if (DistributorContractNumber changed
+				and LocalFromImportUnlink = false)
+					if (HasDistributorLinesWithContracts)
+						invoke UnlinkFromDistributorContract ContractLineImportDistributor
+							invoked.ParmContractGroup 	= ContractGroup 
+							invoked.ParmContractImport	= ContractImport
+
+				if (DistributorPricingCode changed
+				and !FromTierDistributor
+				and  ContractGroup.GPOIsHealthTrust)
+					invoke UpdatePricingCode MemberWithSamePercent
+						invoked.ParmDistributorPricingCode    = DistributorPricingCode
+						invoked.ParmDistributorPricingTitle   = DistributorPricingTitle
+
+				if (DoNotCreateDistributorContract changed
+				and DoNotCreateDistributorContract = true
+				and DistributorContractNumber entered)
+					constraint (DistributorContractNavigationRel !exists)
+						"CannotSetDoNotCreateDistributorContractToTrue,DistributorContractExists"
+				
+				if (ContractGroup.GPOIsGHX
+				and FromMarkupChange = true)							
+					if (LeavePercentAtZero = true)
+						MarkupPercent = 0
+					else
+					if (MarkupPercent < 100)
+						MarkupPercent 	= MarkupPercent - 1
+					else
+					if (MarkupPercent > 100)
+						MarkupPercent   = 1 - MarkupPercent
+
+		UpdateFromGHX is an Update Action
+			restricted
+			
+			Action Rules
+			
+			Exit Rules
+				
+				ExpirationDate = ContractImport.ExpirationDate
+				invoke UpdateGPOSupplier ContractLineImportDistributor
+					invoked.ParmContractGroup   	= ContractGroup
+					invoked.ParmContractImport  	= ContractImport
+					invoked.ParmDistributorSupplier = ContractImportDistributor
+					invoked.NewGPOSupplier          = GPODistributorSupplier					
+		
+		Delete is a Delete Action
+			restricted
+			
+		UpdateDistributorDates is an Instance Action 
+			restricted
+			
+			Action Rules
+				if (ContractGPOSupplierDatesRel exists
+				or  ContractGPOSupplierExpirationDatesRel exists)
+					LocalExpirationDate = ExpirationDate
+					LocalEffectiveDate  = EffectiveDate 
+					ExpirationDate = first ContractGPOSupplierExpirationDatesRel.ContractDistributorExpireDate	
+					EffectiveDate  = first ContractGPOSupplierDatesRel.ContractDistributorEffectiveDate
+					if (ExpirationDate !entered)
+						ExpirationDate = LocalExpirationDate
+
+				if (LocalEffectiveDate != EffectiveDate
+				or  LocalExpirationDate != ExpirationDate)
+					if (EffectiveDate < DistributorContractNumber.EffectiveDate
+					or  ExpirationDate > DistributorContractNumber.ExpirationDate)
+						invoke UpdateContractDates DistributorContractNumber
+							if (EffectiveDate < this instance.DistributorContractNumber.EffectiveDate)
+								invoked.NewEffectiveDate	= EffectiveDate
+							if (ExpirationDate > this instance.DistributorContractNumber.ExpirationDate)
+								invoked.NewExpirationDate	= ExpirationDate
+							invoked.FromUpdateProcess   = true					
+		
+		UpdateDistributorDatesGHX is an Instance Action 
+			restricted 
+			Parameters 
+				NewExpirationDate is Date 
+
+			Action Rules 
+				invoke UpdateContractDates DistributorContractNumber
+					invoked.NewEffectiveDate	= DistributorContractNumber.EffectiveDate
+					invoked.NewExpirationDate	= NewExpirationDate
+					invoked.FromUpdateProcess   = true	
+					invoked.FromGHXInterface    = true 					
+
+		
+		ClearDistributorContract is an Instance Action
+			restricted 
+			
+			Action Rules
+			
+				initialize DistributorContractNumber				
+
+		LinkToContract is an Instance Action
+			restricted
+			Parameters
+				ParmManufacturerContract is a Contract
+				
+			Action Rules
+			
+				LocalContract = ParmManufacturerContract
+				if (DistributorContractNumberRel exists
+				and DoNotCreateDistributorContract = false)
+					DistributorContractNumber = DistributorContractNumberRel.Contract 
+					
+					LocalDistributorContract = DistributorContractNumberRel.Contract
+					if (DistributorPricingIdentifierRel exists)
+						DistributorPricingCode    =  DistributorPricingIdentifierRel.ContractDistributorPricing  
+						DistributorPricingTitle   =  DistributorPricingIdentifierRel.Title
+				
+					invoke LinkToDistributorContractVendorItem ContractLineImportDistributor
+						invoked.ParmContractGroup              = ContractGroup
+						invoked.ParmContractImport             = ContractImport
+						invoked.DistributorContractNumber  	   = DistributorContractNumber
+						invoked.ParmGPOSupplier                = GPODistributorSupplier
+						
+					invoke CreateRelatedContract RelatedContract
+						invoked.ContractGroup	  		   = ContractGroup
+						invoked.Contract		  		   = DistributorContractNumber
+						invoked.RelatedContractID 		   = ContractImport
+						invoked.RelatedContractType		   = 15
+						invoked.RelatedSupplierName 	   = SupplierRel.SupplierName
+						invoked.Supplier				   = ContractImportDistributor
+						invoked.Vendor					   = SupplierRel.Vendor
+						invoked.RelatedContractDescription = ContractImport.DerivedRelatedDescription
+						invoked.ManufacturerCodeDivision   = ContractImportGPOSupplierRel.ManufacturerCodeDivision		
+								
+		CreateOrUpdateDistributorContract is an Instance Action
+			valid when (EligibleForContractCreation)
+			
+			Action Rules
+			
+				if ((DistributorContractNumber entered
+				and !DistributorPricingExists)
+				or   DistributorContractNumber !entered)
+					constraint (DistributorPricingCode entered
+					and         DistributorPricingTitle entered)
+						"MustEnterDistributorPricingCodeAndTitle"
+				
+				invoke CreateAndUpdateDistributorContracts
+					invoked.ParmContractGroup 					= ContractGroup
+					invoked.ParmContractImport 					= ContractImport
+					invoked.NewContract         				= ContractImport.DerivedToContract
+					invoked.FromContractCreation    			= true
+					if (DistributorContractNumber entered)
+						invoked.ParmDistributorContractNumber 	= DistributorContractNumber 
+
+		LoadDistributorSupplier is a Set Action
+			restricted
+			
+			Action Rules
+			
+				Instance Rules
+				
+					GPODistributorSupplier = first ContractImportGPOSupplierRel.ContractImportGPOSupplier			
+
+        AddNewDistributor is a Create Action
+        	restricted
+			Action Rules
+			
+			Exit Rules
+				
+				DistributorContractNumber = first ContractImportGPOSupplierBothMatchRel.DefaultDistributorContract
+
+				if (ContractGroup.GPOIsGHX)
+					for each ContractGHXItemRel
+						LocalManufacturerNumber = each.ManufacturerPartNumber
+						LocalGPOContract        = ContractImport.GPOContractNumber
+						LocalLineNumber         = first MainItemRel.ContractLineImport
+						if (MainItemRel exists)						
+							invoke Create ContractLineImportDistributor
+								invoked.ContractGroup        = ContractGroup
+								invoked.ContractImport       = ContractImport
+								invoked.ContractLineImport   = LocalLineNumber
+								invoked.DistributorSupplier  = ContractImportDistributor   
+								if (each.VendorPartNumber entered)
+									invoked.VendorItem     	 = each.VendorPartNumber
+								else 
+									invoked.VendorItem       = LocalManufacturerNumber
+								invoked.GPOSupplier          = GPODistributorSupplier  
+
+						LocalGPOMembership		= each.OrganizationEID
+						LocalSupplier           = GPODistributorSupplierRel.ContractSupplier
+						LocalContractGroup      = ContractGroup
+						LocalContractImport     = ContractImport
+						if (ContractImportTierMemberRel exists
+						and ContractImportTierDistributorForNew !exists)
+							invoke Create ContractImportTierDistributor
+								invoked.ContractGroup 									= ContractGroup
+								invoked.ContractImport          						= ContractImport
+								invoked.ContractImportTierMember.Company                = first ContractImportTierMemberRel.ContractImportTierMember.Company                         						
+		            			invoked.ContractImportTierMember.Location               = first ContractImportTierMemberRel.ContractImportTierMember.Location 
+		            			invoked.ContractImportTierMember.RequestingLocation     = first ContractImportTierMemberRel.ContractImportTierMember.RequestingLocation
+		            			invoked.ContractImportTierMember.PricingGroup		    = first ContractImportTierMemberRel.ContractImportTierMember.PricingGroup
+		            			invoked.ContractImportTierDistributor                   = GPODistributorSupplierRel.ContractSupplier
+	    						invoked.ContractImportGPOMembership                     = LocalGPOMembership
+
+				if (ContractGroup.GPOIsHealthTrust
+				or  ContractGroup.GPOIsVizient
+				or  ContractGroup.GPOIsHealthTrust2021)
+					for each ContractGPOItemRel
+						LocalManufacturerNumber = each.ManufacturerPart
+						LocalGPOContract        = ContractImport.GPOContractNumber
+						LocalLineNumber         = first MainItemRel.ContractLineImport
+						if (MainItemRel exists)
+							invoke Create ContractLineImportDistributor
+								invoked.ContractGroup        = ContractGroup
+								invoked.ContractImport       = ContractImport
+								invoked.ContractLineImport   = LocalLineNumber
+								invoked.DistributorSupplier  = ContractImportDistributor   
+								if (each.VendorPart entered)
+									invoked.VendorItem       = each.VendorPart
+								else
+									invoked.VendorItem       = each.ManufacturerPart 
+								invoked.GPOSupplier          = GPODistributorSupplier  
+								if (each.DistributorMarkupType = "Embedded"
+								and each.DistributorPriceAmount entered
+								and ContractGroup.GPOIsHealthTrust)
+									invoked.DistributorCost  = each.DistributorPriceAmount 
+								else
+								if (each.ApplyDistributorMarkup = false
+								and ContractGroup.GPOIsHealthTrust2021)
+									invoked.DistributorCost  = each.Price									
+
+				if (ContractGroup.GPOIsHealthTrust
+				or  ContractGroup.GPOIsVizient)
+					for each ContractGPOParticipantForDistributorRel
+						LocalGPOMembership		= each.GPOMembership
+						LocalSupplier           = GPODistributorSupplierRel.ContractSupplier
+						LocalContractGroup      = ContractGroup
+						LocalContractImport     = ContractImport
+						if (ContractImportTierMemberRel exists
+						and ContractImportTierDistributorForNew !exists)
+							invoke Create ContractImportTierDistributor
+								invoked.ContractGroup 									= ContractGroup
+								invoked.ContractImport          						= ContractImport
+								invoked.ContractImportTierMember.Company                = first ContractImportTierMemberRel.ContractImportTierMember.Company                         						
+		            			invoked.ContractImportTierMember.Location               = first ContractImportTierMemberRel.ContractImportTierMember.Location 
+		            			invoked.ContractImportTierMember.RequestingLocation     = first ContractImportTierMemberRel.ContractImportTierMember.RequestingLocation
+		            			invoked.ContractImportTierMember.PricingGroup		    = first ContractImportTierMemberRel.ContractImportTierMember.PricingGroup
+		            			invoked.ContractImportTierDistributor                   = GPODistributorSupplierRel.ContractSupplier
+	    						invoked.ContractImportGPOMembership                     = LocalGPOMembership
+	    						if (ContractGroup.GPOIsHealthTrust)
+		    						if (each.HasDistributorRecord)
+		    							invoked.MarkupPercent                               = each.first ContractGPODistributorRel.MarkupPercent/100 	
+									else
+									if (each.HasDistributorOnlyRecord)
+										invoked.MarkupPercent                               = each.first ContractGPODistributorOnlyRel.MarkupPercent/100 	 
+				
+				if  (ContractGroup.GPOIsHealthTrust2021
+				and !MarkupByContract)
+					for each AllContractImportTierMembers2021
+						LocalGPOMembership		= each.ContractImportGPOMembership
+						LocalSupplier           = GPODistributorSupplierRel.ContractSupplier
+						LocalContractGroup      = ContractGroup
+						LocalContractImport     = ContractImport
+						if (ContractImportTierDistributorForNew !exists)
+							invoke Create ContractImportTierDistributor
+								invoked.ContractGroup                                   = ContractGroup
+								invoked.ContractImport                                  = ContractImport
+								invoked.ContractImportTierMember.Company                = each.ContractImportTierMember.Company                         						
+		            			invoked.ContractImportTierMember.Location               = each.ContractImportTierMember.Location 
+		            			invoked.ContractImportTierMember.RequestingLocation     = each.ContractImportTierMember.RequestingLocation
+		            			invoked.ContractImportTierMember.PricingGroup		    = each.ContractImportTierMember.PricingGroup
+		            			invoked.ContractImportTierDistributor                   = GPODistributorSupplierRel.ContractSupplier
+	       						invoked.ContractImportGPOMembership                     = each.ContractImportGPOMembership
+			    else
+				if  (ContractGroup.GPOIsHealthTrust2021
+				and  MarkupByContract)
+					for each CreateGPODistributorContractNumberRel
+						LocalGPOMembership		= each.ContractImportGPOMembership
+						LocalSupplier           = GPODistributorSupplierRel.ContractSupplier
+						LocalContractGroup      = ContractGroup
+						LocalContractImport     = ContractImport
+						if (ContractImportTierDistributorForNew !exists
+						and ContractImportTierMemberRel exists)
+							invoke Create ContractImportTierDistributor
+								invoked.ContractGroup                                   = ContractGroup
+								invoked.ContractImport                                  = ContractImport
+								invoked.ContractImportTierMember.Company                = ContractImportTierMemberRel.ContractImportTierMember.Company                         						
+		            			invoked.ContractImportTierMember.Location               = ContractImportTierMemberRel.ContractImportTierMember.Location 
+		            			invoked.ContractImportTierMember.RequestingLocation     = ContractImportTierMemberRel.ContractImportTierMember.RequestingLocation
+		            			invoked.ContractImportTierMember.PricingGroup		    = ContractImportTierMemberRel.ContractImportTierMember.PricingGroup
+		            			invoked.ContractImportTierDistributor                   = GPODistributorSupplierRel.ContractSupplier
+	       						invoked.ContractImportGPOMembership                     = each.ContractImportGPOMembership					
+			    
+			    if (LocalAutoUpdateContracts
+			    and EligibleForContractCreation
+			    and DistributorContractNumber entered
+			    and DoNotCreateDistributorContract = false)
+			    	invoke CreateAndUpdateDistributorContracts
+						invoked.ParmContractGroup				= ContractGroup
+						invoked.ParmContractImport  			= ContractImport			
+						invoked.NewContract          			= ContractImport.DerivedToContract
+						invoked.ParmDistributorContractNumber 	= DistributorContractNumber
+						invoked.FromContractCreation            = true
+									    
+        FindChangedContractSuppliers is a Set Action
+        	restricted
+        	Parameters
+        		ParmContractGroup    		is a ContractGroup
+        		ParmGPOSupplier     		is like Supplier
+				AutoUpdateContracts         is Boolean
+				ProcessOnlyUpdatedRecords   is Boolean
+
+        	Instance Selection
+        		where (ContractGroup 					= ParmContractGroup
+        		and    ContractImport.GPOSupplier  		= ParmGPOSupplier
+        		and    ContractImport.GPOContractNumber entered
+       			and   (ProcessOnlyUpdatedRecords = false
+				or    (ProcessOnlyUpdatedRecords = true
+				and    ContractImport.HeaderUpdated))
+                and   (DistributorContractNumber 		!entered
+				or    (DistributorContractNumber 		entered
+				and   !DistributorContractNumber.ContractStatus.Closed)))
+        		        		        
+        	Action Rules
+        		Instance Rules
+        			
+        			LocalContractGroup                 = ContractGroup
+        			LocalContractImport                = ContractImport
+        			LocalImportDistributor             = ContractImportDistributor
+        			
+        			if (ContractGPODistributorRel exists)
+	        			if (first ContractGPODistributorRel.ItemSupplier != GPODistributorSupplier)
+	        				GPODistributorSupplier = first ContractGPODistributorRel.ItemSupplier
+	        				
+	        				invoke UpdateGPOSupplier ContractLineImportDistributor
+	        					invoked.ParmContractGroup   	= ContractGroup
+	        					invoked.ParmContractImport  	= ContractImport
+	        					invoked.ParmDistributorSupplier = ContractImportDistributor
+	        					invoked.NewGPOSupplier          = first ContractGPODistributorRel.ItemSupplier
+	        	
+	        		if (AutoUpdateContracts
+	        		and CanUpdateSupplierForGPO)
+	        			invoke 	ChangeSupplierAndVendor		
+	        				
+		UpdateContractSupplier is a Set Action 
+			restricted
+			Parameters
+				ContractGroup
+				NewSupplier      is like Supplier
+				ParmGPOSupplier  is like Supplier
+								
+			Instance Selection
+				where (ContractGroup 					= ContractGroup
+        		and    GPODistributorSupplier    		= ParmGPOSupplier
+        		and    ContractImport.GPOContractNumber entered
+                and   (DistributorContractNumber 		!entered
+				or    (DistributorContractNumber 		entered
+				and   !DistributorContractNumber.ContractStatus.Closed)))
+			
+			Action Rules
+			
+				Instance Rules
+					
+					LocalContractGroup          			= ContractGroup
+					LocalContractImport                     = ContractImport
+					LocalImportDistributor                  = ContractImportDistributor 
+					
+					invoke Create 
+						fill in fields from this instance
+							except invoked.ContractImportDistributor
+						invoked.ContractImportDistributor   = NewSupplier
+	
+		        	invoke UpdateDistributorSupplier ContractLineImportDistributor
+		        		invoked.ParmContractGroup   		= ContractGroup
+	        			invoked.ParmContractImport  		= ContractImport
+		        		invoked.NewDistributorSupplier  	= NewSupplier 
+		        		invoked.CurrentDistributorSupplier 	= ContractImportDistributor    
+							
+					for each ContractImportTierDistributorRel
+						invoke Create ContractImportTierDistributor
+							fill in fields from each
+								except invoked.ContractImportTierDistributor
+							invoked.ContractImportTierDistributor = NewSupplier
+						invoke Delete each
+						
+					invoke Delete
+		
+		UpdateVendorOnOpenRequisitionLines is an Instance Action
+			restricted
+			Parameters
+				NewVendor      is a Vendor
+			
+			Action Rules
+				for each OpenRequisitionLinesRel
+					if (each.Status = 9) 
+						invoke UpdateNoEdits each.PurchaseOrderInterfaceRel
+							invoked.Vendor = NewVendor 
+					else
+						invoke UpdateNoEdits each
+							invoked.Vendor = NewVendor	
+
+		ChangeSupplierAndVendor is an Instance Action
+			valid when (CanUpdateSupplierForGPO)
+			
+			Parameters
+				ParmNewSupplier             	is a Supplier
+					default label is "NewSupplier"
+				ParmNewVendor                   is a Vendor
+				ParmNewSupplierContact          is a SupplierSourceId
+					default label is "NewSupplierContact"
+				ParmNewPurchaseFrom             is a PurchaseFromLocation
+					default label is "NewPurchaseFrom"  
+				InactivateOldVendorItems 		is Boolean
+					default label is "InactivateOldVendorItemsIfVendorChanged"
+				InactivateOldSupplier       	is Boolean
+				UpdateVendorOnRequisitionLines	is Boolean
+				ChangeReplenishmentVendor  	is Boolean			
+					default label is "ChangeReplenishmentVendorForAllRelatedReplenishmentItems"
+								
+			Parameter Rules
+			
+				ParmNewSupplier
+					
+					initial value is first GPODistributorSupplierRel.ContractSupplier
+					default to first GPODistributorSupplierRel.ContractSupplier
+
+					if (DistributorContractNavigationRel exists) 
+						LocalSupplier           = GPODistributorSupplierRel.ContractSupplier
+						if (ParmNewSupplierContact entered)
+							LocalSupplierSourceId	= ParmNewSupplierContact
+						else 
+							LocalSupplierSourceId   = 1
+						constraint (NewSupplierSourceIDRel exists)				
+							"NewSupplierAndContactNotValid"
+
+					if (DistributorContractNumber entered)
+						if (DistributorContractNumber.ContractStatus.Active)
+							constraint (ParmNewSupplier.Vendor entered)
+								"NewSupplierMustBeAssociatedWithAVendorIfContractIsActive"
+
+				ParmNewVendor
+					initial value is ParmNewSupplier.Vendor
+
+				ParmNewSupplierContact          
+					initial value is 1
+					default to 1
+
+				ParmNewPurchaseFrom
+					
+					LocalNewVendor			= ParmNewVendor
+					LocalNewPurchaseFrom    = ParmNewPurchaseFrom
+					if (ParmNewPurchaseFrom entered)
+						constraint (NewPurchaseFromLocationExists)
+							"POPurchaseFrom:<ParmNewPurchaseFrom>DoesNotExist"	
+
+				ChangeReplenishmentVendor
+					if (ChangeReplenishmentVendor = true)
+						confirmation required
+							"AllItemReplenishmentSourceRecordsRelatedToContractLinesWillHaveTheirVendorChangedToTheNewVendor;DoYouWantToContinue?"
+					
+			Action Rules
+			
+				LocalSupplier = GPODistributorSupplierRel.ContractSupplier
+				if (SupplierChanged)
+				
+					if (SameContractImportDistributorRel !exists)
+					
+						invoke Create 
+							fill in fields from this instance
+								except invoked.ContractImportDistributor
+							invoked.ContractImportDistributor   = LocalSupplier
+		
+			        	invoke UpdateDistributorSupplier ContractLineImportDistributor
+			        		invoked.ParmContractGroup   		= ContractGroup
+		        			invoked.ParmContractImport  		= ContractImport
+			        		invoked.NewDistributorSupplier  	= LocalSupplier 
+			        		invoked.CurrentDistributorSupplier 	= ContractImportDistributor    	
+						
+						for each ContractImportTierDistributorConditionRel
+							invoke Create ContractImportTierDistributor
+								fill in fields from each
+									except invoked.ContractImportTierDistributor
+								invoked.ContractImportTierDistributor = LocalSupplier
+							invoke Delete each
+							
+					invoke Delete				
+				
+				if (DistributorContractNavigationRel exists
+				and SameContractImportDistributorRel !exists)
+					if (!DistributorContractNavigationRel.ContractStatus.Closed)
+						invoke ChangeSupplierAndVendor DistributorContractNavigationRel
+							invoked.ParmNewSupplier 		 		= LocalSupplier
+							invoked.ParmNewPurchaseFrom             = ParmNewPurchaseFrom
+							invoked.InactivateOldVendorItems 		= InactivateOldVendorItems
+							invoked.InactivateOldSupplier    		= InactivateOldSupplier
+							invoked.UpdateVendorOnRequisitionLines 	= UpdateVendorOnRequisitionLines 	
+							invoked.ChangeReplenishmentVendor       = ChangeReplenishmentVendor
+							invoked.ParmNewSupplierContact          = ParmNewSupplierContact
+
+		FindChangedMarkups is a Set Action
+			restricted
+			Parameters
+				ParmContractGroup                   is a ContractGroup
+				ParmGPOSupplier                     is a Supplier
+				AutoUpdateContracts                 is Boolean
+				ProcessOnlyUpdatedRecords           is Boolean
+				
+			Instance Selection
+				where (ContractGroup        		= ParmContractGroup
+				and    ContractImport.GPOSupplier   = ParmGPOSupplier
+				and   (ProcessOnlyUpdatedRecords    = false
+				or    (ProcessOnlyUpdatedRecords    = true
+				and    ContractImport.HeaderUpdated))
+				and    ContractImport.IsManufacturerContract)
+				
+			Sort Order 
+				ContractGroup
+				ContractImport 
+			
+			Action Rules
+			
+				ContractImport Set Rules
+					Entrance Rules
+				
+					Exit Rules
+
+						if (AutoUpdateContracts
+						and MarkupPercentChanged)
+							invoke UpdateMarkupPercent
+
+				Instance Rules
+					
+					if (ParmContractGroup.GPOIsHealthTrust
+					or  ParmContractGroup.GPOIsHealthTrust2021)
+						if (MarkupByContract
+						and MarkupPercent != first CreateGPODistributorContractNumberRel.MarkupPercent/100)
+							MarkupPercent  = first CreateGPODistributorContractNumberRel.MarkupPercent/100	
+						else
+						if (MarkupBySupplier
+						and MarkupPercent != first CreateGPODistributorSupplierOnlyRel.MarkupPercent/100)
+							MarkupPercent  = first CreateGPODistributorSupplierOnlyRel.MarkupPercent/100
+					else
+					if (ParmContractGroup.GPOIsVizient)
+						if (MarkupByContract)
+							if (first CreateGPODistributorContractNumberRel.MarkupPercent > 1
+							and MarkupPercent != first CreateGPODistributorContractNumberRel.MarkupPercent - 1)
+								MarkupPercent  = first CreateGPODistributorContractNumberRel.MarkupPercent - 1
+							else
+							if (first CreateGPODistributorContractNumberRel.MarkupPercent < -1
+							and MarkupPercent != first CreateGPODistributorContractNumberRel.MarkupPercent +1)
+								MarkupPercent  = first CreateGPODistributorContractNumberRel.MarkupPercent +1
+							else 
+								MarkupPercent  = 0
+						else
+						if (MarkupByManufacturerSupplier)
+							if (first CreateGPODistributorManufacturerSupplierRel.MarkupPercent > 1
+							and MarkupPercent != first CreateGPODistributorManufacturerSupplierRel.MarkupPercent -1)
+								MarkupPercent  = first CreateGPODistributorManufacturerSupplierRel.MarkupPercent -1
+							else
+							if (first CreateGPODistributorManufacturerSupplierRel.MarkupPercent < 1
+							and MarkupPercent != first CreateGPODistributorManufacturerSupplierRel.MarkupPercent +1)
+								MarkupPercent  = first CreateGPODistributorManufacturerSupplierRel.MarkupPercent +1
+						else
+						if (MarkupBySupplier)
+							if (first CreateGPODistributorSupplierOnlyRel.MarkupPercent > 1
+							and MarkupPercent != first CreateGPODistributorSupplierOnlyRel.MarkupPercent -1)
+								MarkupPercent  = first CreateGPODistributorSupplierOnlyRel.MarkupPercent -1
+							else
+							if (first CreateGPODistributorSupplierOnlyRel.MarkupPercent < 1
+							and MarkupPercent != first CreateGPODistributorSupplierOnlyRel.MarkupPercent +1)
+								MarkupPercent  = first CreateGPODistributorSupplierOnlyRel.MarkupPercent +1
+
+		UpdateMarkupPercent is an Instance Action
+			valid when (MarkupPercentChanged)
+			
+			Action Rules
+				invoke UpdatePricingPercent SameContractDistributorPricingRel
+					if (MarkupPercent >= 0)
+						invoked.NewPercent = MarkupPercent
+					else 
+					if (MarkupPercent < 0)
+						invoked.NewPercent = MarkupPercent * -1
+					if (MarkupPercent = 0)
+						invoked.NewMarkupDiscount                = "F" 
+					else
+					if (MarkupPercent > 0)
+						invoked.NewMarkupDiscount                = "M" 
+					else
+					if (MarkupPercent < 0)
+						invoked.NewMarkupDiscount                = "D" 
+
+		AddMissingDistributorContractLines is an Instance Action
+			valid when (CanAddMissingLines) 
+			default label is "AddMissingLines"
+
+			Action Rules 
+				invoke AddMissingDistributorContractLines ContractLineImportDistributor 
+					invoked.ParmContractGroup 					= ContractGroup 
+					invoked.ParmContractImport                  = ContractImport 
+					invoked.ParmContractImportDistributor		= ContractImportDistributor
+
+		CreateAndUpdateDistributorContracts is a Set Action 
+			restricted
+			Parameters
+				ParmContractGroup   				is a ContractGroup
+				ParmContractImport  				is a ContractImport			
+				NewContract         				is like Contract
+				FromContractCreation        		is Boolean
+				ParmDistributorContractNumber 		is like Contract
+				ParmAccountToDistContract       	is Boolean
+				ParmDoNotCreateDistributorLines		is Boolean
+				ParmSpecialItemsAccountDefaultOnly  is Boolean
+				UnreleasedMembersToStart            is Boolean
+				MultipleContracts                   is Boolean
+				ProcessItemMasterOnly               is Boolean
+				
+			Instance Selection
+				where (ContractGroup  = ParmContractGroup
+				and    ContractImport = ParmContractImport
+				and    DoNotCreateDistributorContract = false
+				and   ((DistributorContractNumber = ParmDistributorContractNumber
+				and    ParmDistributorContractNumber entered)
+				or     ParmDistributorContractNumber !entered))
+				
+			Local Fields
+				LocalContractView		is a Contract view	
+
+			Action Rules
+			
+				Instance Rules
+				
+					initialize LocalContract
+					LocalContractGroup                         = ParmContractGroup
+					LocalNewContract                           = NewContract
+					LocalContractImport                        = ParmContractImport
+					LocalImportDistributor                     = ContractImportDistributor
+					if (ParticipantsAndLinesExist)
+						if (DistributorContractNumber !entered)
+							invoke Create Contract
+								assign result to LocalContractView
+								invoked.ContractGroup     			= ContractGroup
+								invoked.Supplier          			= ContractImportDistributor
+								invoked.GPOSupplier       			= ContractImport.GPOSupplier
+								invoked.SupplierSourceId            = SupplierSourceIdRel.SupplierSourceId 
+								invoked.PurchasingContact           = ContractImport.Contact
+								invoked.Name                        = ContractImport.Name
+								invoked.Description       			= ContractImport.Description
+								invoked.ContractType      			= ContractImport.ContractType
+								invoked.ContractSubtype   			= ContractImport.ContractSubtype
+								invoked.ContractClassification 		= ContractImport.ContractClassification
+								invoked.ContractSubclassification 	= ContractImport.ContractSubclassification
+								invoked.EffectiveDate     			= ContractImport.EffectiveDate
+								if (ExpirationDate entered)
+									invoked.ExpirationDate 			= ExpirationDate
+								else
+									invoked.ExpirationDate          = ContractImport.ExpirationDate
+								invoked.GroupPurchasingOrganization = ContractImport.GroupPurchasingOrganization
+								invoked.ManufacturerOrDistributor.DistributorContract 	= true
+								invoked.ContractSource    			= 5 
+								invoked.GPONegotiated     			= true
+								invoked.Priority                    = Priority
+								invoked.UOMSMustMatchForSpecials    = ContractImport.UOMSMustMatchForSpecials
+								invoked.UOMSMustMatch               = ContractImport.UOMSMustMatch
+								invoked.UseContractUOM              = ContractImport.UseContractUOM
+								invoked.EnableClinicalSystemUseLocations = ContractImport.EnableClinicalSystemUseLocations
+								 
+							LocalContract            			= LocalContractView.Contract
+							DistributorContractNumber 			= LocalContractView.Contract
+								 		  
+							invoke Create ManufacturerContract
+								invoked.ContractGroup   				= ContractGroup
+								invoked.Contract      		    		= LocalContract
+								invoked.ManufacturerContractNumber		= NewContract
+								
+							invoke CreateRelatedContract RelatedContract
+								invoked.ContractGroup	  		   = ContractGroup
+								invoked.Contract		  		   = LocalContract
+								invoked.RelatedContractID 		   = ContractImport
+								invoked.RelatedContractType		   = 15
+								invoked.RelatedSupplierName 	   = SupplierRel.SupplierName
+								invoked.Supplier				   = ContractImportDistributor
+								invoked.Vendor					   = SupplierRel.Vendor
+								invoked.RelatedContractDescription = ContractImport.DerivedRelatedDescription
+								invoked.ManufacturerCodeDivision   = ContractImportGPOSupplierRel.ManufacturerCodeDivision										
+						else
+						if (DistributorContractNumber entered
+						and !DistributorContractNumber.ContractStatus.Closed) 
+							LocalContract   = DistributorContractNumber
+							if (ManufacturerContractRel !exists)
+								invoke Create ManufacturerContract
+									invoked.ContractGroup   				= ContractGroup
+									invoked.Contract      		    		= DistributorContractNumber
+									invoked.ManufacturerContractNumber		= NewContract									 
+								invoke CreateRelatedContract RelatedContract
+									invoked.ContractGroup	  		   = ContractGroup
+									invoked.Contract		  		   = LocalContract
+									invoked.RelatedContractID 		   = ContractImport
+									invoked.RelatedContractType		   = 15
+									invoked.RelatedSupplierName 	   = SupplierRel.SupplierName
+									invoked.Supplier				   = ContractImportDistributor
+									invoked.Vendor					   = SupplierRel.Vendor
+									invoked.RelatedContractDescription = ContractImport.DerivedRelatedDescription						
+									invoked.ManufacturerCodeDivision   = ContractImportGPOSupplierRel.ManufacturerCodeDivision								
+						if (DistributorPricingCode entered
+						and	PricingIdentifierRel !exists
+						and !DistributorContractNumber.ContractStatus.Closed )
+							invoke Create ContractDistributorPricing
+								invoked.ContractGroup  												= ContractGroup
+								invoked.Contract       												= LocalContract
+								invoked.ContractDistributorPricing                                  = DistributorPricingCode
+								invoked.Title                                                       = DistributorPricingTitle
+								if (MarkupPercent >= 0)
+									invoked.DistributorPricing.DistributorPricingAmtPct.PricingPercent  = MarkupPercent
+								else 
+								if (MarkupPercent < 0)
+									invoked.DistributorPricing.DistributorPricingAmtPct.PricingPercent  = MarkupPercent * -1								
+								if (MarkupPercent = 0)
+									invoked.DistributorPricing.PricingMarkupDiscount                = "F" 
+								else
+								if (MarkupPercent > 0)
+									invoked.DistributorPricing.PricingMarkupDiscount                = "M" 
+								else
+								if (MarkupPercent < 0)
+									invoked.DistributorPricing.PricingMarkupDiscount                = "D" 
+	
+						for each ContractImportTierDistributorRel
+							LocalMemberCompany	 			= each.ContractImportTierMember.Company
+							LocalMemberLocation	 			= each.ContractImportTierMember.Location
+				            LocalMemberRequestingLocation	= each.ContractImportTierMember.RequestingLocation
+				            LocalMemberPricingGroup         = each.ContractImportTierMember.PricingGroup
+				            LocalMemberManufacturerContract = NewContract
+							LocalDistributorPricingCode     = each.DistributorPricingCode
+							if (ContractGroup.GPOIsHealthTrust)
+								if (each.MarkupPercent         != MarkupPercent
+								and MemberPricingIdentifierRel !exists)
+									invoke Create ContractDistributorPricing
+										invoked.ContractGroup  												= ContractGroup
+										invoked.Contract       												= LocalContract
+										invoked.ContractDistributorPricing                                  = each.DistributorPricingCode
+										invoked.Title                                                       = each.DistributorPricingTitle
+										invoked.DistributorPricing.DistributorPricingAmtPct.PricingPercent  = each.MarkupPercent
+										if (MarkupPercent = 0)
+											invoked.DistributorPricing.PricingMarkupDiscount                = "F" 
+										else
+										if (MarkupPercent > 0)
+											invoked.DistributorPricing.PricingMarkupDiscount                = "M" 
+										else
+										if (MarkupPercent < 0)
+											invoked.DistributorPricing.PricingMarkupDiscount                = "D" 
+							if (ContractDistributorPricingMemberRel !exists
+							and !DistributorContractNumber.ContractStatus.Closed )
+								invoke Create ContractDistributorPricingMember 
+				            		invoked.ContractGroup								 			= ContractGroup
+				            		invoked.Contract									 			= LocalContract
+				            		invoked.ContractDistributorPricingMember.Company	 			= each.ContractImportTierMember.Company
+				            		invoked.ContractDistributorPricingMember.Location	 			= each.ContractImportTierMember.Location
+				            		invoked.ContractDistributorPricingMember.RequestingLocation		= each.ContractImportTierMember.RequestingLocation
+				            		invoked.ContractDistributorPricingMember.PricingGroup           = each.ContractImportTierMember.PricingGroup
+				            		invoked.ContractDistributorPricingMember.ManufacturerContract 	= NewContract
+				            		invoked.MfgContractTierInfo.MfgContract				 			= NewContract
+				            		invoked.MfgContractTierInfo.Tier					 			= each.ContractImportTierMember.Tier
+				            		if (each.DistributorPricingCode entered)
+				            			invoked.PricingIdentifier							 		= each.DistributorPricingCode
+				            		else
+				            			invoked.PricingIdentifier                                   = DistributorPricingCode	
+				            		invoked.FromImport                                              = true									
+					
+					if (DistributorContractNumber entered
+					and !DistributorContractNumber.ContractStatus.Closed
+					and (ContractGroup.DoNotAutoCreateDistributorLines = false
+					or   ParmDoNotCreateDistributorLines = false)) 
+						invoke CreateDistributorContractLines ContractLineImportDistributor
+							invoked.ParmContractGroup                               = ParmContractGroup
+							invoked.ParmContractImport                              = ParmContractImport
+							invoked.ParmDistributorSupplier                         = ContractImportDistributor
+							invoked.DistributorContractNumber                       = DistributorContractNumber
+							invoked.ParmPriority                                    = Priority
+							invoked.ManufacturerContractNumber                      = NewContract
+							invoked.FromContractCreation                            = FromContractCreation
+							invoked.ParmAccountToDistContract       				= ParmAccountToDistContract
+							invoked.ParmSpecialItemsAccountDefaultOnly  			= ParmSpecialItemsAccountDefaultOnly
+							invoked.UnreleasedMembersToStart                        = UnreleasedMembersToStart
+							invoked.MultipleContracts                               = MultipleContracts
+							invoked.ProcessItemMasterOnly                           = ProcessItemMasterOnly
+
+		Purge is a Purge Action
+			restricted
+			

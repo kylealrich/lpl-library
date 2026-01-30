@@ -1,0 +1,126 @@
+ReconciliationManagementGroup is a BusinessClass
+	owned by reconciliation
+	prefix is RMGRP
+
+	Ontology
+		symbolic key is ReconciliationManagementGroup
+
+    Persistent Fields
+		Description								is Alpha up to 100
+		RejectReconReasonCodeRequired			is Boolean
+		ReopenReconReasonCodeRequired			is Boolean
+		AuditorRole								is a Role
+		ReconcilerRole							is a Role
+		ReconcilingItemReasonCodeRequired		is Boolean
+		ReconcilingItemAlertAmount				is an InternationalAmount
+		EnforceReconcilerCannotBeApprover		is Boolean
+		
+    Derived Fields
+		BlankField is a DerivedField
+			type is Alpha 1
+			return blank
+			
+   	Field Rules
+   		ReconciliationManagementGroup
+   			initial value is actor.context.FinanceEnterpriseGroup
+   			
+   		Description
+   			required
+			default to ReconciliationManagementGroup.FinanceEnterpriseGroup.Description			
+
+		AuditorRole
+			default to "ReconciliationAuditor_ST"
+		
+		ReconcilerRole
+			default to "ReconciliationReconciler_ST"
+
+		ReconcilingItemAlertAmount
+			constraint (ReconcilingItemAlertAmount >= 0)
+				"CannotEnterNegativeAmountInReconcilingItem"
+			
+    Conditions
+ 		ReconciliationManagementGroupExists
+ 			when (ReconciliationManagementGroup exists)
+ 		
+ 		HasReconcilableAccountsNotInAStructure
+ 			when (GeneralLedgerChartAccountNotInStructureRel exists)
+ 			
+	Relations
+		FinanceResourceRel
+			one-to-many relation to FinanceResource
+			Field Mapping uses symbolic key
+				related.HROrganization = ReconciliationManagementGroup.HROrganization
+
+		GeneralLedgerChartAccountNotInStructureRel
+			one-to-many relation to GeneralLedgerChartAccount
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup = ReconciliationManagementGroup
+			Instance Selection
+				where (related.IsReconcilable
+				and	   !related.ExistsOnReconciliationStructure)
+				
+	Actions	
+		Create is a Create Action
+
+		Update is an Update Action
+
+		Delete is a Delete Action
+		
+		CreatePeriodReconciliations is an Instance Action
+			run in background
+			default label is "CreatePeriodReconciliationsForAllStructures"
+			Parameters
+				ReconciliationManagementGroup
+				PeriodEndDate					is Date
+				NextPeriod						is Boolean
+				ReconciliationAccountRule		is a ReconciliationAccount group
+				FinanceTeam
+				FinanceTeamMember
+				
+			Parameter Rules
+				PeriodEndDate
+					if (!NextPeriod)
+						required
+							"PeriodEndDateOrNextPeriodIsRequired"
+					else
+						cannot be entered
+							"CannotEnterBothPeriodEndDateAndNextPeriod"
+							
+				NextPeriod
+					if (!PeriodEndDate entered)
+						required
+							"PeriodEndDateOrNextPeriodIsRequired"
+					else
+						cannot be entered
+							"CannotEnterBothPeriodEndDateAndNextPeriod"
+						
+				FinanceTeam
+					if (FinanceTeamMember entered)
+						default to FinanceTeamMember.FinanceTeam
+						required
+							"MustSelectATeamWhenTeamMemberEntered"
+					
+			Action Rules
+				for each ReconciliationAccountStructure set
+					invoke CreatePeriodReconciliations each
+						invoked.ReconciliationManagementGroup	= ReconciliationManagementGroup
+						invoked.ReconciliationAccountStructure	= each.ReconciliationAccountStructure
+						invoked.NextPeriod						= NextPeriod
+						invoked.PeriodEndDate					= PeriodEndDate
+						invoked.ReconciliationAccountRule		= ReconciliationAccountRule
+						invoked.FinanceTeam						= FinanceTeam
+						invoked.FinanceTeamMember				= FinanceTeamMember
+						if (FinanceTeam entered and FinanceTeamMember not entered)
+							invoked.TeamMemberOverridden		= true
+		
+		Purge is a Purge Action
+			restricted
+		
+		PopulateReconciliationReconcilerRoleField is a Set Action 
+			default label is untranslatable
+			restricted
+			Instance Selection
+				where (ReconcilerRole not entered)
+			Action Rules
+				Instance Rules
+					ReconcilerRole  = "ReconciliationReconciler_ST"

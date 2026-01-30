@@ -1,0 +1,1030 @@
+ContractLineDistributionSpread is a BusinessClass
+    owned by po
+    prefix is CDCS
+
+    Ontology
+    	part of ContractLineDistribution
+    		relative key is ContractLineDistributionSpread is a SequenceNumber 
+
+    Patterns
+        implements StaticJava       
+    		    	
+    Persistent Fields
+		SpreadDate				is Date
+		SpreadAmount			is an UnsignedInternationalAmount
+		EntityYearPeriod		is a GeneralLedgerCalendarPeriod
+			restricted
+		UsedAmount              is an InternationalAmount
+		ReportCurrencyAmount    is a FinanceCurrencyAmount
+		GltObjId				is a ObjId
+		AtnObjId				is a ObjId
+
+	Local Fields
+		LocalSpreadDate                 is Date
+		LocalNewSpread                  is Boolean
+		LocalUpdateCommitment           is Boolean
+		LocalPurgeCommitment            is Boolean
+		LocalInternalChange             is Boolean
+		LocalFromCancelOrDelete         is Boolean
+		LocalFromUpdateAmount           is Boolean
+		LocalPostingDate                is a PostingDate
+		LocalLedger             		is a Ledger		
+		LocalEndDate                    is a GeneralLedgerCalendarPeriod
+		LocalForceCalculation           is Boolean
+		LocalTotalNewTaxAmount			is an InternationalAmount
+		LocalTotalAddOnChargeAmount		is an InternationalAmount
+		UOMCalculation
+		POContractDate                  is Date
+		LocalPOQuantity   				is Decimal size 13.4	
+		ContractPOAmount                is an InternationalAmount
+		LocalItem                       is an Item
+		LocalFromRecalculate            is Boolean
+		FromContractOrLineDelete        is Boolean
+
+	Transient Fields
+		TransientCurrencyTable              is a CurrencyTable
+			derive value from ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CurrencyTable
+		TransientAccountingEntity           is an AccountingEntity  
+			derive value from Contract.CommitmentCompany
+		TransientExchangeDate               is an ExchangeDate
+			derive value from current corporate date
+		TransientFromCurrency               is a FromCurrency
+			derive value from Contract.CurrencyCode
+		TransientCurrencyAmount             is a CurrencyAmount
+			derive value from ChangeOrderAmountRemaining
+		TransientAccountChanged             is Boolean
+			
+	Derived Fields
+		
+		AmountRemaining is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (Contract.CommitmentsClosed = true)
+				return 0
+			else
+			if (ContractLine.CommitmentsClosed = true)
+				return 0
+			else
+			if (SpreadAmount >= UsedAmount)
+				return (SpreadAmount - UsedAmount)
+			else
+				return 0
+			
+		ChangeOrderAmountRemaining is a DerivedField
+			type is like InternationalAmount
+			restricted
+			if (Contract.CommitmentsClosed = true)
+				return 0
+			else
+			if (ContractLine.CommitmentsClosed = true)
+				return 0
+			else
+			if (SpreadAmount >= UsedAmount)
+				if (ContractLineDistribution.DerivedCommittedAllowanceTotal > 0
+				and FirstSpread)
+					return (ContractLineDistribution.DerivedCommittedAllowanceTotal + SpreadAmount - UsedAmount)
+				else
+					return (SpreadAmount - UsedAmount)
+			else
+				return 0
+				
+		DerivedEntityCalendarPeriod is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			restricted
+			return first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+
+		NewDerivedEntityCalendarPeriod is a DerivedField
+			type is like GeneralLedgerCalendarPeriod
+			restricted
+			return first NewGeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+			
+		DerivedEntityCalendarPeriodYear is a DerivedField
+			type is like GeneralLedgerCalendarYear
+			restricted
+			return first GeneralLedgerCalendarPeriodRel.Year
+		
+		NewDerivedEntityCalendarPeriodYear is a DerivedField
+			type is like GeneralLedgerCalendarYear
+			restricted
+			return first NewGeneralLedgerCalendarPeriodRel.Year
+
+		UsedAmountFromCommitmentClose is a DerivedField
+			type is Boolean
+			for each audit log records
+				if (each.initiating action = "CloseSpreadCommitments")
+					return true
+			
+	Rule Blocks
+		
+		ManageCommitments
+			
+			if (ContractLineDistribution.DistributionAccount.Project entered)
+				TransientExchangeDate = ContractLine.EffectiveDate
+				LocalPostingDate  = ContractLine.EffectiveDate
+			
+			if (LocalNewSpread
+			and !ContractLine.CommitmentsClosed
+			and !Contract.CommitmentsClosed)
+
+				invoke CreateCommitment GLCommit
+					invoked.FinanceEnterpriseGroup  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+					invoked.OriginatingTransaction  = reference to this instance
+					invoked.System			 		= "PO"
+					invoked.FinanceCodeBlock	 	= ContractLineDistribution.DistributionAccount
+					invoked.CurrencyCode		 	= Contract.CurrencyCode
+					invoked.TransactionAmount	 	= ChangeOrderAmountRemaining
+					invoked.ReportCurrencyAmount	= ReportCurrencyAmount
+					invoked.TransactionDate		    = SpreadDate
+					invoked.IsContractManagement    = true
+					invoked.AccountingEntity        = Contract.CommitmentCompany
+					invoked.HeaderUniqueID          = Contract.UniqueID
+					invoked.TransBusinessObjectRef	= reference to Contract
+			
+			if (LocalUpdateCommitment)
+				if (ReleasedCommitmentExists
+				or  HistoryCommitmentExists)
+					if ((LocalInternalChange
+					and !Contract.CommitmentsClosed)
+					and (HistoryCommitmentExists
+					or   ReleasedCommitmentExists)
+					and !LocalFromUpdateAmount)
+						invoke ChangeReleasedCommitment GLCommitRel
+							invoked.PrmChangedCurrAmount.FunctionalAmount 	= ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ProjectAmount		= ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ReportAmount1      = ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ReportAmount2      = ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ReportAmount3      = ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ReportAmount4      = ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ReportAmount5      = ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.AlternateAmount    = ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.AlternateAmount2   = ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.AlternateAmount3   = ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount
+							invoked.PrmLastTransAmount       				= ChangeOrderAmountRemaining
+							invoked.PrmTransDate                            = SpreadDate
+							invoked.PrmChangedCurrAmount.ToFunctionalAmount = ReportCurrencyAmount.ToFunctionalAmount.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ToAlternateAmount  = ReportCurrencyAmount.ToAlternateAmount.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ToAlternateAmount2 = ReportCurrencyAmount.ToAlternateAmount2.EnteredCurrencyAmount
+							invoked.PrmChangedCurrAmount.ToAlternateAmount3 = ReportCurrencyAmount.ToAlternateAmount3.EnteredCurrencyAmount
+							if (TransientAccountChanged = true)
+								invoked.PrmCodeBlock                        = ContractLineDistribution.DistributionAccount
+               					invoked.PrmDimensionCode					= ContractLineDistribution.DistributionAccount.DimensionCode		
+							if (LocalFromCancelOrDelete = true
+							and HistoryCommitmentExists)
+								invoked.ParmIsCancelOrDelete = true
+					else
+						invoke ModifyReleasedCommitment GLCommitRel in background
+							run outside of action background group
+							invoked.PrmTransactionAmount    	= ChangeOrderAmountRemaining
+							invoked.PrmReportCurrencyAmount     = ReportCurrencyAmount
+							invoked.PrmFromContractUpdate		= true
+							invoked.PrmTransactionDate          = SpreadDate
+							invoked.PrmAccountingEntity         = Contract.CommitmentCompany
+							invoked.PrmFinanceCodeBlock         = ContractLineDistribution.DistributionAccount
+							invoked.PrmCurrencyCode             = Contract.CurrencyCode
+				else
+					invoke MaintainUnreleasedCommitment GLCommitRel
+						invoked.TransactionAmount        = ChangeOrderAmountRemaining
+						invoked.ReportCurrencyAmount     = ReportCurrencyAmount
+						invoked.TransactionDate          = SpreadDate
+						invoked.AccountingEntity         = Contract.CommitmentCompany
+						invoked.FinanceCodeBlock         = ContractLineDistribution.DistributionAccount
+						invoked.CurrencyCode             = Contract.CurrencyCode 
+			
+			if (LocalPurgeCommitment)
+				if (GLCommitRel.Status.Released)
+					invoke UpdateTemplateTotals BudgetTemplate 
+						invoked.PrmFinanceEnterpriseGroup			= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+						invoked.PrmTransactionCodeBlock				= ContractLineDistribution.DistributionAccount
+						invoked.PrmDate					    		= GLCommitRel.EntityYearPeriod.Date
+						invoked.PrmReportAmounts.FunctionalAmount   = GLCommitRel.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount * -1	     		
+						invoked.PrmReportAmounts.AlternateAmount    = GLCommitRel.ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount * -1   			
+						invoked.PrmReportAmounts.AlternateAmount2   = GLCommitRel.ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.AlternateAmount3	= GLCommitRel.ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.ToFunctionalAmount = GLCommitRel.ReportCurrencyAmount.ToFunctionalAmount.EnteredCurrencyAmount * -1      		
+						invoked.PrmReportAmounts.ToAlternateAmount  = GLCommitRel.ReportCurrencyAmount.ToAlternateAmount.EnteredCurrencyAmount * -1     		
+						invoked.PrmReportAmounts.ToAlternateAmount2 = GLCommitRel.ReportCurrencyAmount.ToAlternateAmount2.EnteredCurrencyAmount * -1      		
+						invoked.PrmReportAmounts.ToAlternateAmount3	= GLCommitRel.ReportCurrencyAmount.ToAlternateAmount3.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.ProjectAmount		= GLCommitRel.ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.ReportAmount1      = GLCommitRel.ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount * -1				
+						invoked.PrmReportAmounts.ReportAmount2      = GLCommitRel.ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount * -1				
+						invoked.PrmReportAmounts.ReportAmount3		= GLCommitRel.ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.ReportAmount4		= GLCommitRel.ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount * -1			
+						invoked.PrmReportAmounts.ReportAmount5		= GLCommitRel.ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount * -1
+						invoked.PrmBusinessClassName                = "Contract"
+						invoked.PrmEditContext                      = "Delete"
+				invoke Purge GLCommitRel
+			
+	Conditions
+
+   		AvailableToUpdate
+   			restricted
+			when (ContractLine.CanAddLine
+			and  !ContractLine.ContractLineState.Closed)
+			
+		AvailableToCreate
+			restricted
+			when (AvailableToUpdate
+			and   ContractLine.UseCommitments
+			and   Contract.CreateCommitments.LineSpread)
+		
+		BudgetErrorsExist
+			when (BudgetEditErrorRel exists)
+			
+		CommitmentsExist
+			restricted
+			when (GLCommitRel exists)
+			
+		ReleasedCommitmentExists
+			restricted
+			when (CommitmentsExist
+			and   GLCommitRel.Status = 3)
+			
+		OpenCommitmentExists 
+			restricted 
+			when (GLCommitRel exists 
+			and  (GLCommitRel.Status = 0
+			or    GLCommitRel.Status = 3))
+
+		CommitmentIsRolledOver 
+			when (RolledOverCommitRel exists)
+		
+		HistoryCommitmentExists
+			restricted
+			when (CommitmentsExist
+			and   GLCommitRel.Status = 1)
+		
+		NoUnreleasedInvoiceDetailsExist
+			restricted
+			when (UnreleasedPayablesInvoiceDetailRel !exists)
+
+		TrackCommitments
+			restricted
+			when (GeneralLedgerSystemCodeRel.EncumbranceOption.TrackAndEdit
+	        or  GeneralLedgerSystemCodeRel.EncumbranceOption.Track)
+	        
+		FirstSpread
+			restricted
+			when (EarlierSpreadRel !exists)	
+
+	Relations
+        ContractYearlySpreadRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine				= ContractLine
+        		related.ContractLineDistribution	= ContractLineDistribution
+        	Instance Selection
+        		where (related.DerivedEntityCalendarPeriodYear 	 = NewDerivedEntityCalendarPeriodYear
+      			and	   related.ContractLineDistributionSpread	!= ContractLineDistributionSpread)
+
+		EarlierSpreadRel
+			one-to-many relation to ContractLineDistributionSpread
+			Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine    			= ContractLine
+        		related.ContractLineDistribution 	= ContractLineDistribution
+        	Instance Selection
+        		where (related.SpreadDate < SpreadDate)
+
+        ContractPeriodSpreadRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine				= ContractLine
+        		related.ContractLineDistribution	= ContractLineDistribution
+        	Instance Selection
+	       		where (related.EntityYearPeriod	                 = NewDerivedEntityCalendarPeriod
+      			and	   related.ContractLineDistributionSpread	!= ContractLineDistributionSpread)
+
+		UnreleasedPayablesInvoiceDetailRel	
+			one-to-many relation to PayablesInvoiceDetail
+			Field Mapping uses ByContractLine
+				related.Contract      = Contract
+				related.ContractLine  = ContractLine
+			Instance Selection
+				where (related.Company.VendorGroup = ContractGroup
+				and    related.Status = 0)
+
+        ContractLineDistributionSpreadDateRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine				= ContractLine
+        		related.ContractLineDistribution	= ContractLineDistribution
+        	Instance Selection
+      			where (related.ContractLineDistributionSpread	!= ContractLineDistributionSpread
+      			and	   related.SpreadDate 						 = SpreadDate)
+
+        ProposedNewSpreadDateRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine				= ContractLine
+        		related.ContractLineDistribution	= ContractLineDistribution
+        	Instance Selection
+      			where (related.ContractLineDistributionSpread	!= ContractLineDistributionSpread
+      			and	   related.SpreadDate 						 = LocalSpreadDate)
+
+        ContractLineDistributionSpreadRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup				= ContractGroup 
+        		related.Contract					= Contract
+        		related.ContractLine				= ContractLine
+        		related.ContractLineDistribution	= ContractLineDistribution
+
+        ContractLineLastSpreadRel
+        	one-to-many relation to ContractLineDistributionSpread
+        	Field Mapping uses part of key
+        		related.ContractGroup	         = ContractGroup 
+        		related.Contract		         = Contract
+        		related.ContractLine	         = ContractLine
+        		related.ContractLineDistribution = ContractLineDistribution
+        	Instance Selection
+      			where (related.ContractLineDistributionSpread	!= ContractLineDistributionSpread)
+        
+        CompanyRel
+        	one-to-one relation to AccountingEntity
+        	Field Mapping uses symbolic key
+        		related.FinanceEnterpriseGroup = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+        		related.AccountingEntity	   = ContractLineDistribution.DistributionAccount.ToAccountingEntity 
+        		
+        AccountingEntityRel
+			one-to-one relation to AccountingEntity
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.AccountingEntity			= Contract.CommitmentAccount.ToAccountingEntity
+		
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date 			not < SpreadDate
+				and	   related.PeriodType.EndDate)
+		
+		EntityLedgerPeriodRel
+			one-to-many relation to EntityLedgerPeriod
+			Field Mapping uses ByEntityLedger
+				related.FinanceEnterpriseGroup		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.AccountingEntity			= ContractLineDistribution.DistributionAccount.ToAccountingEntity 
+				related.Ledger						= LocalLedger
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod.GeneralLedgerCalendarPeriod	not < LocalEndDate)
+		
+		NewGeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup		= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date 			not < LocalSpreadDate
+				and	   related.PeriodType.EndDate)
+		
+		SameGeneralLedgerCalendarPeriodRel
+			one-to-many relation to ContractLineDistributionSpread
+			Field Mapping uses part of key
+				related.ContractGroup		     = ContractGroup
+				related.Contract                 = Contract
+				related.ContractLine             = ContractLine
+				related.ContractLineDistribution = ContractLineDistribution
+			Instance Selection
+				where (related.DerivedEntityCalendarPeriod = DerivedEntityCalendarPeriod
+				and    related.UniqueID                   != UniqueID)	
+
+		DuplicateGeneralLedgerCalendarPeriodRel
+			one-to-many relation to ContractLineDistributionSpread
+			Field Mapping uses part of key
+				related.ContractGroup		     = ContractGroup
+				related.Contract                 = Contract
+				related.ContractLine             = ContractLine
+				related.ContractLineDistribution = ContractLineDistribution
+			Instance Selection
+				where (related.DerivedEntityCalendarPeriod = LocalEndDate
+				and    related.UniqueID                   != UniqueID)			
+
+        GLCommitRel
+			one-to-one relation to GLCommit
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction  = reference to this instance 
+				
+		RolledOverCommitRel
+			one-to-many relation to GLCommit
+			Field Mapping uses ByOriginatingTransaction
+				related.OriginatingTransaction  = reference to this instance 
+			Instance Selection 
+				where (related.POCommitOrigID entered)
+
+		GeneralLedgerSystemCodeRel 
+			one-to-many relation to GeneralLedgerSystemCode
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.GeneralLedgerSystemCode	= "PO"	
+				
+		BudgetEditErrorRel
+			one-to-many relation to BudgetEditError
+			Field Mapping uses ByBudgetGroup
+				related.FinanceEnterpriseGroup                     = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+				related.BudgetEditError.BudgetEditGroup            = UniqueID
+
+		GLCommitxRel
+			one-to-one relation to GLCommitx
+			Field Mapping uses symbolic key
+				related.GLCommitx				= GltObjId        
+
+		ACCommitxRel
+			one-to-one relation to LegacyAccommitx
+			Field Mapping uses symbolic key
+				related.LegacyAccommitx			= AtnObjId        
+
+	Sets
+		BySpreadDate
+			duplicates
+			Sort Order	
+				ContractGroup
+				Contract
+				ContractLine
+				ContractLineDistribution
+				SpreadDate descending
+				
+		BySpreadDateFirst 
+			Sort Order 
+				ContractGroup 
+				SpreadDate
+				Contract
+				ContractLine
+				ContractLineDistribution
+				ContractLineDistributionSpread
+		
+		ByContractLine
+			duplicates
+			Sort Order
+				ContractGroup
+				Contract
+				ContractLine
+				ContractLineDistribution
+
+	Field Rules
+    	ContractLineDistributionSpread
+			autosequence
+				minimize contention
+
+		SpreadAmount
+			required
+
+			if (!LocalFromUpdateAmount)
+				if (UsedAmount != 0)
+					constraint (SpreadAmount >= UsedAmount)
+						"CannotLowerSpreadAmountBelowTheUsedAmount" 
+
+		SpreadDate
+			required
+
+			constraint (SpreadDate >= ContractLine.EffectiveDate)
+				"ContractLineNotEffectiveForThisSpreadDate"
+
+			constraint (SpreadDate <= ContractLine.ExpirationDate)
+				"ContractLineNotEffectiveForThisSpreadDate"
+
+			LocalSpreadDate = SpreadDate
+			
+	Actions
+		Create is a Create Action
+			valid when (AvailableToCreate)
+
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+
+			Field Rules
+				UsedAmount
+					constraint (UsedAmount = 0)
+						"CannotEnterAUsedAmount"
+			
+			Action Rules
+				LocalEndDate = DerivedEntityCalendarPeriod
+				LocalLedger  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CoreLedger
+				constraint (!ContractLineDistributionSpreadDateRel exists)
+					"SpreadAlreadyExistsForThisDate"
+
+				constraint (DerivedEntityCalendarPeriod entered
+				and         EntityLedgerPeriodRel exists)
+					"CalendarYearNotProperlyDefinedForTheCommitmentSpreadDate"	
+				constraint (DuplicateGeneralLedgerCalendarPeriodRel !exists)
+					"SpreadAlreadyDefinedForCalendarPeriod;MustEnterASpreadDateThatIsInAnotherCalendarPeriodOrAddSpreadAmountToExistingCalendarPeriod"
+
+			Exit Rules
+				
+				if (ContractLineDistribution.TotalUsedAmount < ContractLineDistribution.TotalAmountInUse)  
+				
+					if (Contract.ServicePurchaseType
+					and ContractLine.MatchedPayablesInvoiceDetailRel exists)
+						for each ContractLine.MatchedPayablesInvoiceDetailRel
+							initialize LocalTotalAddOnChargeAmount
+							LocalTotalNewTaxAmount							= each.TaxAmount
+	
+							for each each.PayablesInvoiceAddOnChargeRel
+								LocalTotalNewTaxAmount						+= each.TaxAmount
+								LocalTotalAddOnChargeAmount					+= each.TotalBaseAmount
+	
+						 	if (each.PayablesInvoice.InvoiceDate >= SpreadDate)
+						 		invoke CalculateUsedForNewSpread ContractLine
+									invoked.InTaxAmount							= LocalTotalNewTaxAmount 
+									invoked.InAddOnChargeAmount					= LocalTotalAddOnChargeAmount 
+									invoked.InAmount							= each.TotalDistributionAmount 
+									invoked.InUOM.UnitOfMeasure					= each.EnteredUOM
+									invoked.InCurrency                          = each.PayablesInvoice.InvoiceCurrency
+									invoked.InSpreadDate                        = SpreadDate
+									invoked.InContractLineDistribution          = ContractLineDistribution
+									invoked.InDate                              = SpreadDate
+					
+					else   
+					if (!Contract.ServicePurchaseType)
+						if (ContractLine.ReleasedPurchaseOrderLineRel exists)
+							for each ContractLine.ReleasedPurchaseOrderLineRel
+								if (each.ReceivedQuantity > each.QuantityToProcess) 
+									LocalPOQuantity						= each.ReceivedQuantity
+								else
+									LocalPOQuantity						= each.QuantityToProcess
+								if (ContractLine.ItemType.Itemmast
+								and each.EnteredBuyUOM != each.VendorPriceUOM)
+									LocalItem = ContractLine.ItemNumber
+									initialize UOMCalculation
+									UOMCalculation.InputQuantity		= LocalPOQuantity
+									UOMCalculation.InputUOM				= each.EnteredBuyUOM
+									UOMCalculation.InputToUOM			= each.VendorPriceUOM
+									UOMCalculation.Method				= UOMCalculation.Method.ConvertToAlternate
+									LocalPOQuantity						= UOMCalculation.OutputQuantity
+			
+								if (each.LastMatchUnitCost entered)
+									ContractPOAmount = LocalPOQuantity * each.LastMatchUnitCost
+								else
+									ContractPOAmount = LocalPOQuantity * each.EnteredUnitCost
+
+			
+								if (each.Company.ProcurementGroup.PurchaseOrderEncumbranceDate = 1)
+									POContractDate 			= each.PurchaseOrder.PurchaseOrderDate
+								if (each.Company.ProcurementGroup.PurchaseOrderEncumbranceDate = 2)
+									POContractDate			= each.EarlyDeliveryDate
+	
+							 	if (POContractDate >= SpreadDate)
+							 		invoke CalculateUsedForNewSpread ContractLine
+										invoked.InTaxAmount							= each.InvoicedTaxAmount + each.AccruedTaxAmount 
+										invoked.InAddOnChargeAmount					= 0 
+										invoked.InAmount							= ContractPOAmount 
+										invoked.InUOM.UnitOfMeasure					= each.EnteredBuyUOM
+										invoked.InCurrency                          = each.PurchaseOrder.Currency
+										invoked.InSpreadDate                        = SpreadDate
+										invoked.InContractLineDistribution          = ContractLineDistribution
+										invoked.InDate                              = SpreadDate
+						if (Contract.LifetimeEdit.PurchaseOrdersAndReqs
+						and ContractLine.RequisitionLinesWithNoPORel exists)
+							for each ContractLine.RequisitionLinesWithNoPORel
+								
+								if (each.ProcurementGroupRel.RequisitionCommitmentDate.LineEarlyDeliveryDate
+								and each.RequestedDeliveryDate entered)
+									POContractDate			= each.RequestedDeliveryDate
+								else
+									POContractDate			= each.CreationDate
+
+								if (POContractDate >= SpreadDate)
+							 		invoke CalculateUsedForNewSpread ContractLine									
+										invoked.InTaxAmount							= each.AccruedTaxAmount + each.InvoicedTaxAmount 
+										invoked.InAddOnChargeAmount					= each.LineAddOnChargeTotal 
+										invoked.InRequestedAmount    				= each.TransactionUnitCost * each.Quantity 
+										invoked.InUOM.UnitOfMeasure					= each.EnteredUOM
+										invoked.InCurrency                          = each.TransactionCurrencyCode
+										invoked.InSpreadDate                        = SpreadDate
+										invoked.InContractLineDistribution          = ContractLineDistribution
+										invoked.InDate                              = SpreadDate
+
+				invoke UpdateReportCurrencyAmountInstance
+				LocalNewSpread = true
+            	include ManageCommitments
+
+		Update is an Update Action
+			valid when (AvailableToUpdate)
+
+			Entrance Rules
+				if (ContractLine.ContractLineState.Active
+				and Contract.SetActiveLineToAmendment)
+					invoke TransitionToAmendment Active ContractLine
+					
+			Action Rules
+				if (SpreadDate changed)
+					LocalEndDate = DerivedEntityCalendarPeriod
+					LocalLedger  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CoreLedger
+					constraint (DerivedEntityCalendarPeriod entered
+					and         EntityLedgerPeriodRel exists)
+						"CalendarYearNotProperlyDefinedForTheCommitmentSpreadDate"	
+					constraint (DuplicateGeneralLedgerCalendarPeriodRel !exists)
+						"SpreadAlreadyDefinedForCalendarPeriod;MustEnterASpreadDateThatIsInAnotherCalendarPeriodOrAddSpreadAmountToExistingCalendarPeriod"
+					
+				constraint (!ContractLineDistributionSpreadDateRel exists)
+					"SpreadAlreadyExistsForThisDate"
+
+				if (SpreadDate changed)
+					constraint (UsedAmount = 0)
+						"CannotChangeTheDateOnASpreadThatHasAUsedAmount"
+
+				if (ContractLine.HasBeenActivated
+				and ContractLine.ItemType.Service)
+					constraint (NoUnreleasedInvoiceDetailsExist)
+						"CannotChangeSpreadWhenRelatedUnreleasedInvoiceDetailsExist"	
+
+				constraint (!Contract.CommitmentsClosed)
+					"CannotChangeSpreadWhenCommitmentsAreClosed"
+				
+			Exit Rules
+				invoke UpdateReportCurrencyAmountInstance
+				LocalUpdateCommitment = true
+				LocalInternalChange = true
+				include ManageCommitments
+
+		RollSpreadDatesForYearEnd is a Set Action 
+			Parameters
+				ParmContractGroup       is a ContractGroup 
+					default label is "ContractGroup"
+				ParmContract            is a Contract 
+				CurrentYearEndDate		is Date
+				ProposedNewSpreadDate   is Date
+				FromGLCommit            is Boolean
+
+			Parameter Rules
+
+				ParmContractGroup 
+					required 
+				
+				CurrentYearEndDate 
+					required 
+				
+				ProposedNewSpreadDate 
+					required 
+					constraint (ProposedNewSpreadDate > CurrentYearEndDate)
+						"NewSpreadDateMustBeAfterCurrentYearEndDate"
+			
+			Instance Selection 
+				where (OpenCommitmentExists
+				and    SpreadDate 			<= CurrentYearEndDate
+				and    ProposedNewSpreadDate < Contract.ExpirationDate
+				and    ProposedNewSpreadDate > SpreadDate
+				and   (ParmContractGroup	= ContractGroup
+				or     ParmContractGroup 	!entered)
+				and   (ParmContract         = Contract
+				or     ParmContract        	!entered))
+
+			Action Rules 
+				Instance Rules 
+
+					invoke RollSpreadDates 
+						invoked.ProposedNewSpreadDate = ProposedNewSpreadDate
+						invoked.FromGLCommit          = FromGLCommit
+
+		RollSpreadDates is an Instance Action 
+			valid when (OpenCommitmentExists) 
+			Parameters 
+				ProposedNewSpreadDate   is Date
+				FromGLCommit            is Boolean
+
+			Parameter Rules 
+				ProposedNewSpreadDate 
+					required
+					constraint (ProposedNewSpreadDate < Contract.ExpirationDate)
+						"ProposedNewSpreadDateMustBePriorToContractExpirationDate"	
+					constraint (ProposedNewSpreadDate > SpreadDate)
+						"ProposedNewSpreadDateMustBeLaterThanCurrentSpreadDate"
+						
+			Action Rules 
+				LocalLedger  	= ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CoreLedger
+				LocalSpreadDate	= ProposedNewSpreadDate
+				constraint (NewDerivedEntityCalendarPeriod entered
+				and         EntityLedgerPeriodRel exists)
+					"CalendarYearNotProperlyDefinedForTheProposedNewSpreadDate"	
+				if (ProposedNewSpreadDate < Contract.ExpirationDate)
+					if (ProposedNewSpreadDateRel exists)
+						confirmation required 
+							"SpreadAlreadyExistsForNewSpreadDate;ThisNewSpreadDateWillHaveOneDayAdded;DoYouWantToContinue?"
+						SpreadDate =  ProposedNewSpreadDate + 1 day
+					else 
+						SpreadDate = ProposedNewSpreadDate 
+					invoke UpdateReportCurrencyAmountInstance
+					if (!FromGLCommit)
+						LocalUpdateCommitment = true
+						LocalInternalChange   = true 
+						include ManageCommitments
+
+		UpdateFast is an Update Action
+			restricted
+			bypass field rules
+			
+			Exit Rules
+				invoke UpdateReportCurrencyAmountInstance
+				LocalUpdateCommitment = true
+				LocalInternalChange = true
+				include ManageCommitments		
+				if (SpreadAmount = 0)
+					invoke Delete
+		
+		DeleteFromLineOrDist is an Instance Action 
+			restricted
+			Action Rules 
+				FromContractOrLineDelete = true 
+				invoke Delete
+
+		Delete is a Delete Action
+			valid when (AvailableToUpdate)
+
+			Entrance Rules 
+				if (CommitmentsExist)
+					LocalPurgeCommitment = true 
+					include ManageCommitments 
+
+			Action Rules
+				constraint (UsedAmount = 0)
+					"CannotDeleteASpreadThatHasAUsedAmount"
+
+				if (ContractLine.HasBeenActivated
+				and !ContractLine.CommitmentsClosed
+				and !FromContractOrLineDelete)
+					constraint (ContractLineLastSpreadRel exists)
+						"CannotDeleteTheLastSpreadFromAnActivatedContractLine"
+						
+		CloseSpreadCommitments is an Instance Action
+			valid when (OpenCommitmentExists)
+			default label is "CloseCommitment"
+			
+			Action Rules
+				LocalUpdateCommitment = true
+				if (ContractLineDistribution.DistributionAccount.Project entered)
+					TransientExchangeDate = ContractLine.EffectiveDate
+					LocalPostingDate  = ContractLine.EffectiveDate
+				UsedAmount = SpreadAmount
+				invoke UpdateReportCurrencyAmountInstance
+			Exit Rules
+				if (OpenCommitmentExists)
+					if (GLCommitRel.Status.Released)
+						invoke UpdateTemplateTotals BudgetTemplate 
+							invoked.PrmFinanceEnterpriseGroup			= ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+							invoked.PrmTransactionCodeBlock				= ContractLineDistribution.DistributionAccount
+							invoked.PrmDate					    		= GLCommitRel.EntityYearPeriod.Date
+							invoked.PrmReportAmounts.FunctionalAmount   = GLCommitRel.ReportCurrencyAmount.FunctionalAmount.EnteredCurrencyAmount * -1	     		
+							invoked.PrmReportAmounts.AlternateAmount    = GLCommitRel.ReportCurrencyAmount.AlternateAmount.EnteredCurrencyAmount * -1   			
+							invoked.PrmReportAmounts.AlternateAmount2   = GLCommitRel.ReportCurrencyAmount.AlternateAmount2.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.AlternateAmount3	= GLCommitRel.ReportCurrencyAmount.AlternateAmount3.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.ToFunctionalAmount = GLCommitRel.ReportCurrencyAmount.ToFunctionalAmount.EnteredCurrencyAmount * -1      		
+							invoked.PrmReportAmounts.ToAlternateAmount  = GLCommitRel.ReportCurrencyAmount.ToAlternateAmount.EnteredCurrencyAmount * -1     		
+							invoked.PrmReportAmounts.ToAlternateAmount2 = GLCommitRel.ReportCurrencyAmount.ToAlternateAmount2.EnteredCurrencyAmount * -1      		
+							invoked.PrmReportAmounts.ToAlternateAmount3	= GLCommitRel.ReportCurrencyAmount.ToAlternateAmount3.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.ProjectAmount		= GLCommitRel.ReportCurrencyAmount.ProjectAmount.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.ReportAmount1      = GLCommitRel.ReportCurrencyAmount.ReportAmount1.EnteredCurrencyAmount * -1				
+							invoked.PrmReportAmounts.ReportAmount2      = GLCommitRel.ReportCurrencyAmount.ReportAmount2.EnteredCurrencyAmount * -1				
+							invoked.PrmReportAmounts.ReportAmount3		= GLCommitRel.ReportCurrencyAmount.ReportAmount3.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.ReportAmount4		= GLCommitRel.ReportCurrencyAmount.ReportAmount4.EnteredCurrencyAmount * -1			
+							invoked.PrmReportAmounts.ReportAmount5		= GLCommitRel.ReportCurrencyAmount.ReportAmount5.EnteredCurrencyAmount * -1
+							invoked.PrmBusinessClassName                = "Contract"
+							invoked.PrmEditContext                      = "Close"
+						if (GLCommitRel.LastCurrAmountDiff ! entered)
+							invoke UpdateReleasedCommitment GLCommitRel
+								invoked.TransactionAmount        = 0
+								invoked.ReportCurrencyAmount     = ReportCurrencyAmount
+								invoked.TransactionDate          = ContractLine.EffectiveDate
+								invoked.AccountingEntity         = Contract.CommitmentCompany
+								invoked.FinanceCodeBlock         = ContractLineDistribution.DistributionAccount
+								invoked.CurrencyCode             = Contract.CurrencyCode
+								invoked.TransientDistribCanceled = true
+						else
+							invoke FreeUpAllocatedBudgetAmounts GLCommitRel
+						
+					else
+					if (GLCommitRel.Status.Unreleased)
+						invoke Purge GLCommitRel		
+					
+		ReValidateSpreadDate is an Instance Action
+			restricted
+
+			Action Rules
+				constraint (SpreadDate >= Contract.EffectiveDate)
+					"ContractNoLongerEffectiveForSpreadDate:<SpreadDate>"
+
+				constraint (SpreadDate <= Contract.ExpirationDate)
+					"ContractNoLongerEffectiveForThisSpreadDate:<SpreadDate>"
+					
+		EditUpdateUsedAmount is an Instance Action
+			restricted
+			
+			Parameters
+				InUsedAmount       is a CurrencyAmount
+			
+			Action Rules
+			
+				constraint (InUsedAmount !> (AmountRemaining + SameGeneralLedgerCalendarPeriodRel.AmountRemaining))
+					"WillNotBeAbleToRelease,AmountRemainingForContractLineSpreadOnContract<Contract>;ContractLine<ContractLine>IsLessThanAmountsOnADocument"
+		
+		UpdateUsedAmount is an Instance Action      
+			restricted
+			
+			Parameters
+				InUsedAmount       		is a CurrencyAmount
+				FromCancelOrDelete      is Boolean
+				FromPORelease           is Boolean
+				FromSpreadAfterActive   is Boolean
+				
+			Local Fields 
+				LocalExcessAmount is a CurrencyAmount
+			
+			Action Rules
+			
+				LocalExcessAmount = ((UsedAmount + InUsedAmount) - SpreadAmount)
+				if (LocalExcessAmount !> 0)
+					UsedAmount = UsedAmount + InUsedAmount
+				else 
+					UsedAmount = SpreadAmount 
+					if (SameGeneralLedgerCalendarPeriodRel exists)
+						invoke UpdateUsedAmount first SameGeneralLedgerCalendarPeriodRel
+							invoked.InUsedAmount = LocalExcessAmount
+				if (FromSpreadAfterActive)
+					constraint (UsedAmount <= SpreadAmount)
+						"SpreadAmountIsLessThanCalculatedUsedAmountOf<UsedAmount>;MustEnterASpreadAmountGreaterThanorEqualToUsedAmount"
+				LocalUpdateCommitment = true
+				LocalFromUpdateAmount = true
+				if (ContractLineDistribution.DistributionAccount.Project entered)
+					TransientExchangeDate = ContractLine.EffectiveDate
+					LocalPostingDate  = ContractLine.EffectiveDate
+			
+				invoke UpdateReportCurrencyAmountInstance
+							
+			Exit Rules
+				LocalFromCancelOrDelete = FromCancelOrDelete
+				LocalFromUpdateAmount   = true
+				include ManageCommitments
+				
+		FinishUpdateUsedAmount is an Instance Action
+			restricted
+			
+			Action Rules
+				LocalUpdateCommitment = true
+				LocalFromUpdateAmount = true
+				invoke UpdateReportCurrencyAmountInstance
+				include ManageCommitments			
+				
+		UpdateCommitmentFromAllowance is an Instance Action
+			restricted		
+		
+			Action Rules
+				LocalUpdateCommitment	= true
+				LocalInternalChange 	= true
+				invoke UpdateReportCurrencyAmountInstance
+				include ManageCommitments
+
+		UpdateReportCurrencyAmount is an Update Action  
+			restricted
+
+		UpdateReportCurrencyAmountInstance is an Instance Action
+			restricted
+			Action Rules
+			
+				initialize ReportCurrencyAmount
+				TransientCurrencyTable         						= ContractGroup.BusinessGroup.FinanceEnterpriseGroup.CurrencyTable
+				TransientAccountingEntity      						= Contract.CommitmentCompany
+				TransientExchangeDate          						= current corporate date
+				TransientFromCurrency          						= Contract.CurrencyCode
+				TransientCurrencyAmount	                            = ChangeOrderAmountRemaining
+				ReportCurrencyAmount.ReportAmount1.ToCurrency       = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ReportCurrencyOne
+				ReportCurrencyAmount.ReportAmount2.ToCurrency       = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ReportCurrencyTwo
+				ReportCurrencyAmount.ReportAmount3.ToCurrency       = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ReportCurrencyThree
+				ReportCurrencyAmount.ReportAmount4.ToCurrency       = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ReportCurrencyFour
+				ReportCurrencyAmount.ReportAmount5.ToCurrency       = ContractGroup.BusinessGroup.FinanceEnterpriseGroup.ReportCurrencyFive
+				ReportCurrencyAmount.UseDerivedCalculations         = true
+				LocalForceCalculation 	       						= ReportCurrencyAmount.DerivedCalculationsComplete				
+							
+		CreateCommitmentFromRebuild is an Instance Action
+			restricted
+			Action Rules
+				if (ContractLine.HasBeenActivated = false)
+					invoke Purge GLCommitRel
+						invoked.PrmPurgeRecalculate = true
+					LocalNewSpread = true
+					include ManageCommitments
+				else
+				if (GLCommitRel.LastCurrAmountDiff > 0)
+					invoke ClearLastCurrencyAmount GLCommitRel
+					LocalFromRecalculate = true
+					include ManageCommitments
+
+		MigrateContractSpreadCommitments  is a Set Action
+			restricted
+			completion message is "<CompletionMessage>"
+			run in background	 
+
+			Parameters
+				PrmContractGroup		is a ContractGroup
+				PrmContract				is a Contract
+																	
+			Parameter Rules
+				PrmContractGroup
+					constraint (!PrmContract entered)
+						"CannotSelectContractWhenContractGroupIsEntered"
+						
+				PrmContract
+					constraint (!PrmContractGroup entered)
+						"CannotSelectContractGroupWhenContractIsEntered"
+											
+			Local Fields
+				RecordCount					is Numeric 10
+				LocalTranAmount				is a CurrencyAmount
+				CompletionMessage			is Alpha 150
+				LocalGLCommitView			is a GLCommit view
+				LocalMigrationResultView	is a MigrationResult view
+				LocalErrorMessage 			is Alpha 150
+				LocalErrorOccurred			is Boolean
+				LocalMigrationJobType		is a MigrationJobType
+
+			Instance Selection
+				where ((ContractGroup = PrmContractGroup
+				and     PrmContractGroup entered
+				and		!PrmContract entered)
+				or	   (Contract = PrmContract
+				and	    PrmContract entered
+				and     !PrmContractGroup entered)
+				or	   (!PrmContractGroup entered
+				and     !PrmContract entered)
+				and	   (!GLCommitRel exists))
+
+			Sort Order
+				GltObjId
+				
+			Action Rules								
+				Empty Set Rules
+					CompletionMessage = "ContractSpreadCommitmentMigration;NoRecordsFoundToProcess"
+				
+					LocalMigrationJobType = MigrationJobType.MigrateContractSpreadCommitments
+					include Migration.CreateMigrationResult
+						replace POCompany with blank
+						replace RQCompany with blank
+						replace ContractGroup with PrmContractGroup
+						replace Contract with PrmContract
+						replace CashManagementGroup with blank
+						replace PayablesCompany with blank
+					invoke SetAsCompleted LocalMigrationResultView.MigrationResult
+
+				Set Rules
+					Entrance Rules
+						LocalMigrationJobType = MigrationJobType.MigrateContractCommitments
+						include Migration.CreateMigrationResult
+							replace POCompany with blank
+							replace RQCompany with blank
+							replace ContractGroup with PrmContractGroup
+							replace Contract with PrmContract
+							replace CashManagementGroup with blank
+							replace PayablesCompany with blank
+
+					Exit Rules
+						CompletionMessage = "MigrationOfContractCommitmentsComplete;RecordsProcessed<RecordCount>"
+							
+						invoke SetAsCompleted LocalMigrationResultView.MigrationResult
+
+				Instance Rules
+					LocalErrorOccurred			= false
+
+					if (!ContractLine.CommitmentsClosed
+					and !Contract.CommitmentsClosed)
+						initialize LocalTranAmount
+						if (GLCommitxRel exists
+						and GLCommitxRel.TransactionAmount > 0)
+							LocalTranAmount			= GLCommitxRel.TransactionAmount
+						else
+							if (!GltObjId entered
+							and ACCommitxRel exists
+							and ACCommitxRel.TransactionAmount > 0)
+								LocalTranAmount		= ACCommitxRel.TransactionAmount
+						if (LocalTranAmount entered)
+							invoke UpdateReportCurrencyAmountInstance
+							invoke CreateCommitment GLCommit
+								assign result to LocalGLCommitView
+								resume on error
+									LocalErrorMessage 					= error message
+									LocalErrorOccurred					= true
+								invoked.FinanceEnterpriseGroup  = ContractGroup.BusinessGroup.FinanceEnterpriseGroup
+								invoked.OriginatingTransaction  = reference to this instance
+								invoked.System			 		= "PO"
+								invoked.FinanceCodeBlock	 	= ContractLineDistribution.DistributionAccount
+								invoked.CurrencyCode		 	= Contract.CurrencyCode
+								invoked.TransactionAmount	 	= LocalTranAmount		
+								invoked.ReportCurrencyAmount	= ReportCurrencyAmount
+								invoked.TransactionDate		    = SpreadDate
+								invoked.IsContractManagement    = true
+								invoked.AccountingEntity        = Contract.CommitmentCompany
+								invoked.HeaderUniqueID          = Contract.UniqueID
+								invoked.TransBusinessObjectRef	= reference to Contract
+								invoked.TransientMigrateAsReleased	= true
+
+							include Migration.CreateMigrationResultDetail
+
+		Purge is a Purge Action
+			restricted
+

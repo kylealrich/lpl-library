@@ -1,0 +1,507 @@
+ContractRedlineDocument is a BusinessClass
+	owned by po
+	
+	prefix is CTRD
+	sql name is ContractRedDoc
+	
+	Ontology
+		symbolic key is ContractRedlineDocument
+	
+	Patterns
+	
+	Persistent Fields
+		Title							is a Description
+    	Description 			 		is Text
+    	Attachment 						is an AlternateAttachment
+    	LatestRevision					is Boolean
+    	CreatedBySupplier               is Boolean
+		IDMUniqueId						is a DocumentPID	
+			restricted
+			protected
+		IDMSignatureEnvelopeUniqueID		is an IDMPID
+			protected
+		IDMSignatureEnvelopeStatus			is Numeric 1
+			States
+				Draft						value is 0
+				InProgress					value is 1
+					default label is "In\-progress"
+				Completed					value is 2
+				Cancelled					value is 3
+		IDMSignatureVersion					is Numeric size 3
+			
+	Local Fields
+		LocalExecute						is Boolean		
+		IDMAttributes
+		IDMItem
+ 	  	LocalIDMItemDetailsExecuted			is Boolean
+		LocalGeneratedContract  			is Boolean
+		LocalIDMDocumentSignExecuted		is Boolean
+		LocalIsSignatureEnabled				is Boolean
+		LocalShowRefreshStatus				is Boolean
+		LocalRecipientName					is a Name
+		LocalRecipientEmail					is an EmailAddress
+		LocalAttributeCtr   				is Numeric 2
+		
+	Transient Fields
+		TransientDocumentBytes			is BinaryDocument
+		TransientDocumentType			is MimeType
+		TransientDocumentTitle			is DocumentTitle size 100		
+		TransientAttachment				is an IDMAttachment
+			default label is "Attachment"
+			
+	Conditions
+  		
+  		CanDeleteOrUpdate
+  			restricted
+  			when (ContractNotInApprovals
+  			and   !CreatedBySupplier)
+  		IsLatestRevision
+  			restricted
+  			when (LatestRevision)
+		ContractNotInSupplierApproval
+			restricted
+			when (!Contract.SupplierNegotiateTermsValid)
+		ContractNotInApprovals
+			restricted
+			when (Contract.NotInApprovals)
+		HasAttachment
+			restricted
+			when (Attachment entered)
+		EmailAttachmentExists
+			restricted
+			when (NotificationAttachmentRel exists)
+		OtherRedlineDocumentsExist
+			restricted
+			when (OtherRedlineDocumentsRel exists)	
+		UsesIDM											
+			restricted
+			when (Contract.IDMRedlineApprovals)			
+		HasNonIDMAttachment
+			restricted
+			when (Attachment entered
+			and not UsesIDM)
+		HasIDMAttachment
+			restricted
+			when (IDMUniqueId entered
+			and UsesIDM)	
+		DisplayAttachment
+			restricted
+			when (HasNonIDMAttachment
+			or (Attachment not entered
+				and not UsesIDM))
+		ForApproverOrSupplierUpdate
+			restricted
+			when (Contract.ContractStatus.Released
+			or Contract.ContractStatus.Negotiation)	
+		NotForApproverOrSupplierUpdate
+			restricted
+			when (not ForApproverOrSupplierUpdate
+			and HasIDMAttachment)	
+
+		DisplaySignatureCard
+			when (DerivedIsSignatureEnabled) 
+		
+		DisplayRefreshStatusAction
+			when (DerivedShowRefreshStatus 
+			or not (IDMSignatureEnvelopeStatus.Completed
+			or IDMSignatureEnvelopeStatus.Cancelled))	
+		
+		DisplaySignatureInfo
+			when (IDMSignatureEnvelopeUniqueID entered
+			or DerivedShowRefreshStatus)
+
+		DisplayCheckAlert
+			when (DisplaySignatureInfo
+			and IDMSignatureEnvelopeStatus.Completed)
+					
+	Relations
+		HasAnotherLatestRevisionRel
+			one-to-many relation to ContractRedlineDocument
+			Field Mapping uses ByLatestRevision
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+				
+		OtherRedlineDocumentsRel
+			one-to-many relation to ContractRedlineDocument
+			Field Mapping uses symbolic key
+				related.ContractGroup = ContractGroup
+				related.Contract	  = Contract
+			Instance Selection
+				where (related.ContractRedlineDocument != ContractRedlineDocument)		
+				
+		NotificationAttachmentRel
+			one-to-many relation to ContractNotificationEmailAttachment
+			Field Mapping uses ByRedlineDocument
+				related.ContractGroup           = ContractGroup
+				related.Contract                = Contract
+				related.ContractRedlineDocument = ContractRedlineDocument
+
+		ContractSignatureRecipientRel
+			one-to-many relation to ContractSignatureRecipient
+			Field Mapping uses ByContractSignatureRecipient
+				related.ContractGroup			= ContractGroup
+				related.Contract				= Contract
+			Instance Selection
+				where (related.ContractRedlineDocument = ContractRedlineDocument
+				and related.Version = IDMSignatureVersion)
+
+		SelectedContractSignatureRecipientRel
+			one-to-many relation to ContractSignatureRecipient
+			Field Mapping uses ByContractSignatureRecipient
+				related.ContractGroup			= ContractGroup
+				related.Contract				= Contract
+			Instance Selection
+				where (related.ContractRedlineDocument = ContractRedlineDocument
+				and related.Version = IDMSignatureVersion
+				and related.Name = LocalRecipientName
+				and related.Email = LocalRecipientEmail)
+
+	Rule Blocks
+		GetIDMItemDetails
+ 	  		if (not LocalIDMItemDetailsExecuted
+ 	  		and IDMUniqueId entered)			
+				IDMItem.DocumentType	= "FSM_ContractRedlineDocument"
+	    		IDMItem.IDMUniqueId		= IDMUniqueId
+				IDMItem.OverrideUser	= true
+				if (IDMItem.GetItemDetails)
+	    			LocalIDMItemDetailsExecuted		= true
+
+		GetDocumentSignature
+			if (not LocalIDMDocumentSignExecuted
+			and IDMUniqueId entered)
+				IDMItem.DocumentType	= "FSM_ContractRedlineDocument"
+	    		IDMItem.IDMUniqueId		= IDMUniqueId
+				if (IDMItem.GetDocuSignInfo)
+	    			LocalIDMDocumentSignExecuted	= true	
+
+		SignatureEnable
+			if (not LocalIsSignatureEnabled
+			and IDMUniqueId entered)
+				IDMItem.DocumentType	= "FSM_ContractRedlineDocument"
+	    		IDMItem.IDMUniqueId		= IDMUniqueId
+				IDMItem.OverrideUser	= true
+				if (IDMItem.IsSignatureEnabled)
+					if ((IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus entered
+					and (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "in progress"
+					or IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "draft"))
+					or (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeUniqueID entered 
+					and IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeUniqueID not = IDMSignatureEnvelopeUniqueID))
+						LocalShowRefreshStatus = true
+					LocalIsSignatureEnabled = true
+					
+	    						
+	Derived Fields
+    	DerivedIDMDocumentURL	is a DerivedField
+    		type is Alpha 2083
+    		if (IDMUniqueId entered)
+    			IDMItem.DocumentType	= "FSM_ContractRedlineDocument"
+    			IDMItem.IDMUniqueId		= IDMUniqueId
+    			return IDMItem.GetLink
+		
+		DerivedIDMDocPID		is a DerivedField
+			type is Alpha size up to 100			
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.PID entered)
+				return IDMItem.IDMItemDetails.PID
+
+  		DerivedVersionNumber  is a DerivedField								
+ 			type is Numeric size 3
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.VersionNumber entered)
+				return IDMItem.IDMItemDetails.VersionNumber
+    				
+    	DerivedCheckOutByName is a DerivedField
+			type is Alpha size up to 100
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.CheckOutByName entered)
+				return IDMItem.IDMItemDetails.CheckOutByName 
+    				
+    	DerivedCheckOutTimeStamp is a DerivedField
+			type is TimeStamp
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.CheckOutTimeStamp entered)
+				return IDMItem.IDMItemDetails.CheckOutTimeStamp		 
+    				    	
+    	DerivedLastChangedByName is a DerivedField
+    		type is Alpha size up to 100
+ 			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.LastChangedByName entered)
+				return IDMItem.IDMItemDetails.LastChangedByName 
+    				
+    	DerivedLastChangeTimeStamp is a DerivedField
+    		type is TimeStamp
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.LastChangedTimeStamp entered)
+				return IDMItem.IDMItemDetails.LastChangedTimeStamp   
+	  			  		    							    	    		
+    	DerivedDrillBack		is a DerivedField
+    		type is Alpha 2083
+			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.PID entered)
+				IDMItem.IDMPID = IDMItem.IDMItemDetails.PID
+				return IDMItem.DerivedDrillBackLink
+				
+ 		DerivedIsCheckedOut  is a DerivedField								
+ 			type is Boolean
+  			if (not LocalIDMItemDetailsExecuted)
+				include GetIDMItemDetails
+			if (IDMItem.IDMItemDetails.IsCheckedOut entered)
+				return IDMItem.IDMItemDetails.IsCheckedOut 
+
+		DerivedIsSignatureEnabled is a DerivedField
+			type is Boolean
+			if (not LocalIsSignatureEnabled)
+				include SignatureEnable
+			return LocalIsSignatureEnabled
+
+		DerivedShowRefreshStatus is a DerivedField
+			type is Boolean
+			if (not LocalIsSignatureEnabled)
+				include SignatureEnable
+			return LocalShowRefreshStatus
+
+		DerivedSignatureMessage is a DerivedField
+			type is MessageField
+			if (not LocalIsSignatureEnabled)
+				include SignatureEnable
+			if (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "in progress"
+			and (IDMSignatureEnvelopeStatus.Completed 
+			or IDMSignatureEnvelopeStatus.Cancelled))
+				return "Please click Refresh Status to ensure the latest information is displayed."
+			else
+			if (IDMSignatureEnvelopeStatus.InProgress)
+				return "Document was sent to be signed. Please click Refresh Status to ensure the latest information is displayed."
+			else
+				return blank
+			
+	Sets
+		ByLatestRevision
+  			Sort Order
+  				ContractGroup	
+  				Contract
+  			Instance Selection
+  				where (IsLatestRevision)
+  		
+  		NewestToOldest
+  			Sort Order
+  				ContractGroup
+  				Contract
+  				ContractRedlineDocument descending
+  				
+  	Field Rules
+		Title
+			if (CreatedBySupplier = false)
+				required
+			if (UsesIDM
+			and Title not entered)
+				default to TransientAttachment.Title
+				
+					
+		Description
+			default to Title
+			
+		
+		LatestRevision
+			initial value is true
+		
+		Attachment
+			if (!UsesIDM)		
+				required
+					"MustEnterAttachment"
+				if (EmailAttachmentExists)
+					cannot be changed
+						"CannotChangeWhenReferencedAsAnAttachmentToANotificationEmail"
+
+		TransientAttachment
+			if (UsesIDM
+			and not LocalGeneratedContract
+			and action type.Create)
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName	= "ContractGroup"
+				IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue	= ContractGroup
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeName	= "Contract"
+				IDMAttributes.SingleValue.IDMAttribute[2].IDMAttributeValue	= Contract
+				IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeName	= "CreatedBySupplier"
+				IDMAttributes.SingleValue.IDMAttribute[3].IDMAttributeValue	= CreatedBySupplier
+				IDMItem.Attachment											= TransientAttachment
+				IDMItem.DocumentType										= "FSM_ContractRedlineDocument"
+				IDMItem.IDMAttributes 										= IDMAttributes
+				IDMItem.IDMAccessControlList								= "CSFDefined"
+	
+				if(IDMItem.Upload)
+					IDMUniqueId		= IDMItem.IDMUniqueId
+					invoke FastUpdate Contract
+						invoked.IDMDocumentPID	= IDMUniqueId
+
+ 	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+							
+	Delete Rules
+		include IDM.DeleteRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+
+  	Actions	
+		Create is a Create Action
+			valid when (ContractNotInSupplierApproval)
+			Field Rules
+				LatestRevision
+					default to true
+		
+			Action Rules
+				if (UsesIDM)
+					if (not LocalGeneratedContract)
+						constraint (TransientAttachment entered)
+							"MustEnterAttachment"
+				
+				if (HasAnotherLatestRevisionRel exists)
+					invoke Update HasAnotherLatestRevisionRel
+						invoked.LatestRevision = false
+						if(UsesIDM)
+							invoked.LocalExecute   = true
+
+		SupplierCreate is a Create Action
+			restricted
+		
+			Action Rules
+				LatestRevision 	  = true
+				CreatedBySupplier = true
+				
+				if (UsesIDM)
+					constraint (TransientAttachment entered)
+						"MustEnterAttachment"
+				else				
+					if (HasAnotherLatestRevisionRel exists)
+						invoke Update HasAnotherLatestRevisionRel
+							invoked.LatestRevision = false
+
+			Exit Rules
+				if (UsesIDM)
+					invoke FastUpdate 
+						invoked.IDMUniqueId = IDMItem.IDMUniqueId		
+																
+		Update is an Update Action
+			valid when (CanDeleteOrUpdate)
+			
+			Action Rules
+				if (UsesIDM)
+					if (not LocalGeneratedContract
+					and not LocalExecute) 
+						IDMItem.DocumentType			= "FSM_ContractRedlineDocument"
+						IDMItem.IDMUniqueId				= IDMUniqueId
+						IDMItem.Attachment				= TransientAttachment
+						IDMItem.IDMAccessControlList	= "CSFDefined"
+						IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeName	= "CreatedBySupplier"
+						IDMAttributes.SingleValue.IDMAttribute[1].IDMAttributeValue	= CreatedBySupplier
+						IDMItem.IDMAttributes = IDMAttributes
+						constraint (IDMItem.Update)
+							"AnErrorInUploadingAttachmentWasEncountered"
+				else
+					if (LatestRevision
+					and HasAnotherLatestRevisionRel exists)
+						invoke Update HasAnotherLatestRevisionRel
+							invoked.LatestRevision = false
+
+		Delete is a Delete Action
+			valid when (CanDeleteOrUpdate)
+			
+			Action Rules
+				
+				if (!Contract.UseIDM)
+					constraint (!EmailAttachmentExists)
+						"CannotDelete;ReferencedAsAnAttachmentToANotificationEmail"
+					
+					if (LatestRevision)
+						constraint (!Contract.ContractStatus.Negotiation)
+							"CannotDeleteLatestRevisionWhenContractIsInNegotiation"
+							
+						constraint (!OtherRedlineDocumentsExist)
+							"CannotDeleteLatestRevisionIfOtherRedlineDocumentsExist;MustMakeAnotherRedlineDocumentTheLatestRevision"
+				
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules
+			Action Rules
+
+		RefreshStatus is an Instance Action
+			restricted
+			Action Rules
+
+				include GetDocumentSignature
+
+				if (LocalIDMDocumentSignExecuted)
+					IDMSignatureEnvelopeUniqueID 	= IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeUniqueID
+					IDMSignatureVersion 			= IDMItem.IDMDocumentSignatureDetails.SignatureVersion
+
+					if (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "completed")
+						IDMSignatureEnvelopeStatus = IDMSignatureEnvelopeStatus.Completed
+					else
+					if (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "in progress")
+						IDMSignatureEnvelopeStatus = IDMSignatureEnvelopeStatus.InProgress
+					else
+					if (IDMItem.IDMDocumentSignatureDetails.SignatureEnvelopeStatus = "cancelled")
+						IDMSignatureEnvelopeStatus = IDMSignatureEnvelopeStatus.Cancelled
+					else
+						IDMSignatureEnvelopeStatus = IDMSignatureEnvelopeStatus.Draft
+
+					if (IDMItem.FileName entered)
+						Title = IDMItem.FileName
+
+					for each IDMItem.IDMDocumentSignatureDetails.IDMDocumentSignatureRecipients.IDMSignatureRecipient
+						if (each.Name not entered and each.Email not entered)
+							end for each
+						LocalRecipientName = each.Name
+						LocalRecipientEmail = each.Email
+						if (SelectedContractSignatureRecipientRel exists)
+							invoke Update first SelectedContractSignatureRecipientRel
+								invoked.DocumentTimeStamp			= each.DocumentTimeStamp
+								invoked.Status						= each.Status
+						else
+							invoke Create ContractSignatureRecipient
+								invoked.ContractGroup				= ContractGroup
+								invoked.Contract 					= Contract
+								invoked.ContractRedlineDocument		= ContractRedlineDocument
+								invoked.Version 					= each.Version
+								invoked.Name						= each.Name
+								invoked.Email						= each.Email
+								invoked.DocumentTimeStamp			= each.DocumentTimeStamp
+								invoked.Status						= each.Status
+			
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+														
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment			
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop			
+				
+				
+				

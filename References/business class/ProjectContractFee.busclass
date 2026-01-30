@@ -1,0 +1,325 @@
+ProjectContractFee is a BusinessClass
+    owned by Projects
+    prefix is PRJCF
+
+    Ontology
+        symbolic key is ProjectContractFee
+
+    Persistent Fields
+    	FeeType				is Numeric size 1
+    		States
+    			Rate		value is 0
+    			FlatAmount	value is 1
+    			Percent		value is 2
+        Rate				is Decimal size 18.6
+		Percent				is Percent size 7.3
+		Marginal			is Boolean
+		Tiered				is Boolean
+		TaxExempt			is Boolean
+		Active
+		RevenueAccountOnly	is a GeneralLedgerChartAccount		
+		RevenueDimension	is a ProjectCodeBlock				
+		RevenueCodeBlockOption
+		RevenueFullAccount		is a FinanceCodeBlockFullNoProjectFD2
+			default label is "FullRevenueFinanceStructure"
+		RevenuePartialAccount	is a FinanceCodeBlockNoProjectFD2
+			default label is "PartialRevenueFinanceStructure"
+		Basis				is Numeric size 1
+			States
+				Expense		value is 0
+				Billable	value is 1
+			
+	Local Fields			
+		LocalProjectContract is like ProjectContract
+		LocalFeeCode      	 is a ProjectFeeCode   
+		LocalEffectiveDate   is Date
+	Derived Fields
+		DerivedPercent is a DerivedField
+			type is Decimal size 7.3
+			restricted			
+			return (Percent * 100)
+		DisplayPercent is a StringField
+			type is Alpha size 9
+			restricted
+			DerivedPercent
+			"%"
+		DerivedFee is a DerivedField
+			type is Alpha size 20
+			if (!Tiered)
+				if (FeeType.Rate)
+					return Rate
+				else
+					return DisplayPercent
+			else
+				return TieredMF
+		DerivedFeeType is a DerivedField
+			type is Alpha size 20
+			if (FeeType.Rate)
+				return RateMF
+			else
+			if (FeeType.FlatAmount)
+				return FlatAmountMF
+			else
+			if (Basis.Expense)
+				return BasisExpenseMF
+			else
+				return BasisBillableMF
+		TieredMF is a MessageField
+			restricted
+			"Tiered"
+		RateMF is a MessageField
+			restricted
+			"Rate"
+		FlatAmountMF is a MessageField
+			restricted
+			"Flat_Amount"
+		BasisExpenseMF is a MessageField
+			restricted
+			"PercentOf_Expense"
+		BasisBillableMF is a MessageField
+			restricted
+			"PercentOf_Billable"
+
+	Conditions
+		TiersExist
+			restricted
+			when (ProjectContractFeeTier set exists)
+								
+	Relations
+		ProjectContractFeeRel
+			one-to-one relation to ProjectContractFee
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= LocalProjectContract
+				related.ProjectFeeCode			= LocalFeeCode
+				related.EffectiveDate			= LocalEffectiveDate
+	Sets
+		ByDateDescendingActive
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract
+				ProjectFeeCode
+				EffectiveDate descending
+			Instance Selection
+				where (Active)
+									        
+    Field Rules
+    	FeeType
+    		if (FeeType.Percent)
+    			initialize Rate
+    			initialize Tiered
+    			initialize Marginal
+    		if (FeeType.Rate)
+    			initialize Percent
+    			initialize Basis
+    		if (FeeType.FlatAmount)
+    			initialize Percent
+    			initialize Rate
+    			initialize Basis
+    			
+    	Rate
+    		if (Tiered)
+    			Rate = blank
+    		else
+    			constraint (FeeType.Rate)
+    				"FeeTypeMustBeRate"
+    				
+		Percent
+    		if (Tiered)
+    			Percent = blank
+    		else
+    			constraint (FeeType.Percent)
+    				"FeeTypeMustBePercent"
+
+		Basis
+			constraint (FeeType.Percent)
+				"BasisValidForPercentTypeOnly"
+
+		Tiered
+			if (FeeType.FlatAmount)
+				Tiered = true
+			constraint (!FeeType.Percent)
+				"TieredFeesInvalidForPercentType"
+			if (Tiered changed
+			and old Tiered)
+				constraint (!ProjectContractFeeTier set exists)
+					"CannotRemoveTieredIndicator;_TiersExist"
+									
+		Marginal
+			constraint (Tiered)
+				"MarginalValidForTieredFeesOnly"
+			if (!Tiered)
+				Marginal = false
+
+		RevenuePartialAccount
+			if (RevenueCodeBlockOption.PartialStructure)
+				required
+					"PartialRevenueFinanceStructureRequired"
+				constraint (RevenuePartialAccount.GeneralLedgerChartAccount entered)
+					"Revenue<FinanceEnterpriseGroup.AccountLabel>Required"
+			else
+				cannot be entered
+					"CannotEnterPartialRevenueFinanceStructureUnlessRevenueStructureOptionIs_Partial"
+
+		RevenueFullAccount
+			if (RevenueCodeBlockOption.FullStructure)
+				required
+					"FullRevenueFinanceStructureRequired"
+			else
+				cannot be entered
+					"CannotEnterFullRevenueFinanceStructureUnlessRevenueStructureOptionIs_Full"
+					
+    Actions
+        Create is a Create Action
+        Update is an Update Action
+        Delete is a Delete Action
+
+        CreateNewVersion is an Instance Action
+        	Parameters
+				NewEffectiveDate	is Date
+					default label is "EffectiveDate"
+			Parameter Rules
+				NewEffectiveDate
+					initial value is current corporate date
+					required
+			Action Rules
+				invoke Create
+					fill in fields from this instance
+					invoked.EffectiveDate	= NewEffectiveDate
+				for each ProjectContractFeeTier set
+					invoke Create ProjectContractFeeTier
+						fill in fields from each
+						invoked.EffectiveDate	= NewEffectiveDate
+
+		CreateNewFeeRateOrPercent is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmContractGroup			is a ProjectContract group
+					default label is "ContractGroup"
+				PrmFeeCode      	        is a ProjectFeeCode   		
+					default label is "FeeCode"			
+				PrmFeeType				is Numeric size 1
+					States
+						Rate		value is 1
+						Percent		value is 2
+					default label is "FeeType"		
+				NewEffectiveDate	is Date
+					default label is "EffectiveDate"
+				NewRate				is Decimal size 18.6
+					default label is "Rate"		
+				NewPercent			is Percent size 7.3					
+					default label is "Percent"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmFeeCode    		
+					required
+					constraint (FeeType.Rate or FeeType.Percent)
+						"FeeTypeMustBeRateOrPercent"
+				PrmFeeType			
+					required
+				NewEffectiveDate		
+					initial value is current corporate date		
+					required			
+				NewRate
+					if (PrmFeeType.Rate)
+						required	
+					else 
+						cannot be entered	
+				NewPercent			
+					if (PrmFeeType.Percent)
+						required
+					else
+						cannot be entered	
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    Active
+				and    !Tiered
+				and   ((FeeType.Rate
+				and    PrmFeeType.Rate
+				or     (FeeType.Percent
+				and    PrmFeeType.Percent))
+				and    ProjectFeeCode = PrmFeeCode
+				and   (ProjectContract within PrmContractGroup
+				or     PrmContractGroup not entered)))
+			Action Rules
+				Instance Rules
+					LocalProjectContract = ProjectContract					
+					LocalFeeCode		 = ProjectFeeCode
+					LocalEffectiveDate	 = NewEffectiveDate
+					if (ProjectContractFeeRel not exists)
+						invoke Create 
+							fill in fields from this instance
+							invoked.EffectiveDate	= NewEffectiveDate
+							if (FeeType.Rate)
+								invoked.Rate		= NewRate
+							if (FeeType.Percent)	
+								invoked.Percent     = NewPercent 							
+
+		UpdateContractFeeStatus is a Set Action
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				PrmContractGroup			is a ProjectContract group
+					default label is "ContractGroup"
+				PrmFeeCode      	        is a ProjectFeeCode   		
+					default label is "FeeCode"			
+				NewEffectiveDateRange is a DateRange		
+				NewActive		  is Numeric 1
+					States
+						Active value is 1
+						Inactive value is 2	
+					default label is "Status"
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+				PrmFeeCode    		
+					required
+				NewActive
+					required		
+			Instance Selection
+				where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				and    (Active 
+				and    NewActive.Inactive
+				or     (!Active
+				and    NewActive.Active))
+				and    ProjectFeeCode = PrmFeeCode
+				and    (EffectiveDate within NewEffectiveDateRange
+				or      NewEffectiveDateRange not entered)
+				and   (ProjectContract within PrmContractGroup
+				or     PrmContractGroup not entered))
+			Action Rules
+				Instance Rules
+					if (NewActive = 1)
+ 						Active = true
+					else	
+					if (NewActive = 2)
+ 						Active = false
+
+		SetRevenueFields is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup     is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Instance Selection
+				where ((FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				or      PrmFinanceEnterpriseGroup not entered)
+				and     RevenueCodeBlockOption not entered)				
+			Action Rules
+				Instance Rules
+					if (RevenueAccountOnly entered)
+						RevenueCodeBlockOption = 2
+						RevenuePartialAccount.GeneralLedgerChartAccount = RevenueAccountOnly
+						RevenuePartialAccount.FinanceDimension1 = RevenueDimension.FinanceDimension1
+						RevenuePartialAccount.FinanceDimension3 = RevenueDimension.FinanceDimension3
+						RevenuePartialAccount.FinanceDimension4 = RevenueDimension.FinanceDimension4
+						RevenuePartialAccount.FinanceDimension5 = RevenueDimension.FinanceDimension5
+						RevenuePartialAccount.FinanceDimension6 = RevenueDimension.FinanceDimension6
+						RevenuePartialAccount.FinanceDimension7 = RevenueDimension.FinanceDimension7
+						RevenuePartialAccount.FinanceDimension8 = RevenueDimension.FinanceDimension8
+						RevenuePartialAccount.FinanceDimension9 = RevenueDimension.FinanceDimension9
+						RevenuePartialAccount.FinanceDimension10 = RevenueDimension.FinanceDimension10
+					else
+					if (RevenueFullAccount entered)
+						RevenueCodeBlockOption = 1

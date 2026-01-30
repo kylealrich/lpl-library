@@ -1,0 +1,133 @@
+RNILineDistribution is a BusinessClass
+	owned by po
+	
+	prefix is RNILD
+	
+	Ontology
+		symbolic key is RNILineDistribution
+	
+	Patterns
+		disable Auditing
+		disable AuditIndex
+		disable EffectiveDated
+	
+	Persistent Fields
+		AccrualCodeBlock		is a FinanceCodeBlock
+		DistributionCodeBlock	is a FinanceCodeBlock
+        CurrencyCode			is like Currency
+        BaseCurAmt				is like InternationalCost
+        	precision is 2
+        PoCurAmt				is like InternationalCost
+        	precision is 2
+        DistributionPercent		is like Percent
+        DistributionQty			is like Quantity
+        DistributionAmount		is like InternationalCost
+        DistributionSequence	is like PurchaseOrderLineDistribution            
+	Field Rules
+	
+	Local Fields
+	
+	Derived Fields
+		CreditAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			return -1 * PoCurAmt
+
+	Relations
+
+	Sets
+		ByDistributionCodeBlock
+			duplicates
+			Sort Order
+				PurchaseOrderResult
+				Company
+				PurchaseOrder
+				PurchaseOrderLine
+				RNILine
+				DistributionCodeBlock
+				
+		ByAccrualCodeBlock
+			duplicates
+			Sort Order
+				PurchaseOrderResult
+				Company
+				PurchaseOrder
+				PurchaseOrderLine
+				RNILine
+				AccrualCodeBlock
+
+	Actions
+		Create is a Create Action
+			restricted
+			bypass field rules
+		Delete is a Delete Action
+	
+		ProcessUpdate is a Set Action
+			run in background
+			Parameters
+				PrmCompany			is a PurchasingCompany
+				PrmRNIRun 			is a PurchaseOrderResult
+				PrmRNIPostDate		is Date
+				PrmJournalizeGroup 	is AlphaUpper size 30
+			Parameter Rules
+				PrmRNIRun
+					required
+					
+			Local Fields
+				NewPurchaseOrderLineDistributionDetail	is a PurchaseOrderLineDistributionDetail view
+				LAOC	is like AddOnCharge
+				
+			Instance Selection
+				where (Company = PrmCompany
+				and    PurchaseOrderResult = PrmRNIRun)
+				
+			Action Rules
+
+				Instance Rules
+					if (AddOnCharge.LandedAddOnCharge)
+						LAOC = ""
+					else
+						LAOC = AddOnCharge
+						
+					if (PoCurAmt != 0)
+						invoke Create PurchaseOrderLineDistributionDetail in foreground
+							assign result to NewPurchaseOrderLineDistributionDetail
+							invoked.Company				= Company
+							invoked.PurchaseOrder		= PurchaseOrder
+							invoked.PurchaseOrderLine	= PurchaseOrderLine
+							invoked.AddOnCharge			= LAOC
+							invoked.PurchaseOrderLineDistribution = DistributionSequence
+							invoked.RecordType			= 0
+							
+						invoke CreateFromBatch NewPurchaseOrderLineDistributionDetail.PurchaseOrderLineDistributionDetail in foreground
+							invoked.PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+							invoked.PrmTransactionDate		  	= PrmRNIPostDate
+							invoked.PrmPostingDate				= PrmRNIPostDate
+							invoked.PrmTransactionAmount		= PoCurAmt
+							invoked.PrmDistributionAccount		= DistributionCodeBlock
+							invoked.PrmCurrency					= CurrencyCode
+							invoked.PrmReference				= "ReceivedNotInvoiced"
+							invoked.PrmJournalizeGroup			= PrmJournalizeGroup
+							invoked.PrmAccountingEntity			= Company.AccountingEntity
+	
+						invoke Create PurchaseOrderLineDistributionDetail in foreground
+							assign result to NewPurchaseOrderLineDistributionDetail
+							invoked.Company				= Company
+							invoked.PurchaseOrder		= PurchaseOrder
+							invoked.PurchaseOrderLine	= PurchaseOrderLine
+							invoked.AddOnCharge			= LAOC
+							invoked.PurchaseOrderLineDistribution = DistributionSequence
+							invoked.RecordType			= 1
+							
+						invoke CreateFromBatch NewPurchaseOrderLineDistributionDetail.PurchaseOrderLineDistributionDetail in foreground
+							invoked.PrmFinanceEnterpriseGroup	= Company.FinanceEnterpriseGroup
+							invoked.PrmTransactionDate		  	= PrmRNIPostDate
+							invoked.PrmPostingDate				= PrmRNIPostDate
+							invoked.PrmTransactionAmount		= PoCurAmt * -1
+							invoked.PrmDistributionAccount		= AccrualCodeBlock
+							invoked.PrmCurrency					= CurrencyCode
+							invoked.PrmReference				= "ReceivedNotInvoiced"
+							invoked.PrmJournalizeGroup			= PrmJournalizeGroup
+							invoked.PrmAccountingEntity			= Company.AccountingEntity
+							invoked.PrmAccrualFlag              = true
+						

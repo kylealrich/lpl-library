@@ -1,0 +1,747 @@
+DebtInstrumentIdentifier is a BusinessClass
+	owned by treasury
+	prefix is DMDII	
+
+	Ontology
+		symbolic key is DebtInstrumentIdentifier
+		
+	Persistent Fields								
+		Description					is Alpha up to 250
+		OriginalPrincipalAmount		is an InternationalAmount
+			default label is "OriginalPrincipal"
+		FixedInterestRate			is Percent 10.8
+			default label is "FixedRate"
+		FixedResetDate				is Date
+			default label is "ResetDate"
+		DebtRateTable
+		RateFloor					is Percent 10.8
+		RateCap						is Percent 10.8
+		RateFactor					is Percent 3
+		SpreadRate					is Percent 10.8
+		RateDependentOnRating		is Boolean
+		DebtNotification
+		FirstPaymentDate			is Date
+		MaturityDate				is Date
+		InterestFrequency			is Numeric 2
+			States
+				Daily					value is 1
+				Weekly					value is 2
+				BiWeekly				value is 3
+				SemiMonthly				value is 4
+				Monthly					value is 5
+				BiMonthly				value is 6
+				Quarterly				value is 7
+				SemiAnnually			value is 8
+				Annually				value is 9
+				Maturity				value is 10
+		InterestPayment				is Numeric 2
+			States
+				Daily					value is 1
+				Weekly					value is 2
+				BiWeekly				value is 3
+				SemiMonthly				value is 4
+				Monthly					value is 5
+				BiMonthly				value is 6
+				Quarterly				value is 7
+				SemiAnnually			value is 8
+				Annually				value is 9
+				Maturity				value is 10
+				SpecifiedDays			value is 11
+		SpecifiedDays				is Numeric 3
+		FirstInterestPaymentDate	is Date
+		DayCountConvention
+		BusinessDayConvention
+		PrincipalCalculation		is Numeric 2
+			States
+				StraightLine			value is 1
+				Manual					value is 2
+		StraightLineMethod			is Numeric 2
+			States
+				ConstantPayment			value is 1
+				ConstantPrincipal		value is 2	
+		PrincipalFrequency			is Numeric 2
+			States
+				Daily					value is 1
+				Monthly					value is 2
+				Quarterly				value is 3
+				SemiAnnually			value is 4
+				Annually				value is 5
+		BenchmarkGroup
+		LineOfCreditDraw			is Boolean
+		LineOfCredit				is a DebtInstrument
+		Active
+
+	Local Fields
+		LocalAmortizationDate		is Date
+		PaymentDate			 		is an AsOfDate
+		DebtRateTableDetail
+			version is PaymentDate
+		InterestPaymentDate			is an AsOfDate
+			
+	Derived Fields
+		TotalAmortizationPeriods is a DerivedField
+			type is Numeric 8
+			restricted
+			if (PrincipalCalculation.StraightLine)
+				LocalAmortizationDate = FirstPaymentDate
+				while (LocalAmortizationDate <= MaturityDate)
+					TotalAmortizationPeriods += 1
+					
+					if (InterestFrequency.Daily)
+						LocalAmortizationDate = LocalAmortizationDate + 1 day
+					else
+					if (InterestFrequency.Weekly)
+						LocalAmortizationDate = LocalAmortizationDate + 7 days
+					else
+					if (InterestFrequency.BiWeekly)
+						LocalAmortizationDate = LocalAmortizationDate + 14 days
+					else
+					if (InterestFrequency.SemiMonthly)
+						LocalAmortizationDate = LocalAmortizationDate + 15 days 
+					else
+					if (InterestFrequency.Monthly)
+						LocalAmortizationDate = LocalAmortizationDate + 1 month
+					else
+					if (InterestFrequency.BiMonthly)
+						LocalAmortizationDate = LocalAmortizationDate + 2 months
+					else
+					if (InterestFrequency.Quarterly)
+						LocalAmortizationDate = LocalAmortizationDate + 3 months
+					else
+					if (InterestFrequency.SemiAnnually)
+						LocalAmortizationDate = LocalAmortizationDate + 6 months
+					else
+					if (InterestFrequency.Annually)
+						LocalAmortizationDate = LocalAmortizationDate + 1 year
+				return TotalAmortizationPeriods
+			
+		AdjustedVariableRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			if (DebtRateTable entered)
+				return ((DebtRateTableDetail.MarketRate + SpreadRate) * RateFactor)
+					
+		VariableInterestRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			if (DebtRateTable entered)
+				if (RateFloor entered
+				and RateCap entered)
+					if (AdjustedVariableRate < RateFloor)
+						return RateFloor
+					else
+					if (AdjustedVariableRate > RateCap)
+						return RateCap
+					else	
+						return AdjustedVariableRate
+				else
+				if (RateFloor entered)
+					if (AdjustedVariableRate < RateFloor)
+						return RateFloor
+					else	
+						return AdjustedVariableRate
+				else
+				if (RateCap entered)
+					if (AdjustedVariableRate > RateCap)
+						return RateCap
+					else	
+						return AdjustedVariableRate
+				else
+					return AdjustedVariableRate
+		
+		BenchmarkInterestRate is a DerivedField
+			type is Percent 10.8
+			return BenchmarkGroup.BenchmarkRate.MarketRate
+		
+		CurrentDateInterestRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			if (DebtRateTable entered)
+				PaymentDate = current corporate date 
+				return VariableInterestRate
+		
+		TotalCurrentDateInterestRate is a DerivedField
+			type is Percent 10.8
+			default label is "CalculatedInterestRate"
+			return (FixedInterestRate + CurrentDateInterestRate)
+					
+		AnnualInterestRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			return (FixedInterestRate + VariableInterestRate)
+		
+		PeriodInterestRate is a DerivedField
+			type is Percent 10.8
+			restricted
+			return (AnnualInterestRate / CompoundType)
+		
+		ConstantPaymentAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			return (OriginalPrincipalAmount * (PeriodInterestRate * (1 + PeriodInterestRate) ^ TotalAmortizationPeriods) / ((1 + PeriodInterestRate) ^ TotalAmortizationPeriods - 1))
+		
+		ConstantPrincipalAmount is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			return (OriginalPrincipalAmount / TotalAmortizationPeriods)
+				
+		NextPaymentDateMonth is a DerivedField
+			type is Date
+			restricted
+			if (PaymentDate day >= 15)
+				return (PaymentDate + 1 month)
+			else
+				return PaymentDate
+		
+		PaymentDateYear is a DerivedField
+			type is Alpha 4
+			restricted
+			return (PaymentDate year)
+			
+		PaymentDateMonth is a DerivedField
+			type is Alpha 2
+			restricted
+			if (NextPaymentDateMonth month < 10)
+				return (0 + NextPaymentDateMonth month)
+			else
+				return (NextPaymentDateMonth month)
+			
+		PaymentDateDay is a DerivedField
+			type is Alpha 2
+			restricted
+			if (PaymentDate day >= 15)
+				return 01 
+
+
+
+
+			else
+				return 15
+		
+		SemiMonthlyPaymentDate is a DerivedField
+			type is Alpha 8
+			restricted
+			return (PaymentDateYear + PaymentDateMonth + PaymentDateDay)
+			
+		IncrementedInterestFrequencyDate is a DerivedField
+			type is Date
+			restricted
+			if (InterestFrequency.Daily)
+				return (PaymentDate + 1 day)
+			else
+			if (InterestFrequency.Weekly)
+				return (PaymentDate + 7 days)
+			else
+			if (InterestFrequency.BiWeekly)
+				return (PaymentDate + 14 days)
+			else
+			if (InterestFrequency.SemiMonthly)
+				return (PaymentDate + 15 days) 
+			else
+			if (InterestFrequency.Monthly)
+				return (PaymentDate + 1 month)
+			else
+			if (InterestFrequency.BiMonthly)
+				return (PaymentDate + 2 months)
+			else
+			if (InterestFrequency.Quarterly)
+				return (PaymentDate + 3 months)
+			else
+			if (InterestFrequency.SemiAnnually)
+				return (PaymentDate + 6 months)
+			else
+			if (InterestFrequency.Annually)
+				return (PaymentDate + 1 year)
+		
+		IncrementedInterestPaymentDate is a DerivedField
+			type is Date
+			restricted
+			if (InterestPayment.Daily)
+				return (PaymentDate + 1 day)
+			else
+			if (InterestPayment.Weekly)
+				return (PaymentDate + 7 days)
+			else
+			if (InterestPayment.BiWeekly)
+				return (PaymentDate + 14 days)
+			else
+			if (InterestPayment.SemiMonthly)
+				return (PaymentDate + 15 days) 
+			else
+			if (InterestPayment.Monthly)
+				return (PaymentDate + 1 month)
+			else
+			if (InterestPayment.BiMonthly)
+				return (PaymentDate + 2 months)
+			else
+			if (InterestPayment.Quarterly)
+				return (PaymentDate + 3 months)
+			else
+			if (InterestPayment.SemiAnnually)
+				return (PaymentDate + 6 months)
+			else
+			if (InterestPayment.Annually)
+				return (PaymentDate + 1 year)
+			else
+			if (InterestPayment.Maturity)
+				return (MaturityDate)
+			else
+			if (InterestPayment.SpecifiedDays)
+				return (PaymentDate + SpecifiedDays) 
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				
+		PreviousSystemCalendarDate is a DerivedField
+			type is Date
+			restricted
+			if (!PaymentDateBusinessDayRel.IsWorkingDay
+			or  PaymentDateBusinessDayRel.IsHoliday)
+				return (last PreviousSystemCalendarDateRel.SystemCalendarDate)
+			
+		FollowingSystemCalendarDate is a DerivedField
+			type is Date
+			restricted
+			if (!PaymentDateBusinessDayRel.IsWorkingDay
+			or  PaymentDateBusinessDayRel.IsHoliday)
+				return (first FollowingSystemCalendarDateRel.SystemCalendarDate)
+				
+		AdjustedPaymentDate is a DerivedField
+			type is Date
+			restricted
+			if (BusinessDayConvention.NoAdjustment
+			or (PaymentDateBusinessDayRel.IsWorkingDay
+			and !PaymentDateBusinessDayRel.IsHoliday))
+				return PaymentDate
+			else
+			if (BusinessDayConvention.Previous)
+				return PreviousSystemCalendarDate
+			else
+			if (BusinessDayConvention.Following)
+				return FollowingSystemCalendarDate
+			else
+			if (BusinessDayConvention.ModifiedPrevious)
+				if (PreviousSystemCalendarDate month = PaymentDate month)
+					return PreviousSystemCalendarDate
+				else
+					return FollowingSystemCalendarDate
+			else
+			if (BusinessDayConvention.ModifiedFollowing)
+				if (FollowingSystemCalendarDate month = PaymentDate month)
+					return FollowingSystemCalendarDate
+				else
+					return PreviousSystemCalendarDate
+			
+		CompoundType is a DerivedField
+			type is Numeric 3
+			restricted
+			if (InterestFrequency.Daily)
+				return 365
+			else
+			if (InterestFrequency.Weekly)
+				return 52
+			else
+			if (InterestFrequency.BiWeekly)
+				return 26
+			else
+			if (InterestFrequency.SemiMonthly)
+				return 24
+			else
+			if (InterestFrequency.Monthly)
+				return 12
+			else
+			if (InterestFrequency.BiMonthly)
+				return 6
+			else
+			if (InterestFrequency.Quarterly)
+				return 4
+			else
+			if (InterestFrequency.SemiAnnually)
+				return 2
+			else
+			if (InterestFrequency.Annually)
+				return 1
+		
+		OutstandingPrincipal is a DerivedField
+			type is like InternationalAmount
+			return (first DebtInstrumentIdentifierAmortizationScheduleBalanceRel.EndingBalance)
+		
+		CorporateBasePrincipalAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "BaseCurrencyPrincipal"
+			if (DebtInstrument.DebtCurrencyEqualsCorporateBaseCurrency)
+				return OriginalPrincipalAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (OriginalPrincipalAmount * DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (OriginalPrincipalAmount / DebtInstrument.CorporateBaseCurrencyExchange.EnteredCurrencyRate)
+			
+		LocationCurrencyPrincipalAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "LocationCurrencyPrincipal"
+			if (DebtInstrument.DebtCurrencyEqualsLocationCurrency)
+				return OriginalPrincipalAmount
+			else
+			if (DebtInstrument.MultiplyBaseCurrencyRate)
+				return (OriginalPrincipalAmount * DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate)
+			else
+				return (OriginalPrincipalAmount / DebtInstrument.LocationCurrencyExchange.EnteredCurrencyRate) 
+		
+		TotalPrincipalPaymentsEntered is a DerivedField
+			type is like InternationalCost
+				precision is 2
+			restricted
+			return (sum DebtInstrumentIdentifierPrincipal set.PrincipalAmount)
+						
+	Field Rules
+		Description
+			default to DebtInstrumentIdentifier
+		
+		OriginalPrincipalAmount
+			required
+				
+		InterestFrequency
+			initial value is InterestFrequency.Monthly
+			
+			required
+		
+		InterestPayment
+			initial value is InterestFrequency
+			default to InterestFrequency
+			
+			constraint (InterestPayment >= InterestFrequency)
+				"InterestPaymentCannotBeALesserFrequencyThanTheInterestFrequency"
+		
+			required
+			
+		SpecifiedDays
+			if (InterestPayment.SpecifiedDays)
+				required
+				
+			constraint (SpecifiedDays > 0)
+				"SpecifiedDaysMustBeGreaterThanZero"
+							
+		FirstInterestPaymentDate
+			initial value is FirstPaymentDate
+			default to FirstPaymentDate
+			
+			constraint (FirstInterestPaymentDate >= FirstPaymentDate)
+				"FirstInterestPaymentDateCannotBeBeforeFirstPaymentDate"
+		
+			constraint (FirstInterestPaymentDate <= MaturityDate)
+				"FirstInterestPaymentDateCannotBeAfterMaturityDate"
+				
+		DayCountConvention
+			initial value is DayCountConvention.ActualActual
+			
+			required
+		
+		BusinessDayConvention
+			initial value is BusinessDayConvention.NoAdjustment
+			
+			required
+					
+		PrincipalCalculation
+			initial value is PrincipalCalculation.StraightLine
+			
+			required
+			
+		StraightLineMethod
+			initial value is StraightLineMethod.ConstantPayment
+			
+			if (PrincipalCalculation.StraightLine)
+				required
+			else
+				initialize
+			
+		FixedInterestRate
+			if (IsFixedRate)
+				required
+					"InterestRateIsRequiredForFixedRateInstruments"
+			
+		DebtRateTable
+			if (IsVariableRate)
+				required
+					"MustDefineARateTableForVariableRateInstruments"
+					
+		RateFloor
+			if (RateCap entered)
+				constraint (RateFloor < RateCap)
+					"TheRateFloorMustBeLessThanTheRateCap"
+					
+		RateCap
+			if (RateFloor entered)
+				constraint (RateCap > RateFloor)
+					"TheRateCapMustBeGreaterThanTheRateFloor"
+		
+		RateFactor
+			initial value is 1
+			default to 1
+			
+		DebtNotification
+			if (RateDependentOnRating)
+				required
+					"NotificationInformationIsRequired"
+			else
+				initialize
+				
+		FirstPaymentDate
+			initial value is DebtInstrument.IssueDate
+			default to DebtInstrument.IssueDate
+			 
+			constraint (FirstPaymentDate >= DebtInstrument.IssueDate)
+				"FrequencyStartDateCannotBeBeforeTheIssueDate" //"FirstPaymentDateCannotBeBeforeTheIssueDate"
+		
+		MaturityDate
+			constraint (MaturityDate >= FirstPaymentDate)
+				"MaturityDateMustBeGreaterThanFrequencyStartDate" //"MaturityDateMustBeGreaterThanFirstPaymentDate"
+			
+			required
+		
+		LineOfCredit
+			if (LineOfCreditDraw)
+				required
+							
+		Active
+			initial value is true
+	
+	Conditions
+		HasAmortizationSchedule
+			restricted
+			when (DebtInstrumentIdentifierAmortizationSchedule set exists)
+		
+		IsFixedRate
+			restricted
+			when (DebtInstrument.InterestMethod.Fixed)
+			
+		IsVariableRate
+			restricted
+			when (DebtInstrument.InterestMethod.Variable)
+		
+		EnteredPrincipalLessThanOriginalPrincipal
+			restricted
+			when (TotalPrincipalPaymentsEntered <= OriginalPrincipalAmount)
+									
+  	Relations
+  		DebtInstrumentIdentifierAmortizationScheduleBalanceRel is an DebtInstrumentIdentifierAmortizationSchedule set
+  			Instance Selection
+  				where (related.PaymentDate >= current corporate date)
+  	
+  		DebtInstrumentIdentifierAmortizationScheduleRel
+  			one-to-many relation to DebtInstrumentIdentifierAmortizationSchedule
+  			Field Mapping uses ByPaymentDate
+  				related.CashManagementGroup 	 = CashManagementGroup
+  				related.DebtInstrument			 = DebtInstrument
+  				related.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+  				
+  		ActiveDebtRateTableRel
+  			one-to-many relation to DebtRateTable
+  			Field Mapping uses symbolic key
+  				related.CashManagementGroup = CashManagementGroup
+  			Instance Selection
+  				where (related.Active)
+  		
+  		PaymentDateBusinessDayRel
+			one-to-one relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= DebtInstrument.DebtCalendar
+				related.SystemCalendarDate	= PaymentDate
+		
+		PreviousSystemCalendarDateRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= DebtInstrument.DebtCalendar
+			Instance Selection
+				where (related.SystemCalendarDate < PaymentDate
+				and	   related.IsWorkingDay
+				and    !related.IsHoliday)
+		
+		FollowingSystemCalendarDateRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= DebtInstrument.DebtCalendar
+			Instance Selection
+				where (related.SystemCalendarDate > PaymentDate
+				and	   related.IsWorkingDay
+				and    !related.IsHoliday)
+		
+		CalendarFirstPaymentDateRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= DebtInstrument.DebtCalendar
+			Instance Selection
+				where (related.SystemCalendarDate <= FirstPaymentDate)
+				
+		CalendarMaturityDateRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup		= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 		= DebtInstrument.DebtCalendar
+			Instance Selection
+				where (related.SystemCalendarDate >= MaturityDate)
+												
+  	Sets
+  		ByMaturityDate
+  			Sort Order
+  				CashManagementGroup
+  				DebtInstrument
+  				MaturityDate
+  				DebtInstrumentIdentifier
+  		
+  		ByLineOfCredit
+  			Sort Order
+  				CashManagementGroup
+  				LineOfCredit
+  				DebtInstrument
+  				DebtInstrumentIdentifier
+  					
+  	Attach Rules
+		constraint (Active)
+			"DebtInstrumentSerieIsInactive"
+	
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+			
+		Delete is a Delete Action
+		
+		BuildAmortizationSchedule is an Instance Action
+			completion message is "BuildAmortizationScheduleHasBeenSubmittedToTheQueueForProcessing"
+			Action Rules
+				if (!BusinessDayConvention.NoAdjustment)
+					constraint (CalendarFirstPaymentDateRel exists)
+						"DatesMustBeDefinedOnOrBeforeTheFirstPaymentDateOf<FirstPaymentDate>ForCalendar<DebtInstrument.DebtCalendar>"
+						
+					constraint (CalendarMaturityDateRel exists)
+						"DatesMustBeDefinedThruTheMaturityDateOf<MaturityDate>ForCalendar<DebtInstrument.DebtCalendar>"
+					
+				if (PrincipalCalculation.Manual
+				and !DebtInstrumentIdentifierPrincipal set exists)
+					confirmation required
+						"ManualPrincipalPaymentsHaveNotBeenDefined;WouldYouLikeToContinue?"
+						
+				if (DebtInstrumentIdentifierAmortizationSchedule set exists)
+					confirmation required
+						"AmortizationScheduleWillBeRecalculated;WouldYouLikeToContinue?"
+						
+				invoke BuildAmortizationScheduleSetAction
+					invoked.PrmCashManagementGroup		= CashManagementGroup
+					invoked.PrmDebtInstrument			= DebtInstrument
+					invoked.PrmDebtInstrumentIdentifier	= DebtInstrumentIdentifier
+		
+		BuildAmortizationScheduleSetAction is a Set Action
+			restricted
+			run in background
+			
+			Parameters
+				PrmCashManagementGroup		is a CashManagementGroup
+				PrmDebtInstrument			is a DebtInstrument
+				PrmDebtInstrumentIdentifier is a DebtInstrumentIdentifier
+			
+			Parameter Rules
+				PrmCashManagementGroup		required
+				PrmDebtInstrument			required
+				PrmDebtInstrumentIdentifier	required
+			
+			Instance Selection
+				where (CashManagementGroup = PrmCashManagementGroup
+				and	   DebtInstrument = PrmDebtInstrument
+				and    DebtInstrumentIdentifier = PrmDebtInstrumentIdentifier)
+							
+			Local Fields
+				AmortizationPeriod 	 is Numeric 4
+				
+			Action Rules
+				Set Rules
+					Entrance Rules
+						invoke Purge DebtInstrumentIdentifierAmortizationSchedule set
+						
+				Instance Rules
+	 				AmortizationPeriod	= 1
+	 				PaymentDate 	  	= FirstPaymentDate
+	 				
+	 				while (PaymentDate <= MaturityDate)
+						invoke Create DebtInstrumentIdentifierAmortizationSchedule
+	 						invoked.CashManagementGroup		 = CashManagementGroup
+	 						invoked.DebtInstrument 		 	 = DebtInstrument
+	 						invoked.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+	 						invoked.GeneralLedgerCompany	 = DebtInstrument.LegalEntityGroup.LegalEntity
+	 						invoked.AmortizationPeriod		 = AmortizationPeriod
+	 						invoked.AmortizationType 		 = 1 
+	 						invoked.UnadjustedPaymentDate	 = PaymentDate
+	 						invoked.PaymentDate				 = AdjustedPaymentDate
+	 						if (PrincipalCalculation.StraightLine)
+	 							if (StraightLineMethod.ConstantPayment)
+	 								invoked.LocalPaymentAmount = ConstantPaymentAmount
+	 							else
+	 								invoked.PrincipalAmount = ConstantPrincipalAmount
+	 					
+	 					AmortizationPeriod	+= 1
+	 					PaymentDate			 = IncrementedInterestFrequencyDate
+	 				
+	 				if (InterestFrequency != InterestPayment)
+	 					PaymentDate = FirstInterestPaymentDate
+	 					
+	 					while (PaymentDate <= MaturityDate)
+		 					invoke Create DebtInstrumentIdentifierAmortizationSchedule
+		 						invoked.CashManagementGroup		 = CashManagementGroup
+		 						invoked.DebtInstrument 		 	 = DebtInstrument
+		 						invoked.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+		 						invoked.GeneralLedgerCompany	 = DebtInstrument.LegalEntityGroup.LegalEntity
+		 						invoked.AmortizationType 		 = 2 
+		 						invoked.UnadjustedPaymentDate	 = PaymentDate
+		 						invoked.PaymentDate				 = AdjustedPaymentDate
+	 					
+		 					PaymentDate = IncrementedInterestPaymentDate
+	 						
+	 				if (PrincipalCalculation.Manual)
+						for each DebtInstrumentIdentifierPrincipal set
+							invoke Create DebtInstrumentIdentifierAmortizationSchedule
+		 						invoked.CashManagementGroup		 = CashManagementGroup
+		 						invoked.DebtInstrument 		 	 = DebtInstrument
+		 						invoked.DebtInstrumentIdentifier = DebtInstrumentIdentifier
+		 						invoked.GeneralLedgerCompany	 = DebtInstrument.LegalEntityGroup.LegalEntity
+		 						invoked.AmortizationType 		 = 3 
+		 						invoked.UnadjustedPaymentDate	 = each.DebtInstrumentIdentifierPrincipal
+		 						invoked.PaymentDate				 = each.DebtInstrumentIdentifierPrincipal
+		 						invoked.PrincipalAmount 		 = each.PrincipalAmount
+		 						
+		 				invoke UpdateSubsequent first DebtInstrumentIdentifierAmortizationScheduleRel

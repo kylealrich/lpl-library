@@ -1,0 +1,243 @@
+TransferPricingBatchRun is a BusinessClass
+	owned by transpricing
+	prefix is TRPBR
+	
+	Ontology
+		symbolic key is TransferPricingBatchRun
+	
+	Persistent Fields
+		Description
+		TransactionDate		is Date
+		RechargeOption
+		TransferPricingType
+			default label is "RechargeType"
+		TransferPricing
+			default label is "Recharge"
+		TransferPricingCustomGroup	is a TransferPricing group
+			default label is "CustomGroup"
+		Status				is Numeric 1
+			States
+                Started				value is 0
+                Completed			value is 1
+                Processed			value is 2
+		
+	Local Fields
+		LocalRun is like TransferPricingRun
+	
+	Derived Fields
+		StartedStatusMessage is a MessageField
+			"Started"
+			
+		CompletedStatusMessage is a MessageField
+			"Completed"
+			
+		ProcessedStatusMessage is a MessageField
+			"Processed"
+			
+		ErrorCount is a MessageField
+			"ErrorCount:<instance count of TransferPricingFailedRunRel>"
+
+		BatchRunDescriptionTitle is a MessageField
+			"Recharge_Batch_Calculations<TransferPricingBatchRun>_-_<Description>"
+	
+	Field Rules
+		Description
+			required
+			
+	Conditions
+		RunInProgress
+			restricted
+			when (TransferPricingStartedRunRel exists)
+			
+		HasProcessedRun
+			restricted
+			when (TransferPricingProcessedRunRel exists)
+			
+		IsValidForICB
+			restricted
+			when (TransferPricingUnprocessedWithValidTransactionRel exists)
+			
+		ErrorExists
+			restricted
+			when (TransferPricingFailedRunRel exists)
+			
+	Relations
+		TransferPricingRunRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun = TransferPricingBatchRun)
+		
+		TransferPricingStartedRunRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun = TransferPricingBatchRun
+				and related.Status.Started) 
+				
+		TransferPricingRemainingRunsRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun = TransferPricingBatchRun
+				and related.Status.Started
+				and not related.TransferPricingRun = LocalRun)
+				
+		TransferPricingProcessedRunRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun	= TransferPricingBatchRun
+				and	   related.Status.Processed)
+				
+		TransferPricingRemainingUnprocessedRunsRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun	= TransferPricingBatchRun
+				and	   not related.Status.Processed
+				and	   not related.TransferPricingRun = LocalRun)
+				
+		TransferPricingFailedRunRel
+			one-to-many relation to TransferPricingRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 				= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.BatchRun	= TransferPricingBatchRun
+				and	   related.Status.Failed)
+				
+		TransferPricingUnprocessedWithValidTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.TransferPricingRun.BatchRun = TransferPricingBatchRun
+				and	   related.IsValidForICB)
+				
+		TransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.TransferPricingRun.BatchRun = TransferPricingBatchRun
+				and    not related.HasParent)
+				
+		TransferPricingTransactionDetailsRel
+			one-to-many relation to TransferPricingTransactionDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.TransferPricingRun.BatchRun = TransferPricingBatchRun)
+			
+		AllocationLineSourceValueRel
+			one-to-many relation to AllocationLineSourceValue
+			Field Mapping uses ByAllocationRun
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup 
+				related.AllocationRun					= TransferPricingRunRel.AllocationRun				
+
+		AllocationTransactionDetailsRel
+			one-to-many relation to AllocationTransactionDetail
+			Field Mapping uses ByAllocationRun
+				related.FinanceEnterpriseGroup			= FinanceEnterpriseGroup 
+				related.AllocationRun					= TransferPricingRunRel.AllocationRun				
+
+	Sets
+		ByTransferPricingBatchRunDescending
+    		Sort Order
+    			FinanceEnterpriseGroup
+				TransferPricingBatchRun descending
+	
+	Actions
+		Create is a Create Action
+			restricted
+		
+		Delete is a Delete Action
+			Entrance Rules
+				constraint (not RunInProgress)
+					"CannotDelete:RunInProgress"
+				constraint (not HasProcessedRun)
+					"CannotDelete:InterfacedTransferPricingTransactionExists."
+				for each TransferPricingRunRel
+					invoke Delete each
+
+		CalculateRecharges is a Set Action
+			run in foreground
+			no records message is "Calculate_\RechargesHasBeenInitiated.RefreshToViewProgress."
+			Parameters
+				PrmFinanceEnterpriseGroup			is a FinanceEnterpriseGroup
+				PrmRechargeOption					is a RechargeOption
+					default label is "RechargeOption"
+				PrmDescription						is a Description
+					default label is "Description"
+				PrmRechargeType						is a TransferPricingType
+					default label is "RechargeType"
+				PrmRecharge							is a TransferPricing
+					default label is "Recharge"
+				PrmCustomGroup						is a TransferPricing group
+					default label is "CustomGroup"
+				PrmDate								is Date
+					default label is "Date"
+			Instance Selection
+				where (false)
+			Action Rules
+				Empty Set Rules
+					invoke BatchRun TransferPricing
+						invoked.PrmFinanceEnterpriseGroup	= PrmFinanceEnterpriseGroup
+						invoked.PrmRechargeOption			= PrmRechargeOption
+						invoked.PrmDescription				= PrmDescription
+						invoked.PrmRechargeType				= PrmRechargeType
+						invoked.PrmRecharge					= PrmRecharge
+						invoked.PrmCustomGroup				= PrmCustomGroup
+						invoked.PrmDate						= PrmDate
+
+		SendNotification is an Instance Action
+			restricted
+			Local Fields
+				LocalActor					is an Actor
+			Action Rules
+				LocalActor = actor
+				send notification
+					to LocalActor	
+					description is "RechargeBatchCalculations<TransferPricingBatchRun>-<Description>"
+					priority is low
+					linkback(webapp is IntercompanyBillingSpecialist navigation is BatchCalculationNav text is "RechargeBatchCalculations<TransferPricingBatchRun>-<Description>")
+		
+		InterfaceRechargeTransaction is an Instance Action
+			valid when (IsValidForICB)
+			default label is "InterfaceRechargeTransaction"
+			Action Rules	
+				for each TransferPricingUnprocessedWithValidTransactionRel
+					invoke CreateBillingDocument each
+					
+		ChangeStatus is an Instance Action
+			restricted
+			Parameters
+				PrmStatus		is Numeric 1
+					States
+		                Started				value is 0
+		                Completed			value is 1
+		                Processed			value is 2
+				PrmDeleteFlag 	is Boolean
+               	PrmRun 			is like TransferPricingRun
+           	Parameter Rules
+           		PrmRun
+           			LocalRun = PrmRun
+            Action Rules
+            	if (not PrmDeleteFlag)
+            		if ((PrmStatus.Completed
+            		and  TransferPricingRemainingRunsRel not exists)
+            		or (PrmStatus.Processed
+            		and TransferPricingRemainingUnprocessedRunsRel not exists))
+            			Status = PrmStatus
+            	else
+            	if (TransferPricingRemainingRunsRel not exists
+            	and TransferPricingRunRel exists)
+            		if (TransferPricingRemainingUnprocessedRunsRel exists)
+            			Status = Status.Completed
+            		else
+            			Status = Status.Processed

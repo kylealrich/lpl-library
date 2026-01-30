@@ -1,0 +1,165 @@
+SubcontractorDiversity is a BusinessClass
+	owned by procurement
+	prefix is SCDV
+
+	Ontology
+		symbolic key is SubcontractorDiversity
+
+	Patterns
+
+	Persistent Fields
+		EffectiveDate		is Date
+		ExpirationDate		is Date
+		ReviewDate				is Date
+		CertificationComplete	is Boolean
+		Active					is Boolean
+		Attachment  
+		Alerts
+	
+	Derived Fields
+		CompleteMessage is a MessageField
+			restricted
+			"CertificationIsComplete"
+			
+		NotCompleteMessage is a MessageField
+			restricted
+			"CertificationIsNotComplete"
+		
+		CertificationCompleteText is a ConditionalField
+			type is Text
+  			if (CertificationComplete)
+  				CompleteMessage
+  			else
+  				NotCompleteMessage
+  				
+  		DerivedSupplierContactName is a StringField
+		    type is Alpha size 101
+		    restricted
+		    actor.agent(SupplierSourceId).SupplierSourceId.MainContact.FirstAndLastName
+		    
+		DerivedSupplierName is a StringField
+			type is Alpha size 30
+			restricted
+			actor.agent(SupplierSourceId).Supplier.SupplierName
+
+		YellowAlertDate is a ComputeField
+			type is TimeStamp
+			restricted
+			(ExpirationDate - Alerts.YellowAlert as days)
+
+		RedAlertDate is a ComputeField
+			type is TimeStamp
+			restricted
+			(ExpirationDate - Alerts.RedAlert as days)
+
+	Sets
+		ByDiversityCode
+			Sort Order
+				SupplierGroup
+				PayablesDiversityCode
+				Subcontractor
+				
+		BySubcontractor
+			Sort Order
+				SupplierGroup
+				Subcontractor
+				PayablesDiversityCode
+	
+	Field Rules
+		EffectiveDate
+			if (ExpirationDate entered)
+				required
+					"EffectiveDateIsRequiredWhenExpirationDateIsEntered"
+		ExpirationDate
+			if (EffectiveDate entered)
+				required
+					"ExpirationDateIsRequiredWhenEffectiveDateIsEntered"
+			constraint (ExpirationDate >= EffectiveDate)
+				"ExpirationDateMustBeGreaterThanEffectiveDate"
+
+	Conditions
+		HasAttachment
+			restricted
+			when (Attachment entered)
+			
+		EffectiveDateEntered
+			restricted
+			when (EffectiveDate entered)
+		
+		CanUseForDocument
+			restricted
+			when (Active
+			and  ((VendorGroupRel.DiversityValidWhenCertificationComplete
+			and   CertificationComplete)
+			or    !VendorGroupRel.DiversityValidWhenCertificationComplete)
+			and  ((VendorGroupRel.DiversityValidWhenHasAttachment
+			and    Attachment entered)
+			or     !VendorGroupRel.DiversityValidWhenHasAttachment))
+
+		ExpirationDateYellowAlert
+			restricted
+			when (ExpirationDate entered
+			and   Alerts.YellowAlert != 0
+			and   current corporate date >= YellowAlertDate
+			and   YellowAlertDate <= RedAlertDate)
+
+		ExpirationDateRedAlert
+			restricted
+			when (ExpirationDate entered
+			and   Alerts.RedAlert != 0
+			and   current corporate date >= RedAlertDate
+			and   RedAlertDate <= ExpirationDate)
+
+  	Attach Rules
+		constraint (Active)
+			"SubcontractorDiversityCode<SubcontractorDiversity>IsInactive"
+			
+	Relations
+        PayablesDiversityCodeRel	
+        	one-to-one relation to PayablesDiversityCode
+        	Field Mapping uses symbolic key
+            	related.VendorGroup				= SupplierGroup
+        		related.PayablesDiversityCode	= SubcontractorDiversity
+	
+		VendorGroupRel
+			one-to-one relation to VendorGroup
+			Field Mapping uses symbolic key
+				related.VendorGroup          = SupplierGroup	
+				
+		SupplierGroupExtensionRel
+			one-to-one relation to SupplierGroupExtension
+			Field Mapping uses symbolic key
+				related.SupplierGroup	= SupplierGroup
+	
+	Actions
+		Create is a Create Action
+			Action Rules
+				Active = PayablesDiversityCode.Active
+			
+		Update is an Update Action
+													
+		Delete is a Delete Action
+		
+		AttachDiversityToContract is an Instance Action
+			Parameters
+				ContractGroup
+				Contract
+				ContractSubcontractor 
+			Action Rules
+				invoke Create ContractSubcontractorDiversity
+					invoked.ContractGroup          = ContractGroup
+					invoked.Contract               = Contract
+					invoked.ContractSubcontractor  = ContractSubcontractor
+					invoked.PayablesDiversityCode  = PayablesDiversityCode
+					
+				if (actor.agent(SupplierSourceId).SupplierSourceId.EmailAddress entered)
+					if (ContractGroup.SupplierGroupRel.EmailOnContractSubcontractorUpdate)
+						send email
+							to Contract.PrimaryContactRel.DerivedEmail
+							from Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+							cc actor.agent(SupplierSourceId).SupplierSourceId.EmailAddress
+							cc Contract.Supplier.SupplierGroup.NotificationEmailAddressOnSub
+							subject "<SupplierGroupExtensionRel.FinalMaintainContractSubcontractorEmailSubject>"
+							Contents 
+								"<SupplierGroupExtensionRel.FinalMaintainContractSubcontractorEmailContent>"
+								"MaintainedBy<DerivedSupplierContactName>Of<DerivedSupplierName>"

@@ -1,0 +1,144 @@
+MatchReconQueueFinanceResource is a BusinessClass
+	owned by ma
+	prefix is MRQfr
+
+	Ontology
+		symbolic key is MatchReconQueueFinanceResource
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		disable Auditing
+
+	Persistent Fields
+				
+	Local Fields
+		LocalResource 							is like FinanceResource 
+
+	Conditions
+
+		OnMyWorkList
+			when (FinanceResource = actor.agent(Employee).Employee)
+
+		NotOnMyWorkList
+			when (FinanceResource != actor.agent(Employee).Employee)
+			
+	Relations
+		MatchReconQueueRel
+			one-to-one relation to MatchReconQueue
+			Field Mapping uses symbolic key
+				related.Company											= Company
+				related.PayablesInvoice									= PayablesInvoice
+		
+
+		LocalMatchReconQueueFinanceResourceRel
+			one-to-one relation to MatchReconQueueFinanceResource
+			Field Mapping uses symbolic key
+				related.Company											= Company
+				related.PayablesInvoice									= PayablesInvoice
+				related.FinanceResource									= LocalResource 
+ 
+
+
+	Sets
+	
+		ByFinanceResource
+			Sort Order
+				FinanceResource
+				Company
+				PayablesInvoice
+	
+	Actions
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+
+		MoveToMyWorkList is an Instance Action
+			valid when (NotOnMyWorkList)
+			Action Rules
+				constraint (FinanceResource != actor.agent(Employee).Employee)
+				    "InvoiceIsAlreadyOnYourWorkList"
+			    invoke AddToMyWorkList MatchReconQueueRel
+				invoke Delete
+
+		RemoveFromWorkList is an Instance Action
+			valid when (OnMyWorkList)
+			Action Rules
+				invoke Delete
+								
+		DeleteUserBatch is a Set Action
+			restricted
+			run in foreground
+			completion message is "<RecordCount>RecordsDeletedForAPClerk<PrmFinanceResource>"
+			Parameters
+				HROrganization
+				PrmFinanceResource					is a FinanceResource
+			Parameter Rules
+				PrmFinanceResource
+					required
+			Instance Selection
+				where (PrmFinanceResource = FinanceResource)
+
+			Local Fields
+				RecordCount							is Numeric 9
+								
+			Action Rules
+				Set Rules
+					Entrance Rules
+						initialize RecordCount
+				Instance Rules
+					invoke Purge
+					RecordCount += 1
+
+		SmartReconciliationQueueTransfer is a Set Action 
+			restricted
+			completion message is "BuildSmartReconciliationQueueComplete"
+			Parameters
+				HROrganization
+				PrmToClerk					is a FinanceResource
+					default label is "ToProcessor"
+				PrmFromClerk				is a FinanceResource
+					default label is "FromProcessor"
+
+			Parameter Rules
+				HROrganization
+					default to actor.context.HROrganization
+
+				PrmToClerk
+					required
+					constraint (PrmToClerk exists)
+						"ToClerkDoesNotExist"
+					constraint (PrmToClerk.IsMatchSpecialist)
+						"ToClerkIsNotAMatchSpecialist"
+				PrmFromClerk
+					required
+					constraint (PrmFromClerk exists)
+						"FromClerkDoesNotExist"
+					constraint (PrmFromClerk.IsMatchSpecialist)
+						"FromClerkIsNotAMatchSpecialist"
+					constraint (PrmFromClerk != PrmToClerk)
+						"FromAndToClerkCannotBeTheSame"
+					
+		
+			Instance Selection
+				where (FinanceResource = PrmFromClerk)
+
+			Action Rules
+				
+				Instance Rules
+					LocalResource = PrmToClerk 
+					if (!LocalMatchReconQueueFinanceResourceRel exists) 
+						invoke Create MatchReconQueueFinanceResource 
+							invoked.Company					= Company
+							invoked.PayablesInvoice 		= PayablesInvoice
+							invoked.FinanceResource			= PrmToClerk 
+					invoke Delete 
+					

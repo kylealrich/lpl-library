@@ -1,0 +1,380 @@
+UserSJRptMap is a BusinessClass
+    owned by repository
+    prefix is USJR
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+
+    Ontology
+        symbolic key is UserSJRptMap
+
+    Persistent Fields
+    	UserSJRptMapName 	is LPLName
+        SJRptMap
+    	Actor
+
+
+    	Status 			is a UserObjectStatus
+    	LPL             is LPL
+    	Description		is a ConfigDescription
+    	UserEditorType
+    	ErrorText		is Text
+
+    Derived Fields
+    	ContextKey is a DerivedField
+    		type is LPLName
+    		if (Actor entered)
+	    		return  "Actor  '" + Actor + "', " + UserSJRptMapName + ", " + SJRptMap
+    		return  "blank, " + UserSJRptMapName + ", " + SJRptMap
+
+		ConfigActor is a DerivedField
+			type is Actor
+			default label is "Actor"
+			return Actor
+
+		ParseText is a NativeField
+			type is Text
+
+		OverrideNotificationDescription is a MessageField
+    		"YourPersonalizationHasBeenUpdated"
+
+		OverrideNotificationDetails is a MessageField
+    		"YourPreviousModificationsFor<SJRptMap>HaveBeenOverriddenByTheConfigurationAdministratorAndAreNoLongerActive"
+
+	Local Fields
+		LocParseText 	is Text
+		LocParsed 		is Boolean  
+
+    Field Rules
+    	UserSJRptMapName
+    		required
+    	SJRptMap
+    		required
+
+
+
+
+
+
+
+
+
+		LPL
+			required
+
+			if (Status.Active)
+				LocParseText = ParseText
+
+				if (not LocParseText = blank)
+
+
+
+
+					confirmation required
+						"<LocParseText>:_User_FormIsInvalid.__DoYouWantToSaveAnyway?"
+
+					Status = Status.Invalid
+					ErrorText = LocParseText
+
+        UserEditorType
+            default to UserEditorType.Unknown
+
+		Status
+			if (Status.Active)
+				initialize ErrorText
+
+    Conditions
+
+
+
+   		IsActor
+   			default label is "Actor"
+   			when (Actor entered)
+
+    	Global
+    		when (!IsActor)
+
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when (Global)
+
+
+
+
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+	Relations
+    	DuplicateRel
+    		one-to-many relation to UserSJRptMap 
+			Field Mapping uses ByTaskMapActor
+				related.SJRptMap 	 = SJRptMap
+				related.Actor 		 = Actor
+			Instance Selection
+				where (related.UserSJRptMap != UserSJRptMap)
+
+		SJRptMapRel
+			one-to-one relation to SJRptMap
+			Field Mapping uses symbolic key
+				related.SJRptMap = UserSJRptMapName
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses ByEntityType
+                related.EntityType = 13
+                related.BusinessView = blank
+                related.Name = UserSJRptMapName
+                related.Actor = Actor
+
+	Actions
+    	Create is a Create Action
+    		Exit Rules
+    			invoke FireEvent
+    	
+    	CreateFromSnapshot is a Create Action
+    		restricted
+    		bypass field rules
+
+
+    	Update is an Update Action
+    		Action Rules
+				if (Actor changed
+				and DuplicateRel exists)
+					if (Actor entered) 
+						confirmation required
+							"User_ReportMapPersonalizationExists.__DoYouWantToOverwrite?"
+					else
+						confirmation required
+							"User_ReportMapConfigurationExists.__DoYouWantToOverwrite?"
+					invoke Delete DuplicateRel
+
+     		Exit Rules
+    			invoke FireEvent
+    			
+    	UpdateFromSnapshot is an Update Action
+			restricted
+			bypass field rules
+
+    		
+    		Action Rules
+				if (Actor changed
+				and DuplicateRel exists)
+					invoke Delete DuplicateRel
+    		
+    	Delete is a Delete Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+    	DeleteFromSnapshot is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+
+		Purge is a Purge Action
+			restricted
+    		Exit Rules
+    			invoke FireEvent
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		Action Rules
+    			LocParseText = ParseText
+
+				if (not LocParseText = blank)
+
+
+
+
+					constraint(LocParseText = blank)
+						"<LocParseText>:_User_ReportMapIsInvalid._Cannot_Activate."
+
+				Status = Status.Active
+				initialize ErrorText
+
+			Exit Rules
+    			invoke FireEvent
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		Action Rules
+    			Status = Status.Inactive
+
+			Exit Rules
+    			invoke FireEvent
+
+    	Invalidate is an Instance Action
+    		valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+
+			Exit Rules
+    			invoke FireEvent
+
+		FireEvent is an Instance Action
+			restricted
+
+		OverridePersonalizations is a Set Action
+			run in foreground
+			Parameters
+				Config is a UserSJRptMap
+					default label is "Configuration"
+
+			Parameter Rules
+				Config
+					required
+					constraint(Config.Global)
+						"OverridePersonalizationsActionIsOnlyValidForAConfiguration"
+
+			Instance Selection
+		   		where (SJRptMap     = Config.SJRptMap
+		   		and    IsActor)
+
+		   	Action Rules
+		   		Instance Rules
+		   			invoke Update
+		   				invoked.LPL = Config.LPL
+
+		   			invoke CreateMessage UserNotification
+		   				invoked.ParamActor 			= Actor
+		   				invoked.ParamPriority 		= 5
+		   				invoked.ParamDescription	= this instance(locale of Actor.IsoLocale).OverrideNotificationDescription
+		   				invoked.ParamDetails		= this instance(locale of Actor.IsoLocale).OverrideNotificationDetails
+
+		DeletePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+				SJRptMap
+
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+		PurgePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				include deleted records
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+				SJRptMap
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+
+        CreateConfiguration is a Create Action
+        	completion message is "ConfigurationCreated"
+            Parameters
+                StaticReportParam is a SJRptMap
+                	default label is "StaticReport"
+
+			Parameter Rules
+				StaticReportParam
+					required
+
+            Action Rules
+                invoke Create this instance
+                    invoked.UserSJRptMapName 	= StaticReportParam
+                    invoked.SJRptMap			= StaticReportParam
+                    invoked.LPL        			= SJRptMapRel.BaseLPL
+                    
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+				
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserSJ_Rpt_MapIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserSJ_Rpt_MapIsInvalid,TagAnyway?"
+							
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance		                      
+
+    Sets
+    	ActorSet
+    		Sort Order
+    			Actor
+    			SJRptMap
+        	Instance Selection
+        		where (IsActor)
+
+
+
+
+
+
+
+
+
+		AllActorSet
+    		Sort Order
+    			Actor
+        		SJRptMap
+
+		GlobalSet
+			Sort Order
+				SJRptMap
+			Instance Selection
+				where (Global)
+
+		ByTaskMapActor
+			sql name is URSJBYTMA
+			Sort Order
+				SJRptMap
+				Actor
+				UserSJRptMap
+
+		ByMapTaskActor
+			sql name is URSJBYMTA
+			Sort Order
+                SJRptMap
+				Actor
+				UserSJRptMap

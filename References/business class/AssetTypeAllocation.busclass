@@ -1,0 +1,173 @@
+AssetTypeAllocation is a BusinessClass
+    owned by am
+    prefix is ALL
+    classic name is AMTYPALLOC
+
+    Ontology
+        symbolic key is AssetTypeAllocation
+            classic set name is ALLSET1
+            classic name for AssetTypeAllocation.SequenceNumber is SEQUENCE-NBR
+            classic name for AssetType.Type is ASSET-TYPE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        EndDate      is Date
+        Status       is Numeric size 1
+            States
+                Unreleased value is 0
+                Released   value is 1
+        CreationDate is TimeStamp
+        CreatedBy    is an Operator 
+        	holds pii
+            classic name is CREATOR-ID
+
+	Local Fields
+		LocalTotalPercent			is like Percent
+		
+	Derived Fields
+		TotalPercentFromDetails		is a DerivedField
+			type is like Percent 
+			LocalTotalPercent = 0
+			for each AssetTypeAllocationDetailsRel
+				LocalTotalPercent += each.AllocationPercent
+			return LocalTotalPercent		
+            
+
+    Conditions
+
+        AllocationDetailExists
+        	restricted
+            classic name is ALLOC-EXISTS
+            when (first AssetTypeAllocationDetailsRel exists)
+		Unreleased
+			restricted
+			when (Status.Unreleased)
+		Released
+			restricted
+			when (Status.Released)            
+
+    Relations
+        AssetTypeAllocationDetailsRel is an AssetTypeAllocationDetail set
+
+		AssetTypeAllocationsOpenEndedRel
+			one-to-many relation to AssetTypeAllocation
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.AssetType			= AssetType
+			Instance Selection
+				where (related.EndDate not entered)
+				
+		AssetTypeAllocationsStartDateRel
+			one-to-many relation to AssetTypeAllocation
+			Field Mapping uses symbolic key
+				related.Company				= Company
+				related.AssetType			= AssetType
+			Instance Selection
+				where (related.AssetTypeAllocation.StartDate >= current corporate date
+				or	   related.EndDate not entered)
+ 
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                AssetType
+                AssetTypeAllocation.StartDate descending
+                AssetTypeAllocation.SequenceNumber descending
+                
+	Rule Blocks
+	
+		UnreleaseEdits
+			constraint (Released)
+				"AllocationRecordAlreadyUnreleased"				
+				
+		ReleaseEdits
+			constraint (TotalPercentFromDetails = 1)
+				"CannotRelease;TotalPercentageDoesNotEqual100"	
+				
+			constraint (Unreleased)
+				"AllocationRecordAlreadyReleased"				
+				
+		CreateEdits
+		
+			constraint (AssetTypeAllocation.StartDate >= current corporate date)
+				"CannotAssignAStartDatePriorToTheCurrentDate"									
+					
+			if	(AssetTypeAllocationsOpenEndedRel exists)
+				for each AssetTypeAllocationsOpenEndedRel
+					constraint (EndDate = each.AssetTypeAllocation.AssetTypeAllocation.StartDate)
+						"AnOpen-endedAllocationAlreadyExistsForThisCompanyAndAssetType"	
+					constraint (AssetTypeAllocation.StartDate = each.AssetTypeAllocation.AssetTypeAllocation.StartDate)
+						"DateRangeOverlapsAnotherAllocationForThisCompanyAndAssetType"	
+						
+			AssetTypeAllocation.SequenceNumber = 1
+			
+		CommonEdits
+		
+			if (EndDate entered)
+				constraint (AssetTypeAllocation.StartDate <= EndDate)
+					"StartDateIsAfterEndDate"														
+										
+			if	(AssetTypeAllocationsStartDateRel exists)
+				for each AssetTypeAllocationsStartDateRel
+					if (each.AssetTypeAllocation.StartDate > AssetTypeAllocation.StartDate)
+						constraint (each.AssetTypeAllocation.StartDate >= EndDate
+						or			EndDate entered)
+							"DateRangeOverlapsAnotherAllocationForThisCompanyAndAssetType"	
+					if (each.AssetTypeAllocation.StartDate < AssetTypeAllocation.StartDate)
+						constraint (each.EndDate <= AssetTypeAllocation.StartDate)
+							"DateRangeOverlapsAnotherAllocationForThisCompanyAndAssetType"	
+				
+		UpdateEdits
+			if (EndDate entered)
+				constraint (EndDate >= current corporate date)
+					"CannotChangePastAllocations"		
+				
+			constraint (Unreleased)
+				"CannotChangeReleasedAllocations"		
+				
+		DeleteEdits
+			constraint (AssetTypeAllocation.StartDate > current corporate date)
+				"CanOnlyDeleteFutureAllocations"		
+
+	Field Rules
+	
+		CreationDate
+			default to current timestamp
+
+		CreatedBy
+			default to actor
+			
+	Actions
+		Create is a Create Action
+			Action Rules
+				include CommonEdits
+				include CreateEdits
+
+		Update is an Update Action
+			Action Rules
+				include CommonEdits
+				include UpdateEdits
+
+		Delete is a Delete Action
+			Action Rules
+				include DeleteEdits
+
+		Release is an Instance Action
+			valid when (Unreleased)
+			Action Rules
+				include ReleaseEdits
+				Status = Status.Released
+
+		Unrelease is an Instance Action
+			valid when (Released)
+			Action Rules
+				include UnreleaseEdits
+				Status = Status.Unreleased
+			

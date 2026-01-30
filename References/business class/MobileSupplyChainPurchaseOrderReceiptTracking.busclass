@@ -1,0 +1,192 @@
+MobileSupplyChainPurchaseOrderReceiptTracking is a BusinessClass
+    owned by mscm
+    prefix is MPORT
+    sql name is "MSCMPOReceiptTracking"
+
+    Ontology
+        symbolic key is MobileSupplyChainPurchaseOrderReceiptTracking
+    
+    Patterns
+        implements ContextualParent
+
+    Persistent Fields
+        TrackingNumber                      is like TrackingNumber
+        Quantity                            
+            precision is PurchaseOrderReceiptLine.DerivedNumberOfDecimalsQuantity
+        Requisition
+        DeliverToLocation                   is like MobileSupplyChainLocation
+        DeliverTo
+        SourceDocumentLineNumber            is Numeric size 6
+    
+    Local Fields
+        LocalMobileSupplyChainDeliveryTicketView		is a MobileSupplyChainDeliveryTicket view
+        LocalMobileSupplyChainDeliveryUnitView          is a MobileSupplyChainDeliveryUnit view
+        LocalMobileSupplyChainDeliveryEventView         is a MobileSupplyChainDeliveryEvent view
+        LocalMobileSupplyChainLocation                  is a MobileSupplyChainLocation
+        LocalMobileSupplyChainDeliveryTicket            is a MobileSupplyChainDeliveryTicket
+        LocalMobileSupplyChainDeliveryUnit              is a MobileSupplyChainDeliveryUnit
+        LocalPurchaseOrderReceipt                       is a PurchaseOrderReceipt
+
+    Conditions
+        IsCreateEnabled
+            restricted
+            when (PurchaseOrderReceiptLine.IsTrackingPanelEnabled)
+
+    Field Rules
+        TrackingNumber
+            required
+        
+        Quantity
+            required
+
+    Relations
+        MobileSupplyChainDeliveryTicketRel
+            one-to-one relation to MobileSupplyChainDeliveryTicket
+            Field Mapping uses symbolic key
+				related.Company									= Company
+				related.MobileSupplyChainLocation				= PurchaseOrderReceiptLine.ShipToLocation
+				related.MobileSupplyChainDeliveryTicket			= LocalMobileSupplyChainDeliveryTicket            
+
+		MobileSupplyChainDeliveryUnitRel
+			one-to-one relation to MobileSupplyChainDeliveryUnit
+			Field Mapping uses symbolic key
+				related.Company									= Company
+				related.MobileSupplyChainLocation				= PurchaseOrderReceiptLine.ShipToLocation
+				related.MobileSupplyChainDeliveryTicket			= LocalMobileSupplyChainDeliveryTicket
+				related.MobileSupplyChainDeliveryUnit			= LocalMobileSupplyChainDeliveryUnit
+
+        MobileSupplyChainPOReceiptTrackingNumberHeaderRel
+            one-to-one relation to MobileSupplyChainPOReceiptTrackingNumberHeader
+            Field Mapping uses ByShipToLocationTrackingNumber
+                related.Company                                                        = Company
+                related.PurchaseOrderReceipt                                           = LocalPurchaseOrderReceipt
+                related.MobileSupplyChainPOReceiptTrackingNumberHeader.ShipToLocation  = PurchaseOrderReceiptLine.ShipToLocation
+                related.TrackingNumber                                                 = TrackingNumber
+
+    Sets
+        ByTrackingNumber
+            Sort Order
+                Company
+                PurchaseOrderReceipt
+                TrackingNumber
+                PurchaseOrderReceiptLine
+                PurchaseOrderTransactionDetail
+                PurchaseOrderUDIDetail
+                MobileSupplyChainPurchaseOrderReceiptTracking
+
+    Actions
+        Create is a Create Action
+            valid when (IsCreateEnabled)
+            Action Rules
+                if (MobileSupplyChainPOReceiptTrackingNumberHeaderRel not exists) 
+                    DeliverTo = first PurchaseOrderReceiptLine.PurchaseOrderLineSourcesRel.DeliverTo
+                    SourceDocumentLineNumber = first PurchaseOrderReceiptLine.PurchaseOrderLineSourcesRel.PurchaseOrderLineSource.SourceDocumentLineNumber
+                    if (first PurchaseOrderReceiptLine.PurchaseOrderLineSourcesRel.RequestingLocation entered)
+                        DeliverToLocation = first PurchaseOrderReceiptLine.PurchaseOrderLineSourcesRel.RequestingLocation
+                    else
+                        DeliverToLocation = PurchaseOrderReceiptLine.ShipToLocation
+        
+        SystemCreate is a Create Action
+            restricted
+
+        Update is an Update Action
+
+        Delete is a Delete Action
+
+        ProcessDelivery is a Set Action
+            restricted
+            Parameters
+                PrmPurchasingCompany       is a PurchasingCompany
+                    default label is "PurchasingCompany"
+                PrmPurchaseOrderReceipt    is a PurchaseOrderReceipt
+                    default label is "PurchaseOrderReceipt"
+            Instance Selection
+                where (PrmPurchasingCompany        = Company
+                and    PrmPurchaseOrderReceipt     = PurchaseOrderReceiptLine.PurchaseOrderReceipt)
+            Sort Order is ByTrackingNumber
+            Local Fields
+                LocalMobileSupplyChainLocation is a MobileSupplyChainLocation
+				LocalPODeliveryEvent           is a MobileSupplyChainDeliveryEvent
+				LocalPODeliveryTicket          is a MobileSupplyChainDeliveryTicket
+				LocalPODeliveryUnit		       is a MobileSupplyChainDeliveryUnit  
+                LocalSetDeliveryLineCount      is a NumberOfLines         
+            Action Rules
+                TrackingNumber Set Rules
+                    Entrance Rules
+                        initialize LocalSetDeliveryLineCount
+
+                        LocalPurchaseOrderReceipt   = PrmPurchaseOrderReceipt
+
+                        invoke Create MobileSupplyChainDeliveryTicket
+                            assign result to LocalMobileSupplyChainDeliveryTicketView
+                            invoked.Company												= Company
+                            invoked.DeliveryType										= DeliveryType.PurchaseOrderReceipt
+                            invoked.OriginatingTransaction								= reference to PrmPurchaseOrderReceipt
+                            invoked.InforTrackingNumber									= TrackingNumber
+                            invoked.DeliverToCompanyLocation.MobileSupplyChainCompany	= Company
+                            invoked.DeliverToCompanyLocation.MobileSupplyChainLocation  = DeliverToLocation
+                            invoked.DeliverTo                                           = DeliverTo
+                            invoked.MobileSupplyChainLocation							= PurchaseOrderReceiptLine.ShipToLocation
+                            invoked.ReceivedBy											= PrmPurchaseOrderReceipt.create stamp.actor
+                            invoked.DocumentNumber										= PurchaseOrderReceiptLine.PurchaseOrderReceipt
+                            invoked.PurchaseOrder                                       = PurchaseOrderReceiptLine.PurchaseOrder
+
+                        LocalPODeliveryTicket	             = LocalMobileSupplyChainDeliveryTicketView.MobileSupplyChainDeliveryTicket
+
+                        invoke Create MobileSupplyChainDeliveryUnit
+                            assign result to LocalMobileSupplyChainDeliveryUnitView
+                            invoked.MobileSupplyChainDeliveryTicket					= LocalPODeliveryTicket
+                            invoked.Company											= Company
+                            invoked.Status											= MobileSupplyChainDeliveryUnit.Status.Received
+                            invoked.MobileSupplyChainLocation						= PurchaseOrderReceiptLine.ShipToLocation
+                            invoked.CarrierTrackingNumber						    = PrmPurchaseOrderReceipt.DerivedCarrierTrackingNumber
+
+                        LocalPODeliveryUnit = LocalMobileSupplyChainDeliveryUnitView.MobileSupplyChainDeliveryUnit
+
+                    Exit Rules
+                        LocalMobileSupplyChainDeliveryTicket = LocalPODeliveryTicket
+                        LocalMobileSupplyChainDeliveryUnit   = LocalPODeliveryUnit
+
+                        invoke Update MobileSupplyChainDeliveryTicketRel
+				            invoked.NumberOfLines			= LocalSetDeliveryLineCount
+
+                        invoke CreateEventForAllLines MobileSupplyChainDeliveryTicketRel
+                            invoked.PrmPerformedAction		= PerformedAction.Received
+                            invoked.PrmTimeSubmitted        = PrmPurchaseOrderReceipt.ReceivedDate
+
+                        invoke Print MobileSupplyChainDeliveryTicketRel
+                            invoked.PrmReportPrinter        = PrmPurchaseOrderReceipt.MSCMReportPrinter
+                            invoked.PrmLabelPrinter         = PrmPurchaseOrderReceipt.MSCMLabelPrinter
+                            invoked.PrmDefaultValue         = true
+
+			            invoke BuildRequisitionTextSearch MobileSupplyChainDeliveryUnitRel
+
+                Instance Rules
+
+                    invoke Create MobileSupplyChainDeliveryLine
+                        invoked.MobileSupplyChainDeliveryTicket		= LocalPODeliveryTicket
+                        invoked.MobileSupplyChainDeliveryUnit		= LocalPODeliveryUnit
+                        invoked.Company								= Company
+                        invoked.Quantity							= Quantity
+                        invoked.SourceDocumentLineNumber            = SourceDocumentLineNumber
+                        invoked.Requisition                         = Requisition
+                        invoked.Requester                           = Requisition.Requester
+                        invoked.LastPerformedAction					= PerformedAction.Received
+                        invoked.MobileSupplyChainLocation			= PurchaseOrderReceiptLine.ShipToLocation
+                        invoked.OriginatingLineNumber				= PurchaseOrderReceiptLine
+                        invoked.Item								= PurchaseOrderReceiptLine.Item
+                        invoked.UnitOfMeasure						= PurchaseOrderReceiptLine.ReceivedUOM
+                        invoked.OrderedQuantity						= PurchaseOrderReceiptLine.PurchaseOrderLine.Quantity
+                        invoked.OrderedUOM							= PurchaseOrderReceiptLine.PurchaseOrderLine.EnteredBuyUOM
+                        invoked.BackorderedQuantity					= PurchaseOrderReceiptLine.DerivedBackorderedQuantity
+                        invoked.VendorItem							= PurchaseOrderReceiptLine.VendorItem
+                        if (PurchaseOrderReceiptLine.IsCatchWeightItem)
+                            invoked.CatchWeightQuantity				= PurchaseOrderReceiptLine.CatchWeightQuantity
+                            invoked.CatchWeightUOM					= PurchaseOrderReceiptLine.CatchWeightUOM
+                        invoked.Bin									= PurchaseOrderTransactionDetail.Bin
+                        invoked.Lot									= PurchaseOrderTransactionDetail.Lot
+                        invoked.ExpirationDate                      = PurchaseOrderTransactionDetail.LotExpirationDate
+                        invoked.Serial								= PurchaseOrderTransactionDetail.Serial
+
+
+                    LocalSetDeliveryLineCount +=1

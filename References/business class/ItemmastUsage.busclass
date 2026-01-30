@@ -1,0 +1,570 @@
+ItemmastUsage is a BusinessClass
+    owned by procurement
+    prefix is ItemU
+
+ 	Ontology
+		symbolic key is ItemmastUsage
+ 			
+	Patterns
+		implements ContextualParent
+
+	Persistent Fields
+		PercentOfUsage			is Percent 3
+
+		UsageQuantity           is like Quantity
+		UsageAmount				is an InternationalAmount
+		PeriodUsageArray		is a UsageQuantityAmountArray
+		ArrayBeginningMonth		is Numeric 2
+		ArrayEndingMonth		is Numeric 2
+		OffContractQuantity		is like Quantity 
+		OffContractAmount		is an InternationalAmount
+		OnContractQuantity		is like Quantity 
+		OnContractAmount		is an InternationalAmount
+		OriginalUsage			is Boolean
+		UsageType				is Numeric 1
+			States
+				Negotiation			value is 0
+				Forecasting			value is 1
+				Both				value is 2	
+		ForecastBeginPeriod		is Period
+		CreationCode			is Numeric 2
+			States
+				Original			value is 1
+				Adjusted			value is 2
+				Annualized			value is 3
+				AdjustedAnnualized	value is 4
+				Manual				value is 5
+		
+	Local Fields
+		LowestAmount				is an InternationalAmount
+		HighestAmount				is an InternationalAmount
+		LocalFirstCost				is an InternationalCost
+		LocalPeriodCounter			is Numeric 2
+		LocalContractGroup			is a ContractGroup
+		LocalContract				is a Contract
+		LocalContractLine			is a ContractLine
+		LocalContractRebateType		is AlphaUpper 25
+		LocalPeriodBeginDate		is Date
+		LocalRemainder				is an InternationalAmount
+		LocalAmount1				is an InternationalAmount
+		LocalAmount2				is an InternationalAmount
+		LocalMonth					is Numeric 2
+		LocalYear					is Numeric 4
+		LocalCurrentDate			is Date
+		
+	Transient Fields
+		TransientLastYear			is Boolean
+		
+	Derived Fields
+
+		DerivedUsageQuantity is a ComputeField
+			type is Decimal 13.4
+			restricted
+			(UsageQuantity * PercentOfUsage)
+			
+		ExpandedPercent is a ComputeField
+			type is Percent 5
+			restricted
+			(PercentOfUsage * 100)
+		
+		DerivedUsagePercent is a StringField
+			type is Alpha 7
+			restricted
+			ExpandedPercent
+			"%"
+			
+		DerivedMinimumContractAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			initialize LowestAmount
+			for each ItemmastUsageContractAmountsForItemmastUsageRel	
+				if (LowestAmount	not entered)
+					LowestAmount	= each.ContractAmount
+				else
+				if (each.ContractAmount		< LowestAmount)
+					LowestAmount	= each.ContractAmount
+			return LowestAmount
+									
+		DerivedMaximumContractAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			initialize HighestAmount
+			for each ItemmastUsageContractAmountsForItemmastUsageRel	
+				if (each.ContractAmount		> HighestAmount)
+					HighestAmount	= each.ContractAmount
+			return HighestAmount
+			
+		DerivedFirstCost is a DerivedField
+			type is like InternationalCost
+			restricted
+			initialize LocalFirstCost
+			initialize LocalPeriodCounter
+			for each PeriodUsageArray.UsageQuantityAmount
+				LocalPeriodCounter		+= 1
+				display "Period<LocalPeriodCounter>"
+				display "UsageQuantity<each.UsageQuantity>UsageAmount<each.UsageAmount>"
+				if (each.UsageQuantity	entered)
+					LocalFirstCost		= each.UsageAmount / each.UsageQuantity
+					end for each
+			display "CostReturned<LocalFirstCost>"
+			return LocalFirstCost
+			
+	Conditions
+		Forecasting
+			restricted
+			when (UsageType.Forecasting
+			or    UsageType.Both)
+		
+		HasItemmastUsageContractAmountsWithRunningTotals
+			restricted
+			when (ItemmastUsageContractAmountsWithRunningTotalsRel exists)
+			
+		CompanyEntered
+			restricted
+			when (Company entered)
+			
+		LocationEntered
+			restricted
+			when (InventoryLocation entered)
+			
+		ReqLocationEntered
+			restricted
+			when (RequestingLocation entered)
+
+		CanAdjust
+			restricted
+			when (!ItemmastUsage.UsageQuantityType.ManualEntry)
+			
+	Relations
+		ItemmastUsageContractAmountsForItemmastUsageRel
+			one-to-many relation to ItemmastUsageContractAmount
+			Field Mapping uses ByItemmastUsage
+				related.Item								= Item
+				related.ItemmastUsageDateRange.Begin		= ItemmastUsageDateRange.Begin
+				related.ItemmastUsageDateRange.End			= ItemmastUsageDateRange.End
+				related.ItemmastUsage.UsageQuantityType		= ItemmastUsage.UsageQuantityType
+				related.OriginalPercentOfUsage				= PercentOfUsage
+				related.ItemmastUsage.Annualized			= ItemmastUsage.Annualized
+								
+		ItemmastUsageContractAmountsWithRunningTotalsRel
+			one-to-many relation to ItemmastUsageContractAmount
+			Field Mapping uses ByItemmastUsage
+				related.Item							= Item
+				related.ItemmastUsageDateRange.Begin		= ItemmastUsageDateRange.Begin
+				related.ItemmastUsageDateRange.End			= ItemmastUsageDateRange.End
+				related.ItemmastUsage.UsageQuantityType		= ItemmastUsage.UsageQuantityType
+				related.OriginalPercentOfUsage				= PercentOfUsage
+				related.ItemmastUsage.Annualized			= ItemmastUsage.Annualized
+			Instance Selection
+				where (related.RunningTotalPeriod	entered)
+				
+		ContractRebateQualifierItemsRel
+			one-to-many relation to ContractRebateQualifierItem
+			Field Mapping uses ByRebateItem
+				related.ContractGroup		= LocalContractGroup
+				related.Contract			= LocalContract
+				related.ContractRebateType	= LocalContractRebateType
+				related.ItemNumber			= Item 
+				
+		ContractRebateDuesForRebateRel
+			one-to-many relation to ContractRebateDue
+			Field Mapping uses symbolic key
+				related.ContractGroup			= LocalContractGroup
+				related.Contract				= LocalContract
+				related.ContractRebateType		= LocalContractRebateType
+				related.ContractRebate			= blank
+			Instance Selection
+				where (related.ContractRebateDue	> LocalPeriodBeginDate)
+				
+		ThisItemmastUsageRel is an ItemmastUsage set
+			Instance Selection
+				where (related.Item							= Item
+				and    related.Company							= Company
+				and    related.InventoryLocation				= InventoryLocation
+				and    related.RequestingLocation				= RequestingLocation
+				and    related.ItemmastUsageDateRange.Begin		= ItemmastUsageDateRange.Begin
+				and    related.ItemmastUsageDateRange.End		= ItemmastUsageDateRange.End
+				and    related.ItemmastUsage.UsageQuantityType	= ItemmastUsage.UsageQuantityType
+				and    related.ItemmastUsage.AdjustmentPercent	= ItemmastUsage.AdjustmentPercent)
+	
+		ItemmastContractLinesWithPeriodAnalysisRel
+			one-to-many relation to ItemmastContractLine
+			Field Mapping uses ByItemmast
+				related.Item					= Item
+			Instance Selection
+				where (related.HasItemmastUsageContractAmountsByPeriod)
+
+		ManualItemmastUsagesRel
+			one-to-many relation to ItemmastUsage
+			Field Mapping uses ByManualEntry
+				related.Item							= Item
+				related.Company								= Company
+				related.InventoryLocation					= InventoryLocation
+				related.RequestingLocation					= RequestingLocation
+				related.ItemmastUsageDateRange.Begin		= ItemmastUsageDateRange.Begin
+				related.ItemmastUsageDateRange.End			= ItemmastUsageDateRange.End
+				related.ItemmastUsage.UsageQuantityType		= 3
+				
+	Sets
+		ByManualEntry
+			duplicates
+			Sort Order
+				Item
+				Company
+				InventoryLocation
+				RequestingLocation
+				ItemmastUsageDateRange.Begin
+				ItemmastUsageDateRange.End
+				ItemmastUsage.UsageQuantityType
+				ItemmastUsage.AdjustmentPercent
+				
+		ByDateRange
+			duplicates
+			Sort Order
+
+				Item
+				ItemmastUsageDateRange.Begin
+				ItemmastUsageDateRange.End
+				Company
+				InventoryLocation
+				RequestingLocation
+				
+		ByAdjustmentPercent
+			duplicates
+			Sort Order
+
+				Item
+				ItemmastUsageDateRange.Begin
+				ItemmastUsageDateRange.End
+				ItemmastUsage.UsageQuantityType
+				ItemmastUsage.AdjustmentPercent
+				Company
+				InventoryLocation
+				RequestingLocation
+				
+		ByCreationCode
+			duplicates
+			Sort Order
+				Item
+				ItemmastUsageDateRange.Begin
+				ItemmastUsageDateRange.End
+				ItemmastUsage.UsageQuantityType
+				CreationCode
+
+	Actions
+		Create is a Create Action
+			Local Fields
+				LocalPeriod			is Numeric 2
+				LocalDateRange		is a DateRange
+			Action Rules
+				LocalDateRange.Begin			= ItemmastUsageDateRange.Begin
+				LocalDateRange.End				= ItemmastUsageDateRange.End
+				ItemmastUsageDateRange.Begin	= LocalDateRange.Begin
+				ItemmastUsageDateRange.End		= LocalDateRange.End
+				ItemmastUsage.UsageQuantityType	= 3
+				ItemmastUsage.AdjustmentPercent = (last ManualItemmastUsagesRel.ItemmastUsage.AdjustmentPercent + 1%)
+				ItemmastUsage.Annualized		= 2
+				UsageType						= 1
+				OriginalUsage					= false
+				initialize UsageQuantity
+				for each PeriodUsageArray.UsageQuantityAmount
+					UsageQuantity				+= each.UsageQuantity
+				LocalPeriod = 1
+				while (LocalPeriod 	< 13)
+					PeriodUsageArray.UsageQuantityAmount[LocalPeriod].PeriodBeginDate	= ItemmastUsageDateRange.first ItemmastUsagesRel.PeriodUsageArray.UsageQuantityAmount[LocalPeriod].PeriodBeginDate
+					LocalPeriod		+= 1
+				PercentOfUsage					= 100%
+				CreationCode					= 5
+					
+			Exit Rules
+				for each ItemmastContractLinesWithPeriodAnalysisRel
+					invoke CompareForecasts each.ContractLine
+						invoked.PrmDateRange.Begin			= ItemmastUsageDateRange.Begin
+						invoked.PrmDateRange.End			= ItemmastUsageDateRange.End
+						invoked.PrmCompany					= Company
+						invoked.PrmLocation					= InventoryLocation
+						invoked.PrmRequestingLocation		= RequestingLocation
+						invoked.PrmReceiptOrInvoiceUsage	= ItemmastUsage.UsageQuantityType
+						invoked.PrmAdjustmentPercent		= ItemmastUsage.AdjustmentPercent
+						invoked.PrmAnnualized				= 2
+						invoked.PrmForecastBeginPeriod		= ItemmastUsageDateRange.first ItemmastUsagesRel.ForecastBeginPeriod
+			
+		CreateViaItem is a Create Action
+			restricted
+
+		CreateAdjustment is a Create Action
+			restricted
+										
+		Update is an Update Action
+			Action Rules
+				constraint (!OriginalUsage)
+					"CannotUpdateTheOriginalUsage.CreateMoreUsageManuallyOrByUsingTheAdjustAction."
+				constraint (ItemmastUsage.Annualized.No)
+					"CannotUpdateAnnualizedUsage.CreateMoreUsageManuallyOrByUsingTheAdjustAction."
+			Exit Rules
+				for each ItemmastContractLinesWithPeriodAnalysisRel
+					invoke CompareForecasts each.ContractLine
+						invoked.PrmDateRange.Begin			= ItemmastUsageDateRange.Begin
+						invoked.PrmDateRange.End			= ItemmastUsageDateRange.End
+						invoked.PrmCompany					= Company
+						invoked.PrmLocation					= InventoryLocation
+						invoked.PrmRequestingLocation		= RequestingLocation
+						invoked.PrmReceiptOrInvoiceUsage	= ItemmastUsage.UsageQuantityType
+						invoked.PrmAdjustmentPercent		= ItemmastUsage.AdjustmentPercent
+		
+		Delete is a Delete Action
+			Entrance Rules
+				invoke Delete ItemmastUsageContractAmountsForItemmastUsageRel
+			Action Rules
+				constraint (!OriginalUsage)
+					"CannotDeleteTheOriginalUsage"
+								
+		Purge is a Purge Action
+			restricted
+			
+		FastUpdate is an Instance Action
+			restricted
+			Parameters
+				PrmUsageType				is Numeric 1		
+					States	
+						Negotiation					value is 0
+						Forecasting					value is 1
+						Both						value is 2
+				PrmOriginalUsage			is Boolean
+				PrmForecastBeginPeriod		is Period
+
+			Action Rules
+				UsageType			= PrmUsageType
+				OriginalUsage		= PrmOriginalUsage
+				ForecastBeginPeriod	= PrmForecastBeginPeriod
+			
+		AdjustPeriodUsageByPercent is an Instance Action
+			valid when (CanAdjust)
+			Parameters
+				PrmAdjustmentPercent		is Percent 3
+			Parameter Rules
+				PrmAdjustmentPercent
+					required
+						"AdjustmentPercentIsRequired"
+			Local Fields
+				LocalPeriod					is Numeric 2
+				LocalPeriodAdjustmentArray	is a UsageQuantityAmountArray 
+				LocalItemmastUsage			is an ItemmastUsage
+				
+			Action Rules
+				constraint (!ItemmastUsage.UsageQuantityType.ManualEntry)
+					"CannotAdjustManuallyEnteredUsageByAPercent"
+				
+				LocalItemmastUsage.UsageQuantityType		= ItemmastUsage.UsageQuantityType
+				LocalItemmastUsage.AdjustmentPercent		= ItemmastUsage.AdjustmentPercent + PrmAdjustmentPercent
+				LocalItemmastUsage.Annualized				= ItemmastUsage.Annualized
+				constraint (!LocalItemmastUsage exists)
+					"ItemmastUsageAlreadyExistsForThisAdjustmentPercent"
+						
+				LocalPeriod			= 1
+				while (LocalPeriod	< 13)
+					LocalPeriodAdjustmentArray.UsageQuantityAmount[LocalPeriod].PeriodBeginDate		= PeriodUsageArray.UsageQuantityAmount[LocalPeriod].PeriodBeginDate
+					LocalPeriodAdjustmentArray.UsageQuantityAmount[LocalPeriod].UsageQuantity		= (PeriodUsageArray.UsageQuantityAmount[LocalPeriod].UsageQuantity 	* (100% + PrmAdjustmentPercent))
+					LocalPeriodAdjustmentArray.UsageQuantityAmount[LocalPeriod].UsageAmount			= (PeriodUsageArray.UsageQuantityAmount[LocalPeriod].UsageAmount 	* (100% + PrmAdjustmentPercent))
+					LocalPeriod		+= 1
+					
+				invoke CreateAdjustment ItemmastUsage
+					invoked.ItemmastUsageDateRange			= ItemmastUsageDateRange
+					invoked.ItemmastUsage.UsageQuantityType	= ItemmastUsage.UsageQuantityType
+					invoked.ItemmastUsage.AdjustmentPercent	= ItemmastUsage.AdjustmentPercent + PrmAdjustmentPercent
+					invoked.ItemmastUsage.Annualized		= ItemmastUsage.Annualized
+					invoked.PercentOfUsage					= (100% + ItemmastUsage.AdjustmentPercent + PrmAdjustmentPercent)
+					invoked.UsageQuantity					= (UsageQuantity * (100% + PrmAdjustmentPercent)) 
+					invoked.UsageAmount						= (UsageAmount * (100% + PrmAdjustmentPercent))
+					invoked.OffContractQuantity				= (OffContractQuantity * (100% + PrmAdjustmentPercent))
+					invoked.OffContractAmount				= (OffContractAmount * (100% + PrmAdjustmentPercent))
+					invoked.OnContractQuantity				= (OnContractQuantity * (100% + PrmAdjustmentPercent))
+					invoked.OnContractAmount				= (OnContractAmount * (100% + PrmAdjustmentPercent))
+					invoked.PeriodUsageArray				= LocalPeriodAdjustmentArray
+					invoked.ArrayBeginningMonth				= ItemmastUsageDateRange.Begin month
+					invoked.ArrayEndingMonth				= ItemmastUsageDateRange.End month
+					invoked.OriginalUsage					= false
+					invoked.UsageType						= UsageType
+					invoked.ForecastBeginPeriod				= ForecastBeginPeriod
+					if (invoked.ItemmastUsage.Annualized.Yes)
+						invoked.CreationCode				= 4
+					else
+						invoked.CreationCode				= 2
+					
+				for each ItemmastContractLinesWithPeriodAnalysisRel
+					invoke CompareForecasts each.ContractLine
+						invoked.PrmDateRange.Begin			= ItemmastUsageDateRange.Begin
+						invoked.PrmDateRange.End			= ItemmastUsageDateRange.End
+						invoked.PrmCompany					= Company
+						invoked.PrmLocation					= InventoryLocation
+						invoked.PrmRequestingLocation		= RequestingLocation
+						invoked.PrmReceiptOrInvoiceUsage	= ItemmastUsage.UsageQuantityType
+						invoked.PrmForecastBeginPeriod		= ForecastBeginPeriod
+						invoked.PrmAdjustmentPercent		= (ItemmastUsage.AdjustmentPercent + PrmAdjustmentPercent)
+						invoked.PrmAnnualized				= ItemmastUsage.Annualized
+
+				for each ItemmastUsageContractAmountsWithRunningTotalsRel
+					invoke DisplayYearToDateTotalForAPeriod each
+						invoked.PrmPeriod 			= each.ItemmastContractLine.RunningTotalPeriod
+						
+		Annualize is an Instance Action
+			Local Fields
+				LocalDaysDifference						is Numeric 8
+				LocalPeriod								is Numeric 2
+				LocalUsageQuantity						is a Quantity
+				LocalUsageAmount						is an InternationalAmount
+				LocalUsageQuantityAmountArray			is a UsageQuantityAmountArray
+				LocalOffContractQuantity				is a Quantity
+				LocalOffContractAmount					is an InternationalAmount
+				LocalOnContractQuantity					is a Quantity
+				LocalOnContractAmount					is an InternationalAmount
+				LocalMonthlyUsageQuantity				is a Quantity
+				LocalMonthlyUsageAmount					is an InternationalAmount
+				
+			Action Rules
+				constraint (OriginalUsage)
+					"CanOnlyAnnualizeTheOriginalItemmastUsage"
+
+				constraint (ItemmastUsage.Annualized.No)
+					"OriginalItemmastUsageAlreadyAnnualized"
+						
+				LocalDaysDifference		= (ItemmastUsageDateRange.End	- ItemmastUsageDateRange.Begin)
+				display "DaysDifference:<LocalDaysDifference>"
+
+				constraint ((LocalDaysDifference	<= 31
+				and          LocalDaysDifference	>= 28)
+				or          (LocalDaysDifference	<= 62
+				and          LocalDaysDifference    >= 59)
+				or          (LocalDaysDifference    <= 92
+				and          LocalDaysDifference    >= 89)
+				or          (LocalDaysDifference    <= 123
+				and          LocalDaysDifference    >= 120)
+				or          (LocalDaysDifference    <= 184
+				and          LocalDaysDifference    >= 181))
+					"DifferenceOfDatesMustBe1,2,3,4Or6MonthsInOrderToAnnualizeUsage"
+
+				LocalUsageQuantity				= UsageQuantity
+				LocalUsageAmount				= UsageAmount
+				LocalUsageQuantityAmountArray	= PeriodUsageArray
+				LocalOffContractQuantity		= OffContractQuantity
+				LocalOffContractAmount			= OffContractAmount
+				LocalOnContractQuantity			= OnContractQuantity
+				LocalOnContractAmount			= OnContractAmount
+
+				if (LocalDaysDifference <= 31
+				and LocalDaysDifference	>= 28)
+					LocalUsageQuantity				*= 12
+					LocalUsageAmount				*= 12
+					LocalOffContractQuantity		*= 12
+					LocalOffContractAmount			*= 12
+					LocalOnContractQuantity			*= 12
+					LocalOnContractAmount			*= 12
+					LocalMonthlyUsageQuantity		= (LocalUsageQuantity / 12)
+					LocalMonthlyUsageAmount			= (LocalUsageAmount / 12)
+					LocalPeriod			= 2
+					while (LocalPeriod	< 13)
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageQuantity	= LocalMonthlyUsageQuantity
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageAmount		= LocalMonthlyUsageAmount
+						LocalPeriod		+= 1
+													
+				if (LocalDaysDifference <= 62
+				and LocalDaysDifference	>= 59)
+					LocalUsageQuantity				*= 6
+					LocalUsageAmount				*= 6
+					LocalOffContractQuantity		*= 6
+					LocalOffContractAmount			*= 6
+					LocalOnContractQuantity			*= 6
+					LocalOnContractAmount			*= 6
+					LocalMonthlyUsageQuantity		= (LocalUsageQuantity / 12)
+					LocalMonthlyUsageAmount			= (LocalUsageAmount / 12)
+					LocalPeriod			= 3
+					while (LocalPeriod	< 13)
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageQuantity	= LocalMonthlyUsageQuantity
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageAmount		= LocalMonthlyUsageAmount
+						LocalPeriod		+= 1
+													
+				if (LocalDaysDifference <= 92
+				and LocalDaysDifference	>= 89)
+					LocalUsageQuantity			*= 4
+					LocalUsageAmount			*= 4
+					LocalOffContractQuantity	*= 4
+					LocalOffContractAmount		*= 4
+					LocalOnContractQuantity		*= 4
+					LocalOnContractAmount		*= 4
+					LocalMonthlyUsageQuantity		= (LocalUsageQuantity / 12)
+					LocalMonthlyUsageAmount			= (LocalUsageAmount / 12)
+					LocalPeriod			= 4
+					while (LocalPeriod	< 13)
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageQuantity	= LocalMonthlyUsageQuantity
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageAmount		= LocalMonthlyUsageAmount
+						LocalPeriod		+= 1
+													
+				if (LocalDaysDifference <= 123
+				and LocalDaysDifference	>= 120)
+					LocalUsageQuantity			*= 3
+					LocalUsageAmount			*= 3
+					LocalOffContractQuantity	*= 3
+					LocalOffContractAmount		*= 3
+					LocalOnContractQuantity		*= 3
+					LocalOnContractAmount		*= 3
+					LocalMonthlyUsageQuantity		= (LocalUsageQuantity / 12)
+					LocalMonthlyUsageAmount			= (LocalUsageAmount / 12)
+					LocalPeriod			= 5
+					while (LocalPeriod	< 13)
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageQuantity	= LocalMonthlyUsageQuantity
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageAmount		= LocalMonthlyUsageAmount
+						LocalPeriod		+= 1
+													
+				if (LocalDaysDifference <= 184
+				and LocalDaysDifference	>= 181)
+					LocalUsageQuantity			*= 2
+					LocalUsageAmount			*= 2
+					LocalOffContractQuantity	*= 2
+					LocalOffContractAmount		*= 2
+					LocalOnContractQuantity		*= 2
+					LocalOnContractAmount		*= 2
+					LocalMonthlyUsageQuantity		= (LocalUsageQuantity / 12)
+					LocalMonthlyUsageAmount			= (LocalUsageAmount / 12)
+					LocalPeriod			= 7
+					while (LocalPeriod	< 13)
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageQuantity	= LocalMonthlyUsageQuantity
+						LocalUsageQuantityAmountArray.UsageQuantityAmount[LocalPeriod].UsageAmount		= LocalMonthlyUsageAmount
+						LocalPeriod		+= 1
+													
+				invoke CreateViaItem ItemmastUsage
+
+					invoked.Item							= Item
+					invoked.Company							= Company
+					invoked.InventoryLocation						= InventoryLocation
+					invoked.RequestingLocation							= RequestingLocation
+					invoked.ItemmastUsageDateRange.Begin	= ItemmastUsageDateRange.Begin
+					invoked.ItemmastUsageDateRange.End		= ItemmastUsageDateRange.End
+					invoked.ItemmastUsage.UsageQuantityType	= ItemmastUsage.UsageQuantityType
+					invoked.ItemmastUsage.AdjustmentPercent	= ItemmastUsage.AdjustmentPercent
+					invoked.ItemmastUsage.Annualized		= 1
+					invoked.PercentOfUsage					= PercentOfUsage
+					invoked.UsageQuantity					= LocalUsageQuantity
+					invoked.UsageAmount						= LocalUsageAmount
+					invoked.OffContractQuantity				= LocalOffContractQuantity
+					invoked.OffContractAmount				= LocalOffContractAmount
+					invoked.OnContractQuantity				= LocalOnContractQuantity
+					invoked.OnContractAmount				= LocalOnContractAmount
+					invoked.PeriodUsageArray				= LocalUsageQuantityAmountArray
+					invoked.ArrayBeginningMonth				= ArrayBeginningMonth
+					invoked.ArrayEndingMonth				= ArrayEndingMonth
+					invoked.OriginalUsage					= false
+					invoked.UsageType						= UsageType
+					invoked.ForecastBeginPeriod				= ForecastBeginPeriod
+					invoked.CreationCode					= 3
+
+				for each ItemmastContractLinesWithPeriodAnalysisRel
+					invoke CompareForecasts each.ContractLine
+						invoked.PrmDateRange.Begin			= ItemmastUsageDateRange.Begin
+						invoked.PrmDateRange.End			= ItemmastUsageDateRange.End
+						invoked.PrmCompany					= Company
+						invoked.PrmLocation					= InventoryLocation
+						invoked.PrmRequestingLocation		= RequestingLocation
+						invoked.PrmReceiptOrInvoiceUsage	= ItemmastUsage.UsageQuantityType
+						invoked.PrmAdjustmentPercent		= ItemmastUsage.AdjustmentPercent
+						invoked.PrmAnnualized				= 1
+						invoked.PrmForecastBeginPeriod		= ForecastBeginPeriod

@@ -1,0 +1,174 @@
+ContractImportTierDistributor is a BusinessClass
+	owned by po
+	
+	prefix is CITD
+	
+	Ontology
+		symbolic key is ContractImportTierDistributor
+		
+	
+	Patterns
+	
+	Persistent Fields
+		ContractImportGPOMembership       is like ContractImportGPOMembership
+		DistributorPricingCode            is like ContractDistributorPricing  
+		DistributorPricingTitle           is a Description  
+		MarkupPercent                     is a Percent
+		Updated                           is Boolean
+			
+	Local Fields
+		LocalNewParticipant               is a ParticipantLocation
+
+	Derived Fields 
+
+		DistributorName is a DerivedField
+			type is Alpha size 30
+			return SupplierRel.SupplierName	
+	
+	Sets
+	
+		ByDistributor
+			Sort Order
+				ContractGroup
+				ContractImport
+				ContractImportTierDistributor
+				ContractImportTierMember
+				
+		ByGPOMembership
+			Sort Order
+				ContractGroup
+				ContractImport
+				ContractImportGPOMembership
+				ContractImportTierDistributor
+				ContractImportTierMember
+	
+	Field Rules
+
+		DistributorPricingCode
+		
+			if (DistributorPricingCode changed)
+				constraint (!ContractImportDistributorRel.DistributorPricingExists)
+					"CannotChangePricingCode;CodeIsAlreadyAttachedToDistributorContract"
+
+		DistributorPricingTitle
+		
+			if (ContractGroup.GPOIsHealthTrust)
+				default to DistributorPricingCode
+				
+	Conditions
+	
+		DistributorHasContractToUpdate
+			restricted
+			when (ContractImportDistributorRel.DistributorContractEntered
+			and   !ContractImportDistributorRel.DistributorContractClosed)
+		
+		GPOIsHealthTrust
+			when (ContractImport.GPOIsHealthTrust)
+			
+		PricingMemberExists
+			restricted
+			when (ContractDistributorPricingMemberRel exists)
+	
+	Relations
+	
+		SupplierRel
+			one-to-one relation to Supplier 
+			Field Mapping uses symbolic key 
+				related.SupplierGroup               = ContractGroup
+				related.Supplier 					= ContractImportTierDistributor 
+		
+		DifferentMarkupPercentRel
+        	one-to-many relation to ContractImportTierDistributor
+        	Field Mapping uses ByDistributor
+        		related.ContractGroup					= ContractGroup
+        		related.ContractImport  				= ContractImport
+        		related.ContractImportTierDistributor 	= ContractImportTierDistributor
+        	Instance Selection
+        		where (related.MarkupPercent           != MarkupPercent)
+		
+		SameMarkupPercentRel
+        	one-to-many relation to ContractImportTierDistributor
+        	Field Mapping uses ByDistributor
+        		related.ContractGroup					= ContractGroup
+        		related.ContractImport  				= ContractImport
+        		related.ContractImportTierDistributor 	= ContractImportTierDistributor
+        	Instance Selection
+        		where (related.MarkupPercent            = MarkupPercent
+        		and    related.UniqueID                != UniqueID)		
+
+		ContractDistributorPricingMemberRel
+			one-to-one relation to ContractDistributorPricingMember
+			Field Mapping uses symbolic key
+				related.ContractGroup                   						= ContractGroup
+				related.Contract                        						= ContractImportDistributorRel.DistributorContractNumber
+				related.ContractDistributorPricingMember.Company              	= ContractImportTierMember.Company
+				related.ContractDistributorPricingMember.Location             	= ContractImportTierMember.Location
+				related.ContractDistributorPricingMember.RequestingLocation   	= ContractImportTierMember.RequestingLocation
+				related.ContractDistributorPricingMember.PricingGroup         	= ContractImportTierMember.PricingGroup
+				related.ContractDistributorPricingMember.ManufacturerContract   = ContractImport.DerivedToContract				
+
+		NewPricingMemberRel
+			one-to-one relation to ContractDistributorPricingMember
+			Field Mapping uses symbolic key
+				related.ContractGroup                							= ContractGroup
+				related.Contract                        						= ContractImportDistributorRel.DistributorContractNumber
+				related.ContractDistributorPricingMember.Company              	= LocalNewParticipant.Company
+				related.ContractDistributorPricingMember.Location             	= LocalNewParticipant.Location
+				related.ContractDistributorPricingMember.RequestingLocation   	= LocalNewParticipant.RequestingLocation
+				related.ContractDistributorPricingMember.PricingGroup         	= LocalNewParticipant.PricingGroup
+				related.ContractDistributorPricingMember.ManufacturerContract   = ContractImport.DerivedToContract	
+
+		ContractImportDistributorRel
+			one-to-one relation to ContractImportDistributor
+			Field Mapping uses symbolic key
+				related.ContractGroup                   = ContractGroup
+				related.ContractImport                  = ContractImport
+				related.ContractImportDistributor       = ContractImportTierDistributor
+
+	Actions
+	
+		Create is a Create Action
+			restricted
+			
+			Action Rules
+			
+				if (ContractGroup.GPOIsHealthTrust
+				and ContractImportDistributorRel.MarkupPercent = MarkupPercent)
+					DistributorPricingCode  = ContractImportDistributorRel.DistributorPricingCode
+					DistributorPricingTitle = ContractImportDistributorRel.DistributorPricingTitle 
+			
+		Update is an Update Action
+
+			Action Rules
+			
+				if (DistributorPricingCode entered
+				and DistributorPricingCode changed
+				and ContractGroup.GPOIsHealthTrust)
+					for each DifferentMarkupPercentRel
+						constraint (each.DistributorPricingCode !=DistributorPricingCode)
+							"CannotEnterSamePricingCodeForDifferentMarkupPercents"
+					
+					for each SameMarkupPercentRel
+						invoke UpdatePricingCode each
+							invoked.ParmDistributorPricingCode  = DistributorPricingCode
+							invoked.ParmDistributorPricingTitle = DistributorPricingTitle
+							
+					if (ContractImportDistributorRel.MarkupPercent = MarkupPercent)
+						invoke Update ContractImportDistributorRel
+							invoked.DistributorPricingCode     = DistributorPricingCode
+							invoked.DistributorPricingTitle    = DistributorPricingTitle
+							invoked.FromTierDistributor        = true
+			
+		UpdatePricingCode is an Instance Action
+			restricted
+			Parameters
+				ParmDistributorPricingCode 	is like ContractDistributorPricing
+				ParmDistributorPricingTitle is a Description
+			
+			Action Rules
+			
+				DistributorPricingCode 	= ParmDistributorPricingCode
+				DistributorPricingTitle	= ParmDistributorPricingTitle
+
+		Delete is a Delete Action
+			restricted

@@ -1,0 +1,1011 @@
+ContractRebate is a BusinessClass
+	owned by po
+	prefix is REB
+	classic name is POCONTREB
+	rpg name is DBPOREB
+
+	Ontology
+		symbolic key is ContractRebate
+			classic set name is REBSET1
+			sql set name is REBSET1
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+		implements ContextualParent
+
+	Persistent Fields
+		Vendor
+		Active   												is Boolean
+		LineLevelRebatesExist									is Boolean
+		FirstRebateDueDate										is Date
+			classic name is FRST-RB-DUE-DT
+		TotalExpectedAmount										is an InternationalAmount
+			classic name is TOTAL-EXP-AMT
+		Frequency 												is Numeric size 1
+			classic name is REB-FREQUENCY
+			States
+				Annual  											value is 1
+				BiAnnual     										value is 2
+				Quarterly    										value is 3
+				BiMonthly    										value is 4
+				Monthly    											value is 5
+				OneTime    											value is 6
+				SemiAnnual											value is 7
+		RebatePercent											is a Percent
+			classic name is REB-PERCENT
+		CurrentBaseOfPurchases									is an InternationalAmount
+			classic name is CURR-BASE-PUR
+		CalculateExpectedRebateForGrowth						is Boolean
+		QualifierChanged										is Boolean
+		PotentialPeriodRebateAmount								is an InternationalAmount
+		PotentialRebateAmountPerUnit							is an InternationalAmount
+		CalculateRebateAmountOnAllSpendForQualifyingContracts	is Boolean				
+			default label is "EntireContractCalculationBasis"
+		CalculateGrowthInSpendFromLastYearToThisYearOnly		is Boolean				
+			default label is "YearlyGrowthBasis"
+		SupplementalBasisRebate
+
+	Derived Fields
+		TotalRebatesExpected is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum ContractRebateDue set.ExpectedAmount)
+
+		ProjectedRebateSum is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum ContractRebateQualifier set.ProjectedRebateAmount)
+
+		ProjectedRebateTotal is a DerivedField		//I made this a "DerivedField" not a "ConditionalField" so that I could initialize the Transient Field PotentialPeriodRebateAmount. I couldn't get the "Initial Value Is" Field Rule on this Transient Field to fire.
+			type is like InternationalAmount
+			restricted
+			if (OrConditionExists)
+				return 0
+			else
+				return ProjectedRebateSum
+
+		NumberOfDates is a ComputeField
+			type is Numeric size 6
+			restricted
+			(instance count of ContractRebateDue set)
+
+		RebatesReceivedTotal is a DerivedField
+			type is like InternationalAmount
+			return (sum ContractRebateDue set.TotalRebatesReceived)
+
+		RebateDueDateAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (ProjectedRebateTotal / NumberOfDates)
+
+		RoundingFactor is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (ProjectedRebateTotal - (NumberOfDates * RebateDueDateAmount))
+
+		FirstOrGroup is a ConditionalField
+			type is AlphaUpper size 1
+			restricted
+			if (ContractRebateQualifierRel exists)
+				first ContractRebateQualifierRel.OrGroup
+			else
+				blank
+		FirstPaymentDate is a ConditionalField
+			type is Date
+			if (RebateDueDatesExist)
+				first ContractRebateDueRel.RebateExpectedDate
+			else
+				blank
+		RemainingAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (TotalExpectedAmount - RebatesReceivedTotal)
+
+		NumberOfQualifiers is a ComputeField
+			type is Numeric 6
+			restricted
+			(instance count of ContractRebateQualifierRel)
+		NumberOfAllGrowthQualifiers is a ComputeField
+			type is Numeric 3
+			restricted
+			(instance count of ContractRebateGrowthQualifierRel)
+		NumberOfAllLoyaltyQualifiers is a ComputeField
+			type is Numeric 3
+			restricted
+			(instance count of ContractRebateLoyaltyQualifiersRel)
+
+		YearlyGrowthBasis is a LabelField
+			"GrowthBasedOnTheSameRebateDuePeriodAYearAgo,NotNecessarilyThePreviousRebateDuePeriod"
+
+		PreviousPeriodGrowthBasis is a LabelField
+			restricted
+			"GrowthBasedOnThePreviousRebateDuePeriod,NotNecessarilySameRebateDuePeriodAYearAgo"
+
+		DerivedFieldDescriptionForGrowthBasis is a ConditionalField
+			type is Alpha size up to 120
+			if (CalculateGrowthInSpendFromLastYearToThisYearOnly)
+				YearlyGrowthBasis
+			else
+				PreviousPeriodGrowthBasis
+
+		CalculateOnAllContractSpend is a LabelField
+			restricted
+			"ExpectedRebateOnAllSpendFromQualifyingContracts-NotJustQualifyingItems"
+
+		CalculateOnlyOnQualifyingItemSpend is a LabelField
+			restricted
+			"ExpectedRebateOnlyOnSpendFromQualifyingItems-NotOnAllContractItems"
+
+		DerivedRunReloadRebateInvoices is a LabelField
+			restricted
+			"-RunReloadOfRebateInvoices"
+
+		DerivedQualifierModifiedReloadRebateInvoices is a ConditionalField
+			type is Alpha size up to 40
+			if (QualifierChanged)
+				DerivedRunReloadRebateInvoices
+			else
+				blank
+
+		DerivedFieldDescriptionForCalculationBasis is a ConditionalField
+			type is Alpha size up to 120
+			if (CalculateRebateAmountOnAllSpendForQualifyingContracts)
+				CalculateOnAllContractSpend
+			else
+				CalculateOnlyOnQualifyingItemSpend
+
+	Local Fields
+		CalculatedDueDate is Date
+
+	Transient Fields
+		TransientSupplementalBasisRebateType	is a ContractRebateType
+		TransientContractRebateType				is a ContractRebateType
+
+	Context Fields
+		FirstDueDateRange		is a DateRange
+		FirstPaymentDateRange	is a DateRangeSecond
+
+	Conditions
+		RebateQualifiersExist
+			restricted
+			when (ContractRebateQualifierRel exists)
+		NoRebateQualifiersExist
+			restricted
+			when (!ContractRebateQualifierRel exists)
+		RebateDueDatesExist
+			restricted
+			when (ContractRebateDueRel exists)
+		NoRebateDueDatesExist
+			restricted
+			when (!ContractRebateDueRel exists)
+		OneTimeRebate
+			restricted
+			when (Frequency.OneTime)
+		OrConditionExists
+			restricted
+			when (any ContractRebateQualifierRel.OrGroup != FirstOrGroup)
+		GrowthRebate
+			restricted
+			when (ContractRebateType.RebateType.GrowthRebate)
+		LoyaltyRebate
+			restricted
+			when (ContractRebateType.RebateType.LoyaltyRebate)
+		MultipleThresholdRebate
+			restricted
+			when (ContractRebateType.RebateType.MultipleThresholdRebate
+			and  !ContractRebateType.RebateType.SupplementalRebate)
+		MultipleThresholdRebateOrSupplementalRebate
+			restricted
+			when (ContractRebateType.RebateType.MultipleThresholdRebate
+			or    ContractRebateType.RebateType.SupplementalRebate)
+		LoyaltyByPercent
+			restricted
+			when (PercentTypeLoyaltyQualifierRel exists)
+		LoyaltyByAmount
+			restricted
+			when (AmountTypeLoyaltyQualifierRel exists)
+		NotFixedRebate
+			restricted
+			when (!ContractRebateType.RebateType.FixedRebateAmount)
+		FixedRebate
+			restricted
+			when (ContractRebateType.RebateType.FixedRebateAmount)
+		NotFixedOrSupplementalRebate
+			restricted
+			when (NotFixedRebate
+			and  !ContractRebateType.RebateType.SupplementalRebate)
+		RebateDueBeforeExpirationDate
+			restricted
+			when (all ContractRebateDueRel.DueBeforeExpirationDate)
+		RebateDueAfterEffectiveDate
+			restricted
+			when (all ContractRebateDueRel.DueAfterEffectiveDate)
+		RebateMoniesReceived
+			restricted
+			when (RebatesReceivedTotal > 0)
+		CanCreateDueDates
+			restricted
+			when (FirstRebateDueDate entered
+			and !OneTimeRebate)
+		AllInvoicesForSupplierQualifierExists
+			restricted
+			when (any ContractRebateQualifierRel.AllInvoicesForSupplier)
+		GrowthByPercent
+			restricted
+			when (PercentTypeGrowthQualifierRel exists)
+		GrowthByAmount
+			restricted
+			when (AmountTypeGrowthQualifierRel exists)
+		RebateGrowthQualifiersExist
+			restricted
+			when (ContractRebateGrowthQualifierRel exists)
+		RebateLoyaltyQualifiersExist
+			restricted
+			when (ContractRebateLoyaltyQualifierRel exists)
+		RebateThresholdQualifiersExist
+			restricted
+			when (ContractRebateThresholdQualifierRel exists)
+		RebateSupplementalQualifiersExist
+			restricted
+			when (ContractRebateThresholdQualifierRel exists)
+		RebateByAmount
+			restricted
+			when (RebateByAmountGrowthQualifierRel exists)
+		DisplayQualifiers
+			restricted
+			when (StandardRebate)
+		DisplayPercentage
+			restricted
+			when (StandardRebate)
+		AmountExists
+			restricted
+			when (any ContractRebateDueRel.ExpectedAmount > 0
+			or    any ContractRebateDueRel.TotalRebatesReceived > 0)
+		AmountDue
+			when (RemainingAmount > 0)
+		CalculationNeeded
+			when (any ContractRebateDueRel.CalculationNeeded)
+		DueDateWithinRange
+			restricted
+			when (FirstRebateDueDate within FirstDueDateRange)
+		NoDueDateRange
+			restricted
+			when (FirstDueDateRange !entered)
+		FirstPaymentDateWithinRange
+			restricted
+			when (FirstPaymentDate within FirstPaymentDateRange)
+		NoPaymentDateRange
+			restricted
+			when (FirstPaymentDateRange !entered)
+		HasQualifierWithChanges
+			restricted
+			when (QualifierChanged
+			and   Contract.RebateEligible)
+		CalculateRebatesEligible
+			restricted
+			when (QualifierChanged = false
+			and   Contract.RebateEligible
+			and   NotFixedRebate
+			and   ContractRebateDueInvoiceLinesRel exists)
+		RebateByAmountQualifierExists
+			restricted
+			when (RebateByAmountQualifierRel exists)
+		RebateByUnitsAmountQualifierExists
+			restricted
+			when (RebateByUnitsAmountQualifierRel exists)
+		RebateByPercentQualifierExists
+			restricted
+			when (RebateByPercentQualifierRel exists)
+		RebateByCurrencyAmountQualifierExists
+			restricted
+			when (RebateByCurrencyAmountQualifierRel exists)
+		CalculateRebateAmountOnAllContractSpend
+			restricted
+			when (CalculateRebateAmountOnAllSpendForQualifyingContracts)
+		ActionDisplayPercentage
+			restricted
+			when (DisplayPercentage
+			or    ContractRebate not exists)
+		PercentOrAmountOrAmountPerUnitEntered
+			restricted
+			when (RebatePercent				entered
+			or    PotentialPeriodRebateAmount	> 0
+			or    PotentialRebateAmountPerUnit	> 0)
+		BothPercentAndAmountEntered
+			restricted
+			when (RebatePercent				entered
+			and   PotentialPeriodRebateAmount	> 0)
+		BothPercentAndAmountPerUnitEntered
+			restricted
+			when (RebatePercent				entered
+			and   PotentialRebateAmountPerUnit	> 0)
+		NotGrowthAndNotLoyaltyRebate
+			restricted
+			when (!ContractRebateType.RebateType.GrowthRebate
+			and   !ContractRebateType.RebateType.LoyaltyRebate)
+		NotGrowthAndNotLoyaltyRebateAndNotFixedRebateAmount
+			restricted
+			when (!ContractRebateType.RebateType.GrowthRebate
+			and   !ContractRebateType.RebateType.LoyaltyRebate
+			and   !ContractRebateType.RebateType.FixedRebateAmount)
+
+		BothAmountAndAmountPerUnitEntered
+			restricted
+			when (PotentialPeriodRebateAmount	> 0
+			and   PotentialRebateAmountPerUnit	> 0)
+		MoreThanOneAmountOrPercentEntered
+			restricted
+			when (BothPercentAndAmountEntered
+			or 	  BothPercentAndAmountPerUnitEntered
+			or    BothAmountAndAmountPerUnitEntered)
+		StandardRebateOrFixedRebateAmountRebate
+			restricted
+			when (!ContractRebateType.RebateType.GrowthRebate
+			and   !ContractRebateType.RebateType.LoyaltyRebate
+			and   !ContractRebateType.RebateType.MultipleThresholdRebate
+			and   !ContractRebateType.RebateType.SupplementalRebate)
+		StandardRebate
+			restricted
+			when (ContractRebateType.RebateType.StandardRebate)
+		HasCurrencyBasedQualifier
+			restricted
+			when (CurrencyBasedQualifiersRel exists)
+		HasUnitsBasedQualifier
+			restricted
+			when (UnitsBasedQualifiersRel exists)
+		HasAmountPerUnitBasedQualifier
+			restricted
+			when ((AmountPerUnitsBasedGrowthQualifiersRel exists)
+			or    (ContractRebateLoyaltyQualifiersRebateAmountPerUnitToBePaidRel exists)
+			or    (ContractRebateMultipleThresholdQualifiersRebateAmountPerUnitToBePaidRel exists))
+		SupplementalRebate
+			restricted
+			when (ContractRebateType.RebateType.SupplementalRebate)
+		NotSupplementalRebate
+			restricted
+			when (!ContractRebateType.RebateType.SupplementalRebate)
+		SupplementalRebateForMultipleThresholdRebate
+			restricted
+			when (ContractRebateType.RebateType.SupplementalRebate
+			and   SupplementalBasisRebate.ContractRebateType.RebateType.MultipleThresholdRebate)
+		SupplementalRebateForStandardRebate
+			restricted
+			when (ContractRebateType.RebateType.SupplementalRebate
+			and   SupplementalBasisRebate.ContractRebateType.RebateType.StandardRebate)
+		ContractRebateExists
+			restricted
+			when (ContractRebate exists)
+		HasUnitsBasedGrowthQualifier
+			restricted
+			when (ContractRebateType.RebateType.GrowthRebate
+			and   UnitsTypeGrowthQualifierRel exists)
+
+	Sets
+
+ 		ByRebateType
+ 			not indexed
+ 		 	Sort Order
+				ContractGroup
+				ContractRebateType
+ 		 		Vendor
+				Contract
+
+		BySupplementalBasisRebate
+			indexed
+			Sort Order
+				ContractGroup
+				Contract
+				SupplementalBasisRebate
+				ContractRebateType
+				ContractRebate
+
+	Relations
+		ContractRebateQualifierRel is a ContractRebateQualifier set
+		ContractRebateGrowthQualifierRel is a ContractRebateGrowthQualifier set
+		ContractRebateLoyaltyQualifierRel is a ContractRebateLoyaltyQualifier set
+		ContractRebateThresholdQualifierRel is a ContractRebateThresholdQualifier set
+		PercentTypeGrowthQualifierRel is a ContractRebateGrowthQualifier set
+			Instance Selection
+				where (related.FirstGrowthPercent > 0
+				or     related.SecondGrowthPercent > 0)
+		AmountTypeGrowthQualifierRel is a ContractRebateGrowthQualifier set
+			Instance Selection
+				where (related.FirstGrowthAmount > 0
+				or     related.SecondGrowthAmount > 0)
+		UnitsTypeGrowthQualifierRel is a ContractRebateGrowthQualifier set
+			Instance Selection
+				where (related.FirstGrowthUnits > 0
+				or     related.SecondGrowthUnits > 0)
+		PercentTypeLoyaltyQualifierRel is a ContractRebateLoyaltyQualifier set
+			Instance Selection
+				where (related.LoyaltyPercentToReach > 0)
+		AmountTypeLoyaltyQualifierRel is a ContractRebateLoyaltyQualifier set
+			Instance Selection
+				where (related.LoyaltyAmountToReach > 0)
+		ContractRebateDueRel is a ContractRebateDue set
+		ContractRebateDueWithinDateRange is a ContractRebateDue set
+			Instance Selection
+				where ((Contract.SupplyManagementReportContext.FromDate not entered or related.ContractRebateDue >= Contract.SupplyManagementReportContext.FromDate)
+				and    (Contract.SupplyManagementReportContext.ThruDate not entered or related.ContractRebateDue <= Contract.SupplyManagementReportContext.ThruDate))
+		ContractRebateDueInvoiceLinesRel is a ContractRebateDueInvoiceLine set
+		ContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup	= ContractGroup
+				related.Contract		= Contract
+		ContractRebateDueWithCurrentPurchasesRel is a ContractRebateDue set
+			Instance Selection
+				where (related.CurrentPurchases > 0)
+		CalculatedContractRebateDueRel is a ContractRebateDue set
+			Instance Selection
+				where (related.ContractRebateDue = CalculatedDueDate)
+		OutOfRangeContractRebateDueRel is a ContractRebateDue set
+			Instance Selection
+				where (related.ContractRebateDue < FirstRebateDueDate)
+		FinalContractRebateDueRel is a ContractRebateDue set
+			Instance Selection
+				where (related.ContractRebateDue = Contract.ExpirationDate)
+		RebateByAmountGrowthQualifierRel is a ContractRebateGrowthQualifier set
+			Instance Selection
+				where (related.RebateAmount > 0)
+		RebateByAmountQualifierRel is a ContractRebateQualifier set
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchaseAmount > 0)
+		RebateByPercentQualifierRel is a ContractRebateQualifier set
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchasePercent > 0)
+		RebateByUnitsAmountQualifierRel is a ContractRebateQualifier set
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchaseUnits > 0)
+		RebateByCurrencyAmountQualifierRel is a ContractRebateQualifier set
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchaseAmount > 0)
+		RebatesForATypeRel
+			one-to-many relation to ContractRebate
+			Field Mapping uses ByRebateType
+				related.ContractGroup = ContractGroup
+			Instance Selection
+				where (related.ContractRebateType = ContractRebateType)
+		ContractRebateDueQualifiersNotGrowthLoyaltyAndPercentOfAllRel is a ContractRebateDueQualifier set
+			Instance Selection
+				where (related.NotGrowthAndNotLoyaltyAndNotPercentOfAllRebate)
+		ContractRebateLoyaltyQualifiersRel is a ContractRebateLoyaltyQualifier set
+
+		ContractRebateQualifiersWithAllInvoicesForSupplierRel
+			one-to-many relation to ContractRebateQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup				= ContractGroup
+				related.Contract					= Contract
+				related.ContractRebateType			= ContractRebateType
+				related.ContractRebate 				= blank
+			Instance Selection
+				where (related.AllInvoicesForSupplier)
+
+		RebateQualifierContractsRel
+			one-to-many relation to RebateQualifierContract
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractRebateType	= ContractRebateType
+				related.ContractRebate		= blank
+
+		CurrencyBasedQualifiersRel
+			one-to-many relation to ContractRebateQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup			= ContractGroup
+				related.Contract				= Contract
+				related.ContractRebateType		= ContractRebateType
+				related.ContractRebate			= blank
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchasePercent > 0
+				or     related.RebatePurchaseAmtPct.PurchaseAmount > 0
+				or   ((related.ContractRebateType.RebateType.GrowthRebate
+				or     related.ContractRebateType.RebateType.LoyaltyRebate
+				or     related.ContractRebateType.RebateType.MultipleThresholdRebate)
+				and    related.SpendType.Amount))
+		UnitsBasedQualifiersRel
+			one-to-many relation to ContractRebateQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup			= ContractGroup
+				related.Contract				= Contract
+				related.ContractRebateType		= ContractRebateType
+				related.ContractRebate			= blank
+			Instance Selection
+				where (related.RebatePurchaseAmtPct.PurchaseUnits > 0
+				or   ((related.ContractRebateType.RebateType.GrowthRebate
+				or     related.ContractRebateType.RebateType.LoyaltyRebate
+				or     related.ContractRebateType.RebateType.MultipleThresholdRebate
+				or     related.ContractRebateType.RebateType.SupplementalRebate)
+				and    related.SpendType.Units))
+		AmountPerUnitsBasedGrowthQualifiersRel
+			one-to-many relation to ContractRebateGrowthQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup			= ContractGroup
+				related.Contract				= Contract
+				related.ContractRebateType		= ContractRebateType
+				related.ContractRebate			= blank
+			Instance Selection
+				where (related.RebateAmountPerUnit > 0)
+
+   		ContractRebateLoyaltyQualifiersByPercentDescendingRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses ByLoyaltyPercentToReachDescending
+				related.ContractGroup			    = ContractGroup
+				related.Contract					= Contract
+				related.ContractRebateType			= ContractRebateType
+				related.ContractRebate				= blank
+			Instance Selection
+				where (related.LoyaltyPercentToReach	entered)
+
+   		ContractRebateLoyaltyQualifiersByAmountDescendingRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses ByLoyaltyAmountToReachDescending
+				related.ContractGroup			    = ContractGroup
+				related.Contract					= Contract
+				related.ContractRebateType			= ContractRebateType
+				related.ContractRebate				= blank
+			Instance Selection
+				where (related.LoyaltyAmountToReach	entered)
+
+   		ContractRebateLoyaltyQualifiersByUnitsDescendingRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses ByLoyaltyAmountToReachDescending
+				related.ContractGroup			    = ContractGroup
+				related.Contract					= Contract
+				related.ContractRebateType			= ContractRebateType
+				related.ContractRebate				= blank
+			Instance Selection
+				where (related.LoyaltyUnitsToReach	entered)
+
+		ContractRebateLoyaltyQualifiersRebateAmountToBePaidRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup					= ContractGroup
+				related.Contract						= Contract
+				related.ContractRebateType		    	= ContractRebateType
+				related.ContractRebate					= blank
+			Instance Selection
+				where (related.RebateAmountToBePaid > 0)
+
+		ContractRebateLoyaltyQualifiersRebatePercentToBePaidRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup					= ContractGroup
+				related.Contract						= Contract
+				related.ContractRebateType		    	= ContractRebateType
+				related.ContractRebate					= blank
+			Instance Selection
+				where (related.RebatePercentToBePaid > 0)
+
+		ContractRebateLoyaltyQualifiersRebateAmountPerUnitToBePaidRel
+			one-to-many relation to ContractRebateLoyaltyQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup					= ContractGroup
+				related.Contract						= Contract
+				related.ContractRebateType		    	= ContractRebateType
+				related.ContractRebate					= blank
+			Instance Selection
+				where (related.RebateAmountPerUnitToBePaid > 0)
+
+		ContractRebateMultipleThresholdQualifiersRebateAmountPerUnitToBePaidRel
+			one-to-many relation to ContractRebateThresholdQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup					= ContractGroup
+				related.Contract						= Contract
+				related.ContractRebateType		    	= ContractRebateType
+				related.ContractRebate					= blank
+			Instance Selection
+				where (related.RebateAmountPerUnit > 0)
+
+		SupplementalBasisRebateContractRebateDuesRel
+			one-to-many relation to ContractRebateDue
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractRebateType	= SupplementalBasisRebate.ContractRebateType
+				related.ContractRebate		= blank
+
+		SupplementalBasisRebateContractRebateQualifiersRel
+			one-to-many relation to ContractRebateQualifier
+			Field Mapping uses symbolic key
+				related.ContractGroup		= ContractGroup
+				related.Contract			= Contract
+				related.ContractRebateType	= SupplementalBasisRebate.ContractRebateType
+				related.ContractRebate		= blank
+
+
+		PurgeContractRebateQualifierRel is a ContractRebateQualifier set
+			Instance Selection
+				include deleted records
+
+	Field Rules
+		Frequency
+			if (ContractRebateType.RebateType.FixedRebateAmount)
+				default to Frequency.OneTime
+			else
+				if (FirstRebateDueDate > 0)
+					required
+						"FrequencyIsRequiredWhenAFirstRebateDueDateIsEntered"
+
+			if (ContractRebateType.RebateType.GrowthRebate
+			or  ContractRebateType.RebateType.LoyaltyRebate)
+				constraint (!Frequency.OneTime)
+					"GrowthAnd_LoyaltyRebatesCannotHaveA_FrequencyOf_'One_Time'"
+
+		Vendor
+			force default to Contract.Vendor
+
+		FirstRebateDueDate
+			if (FirstRebateDueDate > 0
+			and FirstRebateDueDate changed)
+				constraint (FirstRebateDueDate >= Contract.EffectiveDate)
+					"FirstRebateDueDateMustBeGreaterThanContractEffectiveDate"
+
+			if (ContractRebateType.RebateType.StandardRebate)
+				constraint (PercentOrAmountOrAmountPerUnitEntered)
+					"MustEnterRebatePercentOrRebateAmountOrRebateAmountPerUnit"
+
+			if (ContractRebateType.RebateType.FixedRebateAmount)
+				if (Contract.ExpirationDate entered)
+					default to Contract.ExpirationDate
+				else
+					default to Contract.EffectiveDate
+
+		LineLevelRebatesExist
+			default to false
+
+		RebatePercent
+			if (ContractRebateType.RebateType.GrowthRebate)
+				cannot be entered
+					"CannotEnterRebatePercentForGrowthRebates"
+
+			if (ContractRebateType.RebateType.FixedRebateAmount)
+				cannot be entered
+					"CannotEnterRebatePercentForFixedAmountRebates"
+
+			if (NotGrowthAndNotLoyaltyRebateAndNotFixedRebateAmount)
+				constraint (!BothPercentAndAmountEntered)
+					"CannotEnterBothRebatePercentAndRebateAmount"
+
+			if (ContractRebateType.RebateType.LoyaltyRebate)
+				cannot be entered
+					"CannotEnterRebatePercentForLoyaltyRebates"
+
+			if (RebatePercent changed
+			and old RebatePercent not entered)
+				invoke Update ContractRebateDue set
+					invoked.RebateAmount 		= 0
+
+		CurrentBaseOfPurchases
+			if (CurrentBaseOfPurchases changed)
+				invoke Update ContractRebateDueQualifiersNotGrowthLoyaltyAndPercentOfAllRel
+					invoked.BaseOfPurchases				= CurrentBaseOfPurchases
+
+		CalculateExpectedRebateForGrowth
+			force default to ContractRebateType.CalculateExpectedRebateForGrowth
+
+	Create Rules
+		CalculateExpectedRebateForGrowth = ContractRebateType.CalculateExpectedRebateForGrowth
+
+	Create Exit Rules
+
+		if (FirstRebateDueDate entered
+		and OneTimeRebate)
+			invoke Create ContractRebateDue
+				invoked.ContractGroup			  	= ContractGroup
+				invoked.Contract				  	= Contract
+				invoked.ContractRebate			  	= ContractRebate
+				invoked.ContractRebateType		  	= ContractRebateType
+				invoked.ContractRebateDue 		  	= FirstRebateDueDate
+				if (Contract.PaymentDueDays entered)
+					invoked.RebateExpectedDate    	= FirstRebateDueDate + Contract.PaymentDueDays
+				invoked.CreatedFromContractRebate 	= true
+				invoked.RebateAmount				= PotentialPeriodRebateAmount
+		else
+		if (FirstRebateDueDate entered)
+			invoke CreateDueDates
+
+
+
+	Actions
+		Create is a Create Action
+			Field Rules
+				CalculateGrowthInSpendFromLastYearToThisYearOnly
+					if (CalculateExpectedRebateForGrowth)
+						default to true
+					else
+						default to false
+
+				Active
+					default to true
+
+			Action Rules
+				ContractRebateType					= TransientContractRebateType
+				CalculateExpectedRebateForGrowth	= ContractRebateType.CalculateExpectedRebateForGrowth
+
+			Exit Rules
+				if (ContractRebate exists)
+					initialize TransientContractRebateType
+
+		WizardCreate is a Create Action
+			Field Rules
+				CalculateGrowthInSpendFromLastYearToThisYearOnly
+					if (CalculateExpectedRebateForGrowth)
+						default to true
+					else
+						default to false
+
+				Active
+					default to true
+
+			Action Rules
+				CalculateExpectedRebateForGrowth = ContractRebateType.CalculateExpectedRebateForGrowth
+
+		Update is an Update Action
+			Field Rules
+				CalculateRebateAmountOnAllSpendForQualifyingContracts
+					default to false
+					if (CalculateRebateAmountOnAllSpendForQualifyingContracts)
+						constraint (!ContractRebateQualifiersWithAllInvoicesForSupplierRel exists)
+							"CannotSet_'Rebate_On_All_Spend_From_Qualifying_Contracts'_whenQualifiersExistForThisRebateThatAreMarked_'All_Invoices_For_A_Supplier'"
+
+					if (CalculateRebateAmountOnAllSpendForQualifyingContracts)
+						constraint (!ContractRebateType.RebateType.FixedRebateAmount)
+							"CannotSet_'Rebate_On_All_Spend_From_Qualifying_Contracts'_ForFixedAmountRebateType"
+
+					if (CalculateRebateAmountOnAllSpendForQualifyingContracts changed)
+						invoke SetQualifierChangedFlagToYes ContractRebate
+						if (CalculateRebateAmountOnAllSpendForQualifyingContracts)
+							for each RebateQualifierContractsRel
+								invoke SelectAllItemsForRebateCalculation each
+						else
+							for each RebateQualifierContractsRel
+								invoke DeleteAllItemsForRebateCalculationOnly each
+
+				PotentialPeriodRebateAmount
+					if (PotentialPeriodRebateAmount entered)
+						constraint (!ContractRebateType.RebateType.FixedRebateAmount)
+							"CannotEnter_'Rebate_Amount_Per_Rebate_Period'_ForFixedAmountRebate"
+						constraint (!ContractRebateType.RebateType.GrowthRebate)
+							"CannotEnter_'Rebate_Amount_Per_Rebate_Period'_ForGrowthRebates"
+						constraint (!ContractRebateType.RebateType.LoyaltyRebate)
+							"CannotEnter_'Rebate_Amount_Per_Rebate_Period'_ForLoyaltyRebates"
+
+					if (ContractRebateType.RebateType.FixedRebateAmount)
+						cannot be entered
+							"CannotEnterRebatePercentForFixedAmountRebates"
+
+					constraint (!BothPercentAndAmountEntered)
+						"CannotEnterBothRebatePercentAndRebateAmount"
+
+					if (PotentialPeriodRebateAmount entered)
+						invoke FastUpdateWithoutEdits
+							initialize invoked.PrmRebatePercent
+							invoked.PrmCalculateGrowthInSpendFromLastYearToThisYearOnly = CalculateGrowthInSpendFromLastYearToThisYearOnly
+						invoke Update ContractRebateDue set
+							invoked.RebateAmount = PotentialPeriodRebateAmount
+
+				RebatePercent
+					if (RebatePercent entered)
+						constraint (!ContractRebateType.RebateType.FixedRebateAmount)
+							"CannotEnter_'Rebate_Percent'_ForFixedAmountRebateType"
+
+					constraint (!BothPercentAndAmountEntered)
+						"CannotEnterBothRebatePercentAndRebateAmount"
+
+					if (ContractRebateType.RebateType.GrowthRebate)
+						cannot be entered
+							"CannotEnterRebatePercentForGrowthRebates"
+
+					if (ContractRebateType.RebateType.LoyaltyRebate)
+						cannot be entered
+							"CannotEnterRebatePercentForLoyaltyRebates"
+
+					if (ContractRebateType.RebateType.FixedRebateAmount)
+						cannot be entered
+							"CannotEnterRebatePercentForFixedAmountRebates"
+
+					invoke FastUpdateWithoutEdits
+						invoked.PrmRebatePercent									= RebatePercent
+						invoked.PrmCalculateGrowthInSpendFromLastYearToThisYearOnly	= CalculateGrowthInSpendFromLastYearToThisYearOnly
+
+					invoke Update ContractRebateDue set
+						invoked.RebateAmount = PotentialPeriodRebateAmount
+
+				CalculateGrowthInSpendFromLastYearToThisYearOnly
+					if (CalculateGrowthInSpendFromLastYearToThisYearOnly changed)
+						invoke FastUpdateWithoutEdits
+							invoked.PrmCalculateGrowthInSpendFromLastYearToThisYearOnly = CalculateGrowthInSpendFromLastYearToThisYearOnly
+						invoke SetQualifierChangedFlagToYes
+
+			Action Rules
+				if (RebatePercent	not entered)
+					initialize RebatePercent
+
+				if (FirstRebateDueDate changed
+				or	Frequency changed)
+					invoke Delete ContractRebateDue set
+
+			Exit Rules
+				if (FirstRebateDueDate changed
+				or	Frequency changed)
+					if (FirstRebateDueDate entered)
+						CalculatedDueDate = FirstRebateDueDate
+						if (!CalculatedContractRebateDueRel exists)
+							invoke Create ContractRebateDue
+								invoked.ContractGroup			  	= ContractGroup
+								invoked.Contract				  	= Contract
+								invoked.ContractRebate			  	= ContractRebate
+								invoked.ContractRebateType		  	= ContractRebateType
+								invoked.ContractRebateDue 		  	= FirstRebateDueDate
+								if (Contract.PaymentDueDays entered)
+	   		  						invoked.RebateExpectedDate    	= FirstRebateDueDate + Contract.PaymentDueDays
+								invoked.CreatedFromContractRebate 	= true
+								invoked.RebateAmount				= PotentialPeriodRebateAmount
+
+					if (FirstRebateDueDate entered
+					and !OneTimeRebate)
+						CalculatedDueDate = FirstRebateDueDate
+						invoke ComputeDueDate
+						while (CalculatedDueDate <= Contract.ExpirationDate)
+							if (!CalculatedContractRebateDueRel exists)
+								invoke Create ContractRebateDue
+									invoked.ContractGroup			  	= ContractGroup
+									invoked.Contract				  	= Contract
+									invoked.ContractRebate			  	= ContractRebate
+									invoked.ContractRebateType		  	= ContractRebateType
+									invoked.ContractRebateDue 		  	= CalculatedDueDate
+									if (Contract.PaymentDueDays entered)
+										invoked.RebateExpectedDate    	= CalculatedDueDate + Contract.PaymentDueDays
+									invoked.CreatedFromContractRebate 	= true
+									invoked.RebateAmount				= PotentialPeriodRebateAmount
+							invoke ComputeDueDate
+
+						if (!FinalContractRebateDueRel exists)
+							invoke Create ContractRebateDue
+								invoked.ContractGroup				= ContractGroup
+								invoked.Contract					= Contract
+								invoked.ContractRebate				= ContractRebate
+								invoked.ContractRebateType			= ContractRebateType
+								invoked.ContractRebateDue			= Contract.ExpirationDate
+								if (Contract.PaymentDueDays entered)
+									invoked.RebateExpectedDate		= Contract.ExpirationDate + Contract.PaymentDueDays
+								invoked.CreatedFromContractRebate	= true
+								invoked.RebateAmount				= PotentialPeriodRebateAmount
+
+				if (RebatePercent changed)
+					invoke Update ContractRebateDueWithCurrentPurchasesRel
+
+					invoke Update ContractRebateQualifierRel
+					invoke Update ContractRebateGrowthQualifierRel
+					invoke Update ContractRebateLoyaltyQualifierRel
+					invoke Update ContractRebateThresholdQualifierRel
+
+				initialize TransientContractRebateType
+
+		UpdateTotalExpectedAmount is an Instance Action
+			restricted
+			Action Rules
+				TotalExpectedAmount 			= TotalRebatesExpected
+
+		SetQualifierChangedFlagToYes is an Instance Action
+			restricted
+			Action Rules
+				if (ContractRebateDueInvoiceLinesRel exists)
+					QualifierChanged		= "Y"
+
+		SetQualifierChangedFlagToNo is an Update Action
+			restricted
+			Action Rules
+				QualifierChanged	= "N"
+
+		FastUpdate is an Update Action
+			restricted
+
+		FastUpdateWithoutEdits is an Instance Action
+			restricted
+			Parameters
+				PrmRebatePercent									is Decimal size 6.3
+				PrmCalculateGrowthInSpendFromLastYearToThisYearOnly is Boolean
+			Action Rules
+				RebatePercent	 													= PrmRebatePercent
+				if (PrmCalculateGrowthInSpendFromLastYearToThisYearOnly)
+					CalculateExpectedRebateForGrowth							= true
+				else
+					CalculateExpectedRebateForGrowth							= false
+
+		Delete is a Delete Action
+			confirmation required
+
+		CreateDueDates is an Instance Action
+			restricted
+			Action Rules
+				CalculatedDueDate = FirstRebateDueDate
+				if (FirstRebateDueDate entered
+				and !CalculatedContractRebateDueRel exists)
+					invoke Create ContractRebateDue
+						invoked.ContractGroup			  	= ContractGroup
+						invoked.Contract				  	= Contract
+						invoked.ContractRebate			  	= ContractRebate
+						invoked.ContractRebateType		  	= ContractRebateType
+						invoked.ContractRebateDue 		  	= FirstRebateDueDate
+						if (Contract.PaymentDueDays entered)
+	   		  					invoked.RebateExpectedDate  = FirstRebateDueDate + Contract.PaymentDueDays
+						invoked.CreatedFromContractRebate 	= true
+						invoked.RebateAmount				= PotentialPeriodRebateAmount
+
+				invoke ComputeDueDate
+				while (CalculatedDueDate <= Contract.ExpirationDate)
+					if (!CalculatedContractRebateDueRel exists)
+						invoke Create ContractRebateDue
+		   					invoked.ContractGroup			  	= ContractGroup
+	   						invoked.Contract				  	= Contract
+		   					invoked.ContractRebate			  	= ContractRebate
+	   		  				invoked.ContractRebateType		  	= ContractRebateType
+	   		  				invoked.ContractRebateDue 		  	= CalculatedDueDate
+	   		  				if (Contract.PaymentDueDays entered)
+	   		  					invoked.RebateExpectedDate    	= CalculatedDueDate + Contract.PaymentDueDays
+							invoked.CreatedFromContractRebate 	= true
+							invoked.RebateAmount				= PotentialPeriodRebateAmount
+			 		invoke ComputeDueDate
+
+				if (!FinalContractRebateDueRel exists)
+					invoke Create ContractRebateDue
+						invoked.ContractGroup			  	= ContractGroup
+		   				invoked.Contract				  	= Contract
+			   			invoked.ContractRebate			  	= ContractRebate
+			   			invoked.ContractRebateType		  	= ContractRebateType
+		   		  		invoked.ContractRebateDue 		  	= Contract.ExpirationDate
+		   		  		if (Contract.PaymentDueDays entered)
+	   		  					invoked.RebateExpectedDate  = Contract.ExpirationDate + Contract.PaymentDueDays
+						invoked.CreatedFromContractRebate 	= true
+						invoked.RebateAmount				= PotentialPeriodRebateAmount
+
+		ComputeDueDate is an Instance Action
+			restricted
+			Action Rules
+				if (Frequency.BiAnnual)
+					CalculatedDueDate += 24 months
+				else
+					if (Frequency.Quarterly)
+						CalculatedDueDate += 3 months
+					else
+						if (Frequency.BiMonthly)
+							CalculatedDueDate += 2 months
+						else
+							if (Frequency.Monthly)
+								CalculatedDueDate += 1 month
+							else
+								if (Frequency.SemiAnnual)
+									CalculatedDueDate += 6 months
+								else
+									if (Frequency.Annual)
+										CalculatedDueDate += 12 months
+
+		CalculateExpectedRebateDueAmount is an Instance Action
+			completion message is "RebateCalculationsStarted;Check'MyScheduledActions'ForCompletion"
+			default label is "CalculateExpectedRebateAmountForAllContractRebates"
+			valid when (CalculateRebatesEligible)
+
+			Action Rules
+				invoke CalculateExpectedRebateDueAmounts ContractRebateDueInvoiceLine in background
+					invoked.PrmContractGroup		= ContractGroup
+					invoked.PrmContract				= Contract
+					initialize invoked.PrmBeginDueDate
+					initialize invoked.PrmEndDueDate
+
+		ReloadRebateInvoicesForQualifierChanges	is an Instance Action
+			completion message is "ReloadRebateInvoicesForQualifierChangesHasStarted.Check'MyScheduledActions'ForCompletion"
+			valid when (HasQualifierWithChanges)
+
+			Action Rules
+				invoke ReloadRebateInvoicesForQualifierChanges ContractRebateDueInvoiceLine in background
+					invoked.PrmContractGroup		= ContractGroup
+					invoked.PrmContract				= Contract
+
+		Purge is a Purge Action
+			restricted
+			Entrance Rules
+				invoke Purge PurgeContractRebateQualifierRel
+

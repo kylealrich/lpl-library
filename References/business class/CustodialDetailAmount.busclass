@@ -1,0 +1,394 @@
+CustodialDetailAmount is a BusinessClass
+	owned by cam
+	
+	prefix is CamDa
+	
+	Ontology
+		symbolic key is CustodialDetailAmount
+		
+	
+	Patterns
+	
+	Persistent Fields
+		CustodialPosting		is a FinanceDimension10
+			default label is "<FinanceEnterpriseGroup.FinanceDimension10Label>Detail"
+		BeginBalance		is an InternationalAmount
+		EndBalance 			is an InternationalAmount
+			protected
+		Deposits			is an InternationalAmount
+			protected
+		Disbursements		is an InternationalAmount
+			protected
+		Transfers			is an InternationalAmount
+			protected
+		Interest			is an InternationalAmount
+			protected
+		Reserve				is an InternationalAmount
+		CommittedAmount		is an InternationalAmount
+			protected
+    	EditLevel			is Numeric 1
+			States
+				Individual		value is 0
+				Group			value is 1
+		EditGroupName			is a Name
+
+	Field Rules
+		CustodialPosting
+			constraint (FinanceDimension10ShadowRel exists)
+                "CannotAdd;<FinanceEnterpriseGroup.FinanceDimension10Label>_BelongsToADifferentSummary"
+
+			constraint (!PostingAccountDuplicateRel exists)
+				"<FinanceEnterpriseGroup.FinanceDimension10Label>_HasAlreadyBeenSetup"
+
+			if (EditLevel.Individual)
+				required
+			cannot be changed
+		EditLevel
+			initial value is EditLevel.Individual
+			default to EditLevel.Individual
+			if(EditLevel not entered)
+				EditLevel = EditLevel.Individual
+		EditGroupName
+			if (EditLevel.Group)
+				required
+			constraint (!EditGroupDuplicateRel exists)
+				"<EditGroupName>_AlreadyExists"
+
+		EndBalance
+			initial value is AvailableEndingBalance
+			default to AvailableEndingBalance
+	
+	Derived Fields
+
+		AccountBalance is a DerivedField
+			type is like InternationalAmount
+			return (BeginBalance + Deposits + Interest - Disbursements + Transfers)
+			
+		AvailableEndingBalance is a DerivedField
+			type is like InternationalAmount
+			return (BeginBalance + Deposits + Interest - Disbursements - CommittedAmount - Reserve + Transfers)
+
+		GroupAvailableEndingBalance is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return ((sum CustodialDetailAmount children.AvailableEndingBalance) - Reserve)
+			else
+				return AvailableEndingBalance
+
+		EditAvailableAmount is a DerivedField
+			type is like InternationalAmount
+			if (ParentCustodialDetailAmount entered)
+				return ParentCustodialDetailAmount.GroupAvailableEndingBalance
+			else
+				return GroupAvailableEndingBalance 					
+
+		GroupAccountBalance is a DerivedField
+            type is like InternationalAmount
+            if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.AccountBalance)
+			else
+				return AccountBalance
+
+		GroupDeposits is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.Deposits)
+			else
+				return Deposits
+		
+		GroupDisbursements is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.Disbursements)
+			else
+				return Disbursements
+				
+		GroupTransfers is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.Transfers)
+			else
+				return Transfers
+				
+		GroupInterest is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.Interest)
+			else
+				return Interest
+
+		GroupCommittedAmount is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.CommittedAmount)
+			else
+				return CommittedAmount
+				
+		GroupBeginBalance is a DerivedField
+			type is like InternationalAmount
+			if (EditLevel.Group)
+				return (sum CustodialDetailAmount children.BeginBalance)
+			else
+				return BeginBalance
+
+        GroupMemberMsg is a LabelField
+			"GroupMember"	
+
+		IndividualMsg is a LabelField
+			"Individual"	
+
+		GroupMsg is a LabelField
+			"Group"	
+
+		DerivedEditLevel is a DerivedField
+			type is Alpha 12
+			if (ParentCustodialDetailAmount entered)
+				return GroupMemberMsg
+			else
+			if (EditLevel.Individual)
+				return IndividualMsg
+			else
+			if (EditLevel.Group)
+				return GroupMsg
+		TransferMF is a MessageField
+			restricted
+			"Transfer"
+		ViewTransferMF is a MessageField
+			restricted
+			"ViewTransfer"
+		TransferMessage is a ConditionalField
+			type is Alpha size 20
+			if (DoesUnreleasedTransferExists)
+				ViewTransferMF
+			else
+				TransferMF
+		InactiveMF is a MessageField
+			restricted
+			"INACTIVE"
+
+		ActiveMF is a MessageField
+			restricted
+			"ACTIVE"
+
+		StatusMessage is a ConditionalField
+			type is Alpha size 20
+			if (CustodialPosting.Active)
+				ActiveMF
+			else
+				InactiveMF
+
+	Conditions
+		CanAddToEditGroup
+    		restricted
+    		when (EditLevel.Individual
+    		and	  ParentCustodialDetailAmount	!entered)
+    		
+    	CanRemoveFromEditGroup
+			restricted
+			when (ParentCustodialDetailAmount entered)
+			
+		HasChild
+    		restricted
+    		when (CustodialDetailAmount children exist)
+
+    	CanDeleteCustodialDetailAmount
+    		restricted
+    		when (!HasChild
+    		and	DetailAmountsDoesNotExist)
+    		
+		DoesExist
+			restricted
+			when (CustodialDetailAmount exists)
+		
+		DoesUnreleasedTransferExists
+			restricted
+			when (UnreleasedDetailTransferRel exists)
+
+		DetailAmountsDoesNotExist
+			restricted
+			when (Deposits = 0
+			and Disbursements = 0
+			and Transfers = 0
+			and Interest = 0
+			and Reserve = 0
+			and CommittedAmount = 0)
+
+ 	Form Invokes
+		CreateUnreleasedDetailTransfer
+			if(DoesUnreleasedTransferExists)
+				invoke Unreleased.Update first UnreleasedDetailTransferRel
+			else
+				invoke Unreleased.Create CustodialDetailTransfer(CustodialDetailAmount) set
+	Relations
+		PostingAccountDuplicateRel
+        	one-to-many relation to CustodialDetailAmount
+            Field Mapping uses symbolic key
+            	related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+            Instance Selection
+            	where (related.UniqueID != UniqueID
+            	and related.CustodialPosting = CustodialPosting)
+		
+		PostingAccountWithNoGroupRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.CustodialAccountManagement	= CustodialAccountManagement
+			Instance Selection
+				where (related.EditLevel.Individual)
+            
+		EditGroupRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.CustodialAccountManagement	= CustodialAccountManagement
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and related.ParentCustodialDetailAmount = ParentCustodialDetailAmount)
+
+		EditGroupDetailRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.CustodialAccountManagement	= CustodialAccountManagement
+			Instance Selection
+				where (related.CustodialDetailAmount = ParentCustodialDetailAmount)
+
+		EditGroupDuplicateRel
+			one-to-many relation to CustodialDetailAmount
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.CustodialAccountManagement	= CustodialAccountManagement
+			Instance Selection
+				where (related.UniqueID != UniqueID
+				and	   related.EditGroupName = EditGroupName)
+
+		FinanceDimension10ShadowRel
+            one-to-one relation to FinanceDimension10Shadow
+            Field Mapping uses BySummaryDimension
+                related.FinanceEnterpriseGroup            = FinanceEnterpriseGroup
+                related.SummaryFinanceDimension10        = CustodialAccountManagement.CustodialSummary
+                related.FinanceDimension10                = CustodialPosting
+
+		UnreleasedDetailTransferRel
+			one-to-many relation to CustodialDetailTransfer
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= FinanceEnterpriseGroup
+				related.CustodialAccountManagement	= CustodialAccountManagement
+				related.CustodialDetailAmount		= CustodialDetailAmount
+			Instance Selection
+				where (related.Status.Unreleased)
+
+	Sets
+		ByCustodialPosting
+			Instance Selection
+				where (EditLevel.Individual)
+			Sort Order
+		 		FinanceEnterpriseGroup
+		  		CustodialPosting
+
+	Actions
+	
+		UpdateDeposits is an Instance Action
+			default label is untranslatable
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmDeposits		is an InternationalAmount
+			Action Rules
+				Deposits += PrmDeposits
+				
+		UpdateTransfers is an Instance Action
+			default label is untranslatable
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmTransfers		is an InternationalAmount
+			Action Rules
+				Transfers += PrmTransfers
+
+		UpdateDisbursements is an Instance Action
+			default label is untranslatable
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmDisbursements			is an InternationalAmount
+				PrmRelieveCommittedAmount	is Boolean 
+			Action Rules
+				Disbursements		+= PrmDisbursements
+				if (PrmRelieveCommittedAmount)
+					CommittedAmount -= PrmDisbursements
+
+		UpdateCommittedAmount is an Instance Action
+			default label is untranslatable
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmCommittedAmount			is an InternationalAmount
+			Action Rules
+				CommittedAmount 	+= PrmCommittedAmount
+	
+		UpdateInterest is an Instance Action
+			default label is untranslatable
+			restricted
+			refresh and lock this instance
+			Parameters
+				PrmInterest		is an InternationalAmount
+			Action Rules
+				Interest += PrmInterest
+
+		Create is a Create Action
+			Action Rules
+
+		CreateEditGroup is a Create Action	
+			Action Rules
+				EditLevel = 1 
+				
+		AddToEditGroup is an Instance Action
+			valid when (CanAddToEditGroup)
+			Parameters
+				PrmEditGroup is a CustodialDetailAmount
+					default label is "EditGroup"
+			Parameter Rules
+				PrmEditGroup
+					required
+					constraint (!ParentCustodialDetailAmount entered)
+						"FinanceDimension10AlreadyAttachedToEditGroup<ParentCustodialDetailAmount.EditGroupName>"
+					constraint (PrmEditGroup != CustodialDetailAmount)
+						"CannotAddFinanceDimension10ToItsOwnEditGroup"
+			Action Rules
+				if (Reserve entered)
+					confirmation required
+						"ReserveAmount<Reserve>For<CustodialDetailAmount.CustodialPosting>WillBeUpdatedTo0.00WhenAddingToGroup"
+						invoke InitializeReserve
+				ParentCustodialDetailAmount = PrmEditGroup
+
+		RemoveFromEditGroup is an Instance Action
+			valid when (CanRemoveFromEditGroup)
+			Action Rules
+				if (!EditGroupRel exist and first EditGroupDetailRel.Reserve entered)
+					confirmation required
+						"RemovingTheOnlyMemberOfEditGroup<first EditGroupDetailRel.EditGroupName>WillUpdateReserveAmount<first EditGroupDetailRel.Reserve>To0.00ForTheGroup"
+					invoke InitializeReserve first EditGroupDetailRel
+					initialize ParentCustodialDetailAmount
+				else
+					initialize ParentCustodialDetailAmount	
+				
+		Delete is a Delete Action
+			valid when (CanDeleteCustodialDetailAmount)
+		
+		Update is an Update Action
+		
+		InitializeReserve is an Update Action
+			restricted
+			Action Rules
+				initialize Reserve
+			
+		ResetDetailTransfer is an Instance Action
+			valid when(DoesUnreleasedTransferExists)
+			Action Rules
+				invoke Unreleased.Delete first UnreleasedDetailTransferRel
+		
+		ReleaseDetailTransfer is an Instance Action
+			valid when(DoesUnreleasedTransferExists)
+			Action Rules
+				invoke Unreleased.Release first UnreleasedDetailTransferRel

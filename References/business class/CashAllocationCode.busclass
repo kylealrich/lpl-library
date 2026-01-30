@@ -1,0 +1,158 @@
+CashAllocationCode is a BusinessClass
+    owned by cashmgmt
+    prefix is CMAC
+
+    Ontology
+    	symbolic key is CashAllocationCode
+
+    Persistent Fields
+		Description		is Alpha 250
+		AllocationType	is Numeric 2
+			States
+				AccountOnly 	value is 1
+				Amount			value is 2
+				Percent 		value is 3
+		ControlTotal	is an InternationalAmount
+		Active
+
+	Context Fields
+		BankStatementLine
+	
+	Derived Fields
+		TotalAllocationDetailAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum CashAllocationCodeDetail set.AllocationAmount)
+		
+		AmountDifference is a DerivedField
+			type is like InternationalAmount
+			default label is "Difference"
+			return (ControlTotal - TotalAllocationDetailAmount)
+		
+		TotalAllocationDetailPercent is a DerivedField
+			type is Percent 10.7
+			restricted
+			return (sum CashAllocationCodeDetail set.AllocationPercent)
+		
+		PercentDifference is a DerivedField
+			type is Percent 10.7
+			default label is "Difference"
+			return (100% - TotalAllocationDetailPercent)
+			
+	Field Rules
+		Description
+			default to CashAllocationCode
+
+		AllocationType
+			required
+				"AllocationTypeIsRequired"
+			
+			if (AllocationType changed)
+				constraint (!Active)
+					"CannotChangeAllocationTypeForActiveAllocationCodes"
+				
+				if (old AllocationType.Amount)
+					initialize ControlTotal
+						
+				if (CashAllocationCodeDetail set exists)
+					if (AllocationType.Percent
+					and	old AllocationType.Amount)
+						confirmation required
+							"AllAllocationDetailsWillBeDeleted;WouldYouLikeToContinue?"
+				
+						initialize ControlTotal
+						
+						for each CashAllocationCodeDetail set
+							invoke Delete each
+								 
+					if (AllocationType.Amount
+					and	old AllocationType.Percent)
+						confirmation required
+							"AllAllocationDetailsWillBeDeleted;WouldYouLikeToContinue?"
+						
+						for each CashAllocationCodeDetail set
+							invoke Delete each
+							
+		ControlTotal
+			if (CashAllocationCode.AllocationType.Amount)
+				required
+		
+		Active
+			default to false
+				
+	Attach Rules
+		if (parentcontext.name != "CashAllocationCodeDetail")
+			constraint (Active)
+				"AllocationCodeIsInactive"
+								
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+			valid when (!Active)
+			
+		Activate is an Instance Action
+			valid when (!Active)
+			Action Rules
+				constraint (CashAllocationCodeDetail set exists)
+					"AllocationDetailsMustBeDefinedToActivate"
+					
+				if (AllocationType.Amount)
+					constraint (TotalAllocationDetailAmount = ControlTotal)
+						"TotalOfAllocationDetailsMustEqualControlTotal"
+				
+				if (AllocationType.Percent)
+					constraint (TotalAllocationDetailPercent = 100%)
+						"TotalOfAllocationDetailsMustEqual100%"
+				
+				Active = true
+				
+		Inactivate is an Instance Action
+			valid when (Active)
+			Action Rules
+				Active = false
+		
+		ApplyAllocationCode is an Instance Action
+			valid when (Active)
+			Parameters
+				PrmCashManagementAccount 		  is a CashManagementAccount
+				PrmBankStatement				  is a BankStatement
+				PrmBankStatementLine 			  is a BankStatementLine
+				
+			Local Fields
+				DistributionRunningTotal		  is an InternationalAmount
+				LastBankStatementLineDistribution is a BankStatementLineDistribution view
+				
+			Action Rules
+				if (PrmBankStatementLine.BankStatementLineDistribution set exists)
+					confirmation required
+						"CurrentDistributionsWillBeDeleted;WouldYouLikeToContinue?"
+						
+					invoke Delete PrmBankStatementLine.BankStatementLineDistribution set
+				
+				for each CashAllocationCodeDetail set
+					invoke Create BankStatementLineDistribution
+						assign result to LastBankStatementLineDistribution
+						invoked.CashManagementGroup	 	= CashManagementGroup
+						invoked.CashManagementAccount	= PrmCashManagementAccount
+						invoked.BankStatement			= PrmBankStatement
+						invoked.BankStatementLine		= PrmBankStatementLine
+						invoked.GLFinanceCodeBlock		= each.AllocationAccount
+						if (AllocationType.Amount)
+							invoked.GLTransactionAmount		= each.AllocationAmount
+						if (AllocationType.Percent)
+							invoked.GLTransactionAmount		= (PrmBankStatementLine.LineAmount * each.AllocationPercent)
+						if (AllocationType.AccountOnly)
+							invoked.BypassUnitAndAmountEdit = true
+						invoked.Comment					= each.Comment
+					
+					if (AllocationType.Percent)
+						DistributionRunningTotal += (PrmBankStatementLine.LineAmount * each.AllocationPercent)
+				
+				if  (AllocationType.Percent
+				and (PrmBankStatementLine.LineAmount - DistributionRunningTotal) != 0)
+					invoke Update LastBankStatementLineDistribution.BankStatementLineDistribution
+						invoked.GLTransactionAmount += (PrmBankStatementLine.LineAmount - DistributionRunningTotal)
+						
+		Delete is a Delete Action
+			valid when (!Active)

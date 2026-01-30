@@ -1,0 +1,383 @@
+RecallAdhocUser is a BusinessClass
+	owned by recall
+	prefix is RADU
+
+	Ontology
+		symbolic key is RecallAdhocUser
+
+	Persistent Fields
+		Name				is a PersonName 
+			holds pii
+		Address				is a PostalAddressV2	
+			holds pii
+		Phone				is a TelephoneNumber 
+			holds pii
+		Email				is an EmailAddress 
+			holds pii
+			default label is "EmailAddress"
+		Active
+
+	Local Fields
+		LocalRecallGroup		is a RecallGroup 
+		LocalAdhocUser          is like RecallAdhocUser
+		LocalRecallNotice       is like RecallNotice
+		LocalRecallOrganization is like RecallOrganization 
+
+	Context Fields 
+		ContextRecallOrganization is a RecallOrganization
+		ContextRecallNotice       is a RecallNotice 
+
+	Derived Fields
+
+		DerivedName is a DerivedField
+			type is Alpha 101
+			default label is "Name"
+			return Name.PreferredFirstAndLastName
+
+		DerivedPhoneDisplay is a StringField
+			type is Alpha up to 60
+			default label is "Phone"
+			Phone.InternationalPrefix
+			" "
+			Phone.SubscriberNumber
+			" "
+			Phone.Extension
+
+		DerivedAddress is a DerivedField
+			type is Text
+			restricted
+			default label is "StreetAddress"
+			return Address	
+
+	Conditions
+
+		AdhocUserExists
+			restricted 
+			when (RecallAdhocUser entered)
+
+		OrganizationsExist
+			restricted 
+			when (UserOrganizationRel exists)
+
+		NotificationsExist 
+			restricted
+			when (UserNotificationRel exists)
+
+		NotificationsDoNotExist
+			restricted
+			when (UserNotificationRel !exist)
+		
+		OpenNotificationsExist 
+			restricted
+			when (UserOpenNotificationRel exists)
+
+		UserAttachedToOrganization 
+			restricted 
+			when (OrganizationContextRel exists)
+
+		UserAttachedToNotice 
+			restricted 
+			when (NotificationContextRel exists)			
+
+	Sets
+
+		ByName 
+			Sort Order 
+				RecallGroup 
+				Name 
+				RecallAdhocUser 
+
+	Field Groups
+
+	Relations
+
+		UserOrganizationRel
+			one-to-many relation to RecallAdhocUserOrganization 
+			delete cascades
+			Field Mapping uses ByUserForOrganization
+				related.RecallGroup	    = RecallGroup
+				related.RecallAdhocUser = RecallAdhocUser
+
+		UserNotificationRel
+			one-to-many relation to RecallAdhocUserNotification 
+			Field Mapping uses ByUserForNotification
+				related.RecallGroup	    = RecallGroup
+				related.RecallAdhocUser = RecallAdhocUser
+
+		UserOpenNotificationRel 
+			one-to-many relation to RecallAdhocUserNotification 
+			Field Mapping uses ByUserForNotification
+				related.RecallGroup	    = RecallGroup
+				related.RecallAdhocUser = RecallAdhocUser
+			Instance Selection 
+				where (!related.RecallNotice.HistoricalRecallNotice)		
+
+		RecallOrganizationsRel
+			one-to-many relation to RecallOrganization
+			Field Mapping uses symbolic key
+				related.RecallGroup	= RecallGroup
+			Instance Selection
+				where (related.Active)
+
+		LocalUserOrganizationRel 
+			one-to-one relation to RecallAdhocUserOrganization
+			Field Mapping uses symbolic key 
+				related.RecallGroup 			= LocalRecallGroup
+				related.RecallOrganization    	= LocalRecallOrganization
+				related.RecallAdhocUser 		= LocalAdhocUser
+
+		OrganizationContextRel
+			one-to-one relation to RecallAdhocUserOrganization
+			Field Mapping uses symbolic key
+				related.RecallGroup			= RecallGroup
+				related.RecallOrganization	= ContextRecallOrganization
+				related.RecallAdhocUser		= RecallAdhocUser	
+
+		NotificationContextRel 
+			one-to-one relation to RecallAdhocUserNotification
+			Field Mapping uses symbolic key
+				related.RecallGroup			= RecallGroup
+				related.RecallNotice    	= ContextRecallNotice
+				related.RecallAdhocUser		= RecallAdhocUser			
+
+		LocalUserNotificationRel 
+			one-to-one relation to RecallAdhocUserNotification
+			Field Mapping uses symbolic key 
+				related.RecallGroup 	= LocalRecallGroup
+				related.RecallNotice    = LocalRecallNotice
+				related.RecallAdhocUser = LocalAdhocUser
+
+		UserWithSameEmailRel
+			one-to-many relation to RecallAdhocUser 
+			Field Mapping uses symbolic key 
+				related.RecallGroup 	= RecallGroup 
+			Instance Selection 
+				where (related.Email	= Email
+				and    related.UniqueID != UniqueID)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Attach Rules
+		constraint (Active)
+			"WatcherIsNotActive"
+
+	Field Rules
+		
+		Name 
+			required
+
+		Email 
+			required
+	
+	Actions
+
+		Create is a Create Action
+			Field Rules  
+				
+				Active
+					default to true
+
+			Action Rules
+
+				constraint (UserWithSameEmailRel !exists)
+					"CannotCreate;WatcherAlreadyExistsWithTheSameEmail"
+
+		Update is an Update Action
+
+			Action Rules
+
+				constraint (UserWithSameEmailRel !exists)
+					"CannotChangeToThisEmail;WatcherAlreadyExistsWithTheSameEmail"
+
+
+		Delete is a Delete Action
+			Entrance Rules 
+
+				constraint (NotificationsDoNotExist)
+					"CannotDelete;NoticeNotificationsExist;SetActiveToNo"
+
+			Action Rules
+
+		AttachToRecallOrganization is an Instance Action 
+			default label is "AttachWatcherToOrganization"
+			Parameters 
+				RecallGroup
+				RecallOrganization
+				RecallAdhocUser
+
+			Parameter Rules
+				RecallGroup
+					required
+				RecallOrganization
+					required
+				RecallAdhocUser
+					required   
+
+			Action Rules 
+
+				LocalRecallGroup 		= RecallGroup
+				LocalAdhocUser   		= RecallAdhocUser
+				LocalRecallOrganization = RecallOrganization
+				constraint (!LocalUserOrganizationRel exists)
+					"<DerivedName>IsAlreadyAttachedToThisOrganization"			
+
+				invoke Create RecallAdhocUserOrganization 
+					invoked.RecallGroup     	= RecallGroup 
+					invoked.RecallAdhocUser		= RecallAdhocUser 
+					invoked.RecallOrganization  = RecallOrganization		
+
+		AttachToRecallNotification is an Instance Action
+			default label is "CreateNotificationForWatcher"
+			
+			Parameters
+				RecallGroup
+				RecallNotice
+				RecallAdhocUser
+				
+			Parameter Rules
+				RecallGroup
+					required
+				RecallNotice
+					required
+				RecallAdhocUser
+					required    
+			
+			Action Rules
+				constraint (!RecallNotice.HistoricalRecallNotice)
+					"CanOnlyAttachUserWhenNoticeIsNotInAHistoricalStatus"
+				LocalRecallGroup  = RecallGroup
+				LocalAdhocUser    = RecallAdhocUser
+				LocalRecallNotice = RecallNotice
+				constraint (!LocalUserNotificationRel exists)
+					"<DerivedName>IsAlreadyAttachedToThisNotice"
+
+				invoke Create RecallAdhocUserNotification 
+					invoked.RecallGroup     = RecallGroup 
+					invoked.RecallAdhocUser	= RecallAdhocUser 
+					invoked.RecallNotice    = RecallNotice
+
+		ChangeUser is an Instance Action
+   			Parameters
+				ToUser                  is a RecallAdhocUser
+				ChangeAll               is Boolean
+				ChangeOpenNotices       is Boolean 
+				ChangeWatchers          is Boolean 
+				InactivateCurrentUser   is Boolean 
+
+			Parameter Rules 
+
+				ToUser 
+					required 
+					constraint (RecallAdhocUser != ToUser)
+						"ToUserCannotBeTheSameAsUser"					
+			
+			Action Rules
+
+				LocalAdhocUser		= ToUser 
+				LocalRecallGroup    = RecallGroup
+				
+				if (ChangeAll
+				or  ChangeOpenNotices)
+					for each UserOpenNotificationRel
+						LocalRecallNotice 	= each.RecallNotice
+						invoke Delete each 
+						if (LocalUserNotificationRel !exists)
+							invoke Create RecallAdhocUserNotification
+								invoked.RecallGroup     = RecallGroup
+								invoked.RecallAdhocUser = ToUser
+								invoked.RecallNotice    = LocalRecallNotice
+
+				if (ChangeAll
+				or  ChangeWatchers)
+					for each UserOrganizationRel 
+						LocalRecallOrganization = each.RecallOrganization
+						invoke Delete each 
+						if (LocalUserOrganizationRel !exists) 
+							invoke Create RecallAdhocUserOrganization 
+								invoked.RecallGroup     	= RecallGroup
+								invoked.RecallAdhocUser 	= ToUser
+								invoked.RecallOrganization	= LocalRecallOrganization
+
+				if (InactivateCurrentUser)
+					Active = false 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		Purge is a Purge Action
+			restricted
+

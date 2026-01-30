@@ -1,0 +1,649 @@
+UserMenu is a BusinessClass
+    owned by repository
+    prefix is URMU
+    framework type is LPLConfiguration
+
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+		implements DynamicCreation
+		implements ConfigurationMetadata
+		implements AuditLogEntryActions
+
+    Ontology
+        symbolic key is UserMenu
+
+    Persistent Fields
+    	Owner is like Actor // LMRK-97977 Was "is Actor". Likely meant to be "is an Actor". Changed to "like" so we have the same dict type but without changing existing functionality.
+    	UserMenuName 	is LPLName
+    	Actor
+    	UserFolder
+    		delete cascades
+    	Status 			is a UserObjectStatus
+    	LPL             is LPL
+    	Description		is a ConfigDescription
+    	UserEditorType
+    	ErrorText		is Text
+    	Independent		is Boolean
+
+    Derived Fields
+    	ContextKey is a DerivedField
+    		type is LPLName
+    		if (Actor entered)
+	    		return  "Actor  '" + Actor + "', " + UserMenuName
+
+    		if (UserFolder entered)
+    			return "Folder '" + UserFolder.Name + "', " + UserMenuName
+
+    		return  "UserMenu  '" + UserMenuName + "', blank"
+
+		LPLDefined is a NativeField
+			type is Boolean
+
+		UniqueName is a DerivedField
+			type is Boolean
+			if ((not HasFolder)
+			and DuplicateRel exists)
+				return false
+
+			return true
+
+		AllUniqueName is a DerivedField
+			type is Boolean
+			if (LPLDefined)
+			    return false
+
+			if ((not HasFolder)
+			and DuplicateRel exists)
+				return false
+
+			return true
+
+		ConfigActor is a ConditionalField
+			type is Actor
+			default label is "Actor"
+			if (HasFolder)
+				UserFolder.Actor
+			else
+				Actor
+
+		ParseText is a NativeField
+			type is Text
+
+		OverrideNotificationDescription is a MessageField
+    		"YourPersonalizationHasBeenUpdated"
+
+		OverrideNotificationDetails is a MessageField
+    		"YourPreviousModificationsFor<UserMenuName>HaveBeenOverriddenByTheConfigurationAdministratorAndAreNoLongerActive"
+    		
+    	NewInitialLPL is a NativeField
+		    type is Text
+
+        OverriddenCount is a DerivedField
+            type is Numeric size 4
+            if (Global)
+                return (instance count of OverriddenConfigurationRel)
+            else
+                return blank
+
+	Local Fields
+		LocParseText 	    is Text
+		LocParsed 		    is Boolean  
+		LocBasedOnMenu      is a BusinessMenu
+		LocActor            is Actor
+		LocName             is LPLName
+
+    Field Rules
+		Owner
+			default to actor
+    	UserMenuName
+    		required
+
+		Actor
+			if (old Independent 
+    		and IsMenuIndependent
+			and Actor entered
+			and not old Actor entered)
+				cannot be changed
+					"CannotChangeAnIndependentMenuToAPersonalization.PleaseCreateANewPersonalization"
+
+    		constraint (UserFolder not entered)
+    			"CannotEnterBothActorAndFolder"
+
+			constraint (BusinessMenuRel exists)
+				"ActorNotValidForMenu"
+		
+		UserFolder
+			if (old Independent  
+			and IsMenuIndependent
+			and UserFolder entered
+			and not old UserFolder entered)
+				cannot be changed
+					"CannotChangeAnIndependentMenuToAFolder.PleaseCreateANewFolder"
+					
+   			constraint (Actor not entered)
+   				"CannotEnterBothActorAndFolder"
+
+		LPL
+			required
+
+			if (Status.Active)
+				LocParseText = ParseText
+
+				if (not LocParseText = blank)
+
+
+
+
+					confirmation required
+						"<LocParseText>:_User_MenuIsInvalid.__DoYouWantToSaveAnyway?"
+
+					Status = Status.Invalid
+					ErrorText = LocParseText
+
+		UserEditorType
+			default to UserEditorType.LPL
+
+		Status
+			if (Status.Active)
+				initialize ErrorText
+
+    Conditions
+    	IsActor
+   			default label is "Actor"
+   			when (Actor entered)
+
+    	Global
+    		when (!IsActor and !HasFolder)
+
+    	HasFolder
+    		default label is "Folder"
+			when (UserFolder entered)
+			
+		IsMenuDependent
+			restricted
+			when (BusinessMenuRel exists
+			and   not BusinessMenuRel.Independent)
+
+		IsMenuIndependent
+			restricted
+			when (not BusinessMenuRel exists
+			or    BusinessMenuRel.Independent)
+
+		ConfigGlobal
+			default label is "GlobalConfiguration"
+			when ((HasFolder and UserFolder.Actor not entered) or (!HasFolder and Global))
+			
+		CondIndependent
+			restricted
+			when (Global and IsMenuIndependent)
+
+		HasErrorText
+			default label is "ErrorTextEntered"
+			when (ErrorText entered)
+
+        IsOverridden
+        	default label is "Overridden"
+            when (first OverriddenConfigurationRel exists
+            and Global)
+
+	Relations
+        BusinessMenuRel
+            one-to-one relation to BusinessMenu
+            Field Mapping uses symbolic key
+                related.BusinessMenu		= UserMenuName
+
+		DuplicateRel
+    		one-to-many relation to UserMenu 
+			Field Mapping uses ByMenuActor
+				related.UserMenuName = UserMenuName
+				related.Actor 		 = Actor
+			Instance Selection
+				where (related.UserFolder not entered
+				and    related.UserMenu != UserMenu)
+
+		OverriddenConfigurationRel
+    		one-to-many relation to UserMenu
+			Field Mapping uses ByMenuActor
+				related.UserMenuName = UserMenuName
+	        Instance Selection
+		        where (not related.Global and not related.HasFolder)
+
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses ByEntityType
+                related.EntityType = 11
+                related.BusinessView = blank
+                related.Name = UserMenuName
+                related.Actor = Actor
+
+		LocalDuplicateRel
+		    one-to-many relation to UserMenu
+			Field Mapping uses AllActorSet
+			    related.Actor = LocActor
+				related.UserMenuName = LocName
+
+	        Instance Selection
+		        where (not related.HasFolder)
+
+		LocalBusinessMenuRel
+            one-to-one relation to BusinessMenu
+            Field Mapping uses symbolic key
+				related.BusinessMenu = LocName
+
+    Actions
+    	Create is a Create Action
+    		Local Fields
+    			ValidName is LPLName
+
+    		Action Rules
+    			ValidName = com.lawson.apps.repository.UserMenu_ChangeMenuName.getValidMenuName(UserMenuName)
+
+    			if (UserMenuName != ValidName
+    			and not LPLDefined)
+    				invoke ChangeMenuName
+    					invoked.NewName = UserMenuName 
+
+    			constraint (UniqueName)
+    				"NameAlreadyInUse"
+    				
+    			Independent = CondIndependent
+
+			Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+					
+				invoke FireEvent
+    				
+    	CreateFromSnapshot is a Create Action
+    		restricted
+    		bypass field rules
+
+    		Local Fields
+    			ValidName is LPLName
+
+    		Action Rules
+    			ValidName = com.lawson.apps.repository.UserMenu_ChangeMenuName.getValidMenuName(UserMenuName)
+
+    			if (UserMenuName != ValidName
+    			and not LPLDefined)
+    				invoke ChangeMenuName
+    					invoked.NewName = UserMenuName 
+
+    			constraint (UniqueName)
+    				"NameAlreadyInUse"
+    		
+
+			
+    	Update is an Update Action
+    		Action Rules
+    			if (UserMenuName changed)
+    				if (not LPLDefined)
+	    				invoke ChangeMenuName
+    						invoked.NewName = UserMenuName 
+
+    				constraint (not LPLDefined)
+    					"CannotChangeName"
+
+    				constraint (UniqueName)
+    					"NameAlreadyInUse"
+    					
+				Independent = CondIndependent
+
+				if (not UserFolder entered)
+
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					if (Actor entered) 
+    						confirmation required
+								"User_MenuPersonalizationExists.__DoYouWantToOverwrite?"
+    					else
+    						confirmation required
+								"User_MenuConfigurationExists.__DoYouWantToOverwrite?"
+    					invoke Delete DuplicateRel
+
+			Exit Rules
+
+
+			    if (Independent
+    			and Status.Active)
+					LocParseText = ParseText
+					
+				invoke FireEvent
+    	
+    	UpdateFromSnapshot is an Update Action	
+    		restricted
+    		bypass field rules
+
+    		
+    		Action Rules
+    			if (UserMenuName changed)
+    				if (not LPLDefined)
+	    				invoke ChangeMenuName
+    						invoked.NewName = UserMenuName 
+
+    				constraint (not LPLDefined)
+    					"CannotChangeName"
+
+    				constraint (UniqueName)
+    					"NameAlreadyInUse"
+
+				if (not UserFolder entered)
+    				if (Actor changed
+    				and DuplicateRel exists)
+    					invoke Delete DuplicateRel
+    		
+
+    		
+    	Delete is a Delete Action
+    		Exit Rules
+    			invoke FireEvent
+    			
+    	DeleteFromSnapshot is a Delete Action
+    		restricted
+    		bypass relational integrity rules
+
+
+    	Purge is a Purge Action
+			restricted
+    		Exit Rules
+    			invoke FireEvent
+
+    	ChangeMenuName is an Instance Action
+    		valid when (not LPLDefined)
+    		Parameters
+    			NewName is Alpha size 255
+
+    		Exit Rules
+
+   				invoke FireEvent 
+    			UserMenuName = com.lawson.apps.repository.UserMenu_ChangeMenuName.getValidMenuName(NewName)
+
+    			if (UserMenuName changed)
+    				constraint (UniqueName)
+    					"NameAlreadyInUse"
+
+    	Activate is an Instance Action
+    		valid when (not Status.Active)
+    		Action Rules
+    			LocParseText = ParseText
+
+				if (not LocParseText = blank)
+
+
+
+
+					constraint(LocParseText = blank)
+						"<LocParseText>:_User_MenuIsInvalid._Cannot_Activate."
+
+    			Status = Status.Active
+    			initialize ErrorText
+
+			Exit Rules
+
+
+
+				if (Independent)
+					LocParseText = ParseText 
+				
+    			invoke FireEvent
+
+    	Deactivate is an Instance Action
+    		valid when (not Status.Inactive)
+    		Action Rules
+    			Status = Status.Inactive
+
+			Exit Rules
+    			invoke FireEvent
+
+		Invalidate is an Instance Action
+			valid when (not Status.Invalid)
+    		restricted
+    		Action Rules
+    			Status = Status.Invalid
+
+			Exit Rules
+    			invoke FireEvent
+
+    	MakeGlobal is an Instance Action
+    		Action Rules
+    			initialize Actor
+			Exit Rules
+    			invoke FireEvent
+
+		FireEvent is an Instance Action
+			restricted
+
+		OverridePersonalizations is a Set Action
+			run in foreground
+			Parameters
+				Config is a UserMenu
+					default label is "Configuration"
+
+			Parameter Rules
+				Config
+					required
+					constraint(Config.Global)
+						"OverridePersonalizationsActionIsOnlyValidForAConfiguration"
+
+			Instance Selection
+		   		where (UserMenuName = Config.UserMenuName
+		   		and    IsActor
+		   		and    not UserFolder entered)
+
+		   	Action Rules
+		   		Instance Rules
+		   			invoke Update
+		   				invoked.LPL = Config.LPL
+
+		   			invoke CreateMessage UserNotification
+		   				invoked.ParamActor 			= Actor
+		   				invoked.ParamPriority 		= 5
+		   				invoked.ParamDescription	= this instance(locale of Actor.IsoLocale).OverrideNotificationDescription
+		   				invoked.ParamDetails		= this instance(locale of Actor.IsoLocale).OverrideNotificationDetails
+
+		DeletePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			UserMenuName
+
+			Action Rules
+				Instance Rules
+					invoke Delete
+
+		PurgePersonalizationsForActor is a Set Action
+			Parameters
+				ParamActor is an Actor
+					default label is "Actor"
+				ParamDeletedActor is like Actor
+					default label is "DeletedActor"
+
+			Parameter Rules
+				ParamActor
+					if (ParamActor entered)
+						ParamDeletedActor = ParamActor
+					else
+					if (ParamDeletedActor not entered)
+						required
+							"MustEnterActorOrDeletedActor"
+
+			Instance Selection
+				include deleted records
+				where (Actor = ParamDeletedActor)
+
+			Sort Order
+				Actor
+    			UserMenuName
+
+			Action Rules
+				Instance Rules
+					invoke Purge
+
+		ReassignOwner is an Instance Action
+			Parameters
+				PrmNewOwner is an Actor
+					default label is "NewOwner"
+			Parameter Rules
+				PrmNewOwner
+					required
+						"MustEnterNewOwner"
+			Action Rules
+				Owner = PrmNewOwner
+
+
+        CreateConfiguration is a Create Action
+        	completion message is "ConfigurationCreated"
+            Parameters
+                Menu is a BusinessMenu
+
+			Parameter Rules
+			    Menu
+			        required
+
+            Entrance Rules
+                LocActor = blank
+                LocName = Menu
+                constraint (!LocalDuplicateRel exists)
+                    "ConfigurationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                    invoked.UserMenuName = Menu
+                    invoked.LPL          = BusinessMenuRel.BaseLPL
+                    
+        CreateNewMenu is a Create Action
+            default label is "AddNewMenu"
+        	completion message is "NewMenuCreated"
+            Parameters
+                MenuName        is LPLName
+                BasedOnMenu     is a BusinessMenu
+
+			Parameter Rules
+			    MenuName
+			        required
+
+            Entrance Rules
+                LocActor = blank
+                LocName = MenuName
+                constraint (!LocalDuplicateRel exists)
+                    "MenuNameInUse_'<LocName>'"
+
+                constraint (!LocalBusinessMenuRel exists)
+                    "MenuNameInUse_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                    invoked.UserMenuName = MenuName
+                    invoked.Independent  = true
+
+                    if (BasedOnMenu entered)
+                        invoked.LocBasedOnMenu = BasedOnMenu
+
+                    invoked.LPL = this instance.NewInitialLPL
+
+        CreatePersonalization is a Create Action
+        	completion message is "PersonalizationCreated"
+            Parameters
+                Menu is a BusinessMenu
+
+			Parameter Rules
+			    Menu
+			        required
+
+            Entrance Rules
+                LocActor = actor
+                LocName = Menu
+                constraint (!LocalDuplicateRel exists)
+                    "PersonalizationExistsFor_'<LocName>'"
+
+            Action Rules
+                invoke Create this instance
+                	invoked.Actor		 = actor
+                    invoked.UserMenuName = Menu
+					invoked.LPL = BusinessMenuRel.LPL
+
+		TagItem is an Instance Action
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+			
+			Entrance Rules
+				if (Status.Inactive)
+					confirmation required
+						"UserMenuIsInactive,TagAnyway?"
+							
+				if (Status.Invalid)
+					confirmation required
+						"UserMenuIsInvalid,TagAnyway?"
+						
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance		  
+
+    Sets
+    	ActorSet
+    		Sort Order
+    			Actor
+    			UserMenuName
+    		Instance Selection
+				where (IsActor)
+
+		FolderSet
+			Sort Order
+    			UserFolder
+    		Instance Selection
+				where (HasFolder)
+
+		ByMenuActor
+			Sort Order
+				UserMenuName
+				Actor
+				UserFolder
+
+		ByActorFolderMenu
+			Sort Order
+				Actor
+				UserFolder
+				UserMenuName
+
+		AllActorSet
+			duplicates
+    		Sort Order
+    			Actor
+    			UserMenuName
+
+		GlobalSet
+			Sort Order
+				UserMenuName
+			Instance Selection
+				where (Global)
+
+
+
+		ByIndependent
+			Sort Order
+				Independent
+				UserMenuName
+				Actor

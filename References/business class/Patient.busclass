@@ -1,0 +1,173 @@
+Patient is a BusinessClass
+    owned by ic
+    prefix is HPT
+    classic name is HCPATIENT
+
+    Ontology
+        symbolic key is Patient
+            classic set name is HPTSET1
+            classic name is PATIENT-ID
+
+    Patterns
+        implements StaticJava
+        implements Encrypted
+        disable AuditIndex
+
+    Persistent Fields
+
+        LastName 
+        	holds pii
+        FirstName 
+        	holds pii
+        MiddleInitial is a MiddleInit 
+        	holds pii
+            classic name is MIDDLE-INIT
+        BirthDate     is Date 
+        	holds pii
+            classic name is BIRTHDATE
+        UpdateDate    is Date
+        Contract      is AlphaUpper size 15
+        FicaNbr 
+        	holds pii
+		Active
+
+	Attach Rules
+		if (not BypassRuleForTheseFiles)
+			constraint (Active)
+				"Patient<Patient>MustBeActive"
+	
+	Local Fields
+		LocalLastActivityDate					is Date
+		LocalDischargeDate						is Date
+		
+    Derived Fields
+    	DerivedNewLine			is a DerivedField
+    		type is LPLText
+    		return "\u000a"
+    	DerivedTab				is a DerivedField
+    		type is LPLText
+    		return "\u0009"
+
+		DisplayPatientFullName is a MessageField
+            default label is "Name"
+            "<LastName>,_<FirstName>_<MiddleInitial>"
+    
+    Relations
+
+        PatientVisitsRel
+            classic name is HCPATVISIT
+            one-to-many relation to PatientVisit
+            Field Mapping uses Set2
+                related.Company = Company
+                related.Patient = Patient
+                
+     	   
+		PatientVisitsPurgeRel
+            one-to-many relation to PatientVisit
+            Field Mapping uses Set2
+                related.Company = Company
+                related.Patient = Patient
+			Instance Selection
+				include deleted records
+				where(related.UpdateDate						<= LocalLastActivityDate
+				and related.LastTransactionDate					<=	LocalLastActivityDate
+				and (LocalDischargeDate not entered
+				or related.DischargeDate					<=	LocalDischargeDate))
+    Field Rules
+
+        BirthDate
+            required
+
+        FirstName
+            required
+
+        LastName
+            required
+		
+		UpdateDate
+			default to current corporate date
+	
+	Conditions
+		RecordExists
+			restricted
+			when (Patient exists)
+		
+		BypassRuleForTheseFiles
+			restricted
+	   		when (parentcontext.name = "PurchaseOrderEDIOutput")
+			
+	Actions
+		Create is a Create Action
+		
+		Update is an Update Action
+		
+		Delete is a Delete Action
+			Entrance Rules
+				constraint (not PatientVisitsRel exists)
+					"CannotDelete;PatientVisitsExists" 					
+
+		Purge is a Purge Action
+			restricted
+		
+		PatientPurge is a Set Action
+			restricted
+			Parameters
+				PrmCompany					is an InventoryCompany
+					default label is "Company"
+				PrmLastActivityDate			is Date
+					default label is "LastActivityDate"
+				PrmDischargeDate			is Date
+					default label is "DischargeDate"
+				PrmVisitOption				is AlphaUpper size 1
+					default label is "VisitOption"
+				    States
+				        LeavePatientsWithNoVisits	value is "N"
+						PurgeAll 					value is "Y"
+				PrmPurgeOption								is Numeric 1
+					default label is "PurgeOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2
+			Parameter Rules
+			    PrmCompany
+			        required
+			    PrmLastActivityDate
+			    	required
+			    PrmVisitOption
+			    	initial value is "N"
+					default to "N"
+			Local Fields
+		    	LocalActor					is an Actor
+		    	LocalPatientCount			is Numeric 10
+			Instance Selection
+				include deleted records
+				where(Company							=	PrmCompany
+				and UpdateDate							<=	PrmLastActivityDate)
+			Action Rules
+				Set Rules
+					Entrance Rules
+						LocalLastActivityDate	= PrmLastActivityDate
+						LocalDischargeDate		= PrmDischargeDate
+					Exit Rules
+						LocalActor = actor
+						if(PrmPurgeOption.PurgeRecords)
+							send notification
+								to LocalActor
+								description is "PatientPurgeDetailsFor_Company<PrmCompany>"
+								priority is high
+								detail is "Number_of_records_that_have_been_purge_<LocalPatientCount>"
+						else
+							send notification
+								to LocalActor
+								description is "PatientPurgeDetailsFor_Company<PrmCompany>"
+								priority is high
+								detail is "Number_of_records_that_are_available_to_purge_<LocalPatientCount>"
+				Instance Rules
+					if((PrmVisitOption.LeavePatientsWithNoVisits and PatientVisitsPurgeRel exists)			
+					or  PrmVisitOption.PurgeAll)
+						LocalPatientCount +=1
+						if(PrmPurgeOption.PurgeRecords )
+							invoke Purge PatientVisitsPurgeRel
+							invoke Purge
+							
+							

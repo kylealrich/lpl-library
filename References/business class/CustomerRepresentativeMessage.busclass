@@ -1,0 +1,174 @@
+CustomerRepresentativeMessage is a BusinessClass
+    owned by ar
+    prefix is CRMSG
+
+    Ontology
+    	symbolic key is CustomerRepresentativeMessage
+    	    		
+	Persistent Fields
+		CreationDateTime	is TimeStamp
+		MessageTitle		is Alpha 100
+		MessageText			is Text
+		Status				is Numeric 1
+			States
+				Unread			value is 1
+				Read			value is 2
+				Deleted			value is 3
+				HardDeleted		value is 4
+		ReleaseStatus		is Numeric 1
+			States
+				Draft			value is 1
+				Released		value is 2
+		Priority			is Numeric 1
+			States
+				Low				value is 1
+				Normal			value is 2
+				High			value is 3
+		Attachment			is an AlternateAttachment
+									
+	Local Fields
+		LocalCustomerRepresentativeContact 	is a CustomerRepresentativeContact
+		LocalAttributeCtr   is Numeric 2	
+		
+	Conditions
+		MessageByCustomer
+			restricted
+ 			when (CustomerRepresentative = actor.agent(CustomerRepresentativeContact).CustomerRepresentative)
+
+		Deleted
+			restricted
+			when (Status.Deleted)
+			
+		Read
+			restricted
+			when (Status.Read)
+		
+		Unread
+			restricted
+			when (Status.Unread)
+			
+		Active
+			restricted
+			when (Status.Unread
+			or    Status.Read)
+			
+		HasAttachment
+			restricted
+			when (Attachment entered)	
+
+	Create Rules  
+		include IDM.CreateRules 
+			replace AttachmentField with Attachment
+										
+	Delete Rules
+		include IDM.DeleteNoArchiveRules
+			replace AttachmentField with Attachment
+
+	Commit Rules
+		include IDM.CommitRules
+			replace AttachmentField with Attachment
+	Sets
+		ByCreationDateTime
+			Sort Order
+				CustomerGroup
+    			CreationDateTime
+ 				CustomerRepresentativeMessage
+ 				CustomerRepresentative		
+
+		ByPriority
+			Sort Order
+				CustomerGroup
+    			Priority
+ 				CustomerRepresentativeMessage
+ 				CustomerRepresentative
+
+	Relations
+      	ActiveCustomerRepresentativeContacts
+      		one-to-many relation to CustomerRepresentativeContact
+      		Field Mapping uses symbolic key
+      			related.CustomerGroup 			= CustomerGroup
+      			related.CustomerRepresentative	= CustomerRepresentative
+      		Instance Selection
+        		where (related.Active)
+
+      	CustomerRepresentativeContactMessageRel
+      		one-to-many relation to CustomerRepresentativeContactMessage
+      		Field Mapping uses symbolic key
+      			related.CustomerGroup 					= CustomerGroup
+      			related.CustomerRepresentative 			= CustomerRepresentative
+      			related.CustomerRepresentativeContact 	= LocalCustomerRepresentativeContact
+      		Instance Selection
+      			where (related.CustomerRepresentativeMessage = CustomerRepresentativeMessage)
+
+	Field Rules
+		MessageTitle
+			required
+			
+		CreationDateTime
+			initial value is current timestamp
+			
+		Status
+			initial value is Status.Unread
+		
+		Priority
+			initial value is Priority.Normal
+		
+		ReleaseStatus
+			initial value is ReleaseStatus.Draft
+
+ 	Actions
+		Create is a Create Action
+			Exit Rules
+				ReleaseStatus = ReleaseStatus.Draft
+
+		Update is an Update Action
+			valid when (ReleaseStatus.Draft)
+
+		Delete is an Action
+			valid when (ReleaseStatus.Draft)
+		
+		Release is an Instance Action
+			valid when (ReleaseStatus.Draft)
+
+			Action Rules
+				ReleaseStatus = ReleaseStatus.Released
+				for each ActiveCustomerRepresentativeContacts
+					invoke Create CustomerRepresentativeContactMessage
+						invoked.CustomerGroup 					= each.CustomerGroup
+						invoked.CustomerRepresentative 			= each.CustomerRepresentative
+						invoked.CustomerRepresentativeContact	= each.CustomerRepresentativeContact
+						invoked.CustomerRepresentativeMessage	= CustomerRepresentativeMessage
+						invoked.CreationDateTime				= CreationDateTime
+						invoked.MessageTitle 					= MessageTitle
+						invoked.MessageText 					= MessageText
+						invoked.Status 							= Status.Unread
+						invoked.Priority 						= Priority
+						invoked.Attachment 						= Attachment
+						invoked.ReleaseStatus					= ReleaseStatus.Released
+
+		UploadToIDM is an Instance Action  
+			valid when (Attachment.ValidForIDMUpload)
+			Action Rules
+				include IDM.MoveAttachmentsToIDM
+					replace AttachmentField   with Attachment	
+						
+									
+		MoveAttachmentsToIDM is a Set Action
+			restricted
+			Instance Selection
+				where (Attachment.IsLocal)
+
+			Accumulators
+				InstanceCount
+
+			Action Rules
+				Instance Rules
+					increment InstanceCount	
+
+					include IDM.MoveAttachmentsToIDM
+						replace AttachmentField   with Attachment
+
+					commit transaction
+
+					if (InstanceCount = config.IDM_MOVE_ATTACHMENTS_LIMIT)
+						end set action instance loop

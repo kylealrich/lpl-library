@@ -1,0 +1,354 @@
+LeaseAdjustment is a BusinessClass
+	owned by lm
+	prefix is LMADA
+
+	Ontology
+		symbolic key is LeaseAdjustment
+	
+	Patterns
+		implements Archivable
+
+	Persistent Fields
+		Status							is Numeric 1
+			States
+				Unreleased	value is 1
+				Released	value is 2
+		AdjustmentDate					is Date
+		EffectiveDate					is Date
+		Description
+        RemainingTerm					is Numeric 3
+		AdjustmentAmount				is like CurrencyExchangeGroup
+		AdjustmentROUBalance			is like CurrencyExchangeGroup
+		ROUBalanceBeforeAdjustment		is like CurrencyExchangeGroup
+		StraightLineAmount				is like CurrencyExchangeGroup
+        AdjustmentAccount				is a FinanceCodeBlockFull
+		LeaseReasonCode                 is a LeaseAdjustmentReasonCode
+		AddNewIDC						is Boolean
+		IDCAmountBeforeAdjustment		is like CurrencyExchangeGroup
+		IDCAmount						is like CurrencyExchangeGroup
+
+	Local Fields
+		LocalCurrencyExchangeGroup		is a CurrencyExchangeGroup
+		LocalBaseAdjustmentAmount		is an InternationalAmount
+		LocalBaseAdjustmentROUBalance	is an InternationalAmount
+		LocalStraightLineAmount			is an InternationalAmount
+		LocalBaseIDCAmount				is an InternationalAmount
+    	LocalMonthsToAdd				is Numeric size 4
+    	LocalMonthsToSubtract			is Numeric size 4
+		LocalRemainingTerm				is Numeric size 4
+
+	Transient Fields
+		Currency						is a FromCurrency
+			derive value from Lease.Currency
+		BaseCurrency					is a ToCurrency
+			derive value from Lease.BaseCurrency
+				
+	Field Rules
+		AdjustmentDate
+			required
+				"MustEnterAdjustmentDateWhenProcessingAnAdjustment"
+			constraint (AdjustmentDate < Lease.EndDate)
+				"AdjustmentDateHasToBeBeforeLeaseScheduledEndDate;ConsiderClosingTheLease"
+			constraint (AdjustmentAllowedPaymentsRel not exist)
+				"ThereCannotBeInvoicedPaymentsAfterTheAdjustmentDate"
+
+		Description
+			default to Lease.Description
+			
+		AdjustmentROUBalance
+			constraint (AdjustmentROUBalance.TransactionAmount > "0")
+				"AdjustmentAmountCannotBeGreaterThanTheROUBalance"	
+
+        LeaseReasonCode
+        	required
+			
+	Derived Fields
+
+		ProgramName is a MessageField 
+			restricted
+			"LeaseAdjustment"
+		
+		DerivedAdjustmentPeriods is a DerivedField  
+			type is Numeric 3
+			restricted
+			if (AdjustmentPeriodsRemainingRel exist)
+				if (Lease.LeaseClassification.Finance)
+					if (Lease.DerivedROUAmortization > Lease.Term)
+						LocalMonthsToAdd 	= Lease.DerivedROUAmortization - Lease.Term
+						LocalRemainingTerm	= instance count of AdjustmentPeriodsRemainingRel
+						LocalRemainingTerm	= LocalRemainingTerm + LocalMonthsToAdd
+					else
+						if (Lease.DerivedROUAmortization < Lease.Term)
+							LocalMonthsToSubtract 	= Lease.Term - Lease.DerivedROUAmortization
+							LocalRemainingTerm	= instance count of AdjustmentPeriodsRemainingRel
+							LocalRemainingTerm	= LocalRemainingTerm - LocalMonthsToSubtract
+						else
+							LocalRemainingTerm	= instance count of AdjustmentPeriodsRemainingRel
+				else
+					LocalRemainingTerm	= instance count of AdjustmentPeriodsRemainingRel
+				return LocalRemainingTerm
+
+		DerivedAdjustmentGLYear  is a DerivedField
+			type is Year
+			restricted
+			return (first GLClosePeriodAdjustmentRel.GeneralLedgerCloseYear)
+
+		DerivedAdjustmentBalance is a DerivedField	
+			type is like InternationalAmount
+			restricted
+			if (AdjustmentROUBalancesRel exist)
+				return (AdjustmentROUBalancesRel.ROUBalance)
+
+		DerivedTransactionBalance is a DerivedField
+			type is like InternationalAmount
+			return (AdjustmentAmount.TransactionAmount * -1)
+
+		DerivedBaseAdjustmentAmount is a DerivedField
+			type is like InternationalAmount
+			return (-1 * AdjustmentAmount.BaseAmount.EnteredCurrencyAmount)
+
+
+	Relations
+
+		AdjustmentROUBalancesRel
+            one-to-many relation to LeaseCurrencyPaymentPeriodBalance
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+                related.Vendor	= Lease.Lessor
+            Instance Selection
+                where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+                and  related.PaymentDueDate = EffectiveDate)
+
+		AdjustmentPeriodsRemainingRel
+			one-to-many relation to LeasePaymentDetail
+            Field Mapping uses Set3
+                related.Company  = Company
+                related.Lease    = Lease
+                related.DueDate  > EffectiveDate
+			Instance Selection
+				where (related.Vendor = Lease.Lessor
+				and    related.LeasePaymentDetail.ExecutoryCostCode not entered
+				and    related.ResidualPayment = false)
+
+		LeasePaymentBalanceAfterAdjustmentRel
+			one-to-many relation to LeasePaymentBalance
+            Field Mapping uses Set3
+                related.Company 					   = Company
+                related.Lease   					   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.FiscalYear >= DerivedAdjustmentGLYear
+				and    related.LeasePaymentBalance.ExecutoryCostCode not entered)
+
+		GLClosePeriodAdjustmentRel
+			one-to-many relation to GeneralLedgerClosePeriod
+			Field Mapping uses ByEndDate
+				related.FinanceEnterpriseGroup			 = Company.BusinessGroup.FinanceEnterpriseGroup
+				related.GeneralLedgerCloseConfiguration	 = Company.AccountingEntity.CloseConfiguration
+			Instance Selection
+				where (related.GeneralLedgerClosePeriod.DerivedPeriodMonth = AdjustmentDate month
+				and    related.GeneralLedgerClosePeriod.DerivedPeriodYear = AdjustmentDate year)
+
+        LeaseCurrencyPaymentBalanceAfterAdjustmentRel
+            one-to-many relation to LeaseCurrencyPaymentBalance
+            Field Mapping uses Set3
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeaseCurrencyPaymentBalance.LeasePaymentBalance.FiscalYear >= DerivedAdjustmentGLYear
+				and    related.LeasePaymentBalance.ExecutoryCostCode not entered) 
+
+		AdjustmentAllowedPaymentsRel
+            one-to-many relation to LeasePaymentDetail
+            Field Mapping uses Set3
+                related.Company  = Company
+                related.Lease	 = Lease
+                related.DueDate  > EffectiveDate
+			Instance Selection
+				where (related.Vendor = Lease.Lessor
+				and	   related.LeasePaymentDetail.ExecutoryCostCode not entered
+				and    related.Released = true
+				and    related.PaymentAmount entered)
+
+        AssetsRel
+            one-to-many relation to Asset
+            Field Mapping uses Set13
+                related.FinanceEnterpriseGroup 	= Company.FinanceEnterpriseGroup
+                related.AssetLease.LeaseCompany = Company
+                related.AssetLease.Lease 		= Lease
+
+		AdjustmentBaseROUBalancesRel
+            one-to-many relation to LeasePaymentPeriodBalance
+            Field Mapping uses symbolic key
+                related.Company = Company
+                related.Lease   = Lease
+                related.Vendor	= Lease.Lessor
+            Instance Selection
+                where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+                and  related.PaymentDueDate = EffectiveDate)
+
+		AdjustmentInProgressRel
+			one-to-many relation to LeaseAdjustment
+			Field Mapping uses symbolic key
+				related.Company 		   = Company
+				related.Lease			   = Lease
+				related.Vendor			   = Vendor			
+			Instance Selection
+				where (related.Status.Unreleased)
+
+		LeaseInitialDirectCostRel 
+			one-to-many relation to LeaseInitialDirectCost
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.Lease = Lease
+		
+		LeaseInitialDirectCostAdjustmentRel 
+			one-to-many relation to LeaseInitialDirectCost
+			Field Mapping uses symbolic key
+				related.Company = Company
+				related.Lease = Lease
+			Instance Selection
+				where (related.IDCDate = AdjustmentDate)
+	Sets
+
+		ByLeaseAdjustmentDate
+			Sort Order
+				Lease 
+				Company
+				AdjustmentDate
+				LeaseAdjustment
+				
+    Conditions
+    	HasDifferentCurrencies
+    		when (Lease.Currency != Lease.BaseCurrency)
+
+		IsAdjustmentInProgress
+			when (Lease.Status.LeaseAdjustments
+			and   Status.Unreleased)
+
+		IsValidForActorContext
+			restricted
+			when (Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+    		                	
+	Rule Blocks
+
+		CalculateAdjustmentBaseAmounts
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= AdjustmentAmount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseAdjustmentAmount									= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			AdjustmentAmount.BaseAmount.EnteredCurrencyAmount			= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= AdjustmentROUBalance.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseAdjustmentROUBalance								= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			AdjustmentROUBalance.BaseAmount.EnteredCurrencyAmount		= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= StraightLineAmount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalStraightLineAmount										= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			StraightLineAmount.BaseAmount.EnteredCurrencyAmount			= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= IDCAmount.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseIDCAmount											= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			IDCAmount.BaseAmount.EnteredCurrencyAmount					= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount	
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= IDCAmountBeforeAdjustment.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseIDCAmount											= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			IDCAmountBeforeAdjustment.BaseAmount.EnteredCurrencyAmount	= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount	
+
+			initialize LocalCurrencyExchangeGroup
+			LocalCurrencyExchangeGroup.TransactionAmount 				= ROUBalanceBeforeAdjustment.TransactionAmount
+			LocalCurrencyExchangeGroup.BaseAmount.EnteredCurrencyRate 	= Lease.BaseCurrencyRate
+			LocalCurrencyExchangeGroup.BaseAmount.ToCurrency			= BaseCurrency
+			LocalBaseIDCAmount											= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount
+			ROUBalanceBeforeAdjustment.BaseAmount.EnteredCurrencyAmount	= LocalCurrencyExchangeGroup.BaseAmount.OutputCurrencyAmount				
+
+	Actions
+		Purge is a Purge Action
+			restricted
+
+		CreateImpairment is a Create Action
+			restricted
+
+		Delete is a Delete Action
+			restricted
+					
+	StateCycles
+		LeaseModificationCycle is a StateCycle
+			state field is Status
+													
+			Unreleased is a State
+				Create is a Create Action
+					restricted
+				    Action Rules
+						include CalculateAdjustmentBaseAmounts
+						if (AdjustmentROUBalancesRel exist)
+							ROUBalanceBeforeAdjustment.TransactionAmount	= DerivedAdjustmentBalance
+							AdjustmentROUBalance.TransactionAmount			= DerivedAdjustmentBalance - AdjustmentAmount.TransactionAmount - IDCAmount.TransactionAmount
+							RemainingTerm									= DerivedAdjustmentPeriods
+							StraightLineAmount.TransactionAmount			= AdjustmentROUBalance.TransactionAmount / RemainingTerm
+
+						if (LeasePaymentBalanceAfterAdjustmentRel exist)
+							invoke UpdateROUForAdjustment first LeasePaymentBalanceAfterAdjustmentRel
+								invoked.PrmAdjustmentAmount			= LocalBaseAdjustmentAmount
+								invoked.PrmAdjustmentDate 			= EffectiveDate
+								invoked.PrmRemainingTerm			= RemainingTerm
+								invoked.PrmAdjustmentROUBalance		= LocalBaseAdjustmentROUBalance
+								invoked.PrmStraightLineAmount		= LocalStraightLineAmount
+								invoked.PrmIDCAmount				= LocalBaseIDCAmount
+								
+						if (LeaseCurrencyPaymentBalanceAfterAdjustmentRel exist)
+							invoke UpdateROUForAdjustment first LeaseCurrencyPaymentBalanceAfterAdjustmentRel
+								invoked.PrmAdjustmentAmount			= AdjustmentAmount.TransactionAmount 
+								invoked.PrmAdjustmentDate			= EffectiveDate
+								invoked.PrmRemainingTerm			= RemainingTerm
+								invoked.PrmAdjustmentROUBalance		= AdjustmentROUBalance.TransactionAmount
+								invoked.PrmStraightLineAmount		= StraightLineAmount.TransactionAmount
+								invoked.PrmIDCAmount				= IDCAmount.TransactionAmount
+				    Exit Rules
+				    	if (AdjustmentROUBalancesRel exist)
+				    		AdjustmentROUBalance.BaseAmount.EnteredCurrencyAmount	= first AdjustmentBaseROUBalancesRel.ROUBalance
+				    		AdjustmentAmount.BaseAmount.EnteredCurrencyAmount		= LocalBaseAdjustmentAmount + LocalBaseIDCAmount
+				    	
+				Update is an Update Action
+					restricted
+	
+				RestrictedUpdate is an Update Action
+					restricted
+					bypass field rules
+				
+				Delete is a Delete Action
+					restricted
+		
+				Release is an Instance Action
+					restricted
+					Action Rules
+						make transition to Released
+				
+				ResetAdjustment is an Instance Action
+					restricted
+					Action Rules
+						if (AdjustmentROUBalancesRel exist)
+								AdjustmentROUBalance.TransactionAmount	= DerivedAdjustmentBalance - AdjustmentAmount.TransactionAmount - IDCAmount.TransactionAmount
+								RemainingTerm	= DerivedAdjustmentPeriods
+								
+							if (LeasePaymentBalanceAfterAdjustmentRel exist)
+
+								invoke ResetROUForAdjustment first LeasePaymentBalanceAfterAdjustmentRel
+							
+						invoke Delete LeaseInitialDirectCostAdjustmentRel
+						
+			Released is a State

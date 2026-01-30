@@ -1,0 +1,367 @@
+MobileSupplyChainPurchaseOrderReceiptLine is a BusinessClass
+    owned by mscm
+    prefix is MSPRL
+    sql name is "MSCMPOReceiptLine"
+
+    Ontology
+        symbolic key is MobileSupplyChainPurchaseOrderReceiptLine
+
+    Persistent Fields
+        PurchaseOrderLine               is like PurchaseOrderLine
+        PurchaseOrderReceiptLine        is like PurchaseOrderReceiptLine
+        ShipToLocation                  is like MobileSupplyChainLocation
+        Item
+        EnteredReceivedQuantity         is like Quantity
+        ReceivedUOM                     is an UnitOfMeasure
+        CatchWeightQuantity             is like Quantity
+            precision is Item.NumberOfDecimalsQuantity
+        CancelBackorder                 is Boolean
+        InspectionRequired              is Boolean
+        MSDSRequired                    is Boolean
+        MSDSVersion                     
+        MSDSDocument
+        TemperatureScale
+        Temperature                     is Numeric size 3
+        AcceptedQuantity                is like Quantity
+        RejectedQuantity                is like Quantity
+        StorageType                     is like TemperatureControlledStorageType
+        PackageCondition
+        TemperatureExpirationDate       is Date
+        CommentText                
+        ErrorMessage                    is Text
+        InspectionImageXML              is XMLDocument
+ 
+    Field Rules
+
+    Local Fields
+        LocalError                   is Boolean
+        LocalErrorMessage            is Text
+        PurchaseOrderReceiptLineView is a PurchaseOrderReceiptLine view
+        LocalVariancePercent	     is like CatchWeightVariancePercent
+        LocalStockQuantity           is like Quantity
+        LocalQuantity                is like Quantity
+        LocalReceiptInspection       is like POReceiptAdjustmentAndInspection
+        LocalPurchaseOrder           is a PurchaseOrder
+    Relations
+        PurchaseOrderLineRel
+            one-to-one relation to PurchaseOrderLine
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.PurchaseOrder     = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrder
+                related.PurchaseOrderLine = PurchaseOrderLine        
+
+        MobileSupplyChainConfigurationRel
+            one-to-one relation to MobileSupplyChainConfiguration
+            Field Mapping uses symbolic key
+                related.MobileSupplyChainConfiguration = Company.FinanceEnterpriseGroup
+
+        PurchaseOrderReceiptLineRel
+            one-to-one relation to PurchaseOrderReceiptLine
+            Field Mapping uses symbolic key
+                related.Company                  = Company
+                related.PurchaseOrderReceipt     = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                related.PurchaseOrderReceiptLine = PurchaseOrderReceiptLine 
+
+		MobileSupplyChainPurchaseOrderReceiptLineDetailRel is a MobileSupplyChainPurchaseOrderReceiptLineDetail set
+
+        ItemLocationRel
+            one-to-one relation to ItemLocation
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.InventoryLocation = ShipToLocation
+                related.Item              = Item
+
+        PurchaseOrderReceiptInspectionLineRel
+            one-to-one relation to POReceiptAdjustmentAndInspectionLine
+            Field Mapping uses Set5
+                related.Company                              = Company
+                related.PurchaseOrderReceipt                 = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                related.PurchaseOrderReceiptLine             = PurchaseOrderReceiptLine
+                related.POReceiptAdjustmentAndInspection     = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceiptInspectionRel.POReceiptAdjustmentAndInspection
+
+
+        PurchaseOrderTransactionDetailRel
+            one-to-many relation to PurchaseOrderTransactionDetail
+            Field Mapping uses symbolic key
+                related.Company                              = Company
+            Instance Selection
+				where (related.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType.Receiving
+                and    related.PurchaseOrderTransactionDetail.DocumentNumberNumeric                      = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                and    related.PurchaseOrderTransactionDetail.LineNumber                                 = PurchaseOrderReceiptLine)
+
+        InventoryCompanyRel
+            one-to-one relation to InventoryCompany
+            Field Mapping uses symbolic key
+                related.Company = Company
+
+    Derived Fields
+        CatchWeightOutOfToleranceMessage is a MessageField
+			restricted
+			"CatchWeightQuantityIsOutsideOfTolerance"
+
+        HasItemMasterDecimalErrorMessage is a MessageField
+            "TooManyDecimalDigitsEnteredForQuantity:MaxForItem<Item>Is<Item.NumberOfDecimalsQuantity>"
+
+        HasNoItemMasterDecimalErrorMessage is a MessageField
+            "TooManyDecimalDigitsEnteredForQuantity:MaxForItem<Item>Is<InventoryCompanyRel.NumberOfDecimalsQuantity>"
+
+        DerivedCatchWeightMultiplier is a DerivedField
+            type is like CatchWeightVariancePercent
+            return (CatchWeightQuantity / EnteredReceivedQuantity)
+            
+        DerivedRejectedCatchWeight is a DerivedField
+            type is like Quantity
+            return DerivedCatchWeightMultiplier * RejectedQuantity
+
+        DerivedRejectedQuantity is a DerivedField
+			type is like UnsignedQuantity
+            if (IsCatchWeightItem)
+                return ((DerivedCatchWeightMultiplier) * LocalQuantity)
+            else
+                return LocalQuantity
+
+        DerivedXML is a DerivedField
+            type is XMLDocument
+            return MobileSupplyChainPurchaseOrderReceipt.MobileSupplyChainUpload.XML
+
+    Conditions
+        IsCatchWeightItem
+        	restricted
+        	when (Item.CatchWeightCode.AllTransactionsRequireBoth 
+            or    Item.CatchWeightCode.ReceiptRequiresBoth)
+        
+        IsCatchWeightQuantityOutOfTolerance
+			restricted
+            when (PurchaseOrderReceiptLineRel.IsCatchWeightQuantityOutOfTolerance)
+        
+        IsSerialRequiredAtReceipt
+            restricted
+            when (ItemLocationRel.SerialTracked.SerialRequiredAtReceipt
+            and   ItemLocationRel.InventoryTracked)
+        
+        IsLotRequiredAtReceipt
+			restricted  
+			when (ItemLocationRel.LotTracked.LotRequiredAtReceipt
+			and   ItemLocationRel.InventoryTracked)
+        
+        IsBinTracked
+			restricted	
+			when (ItemLocationRel.BinTracked
+			and   ItemLocationRel.InventoryTracked)
+        
+        IsUDIRequiredAtReceipt
+			restricted
+			when (ItemLocationRel.UDITracked.UDIRequiredAtReceipt
+			and   ItemLocationRel.InventoryTracked)
+
+        IsInspected
+            when (PurchaseOrderReceiptInspectionLineRel exists)
+
+        DisplayLotDetails 
+            restricted
+            when (ItemLocationRel.IsAWarehouseLocationItem
+            and IsLotRequiredAtReceipt
+            and not IsUDIRequiredAtReceipt)
+
+    Actions
+        Create is a Create Action
+            restricted
+            Action Rules
+                if (MobileSupplyChainPurchaseOrderReceipt.ErrorMessage not entered)
+
+                    if (PurchaseOrderReceiptLineRel.HasItemMaster)
+                        if (EnteredReceivedQuantity decimals > Item.NumberOfDecimalsQuantity)
+                            ErrorMessage    = HasItemMasterDecimalErrorMessage
+                    else
+                        if (EnteredReceivedQuantity decimals > InventoryCompanyRel.NumberOfDecimalsQuantity)
+                            ErrorMessage    = HasNoItemMasterDecimalErrorMessage
+
+                    if (ErrorMessage not entered)
+                           
+                        LocalPurchaseOrder  = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrder
+
+                        invoke Create POReceiptLineTemplate
+                            invoked.Company						  = Company
+                            invoked.PurchaseOrderReceipt		  = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                            invoked.PurchaseOrderLine			  = PurchaseOrderLine													
+                            invoked.ReceivedQuantity			  = EnteredReceivedQuantity
+                            invoked.Item						  = Item
+                            invoked.ReceivedUOM					  = ReceivedUOM
+                            invoked.CatchWeightQuantity			  = CatchWeightQuantity
+                            invoked.ShipToLocation				  = ShipToLocation
+                            invoked.CancelBackorder				  = CancelBackorder
+                            invoked.TransientInspectionRequired	  = InspectionRequired
+                            invoked.BypassCreateTransactionDetail = true
+                            if (MSDSRequired)
+                                invoked.LocalMSDSVersion              = MSDSVersion
+                                invoked.LocalMSDSDocument             = MSDSDocument
+
+        Update is an Update Action
+            restricted
+
+        Delete is a Delete Action
+            restricted
+
+        CreatePOInspectionDetails is a Set Action
+            valid when (MobileSupplyChainPurchaseOrderReceipt.IsReleasedValidForInspection)
+            restricted
+            Parameters
+                PrmFinanceEnterpriseGroup                is a FinanceEnterpriseGroup
+                    default label is "FinanceEnterpriseGroup"
+                PrmPurchasingCompany                     is a PurchasingCompany
+                    default label is "PurchasingCompany"
+                PrmMobileSupplyChainUpload               is a MobileSupplyChainUpload
+                    context of PrmFinanceEnterpriseGroup
+                    default label is "MobileSupplyChainUpload"
+                PrmMobileSupplyChainPurchaseOrderReceipt is a MobileSupplyChainPurchaseOrderReceipt
+                    default label is "MobileSupplyChainPurchaseOrderReceipt"
+
+            Sort Order
+                Company
+                MobileSupplyChainPurchaseOrderReceipt
+
+            Instance Selection
+                where (Company                                                         = PrmPurchasingCompany
+                and    MobileSupplyChainPurchaseOrderReceipt                           = PrmMobileSupplyChainPurchaseOrderReceipt
+                and    MobileSupplyChainPurchaseOrderReceipt.MobileSupplyChainUpload   = PrmMobileSupplyChainUpload
+                and    InspectionRequired) 
+                
+            Local Fields
+                LocalPurchaseOrderReceiptLine            is like PurchaseOrderReceiptLine
+                POReceiptAdjustmentAndInspectionView     is a POReceiptAdjustmentAndInspection view
+                POReceiptAdjustmentAndInspectionLineView is a POReceiptAdjustmentAndInspectionLine view
+                LocalRemainingRejectedQuantity           is like Quantity
+                LocalLineIndex                           is Numeric size 6
+                LocalLineImage                           is BinaryDocument
+                LocalLineImageCount                      is Numeric size 6
+                LocalLineImageCounter                    is Numeric size 6
+                LocalLineImageTitle                      is DocumentTitle size 100
+                LocalLineCount                           is Numeric size 6
+
+            Action Rules
+                MobileSupplyChainPurchaseOrderReceipt Set Rules
+
+                    Entrance Rules
+                        invoke Unreleased.CreateInspection POReceiptAdjustmentAndInspection
+                            assign result to POReceiptAdjustmentAndInspectionView
+                            invoked.Company                             = Company
+                            invoked.AdjustmentInspectionDocumentType    = AdjustmentInspectionDocumentType.ReceiptInspection
+                            invoked.PurchaseOrderReceipt                = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                            invoked.ReferenceNumber                     = MobileSupplyChainPurchaseOrderReceipt.ReferenceNumber
+                            invoked.DocumentDate                        = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt.create stamp
+
+                        LocalReceiptInspection = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+
+                    Exit Rules
+                        invoke ReleaseInspection POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+
+                Instance Rules
+                    initialize LocalQuantity
+
+                    invoke Unreleased.CreateInspection POReceiptAdjustmentAndInspectionLine
+                        assign result to POReceiptAdjustmentAndInspectionLineView
+                        invoked.Company                                 = Company
+                        invoked.PurchaseOrderReceipt                    = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrderReceipt
+                        invoked.PurchaseOrderReceiptLine                = PurchaseOrderReceiptLine
+                        invoked.PurchaseOrder                           = MobileSupplyChainPurchaseOrderReceipt.PurchaseOrder
+                        invoked.PurchaseOrderLine                       = PurchaseOrderLine
+                        invoked.POReceiptAdjustmentAndInspectionLine    = PurchaseOrderReceiptLine
+                        invoked.TransientRejectedQuantity               = RejectedQuantity
+                        invoked.POReceiptAdjustmentAndInspection        = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                        invoked.AdjustmentInspectionDocumentType        = AdjustmentInspectionDocumentType.ReceiptInspection
+                        invoked.PackageCondition                        = PackageCondition
+                        invoked.TemperatureControlledStorageType        = StorageType
+                        invoked.Temperature                             = Temperature
+                        invoked.TemperatureScale                        = TemperatureScale
+                        invoked.TemperatureExpirationDate               = TemperatureExpirationDate
+                        if (IsCatchWeightItem)
+                            invoked.CatchWeightQuantity                 = DerivedRejectedCatchWeight
+
+
+                    if (PurchaseOrderTransactionDetailRel exists and RejectedQuantity > 0)
+                        LocalRemainingRejectedQuantity   = RejectedQuantity
+                        
+                            for each MobileSupplyChainPurchaseOrderReceiptLineDetailRel
+
+                                if (each.Quantity   >= LocalRemainingRejectedQuantity)                                       
+                                    
+                                    LocalQuantity = LocalRemainingRejectedQuantity                                                                                 
+                                    LocalRemainingRejectedQuantity = 0
+                                else
+                                    LocalQuantity                     = each.Quantity                                    
+                                    LocalRemainingRejectedQuantity    = LocalRemainingRejectedQuantity - each.Quantity
+
+                                invoke Create PurchaseOrderTransactionDetail
+                                    invoked.Company                                                         = Company
+                                    invoked.PurchaseOrderReceipt                                            = MobileSupplyChainPurchaseOrderReceipt
+                                    invoked.PurchaseOrderTransactionDetail.PurchaseTransactionDocumentType  = PurchaseTransactionDocumentType.ReceivingInspectionRejection
+                                    invoked.PurchaseOrderTransactionDetail.DocumentNumberNumeric            = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                                    invoked.SourceDocumentAlpha                                             = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                                    invoked.PurchaseOrderTransactionDetail.LineNumber                       = PurchaseOrderReceiptLine
+                                    invoked.PurchaseOrderTransactionDetail.TransactionSequence              = each.SequenceNumber
+                                    invoked.Lot                                                             = each.Lot
+                                    invoked.Serial                                                          = each.Serial
+                                    invoked.Bin                                                             = each.Bin
+                                    invoked.LotExpirationDate                                               = each.LotExpirationDate
+                                    invoked.Quantity                                                        = DerivedRejectedQuantity
+                                    if (IsCatchWeightItem)
+                                        invoked.SecondaryQuantity                                           = LocalQuantity
+
+                                if (IsUDIRequiredAtReceipt)
+                                    invoke Create PurchaseOrderUDIDetail
+                                        invoked.Company													= Company
+                                        invoked.Location                                                = ShipToLocation
+                                        invoked.PurchaseOrderUDIDetail.PurchaseTransactionDocumentType	= PurchaseTransactionDocumentType.ReceivingInspectionRejection
+                                        invoked.PurchaseOrderUDIDetail.DocumentNumberNumeric			= POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                                        invoked.PurchaseOrderUDIDetail.SourceDocumentAlpha				= POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                                        invoked.PurchaseOrderUDIDetail.LineNumber		    			= PurchaseOrderReceiptLine
+                                        invoked.Item													= Item
+                                        invoked.PurchaseOrderUDIDetail.TransactionSequence				= each.SequenceNumber
+                                        invoked.GTIN                                                    = each.GTIN
+                                        invoked.ManufacturingDate                                       = each.UDIManufacturingDate
+                                        invoked.ExpirationDate                                          = each.UDIExpirationDate
+                                        invoked.Lot                                                     = each.Lot
+                                        invoked.SerialNumber                                            = each.Serial
+                                        invoked.UOM                                                     = ReceivedUOM
+                                        invoked.Quantity												= LocalQuantity
+                                        invoked.StockUOM                                                = Item.StockUOM
+                                
+                                if (LocalRemainingRejectedQuantity = 0)
+                                    end for each
+
+                    
+
+                    if (InspectionImageXML entered)
+
+                        LocalLineImageCount = InspectionImageXML select "count (/Image/Data)"
+                        
+                        LocalLineImageCounter = 1
+
+                        while (LocalLineImageCounter <= LocalLineImageCount)
+                            LocalLineImage = InspectionImageXML select "/Image/Data[<LocalLineImageCounter>]"
+                            LocalLineImageTitle = "mscminspection-" + LocalReceiptInspection + "-" + PurchaseOrderReceiptLine + "-" + LocalLineImageCounter + ".jpg"
+
+                            invoke Create POReceiptAdjustmentAndInspectionLineComment
+                                invoked.Company                                 = Company
+                                invoked.POReceiptAdjustmentAndInspectionLine    = POReceiptAdjustmentAndInspectionLineView.POReceiptAdjustmentAndInspectionLine
+                                invoked.POReceiptAdjustmentAndInspection        = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                                invoked.AdjustmentInspectionDocumentType        = AdjustmentInspectionDocumentType.ReceiptInspection
+                                invoked.CommentTitle                            = "MSCM_Inspection"
+                                invoked.CommentType                             = POReceiptAdjustmentAndInspectionLineComment.CommentType.ReceivingAdjustmentAndInspectionLineComments
+                                invoked.CommentText                             = CommentText
+                                invoked.Attachment.Title                        = LocalLineImageTitle
+                                invoked.Attachment.File                         = LocalLineImage
+                                invoked.Attachment.MimeType                     = "image/jpg"
+                            
+                            LocalLineImageCounter += 1
+
+                    else
+                    if (CommentText entered)
+                        invoke Create POReceiptAdjustmentAndInspectionLineComment
+                            invoked.Company                                 = Company
+                            invoked.POReceiptAdjustmentAndInspectionLine    = POReceiptAdjustmentAndInspectionLineView.POReceiptAdjustmentAndInspectionLine
+                            invoked.POReceiptAdjustmentAndInspection        = POReceiptAdjustmentAndInspectionView.POReceiptAdjustmentAndInspection
+                            invoked.AdjustmentInspectionDocumentType        = AdjustmentInspectionDocumentType.ReceiptInspection
+                            invoked.CommentTitle                            = "MSCM_Inspection"
+                            invoked.CommentType                             = POReceiptAdjustmentAndInspectionLineComment.CommentType.ReceivingAdjustmentAndInspectionLineComments
+                            invoked.CommentText                             = CommentText                            

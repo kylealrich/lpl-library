@@ -1,0 +1,462 @@
+AllocationJournalizedDetail is a BusinessClass
+    owned by Allocations
+    prefix is ALJD
+
+    Ontology
+    	symbolic key is AllocationJournalizedDetail
+    	
+    Patterns
+
+ 		disable EffectiveDated
+
+	Transient Fields
+		CurrencyTable
+	Persistent Fields
+		AllocationPeriod				is a GeneralLedgerCalendarPeriod
+			delete ignored
+		AllocationStep
+		EntityYearPeriod				is a GeneralLedgerCalendarPeriod
+			delete ignored
+		Direction						is Numeric size 1
+			States
+				PostFrom					value is 0
+				PostTo						value is 1
+
+		JournalizeGroup
+		AccountingEntity
+		FinanceCodeBlock				is a TransactionCodeBlock
+		PostingDate
+		TransactionDate					is an ExchangeDate
+		CurrencyCode					is a FromCurrency
+		TransactionAmount				is a CurrencyAmount 
+			precision is CurrencyCode.NumberOfDecimals     
+		ReportCurrencyAmount			is a FinanceCurrencyAmount
+		UnitsAmount
+		System							is a GeneralLedgerSystemCode
+		GeneralLedgerEvent
+			default label is "GlobalLedgerEvent"
+		OriginatingTransaction			is BusinessObjectReference
+		
+		SourcePeriod					is a GeneralLedgerCalendarPeriod
+		AllocationLineSourceValue
+			context of SourcePeriod
+		AutoReverse						is Boolean
+
+#ifdef module transpricing		
+	Context Fields
+		ContextTransferPricingBatchRun is a TransferPricingBatchRun
+#endif	
+	Field Groups
+		AllocationFieldGroup
+			FinanceEnterpriseGroup
+			AllocationControl
+			AllocationSourceSystem
+			Allocation
+			
+	Sets
+		ByAllocationAndStep
+			duplicates			
+			Sort Order
+				FinanceEnterpriseGroup				
+				AllocationRun
+				AllocationStep descending
+				AllocationLine.Allocation
+												
+		ByDetail
+			Sort Order
+				FinanceEnterpriseGroup
+				AllocationRun descending
+				AllocationJournalizedDetail
+				AllocationLine
+								
+		ByAllocationLine
+			indexed
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+            	AllocationSourceSystem
+            	AllocationControl
+            	AllocationLine
+            	AllocationRun
+
+	Local Fields
+		LocalFinanceEnterpriseGroup				is like FinanceEnterpriseGroup
+		LocalAllocationRun						is like AllocationRun
+		LocalAllocationControl					is like AllocationControl
+		LocalAllocationSourceSystem				is like AllocationSourceSystem
+		LocalIsFirstDescription					is Boolean
+	
+	Rule Blocks
+		SetRunJobMappingFields
+			LocalFinanceEnterpriseGroup			= PrmEnterpriseGroup
+			LocalAllocationRun					= PrmAllocationRun
+			LocalAllocationControl				= PrmAllocationRun.AllocationControl
+			LocalAllocationSourceSystem			= PrmAllocationRun.AllocationSourceSystem
+	Derived Fields
+
+		Amount is a DerivedField
+			type is like CurrencyAmount
+			if (AllocationLine.AllocateUnits)
+				return UnitsAmount
+			else
+			 	return TransactionAmount
+		IsUnits is a DerivedField
+			type is Boolean
+			return AllocationLine.AllocateUnits
+		StepNumber is a DerivedField
+			type is like AllocationStepNumber
+			return -1*AllocationStep
+		DerivedCurrencyTotalPostTo is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostToTransactionDetailsGroupByCurrency.Amount)		
+		
+		DerivedCurrencyTotalPostFrom is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostFromTransactionDetailsGroupByCurrency.Amount)
+		
+		DerivedCurrencyReportTotalPostTo is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostToTransactionDetailsGroupByCurrencyReportTotal.Amount)
+		
+		DerivedCurrencyReportTotalPostFrom is a DerivedField
+			type is like InternationalAmount
+			return (sum AllocationPostFromTransactionDetailsGroupByCurrencyReportTotal.Amount)
+
+		DerivedJournalizedDetailDescription is a DerivedField
+			type is like Description
+			restricted
+			LocalIsFirstDescription = true
+			if (AllocationControl.JournalizedDetailDescriptionOptions.AllocationName)
+				DerivedJournalizedDetailDescription += AllocationLine.Allocation
+				LocalIsFirstDescription = false
+			
+			if (AllocationControl.JournalizedDetailDescriptionOptions.AllocationDescription)
+				if (!LocalIsFirstDescription)
+					DerivedJournalizedDetailDescription += " - "
+				DerivedJournalizedDetailDescription += AllocationLine.Allocation.Description
+				LocalIsFirstDescription = false
+
+			if (AllocationControl.JournalizedDetailDescriptionOptions.AllocationLineName)
+				if (!LocalIsFirstDescription)
+					DerivedJournalizedDetailDescription += " - "
+				DerivedJournalizedDetailDescription += AllocationLine
+				LocalIsFirstDescription = false
+			
+			if (AllocationControl.JournalizedDetailDescriptionOptions.AllocationLineDescription)
+				if (!LocalIsFirstDescription)
+					DerivedJournalizedDetailDescription += " - "
+				DerivedJournalizedDetailDescription += AllocationLine.Description
+			
+			return DerivedJournalizedDetailDescription
+
+			
+#ifdef module transpricing
+		SourceAmount is a DerivedField
+			type is like InternationalAmount
+			if (AllocationLine.SourcePercentage > 0)
+				return AllocationLineSourceValueRel.TransactionAmount
+			else
+				return (AllocationLineSourceValueRel.TransactionAmount * -1)
+
+		SplitPercentage is a DerivedField
+			type is Percent size 10.6
+			if (AllocationLine.FromPostOption.Retain) 
+				return 100%
+			else
+				return first ToAllocationLineTempOverrideByAccountingEntityRel.WeightPercent
+				
+		Weight is a DerivedField
+			type is like InternationalAmount
+			return first ToAllocationLineTempOverrideByAccountingEntityRel.Weight
+
+		AllocableAmount	is a DerivedField
+			type is like InternationalAmount
+				precision is AllocationRun.Currency.NumberOfDecimals 
+			if (AllocationLineSourceValueRel.ComputedAmount entered)
+				AllocableAmount = AllocationLineSourceValueRel.ComputedAmount
+			else 
+				AllocableAmount = AllocationLineSourceValueRel.TransactionAmount
+					
+			AllocableAmount = AllocableAmount * AllocationLine.SourcePercentage	
+
+
+		FromCompany is a DerivedField
+			type is like GeneralLedgerCompany
+			return first TransferPricingTransactionRel.FromCompany
+			
+		FromEntity is a DerivedField
+			type is like AccountingEntity
+			return first TransferPricingTransactionRel.FromEntity
+			
+		ToCompany is a DerivedField
+			type is like GeneralLedgerCompany
+			return first TransferPricingTransactionRel.ToCompany
+			
+		ToEntity is a DerivedField
+			type is like AccountingEntity
+			return first TransferPricingTransactionRel.ToEntity
+#endif					
+					
+	Conditions
+		AllocationLoggingEnabled
+			restricted
+			when (AllocationControl.AllocationLoggingEnabled)
+		IsGroupByAllocationAndStep
+			restricted
+			when(IsGroupByAllocationAndStepHeaderRel not exists)		
+		
+		IsGroupByCurrency
+			restricted
+			when (IsCurrencyHeaderRel not exist)		    
+   
+   		IsGroupByCurrencyReportTotal
+   			restricted
+   			when(IsGroupByCurrencyReportTotalRel not exists)   		   		
+   				
+    Relations
+		CreateGLTransactionDetailsJobRel
+			one-to-many relation to AllocationRunJob
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 		= LocalFinanceEnterpriseGroup
+				related.AllocationSourceSystem		= LocalAllocationSourceSystem
+				related.AllocationControl		 	= LocalAllocationControl
+				related.AllocationRun				= LocalAllocationRun
+            Instance Selection
+                where (related.JobType              = AllocationRunJobType.CreateGLTransactionDetails)
+    
+    	IsGroupByAllocationAndStepHeaderRel
+			one-to-many relation to AllocationJournalizedDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.AllocationRun = AllocationRun
+			Instance Selection
+				where ((related.Allocation = Allocation
+				or Allocation not entered)
+				and (related.AllocationStep = AllocationStep
+				or AllocationStep not entered)
+				and related.UniqueID  < UniqueID)
+		
+		IsGroupByCurrencyReportTotalRel
+			one-to-many relation to AllocationJournalizedDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+				related.AllocationRun = AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode							
+				and	related.IsUnits = IsUnits
+				and related.UniqueID  < UniqueID)		
+		
+		AllocationPostFromTransactionDetailsGroupByCurrencyReportTotal
+			one-to-many relation to AllocationJournalizedDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode
+				and	related.IsUnits = IsUnits
+				and related.Direction.PostFrom)	
+		
+		AllocationPostToTransactionDetailsGroupByCurrencyReportTotal
+			one-to-many relation to AllocationJournalizedDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.CurrencyCode = CurrencyCode
+				and	related.IsUnits = IsUnits
+				and related.Direction.PostTo)
+						
+		IsGroupByCurrencyDisplayHeaderRel
+			one-to-many relation to AllocationJournalizedDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+			Instance Selection
+				where (related.AllocationRun				= AllocationRun
+				and related.Allocation						= Allocation
+				and related.AllocationStep					= AllocationStep				 
+				and related.IsGroupByCurrency)
+		
+		IsCurrencyHeaderRel
+			one-to-many relation to AllocationJournalizedDetail
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup							
+			Instance Selection	
+				where (related.AllocationRun				= AllocationRun
+				and related.Allocation						= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode 
+				and	related.IsUnits 						= IsUnits
+				and related.UniqueID  < UniqueID)
+		
+		AllocationJournalizedDetailsGroupByAllocationAndStep
+			one-to-many relation to AllocationJournalizedDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep)		
+		
+		AllocationPostToTransactionDetailsGroupByCurrency
+			one-to-many relation to AllocationJournalizedDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode
+				and	related.IsUnits 						= IsUnits
+				and related.Direction.PostTo)
+		
+		AllocationPostFromTransactionDetailsGroupByCurrency
+			one-to-many relation to AllocationJournalizedDetail			
+			Field Mapping uses ByAllocationAndStep
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup			
+				related.AllocationRun						= AllocationRun
+			Instance Selection
+				where (related.Allocation					= Allocation
+				and related.AllocationStep					= AllocationStep
+				and related.CurrencyCode					= CurrencyCode
+				and	related.IsUnits 						= IsUnits
+				and related.Direction.PostFrom)
+											
+		GeneralLedgerCalendarPeriodRel
+			one-to-many relation to GeneralLedgerCalendarPeriod
+			Field Mapping uses LeafRecords
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.Date 			not < PostingDate)
+				
+		AllocationLineSourceValueRel
+			one-to-one relation to AllocationLineSourceValue
+			Field Mapping uses ByAlternate
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AllocationSourceSystem		= AllocationSourceSystem
+				related.AllocationControl			= AllocationControl
+				related.Allocation					= Allocation
+				related.AllocationLine				= AllocationLine
+				related.AllocationRun				= AllocationRun
+				related.GeneralLedgerCalendarPeriod = SourcePeriod
+				related.AllocationLineSourceValue   = AllocationLineSourceValue				
+			
+#ifdef module transpricing
+		TransferPricingRunRel
+			one-to-one relation to TransferPricingRun
+			Field Mapping uses ByAllocationRun
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.AllocationRun				= AllocationRun
+		
+		TransferPricingTransactionRel
+			one-to-many relation to TransferPricingTransaction
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingRun			= TransferPricingRunRel.TransferPricingRun
+			Instance Selection
+				where (related.ToEntity					= FinanceCodeBlock.ToAccountingEntity)
+											
+		TransferPricingTransactionDetailRel
+			one-to-one relation to TransferPricingTransactionDetail
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingRun			= TransferPricingRunRel.TransferPricingRun
+				related.TransferPricingTransaction	= first TransferPricingTransactionRel.TransferPricingTransaction
+				related.TransferPricingSource		= AllocationLine
+		
+		TransferPricingSourceRel
+			one-to-one relation to TransferPricingSource
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup		= FinanceEnterpriseGroup
+				related.TransferPricing				= TransferPricingRunRel.TransferPricing
+				related.TransferPricingSource		= AllocationLine
+				
+    	ToAllocationLineTempOverrideByAccountingEntityRel
+    		one-to-many relation to AllocationLineTempOverride
+    		Field Mapping uses symbolic key
+    			related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+    			related.AllocationSourceSystem	= AllocationSourceSystem
+    			related.AllocationControl		= AllocationControl
+    			related.Allocation				= Allocation
+    			related.AllocationLine			= AllocationLine
+    			related.AllocationRun			= AllocationRun
+    		Instance Selection
+    			where (related.Direction.To
+    			and	  (related.AccountingEntity = FinanceCodeBlock.ToAccountingEntity)
+    			and   (related.GeneralLedgerCalendarPeriod = SourcePeriod))
+				
+#endif	
+	Field Rules
+		EntityYearPeriod
+			default to first GeneralLedgerCalendarPeriodRel.GeneralLedgerCalendarPeriod
+			required
+		AllocationStep
+			default to AllocationLine.AllocationStep
+			required
+			cannot be changed
+		ReportCurrencyAmount
+			required
+
+	Actions
+ 		Create is an Action
+ 			restricted
+			Field Rules
+			Entrance Rules
+				
+			Action Rules
+				
+			Exit Rules
+
+		CreateNoRules is a Create Action
+			restricted
+			bypass field rules
+			Action Rules
+				
+    	Delete is a Delete Action
+    		restricted
+
+    	CreateGLTransactionDetails is a Set Action
+    		restricted
+    		Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Action Rules
+				Set Rules
+					Entrance Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							invoke Start first CreateGLTransactionDetailsJobRel
+
+					Exit Rules
+						if (AllocationLoggingEnabled)
+							include SetRunJobMappingFields
+							invoke End first CreateGLTransactionDetailsJobRel
+
+				Instance Rules
+					invoke Create Released GLTransactionDetail
+						fill in fields from this instance
+						invoked.OriginatingTransaction = reference to this instance
+						invoked.Description	= DerivedJournalizedDetailDescription
+
+    	DeleteAllForRun is a Set Action
+    		restricted
+    		Parameters
+    			PrmEnterpriseGroup		is a FinanceEnterpriseGroup
+    				default label is "FinanceEnterpriseGroup"
+    			PrmAllocationRun		is a AllocationRun
+    				default label is "AllocationRun"
+			Sort Order
+				FinanceEnterpriseGroup				
+				AllocationRun
+    		Instance Selection
+				where (FinanceEnterpriseGroup	= PrmEnterpriseGroup
+				and    AllocationRun			= PrmAllocationRun)
+			Action Rules
+				Instance Rules
+					invoke Delete

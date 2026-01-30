@@ -1,0 +1,348 @@
+IDMConfiguration is a BusinessClass
+	owned by idm
+	
+	prefix is IDMCO
+	
+	Ontology
+		symbolic key is IDMConfiguration
+	
+	Patterns
+	
+	Persistent Fields
+		UpdateJournalEntryAttributes 		is Boolean
+		UpdatePayablesInvoiceAttributes   	is Boolean
+		UpdatePurchaseOrderAttributes		is Boolean
+		UpdateRequisitionAttributes			is Boolean
+		UpdateContractAttributes			is Boolean
+		LastTestConnectionResult			is Text
+		UseIONBackEndService				is Boolean
+		IncludeTemplatesInTenantRefresh		is Boolean
+			   			
+	Conditions
+ 		FEGMatchesContext
+ 			restricted
+ 			when (IDMConfiguration = actor.context.FinanceEnterpriseGroup)	
+ 			
+		IONCredentialExists
+			restricted
+			when (IDMIONCredentialsRel exists)
+			
+		MultiTenant
+			restricted
+			when (CheckIfMultiTenant)
+		
+		ImportByTenantEnabled 
+			restricted
+			when (config.IDM_ImportConfigurationByTenant = "true") 	
+
+		IsValidForFixFSMIDMGenericUser
+			restricted
+			when (not FSMIDMUserExist 
+			or not FSMIDMUserIdentityActorExist
+			or not FSMIDMUserRolesExist)
+
+		FSMIDMUserExist
+			when (IDMConfiguration.FinanceEnterpriseGroup.FSMIDMUserRel exists)
+
+        FSMIDMUserIdentityActorExist
+            when (IDMConfiguration.FinanceEnterpriseGroup.FSMIDMUserIdentityActorRel exists)
+
+        FSMIDMUserRolesExist
+            when (IDMConfiguration.FinanceEnterpriseGroup.IDMUserActorRoleRel exists
+            and   IDMConfiguration.FinanceEnterpriseGroup.ApplicationAdministratorActorRoleRel exists)
+
+
+
+		IDMOverrideUserConfigParamRelExists
+			restricted
+			when (IDMOverrideUserConfigParamRel exists) 	
+		
+
+						
+	Transient Fields
+		Description
+			derive value from IDMConfiguration.FinanceEnterpriseGroup.Description
+		UseIDTranslation 			is Boolean
+			derive value from DerivedUseIDTranslation
+
+	Field Rules
+		UseIDTranslation
+			initial value is DerivedUseIDTranslation
+		
+		IncludeTemplatesInTenantRefresh
+			initial value is true
+		
+	Local Fields
+		TestConnectionDetails				is Text
+		LocalConnectionURL					is Text
+		LocalKey							is Text
+		LocalSecret							is Text
+		LocalService						is like Service
+
+	Rule Blocks
+		BackUpIDMTemplates
+			invoke BackUpIDMTemplates IDMTemplate
+				invoked.PrmFinanceEnterpriseGroup = IDMConfiguration
+
+	Derived Fields	
+		DerivedFormTitle is a DerivedField
+            type is MessageField
+            if (IDMConfiguration exists)
+                return IDMConfiguration + " - " + Description
+		
+		DerivedIONCredentialFileName is a DerivedField
+			type is DocumentTitle size 100
+ 			if (IONCredentialExists)
+ 				return IDMIONCredentialsRel.CredentialsFileName
+ 			
+ 		DerivedIONPrivateKeyFileName is a DerivedField
+ 			type is DocumentTitle size 100
+ 			if (IONCredentialExists)
+ 				return IDMIONCredentialsRel.PrivateKeyFileName
+ 			
+ 		DerivedUseIDTranslation is a DerivedField
+ 			type is Boolean
+			if (action type.Update) 
+				return false
+			else	
+				return IDMIONCredentialsRel.UseIDTranslation
+	
+		WarningMessageForIONConnectionSetUp is a MessageField
+			"Warning:_\ION_Private_KeyAnd_CredentialsAreRequired"
+	
+		GenericUserSetupIncomplete is a MessageField
+			"IncompleteSetup._\PleaseClick_\FixGenericUser"
+
+		DerivedIONConfigurationWarning is a DerivedField
+			type is Alpha size 100
+			if (not IONCredentialExists)
+				return WarningMessageForIONConnectionSetUp
+		
+		ConfigXMLVersion is a DerivedField
+			type is MessageField
+			return IDMConfigurationVersionRel.ConfigurationVersion
+			
+		DerivedConnectionStatus is a NativeField
+			type is Boolean
+			
+		IsMultiTenant is a DerivedField 
+			type is Boolean
+			default label is untranslatable
+			restricted
+			
+		CheckIfMultiTenant is a NativeField
+			type is Boolean
+			default label is untranslatable
+			restricted
+			
+		DerivedDefaultConnection is a DerivedField
+			type is Alpha size 100
+			if (UseIONBackEndService)
+				return "ION Back End Service"
+			else
+				LocalConnectionURL 	= config.AUTH_DS_URL 
+				LocalKey 			= config.AUTH_DS_PUBLIC_KEY 
+				LocalSecret 		= config.AUTH_DS_SECRET_KEY
+				if (LocalConnectionURL entered and LocalKey entered and LocalSecret entered)
+					return "Auth & Discovery Service"
+				else 
+					LocalConnectionURL 	= config.IDM_ENDPOINT
+					LocalKey 			= config.IDM_APPLICATION_KEY 
+					LocalSecret 		= config.IDM_APPLICATION_SECRET
+					if (LocalConnectionURL entered and LocalKey entered and LocalSecret entered)
+						return "OAuth1.0"
+
+		FSMIDMActor	is a StringField 
+			type is Alpha 30
+			restricted
+			"FSM.IDM-User"
+
+		TemplatesAreIncludedInTenantRefreshMsg is a MessageField
+			"Note:_TemplatesAreIncludedIn_Tenant_Refresh."
+
+	Create Rules
+		if (IDMConfigurationRel exists)
+			UseIONBackEndService	= first IDMConfigurationRel.UseIONBackEndService					
+						
+	Create Exit Rules	
+		if (IDMTemplatesRel exists)			
+			include BackUpIDMTemplates
+
+ 	Actions		
+ 		Create is a Create Action
+
+		Delete is a Delete Action
+			restricted
+		
+		Update is an Update Action
+			Action Rules
+				invoke UpdateFromIDMConfiguration IDMIONCredentialsRel
+						invoked.UseIDTranslation = UseIDTranslation
+			Exit Rules
+				if (UseIONBackEndService changed)
+					for each IDMConfigurationRel
+						invoke FastUpdate each
+  							invoked.UseIONBackEndService = UseIONBackEndService
+  						 
+		UploadIONPrivateKeyAndCredentials is an Instance Action
+			valid when (not MultiTenant)
+ 			Parameters
+ 				PrmIONPrivateKey					is an IDMAttachment
+				PrmIONCredentials					is an IDMAttachment
+				PrmUseIDTranslation					is Boolean
+			Parameter Rules
+				PrmIONPrivateKey
+					required
+				PrmIONCredentials
+					required
+				PrmUseIDTranslation
+					initial value is IDMIONCredentialsRel.UseIDTranslation
+			
+		FastUpdate is an Update Action
+			restricted
+			bypass field rules			
+								
+		TestConnection is an Instance Action
+			Local Fields
+				LocalActor							is an Actor
+				LocalConnectionStatus				is Alpha size 100
+				
+			Entrance Rules
+				
+				if (DerivedConnectionStatus)
+					LocalConnectionStatus = "Success"
+				else
+					LocalConnectionStatus = "Failed"
+				
+				LastTestConnectionResult = TestConnectionDetails
+
+		BackgroundTestConnection is an Instance Action				
+			restricted
+			Local Fields				
+				LocalActor				is an Actor	
+				LocalIDMConnected		is Boolean
+				
+			Action Rules
+				if (DerivedConnectionStatus)
+					LocalIDMConnected = true
+
+				constraint (LocalIDMConnected)
+					"FailedToConnectInIDM"
+					
+		SyncIDMPrinters is an Instance Action
+			completion message is "SyncIDMPrintersCompleted"
+			
+		ImportConfigurationXML is an Instance Action
+			Parameters
+				PrmXML				is an IDMAttachment		
+					default label is "XMLFile"
+				PrmTenant 			is Alpha size 100
+					default label is "Tenant"
+					
+			Parameter Rules
+				PrmXML
+					required
+
+
+		TurnOnIncludeTemplatesInTenantRefresh is an Instance Action
+			valid when (not IncludeTemplatesInTenantRefresh)
+			Action Rules
+				IncludeTemplatesInTenantRefresh = true
+				include BackUpIDMTemplates
+
+
+		FixFSMIDMGenericUser is an Instance Action
+			restricted
+			valid when (IsValidForFixFSMIDMGenericUser)
+			Action Rules
+				invoke CreateIntegrationUsers FinanceEnterpriseGroup
+		
+		CreateIDMGenerationUserSettingsPerFEG is a Set Action
+			restricted
+			Action Rules
+				Instance Rules
+					invoke CreateIDMGenerationUserSettings IDMGenerationUserSettings
+						invoked.PrmIDMConfiguration = IDMConfiguration
+
+
+        CreateMingleUser is an Instance Action
+			restricted
+				
+        AddRolesAndConfigurationParameter is an Instance Action
+			restricted
+		
+		AssignActorRoles is an Instance Action
+			restricted
+	
+		CreateConfigurationParameter is an Instance Action
+			restricted
+			
+		UpdateConfigurationParameter is an Instance Action
+			restricted
+
+		FSMCreateMingleUser is an Instance Action
+			restricted
+
+		
+	Relations
+		IDMIONCredentialsRel
+            one-to-one relation to IDMIONCredentials
+            Field Mapping uses symbolic key
+    			related.IDMIONCredentials = 1
+	
+		IDMConfigurationRel
+            one-to-many relation to IDMConfiguration
+            Field Mapping uses symbolic key
+            Instance Selection
+                where (related.IDMConfiguration != IDMConfiguration)
+                
+        IDMConfigurationRecords
+            one-to-many relation to IDMConfiguration
+            Field Mapping uses symbolic key
+            Instance Selection
+                where (related.IDMConfiguration entered)
+                
+    	IDMPrinterRel is an IDMPrinter set		
+
+    	NonEmailEnabledPrintersRel is an IDMPrinter set
+    		Instance Selection
+    			where (related.Type != 1)	
+    			
+    	IDMConfigurationXMLRel is an IDMConfigurationXML set	
+
+		IDMConfigurationVersionRel
+			one-to-one relation to IDMConfigurationXML
+			Field Mapping uses symbolic key
+				related.IDMConfigurationXML	= "CONFIG_VERSION"
+		IDMTemplatesRel
+			one-to-many relation to IDMTemplate
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup = IDMConfiguration
+
+		IDMAdditionalAttributesHeaderRel is an IDMAdditionalAttributesHeader set	
+
+		IDMRichTextHeaderRel is an IDMRichTextHeader set
+
+		IDMGenerationUserSettingsRel is an IDMGenerationUserSettings set
+
+
+		IDMOverrideUserConfigParamRel
+			one-to-many relation to ConfigurationParameter
+			Field Mapping uses symbolic key
+		
+		IdentityActorRel
+			one-to-many relation to IdentityActor
+    		Field Mapping uses symbolic key
+        
+        IDMUserRoleRel
+			one-to-many relation to Role
+    		Field Mapping uses symbolic key		
+		
+		FSMIDMUserRel
+			one-to-many relation to Actor
+			Field Mapping uses symbolic key
+
+		FSMIDMUserIdentityActorRel
+			one-to-many relation to IdentityActor
+			Field Mapping uses symbolic key
+

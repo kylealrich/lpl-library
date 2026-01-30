@@ -1,0 +1,618 @@
+ExpenseManagementInterfaceHeader is a BusinessClass
+    owned by ap
+    prefix is XPH
+    sql name is XMInterfaceHeader
+    classic name is EEEXPHDR
+
+    Ontology
+        symbolic key is ExpenseManagementInterfaceHeader
+		    sql name is XMInterfaceHeader
+            classic set name is XPHSET1
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+        implements BODId
+
+    Persistent Fields
+
+		PayablesCompany
+			disable surrogates
+        Vendor
+        HROrganizationAndEmployee
+
+        Billable                    is Boolean
+        Document					is AlphaUpper 22
+        EmployeeExpenseAdvance      is an Invoice
+            classic name is ADVANCE-NBR
+        Currency
+            classic name is CURRENCY-CODE
+        Description
+            classic name is DESC
+			default label is "Purpose"
+        BeginDate                   is Date
+            classic name is BEG-DATE
+        EndDate                     is Date
+        FirstName                   is a Name	 
+        	holds pii
+            classic name is FIRSTNAME
+        LastName                    is a Name	 
+        	holds pii
+            classic name is LASTNAME
+        Status                      is AlphaUpper size 1
+			protected
+            classic name is EE-STATUS
+            States
+                NotProcessed         value is "1"
+                InError              value is "2"
+                SentForReimbursement value is "9"
+        SentDate                    is TimeStamp
+			protected
+        TransactionAmount           is an InternationalAmount
+            classic name is TRAN-AMT
+        ReimbursementAmount          is an InternationalAmount
+            classic name is REIM-AMT
+        ReimbursementCurrency       is a Currency
+            classic name is REIM-CURRENCY
+        ResourceType                is Numeric size 4
+            States
+                Employee      	value is 10
+                Vendor			value is 20
+        ProcessLevel                is a PayablesProcessLevel
+            classic name is PROC-LEVEL
+        PayVendor                   is a Vendor
+        ReimbursmentSystem          is Numeric size 4
+        	restricted
+            classic name is REIM-SYSTEM
+            States
+                AccountsPayable value is 10
+
+
+        HrGroup                     is AlphaUpper size 5
+        RecordType                  is Numeric size 4
+            classic name is REC-TYPE
+            States
+                Expense value is 10
+                Advance value is 20
+                Payback value is 30
+        AtnObjId                    is an ObjId
+        GltObjId                    is an ObjId
+        PayCode                     is AlphaUpper size 4
+        RemitToCode         		is a VendorLocation
+        	context of Vendor
+		PaymentReference			is Alpha 15
+        CreditCardNumber			is Alpha 16
+
+
+        DefaultDistributionAccount  is a FinanceCodeBlock
+            classic name for DefaultDistributionAccount.ToAccountingEntity is AP-COMPANY
+            classic name for DefaultDistributionAccount.AccountingUnit is DEF-ACCT-UNIT
+            classic name for DefaultDistributionAccount.GeneralLedgerChartAccount is ACCOUNT
+            classic name for DefaultDistributionAccount.Project is ACTIVITY
+		ExpenseManagementTravelPlan
+		LastExpenseForTravelPlan	is Boolean
+		ExpenseManagementInterfaceResult
+			default label is "LastExpenseManagementInterfaceResult"
+			protected
+			delete ignored
+		ErrorMessage				is Alpha 150
+			protected
+
+	Conditions
+		ShowBODIdForm
+			restricted
+			when (bod id.AccountingEntity entered
+			or	  bod id.Location entered
+			or	  bod id.DocumentID entered
+			or	  bod id.Revision entered
+			or	  bod id.SystemOfRecord entered
+			or	  bod id.VariationID entered)
+		
+		CanPurge
+			when (all ExpenseManagementInterfaceDetail set.Status != 9)	
+
+		ShowInterfaceResult
+			when (ExpenseManagementInterfaceResult entered)
+		
+		ShowErrorMessage
+			when (ErrorMessage entered)
+
+		HasReimbursableExpenses
+			when (ExpenseManagementInterfaceDetailToProcessRel exists)
+		
+		HasCompanyPaidExpenses
+			when (CompanyPaidDetailsToProcessRel exists)
+		
+		HasOutstandingExpenses
+			when (HasReimbursableExpenses
+			or    HasCompanyPaidExpenses)
+	Derived Fields
+		DerivedTotalReimbursementAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (sum AllReimbursableExpenseManagementInterfaceDetailRel.ReimbursementAmount)
+		DerivedTotatTaxAmount is a DerivedField
+			type is like InternationalAmount
+			default label is "DerivedTotalTaxAmount"
+			restricted
+			return (sum AllReimbursableExpenseManagementInterfaceDetailRel.TaxAmount1)
+		DerivedTotalAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return DerivedTotalReimbursementAmount + DerivedTotatTaxAmount
+		ReleaseMessage is a MessageField
+			"Release_Error:_"
+		TaxRateChangeMessage is a MessageField
+			"DetailLinesWithSameTaxCodeThatSpanDifferentTaxRatesExist"
+
+		ChangingTaxRateExists is a DerivedField
+			type is Boolean
+			restricted
+			LastTaxCode = first ExpenseManagementInterfaceDetailTaxRel.TaxCode1
+			initialize LocalCalculateTax
+			LocalCalculateTax.Function 			= "I"
+			LocalCalculateTax.TaxEntity			= PayablesCompany.AccountingEntity
+			LocalCalculateTax.InvoiceDate		= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+			LocalCalculateTax.TaxDate			= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+			LocalCalculateTax.PaymentDate		= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+			LocalCalculateTax.GeneralLedgerDate	= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+			LocalCalculateTax.TaxCode			= first ExpenseManagementInterfaceDetailTaxRel.TaxCode1
+			LocalCalculateTax.DontCreateLogFile	= true
+			LocalCalculateTaxExecuted			= LocalCalculateTax.ExecuteCalculateTax
+			LastTaxRate							= LocalCalculateTax.OutputTaxRate
+
+			for each ExpenseManagementInterfaceDetailTaxRel
+				initialize LocalCalculateTax
+				LocalCalculateTax.Function 			= "I"
+				LocalCalculateTax.TaxEntity			= PayablesCompany.AccountingEntity
+				LocalCalculateTax.InvoiceDate		= each.ExpenseDate
+				LocalCalculateTax.TaxDate			= each.ExpenseDate
+				LocalCalculateTax.PaymentDate		= each.ExpenseDate
+				LocalCalculateTax.GeneralLedgerDate	= each.ExpenseDate
+				LocalCalculateTax.TaxCode			= each.TaxCode1
+				LocalCalculateTaxExecuted			= LocalCalculateTax.ExecuteCalculateTax
+
+				if (LastTaxCode = each.TaxCode1
+				and LastTaxRate != LocalCalculateTax.OutputTaxRate)
+					return true
+
+				LastTaxCode							= each.TaxCode1
+				LastTaxRate							= LocalCalculateTax.OutputTaxRate
+
+			return false
+
+	Field Rules
+		ResourceType
+			force default to ResourceType.Vendor
+
+		ReimbursmentSystem
+			force default to ReimbursmentSystem.AccountsPayable
+
+        PayablesCompany
+			default to first DefaultVendorCompanyDefaultRel.Company
+			default to first ExpenseManagementInterfaceConfigurationRel.DefaultPayablesCompany
+
+		VendorGroup
+			required
+		Vendor
+			required
+		BeginDate
+			required
+		EndDate
+			required
+		Status
+			default to Status.NotProcessed
+		
+	Local Fields
+		NewPayablesInvoice  						is a PayablesInvoice view
+		ErrorOccurred								is Boolean
+		LocalErrorMessage							is Alpha 150
+		LocalExpenseManagementInterfaceResultNumber	is Numeric size 12
+		NewPayablesInvoiceDistribution				is a PayablesInvoiceDistribution view
+		NewTaxPayablesInvoiceDistribution			is a PayablesInvoiceDistribution view
+		LocalSplitDistributionArray					is a SplitDistributionArray
+		LocalCounter								is Numeric size 3
+		LocalCalculateTax							is a CalculateTax
+		LocalCalculateTaxExecuted					is Alpha 1
+		LastTaxCode									is a TaxCode
+		LastTaxRate									is Percent 7.5
+		NewExpenseManagementInterfaceHeader 		is a ExpenseManagementInterfaceHeader view
+		CompletionMessage							is Alpha 150
+
+	Relations
+		AllReimbursableExpenseManagementInterfaceDetailRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+			Instance Selection
+				where (related.PaymentMethod	= 20
+				or     related.PaymentMethod	= 30)
+
+		AllReimbursedExpenseManagementInterfaceDetailRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+			Instance Selection
+				where ((related.PaymentMethod	= 20
+				or      related.PaymentMethod	= 30)
+				and     related.Status			= 9)
+		
+		ExpenseManagementInterfaceDetailToProcessRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+			Instance Selection
+				where ((related.PaymentMethod	= 20
+				or      related.PaymentMethod	= 30)
+				and     related.Status			!= 9)
+		
+		ExpenseManagementInterfaceDetailResetRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+			Instance Selection
+				where (related.ExpenseManagementInterfaceResult	= LocalExpenseManagementInterfaceResultNumber
+				and    related.Status							= 9)
+		
+		AllExpenseManagementInterfaceDetailRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+
+        ExpenseManagementInterfaceConfigurationRel
+            one-to-many relation to ExpenseManagementInterfaceConfiguration
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup					= VendorGroup.BusinessGroup.FinanceEnterpriseGroup
+
+		DefaultVendorCompanyDefaultRel
+			one-to-many relation to VendorCompanyDefault
+			Field Mapping uses symbolic key
+				related.VendorGroup						= VendorGroup
+				related.Vendor 							= Vendor
+				related.VendorLocation					= blank
+			Instance Selection
+				where (related.Default)
+
+		CompanyPaidDetailsToProcessRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses symbolic key
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+			Instance Selection
+				where ((related.PaymentMethod.CompanyPaid
+				or      related.PaymentMethod.CompanyPaidCreditCard)
+				and    !related.Status.SentForReimbursement)
+
+		PayablesInvoiceRel
+			one-to-many relation to PayablesInvoice
+			Field Mapping uses ByCompanyVendorInvoice
+				related.Company							= PayablesCompany
+				related.Vendor							= Vendor
+				related.Invoice							= ExpenseManagementInterfaceHeader.Document
+			Instance Selection
+        		where (related.InvoiceDate = BeginDate)			
+
+
+		ExpenseManagementInterfaceDetailTaxRel
+			one-to-many relation to ExpenseManagementInterfaceDetail
+			Field Mapping uses ByCompanyTaxCode1ExpenseDate
+				related.VendorGroup							= VendorGroup
+				related.ExpenseManagementInterfaceHeader	= ExpenseManagementInterfaceHeader
+
+    Sets
+
+		ByExpenseManagementInterfaceResult
+			indexed
+			duplicates
+			Sort Order
+				VendorGroup
+				ExpenseManagementInterfaceResult
+				
+
+
+
+
+
+
+
+	Actions
+		Create is a Create Action
+
+		Update is an Update Action
+
+		ExpenseReportInvoiceInterface is a Set Action
+			completion message is "ExpenseReportInterfaceInvoiceComplete"
+			Parameters
+				PrmVendorGroup			is a VendorGroup
+					default label is "VendorGroup"
+				PrmExpenseReport		is a ExpenseManagementInterfaceHeader
+					default label is "ExpenseReport"
+				PostingDate				is Date
+			Parameter Rules
+				PrmVendorGroup
+					required
+				PostingDate
+					initial value is current corporate date
+					default to current corporate date
+			
+			Instance Selection
+				where (VendorGroup = PrmVendorGroup
+				and   (PrmExpenseReport not entered
+				or     ExpenseManagementInterfaceHeader = PrmExpenseReport)
+				and   !Status.SentForReimbursement
+				and   ExpenseManagementInterfaceDetailToProcessRel exists)
+
+			Local Fields
+				LocalExpenseManagementInterfaceResult 		is an ExpenseManagementInterfaceResult view
+
+			Action Rules
+				Empty Set Rules
+					invoke Create ExpenseManagementInterfaceResult
+						assign result to LocalExpenseManagementInterfaceResult
+						invoked.VendorGroup 	= PrmVendorGroup
+						invoked.RunType			= 1
+						invoked.RunTime			= current timestamp
+						invoked.Status			= 1
+
+				Set Rules
+					Entrance Rules
+						invoke Create ExpenseManagementInterfaceResult
+							assign result to LocalExpenseManagementInterfaceResult
+							invoked.VendorGroup 	= PrmVendorGroup
+							invoked.RunType			= 1
+							invoked.RunTime			= current timestamp
+							invoked.Status			= 2
+							
+					Exit Rules
+						invoke Update LocalExpenseManagementInterfaceResult.ExpenseManagementInterfaceResult
+							invoked.Status = 1
+
+				Instance Rules
+					LocalExpenseManagementInterfaceResultNumber = LocalExpenseManagementInterfaceResult.ExpenseManagementInterfaceResult
+					if (Status.InError)	
+						Status = Status.NotProcessed
+
+					ErrorOccurred 			= false
+
+
+					if (ChangingTaxRateExists)
+						ErrorOccurred		= true
+						LocalErrorMessage	= TaxRateChangeMessage
+
+					if (!ErrorOccurred)
+						invoke Unreleased.CreateInvoice PayablesInvoice  
+							assign result to NewPayablesInvoice
+							resume on error
+								ErrorOccurred		= true
+								LocalErrorMessage	= error message
+							invoked.Company							= PayablesCompany
+							invoked.Vendor							= Vendor
+							invoked.PayVendor						= PayVendor
+							invoked.Invoice							= ExpenseManagementInterfaceHeader.Document
+							if (RecordType.Advance)
+								invoked.InvoiceType					= PayablesInvoiceType.Prepayment
+							else
+								invoked.InvoiceType					= PayablesInvoiceType.Invoice
+							if (CreditCardNumber entered)
+								invoked.Description					= CreditCardNumber
+							else
+								invoked.Description					= Description
+							invoked.InvoiceCurrency					= ReimbursementCurrency
+							invoked.InvoiceAmount.CurrencyAmount	= DerivedTotalAmount
+							invoked.InvoiceDate						= BeginDate
+
+							invoked.DueDate							= EndDate
+							invoked.InvoiceSource					= "X"
+							invoked.DistributionDate				= PostingDate
+
+					if (!ErrorOccurred)
+						if (RecordType.Advance) 
+							for each ExpenseManagementInterfaceDetail set
+								invoke SetStatus each
+									invoked.PrmStatus							= 9
+									invoked.PrmErrorMessage						= blank
+									invoked.PrmExpenseManagementInterfaceResult	= LocalExpenseManagementInterfaceResultNumber
+						else
+							for each ExpenseManagementInterfaceDetailToProcessRel	
+								if (!ErrorOccurred)
+									invoke Create PayablesInvoiceDistribution
+										resume on error
+											ErrorOccurred			= true
+											LocalErrorMessage		= error message
+										assign result to NewPayablesInvoiceDistribution
+										invoked.Company					= PayablesCompany
+										invoked.Vendor					= Vendor
+										invoked.PayablesInvoice			= NewPayablesInvoice.PayablesInvoice
+										invoked.InvoiceCurrency			= each.ReimbursementCurrency
+										invoked.DistributionAmount.CurrencyAmount	= each.ReimbursementAmount
+										invoked.GLTransactionAmount					= each.ReimbursementAmount
+										if (each.ExpenseManagementInterfaceAllocation set exists)
+											invoked.DistributionAccount				= each.first ExpenseManagementInterfaceAllocation set.FinanceStructure
+											invoked.GLFinanceCodeBlock				= each.first ExpenseManagementInterfaceAllocation set.FinanceStructure
+											invoked.GLTTransactionCodeBlock			= each.first ExpenseManagementInterfaceAllocation set.FinanceStructure
+										else
+											invoked.DistributionAccount				= each.FinanceStructure
+											invoked.GLFinanceCodeBlock				= each.FinanceStructure
+											invoked.GLTTransactionCodeBlock			= each.FinanceStructure
+										if (each.TaxCode1 entered)												
+											invoked.TaxCode							= each.TaxCode1				
+											invoked.TaxIndicator					= TaxIndicator.Taxable		
+											invoked.TaxableAmount					= each.ReimbursementAmount	
+										else																	
+											invoked.TaxCode							= blank						
+											invoked.TaxIndicator					= blank						
+											invoked.TaxableAmount					= blank						
+                                        invoked.Description							= blank
+
+									if (!ErrorOccurred)
+										if (each.ExpenseManagementInterfaceAllocation set exists)
+											LocalCounter = 0
+											initialize LocalSplitDistributionArray
+											for each each.ExpenseManagementInterfaceAllocation set
+												LocalCounter +=1 
+												LocalSplitDistributionArray.SplitDistribution[LocalCounter].FinanceCodeBlock 	= each.FinanceStructure
+												LocalSplitDistributionArray.SplitDistribution[LocalCounter].Percentage			= each.Percentage
+
+											invoke SplitDistribution NewPayablesInvoiceDistribution.PayablesInvoiceDistribution
+												resume on error
+													ErrorOccurred				= true
+													LocalErrorMessage			= error message
+												invoked.SplitDistributionArray	= LocalSplitDistributionArray
+
+									if (ErrorOccurred)
+										invoke SetStatus each
+											invoked.PrmStatus 		= 2
+											invoked.PrmErrorMessage	= LocalErrorMessage
+									else
+										invoke SetStatus each
+											invoked.PrmStatus							= 9
+											invoked.PrmErrorMessage						= blank
+											invoked.PrmExpenseManagementInterfaceResult	= LocalExpenseManagementInterfaceResultNumber
+
+					if (!ErrorOccurred)	
+						if (!RecordType.Advance)
+							invoke Update NewPayablesInvoice.PayablesInvoice									
+								resume on error
+									ErrorOccurred			= true
+									LocalErrorMessage		= error message
+								invoked.InvoiceAmount.CurrencyAmount 	= NewPayablesInvoice.PayablesInvoice.TotalDistributionAmount.TransactionTotal
+								invoked.TaxAmount 						= NewPayablesInvoice.TotalTaxAmount		
+
+					if (ErrorOccurred)	
+						invoke Purge NewPayablesInvoice.PayablesInvoice.PayablesInvoiceDistribution set		
+							resume on error
+						invoke Purge NewPayablesInvoice.PayablesInvoice
+							resume on error
+						Status			= Status.InError
+						ErrorMessage 	= LocalErrorMessage
+
+						for each ExpenseManagementInterfaceDetailResetRel  
+							invoke SetStatus each
+								invoked.PrmStatus = 1
+					else
+						if (ExpenseManagementTravelPlan entered)	
+							invoke UpdateExpenseManagementTravelPlanDetail AllReimbursableExpenseManagementInterfaceDetailRel
+							invoke ReleaseUpdatedGLCommitRecords ExpenseManagementTravelPlan
+
+
+						Status 			= Status.SentForReimbursement
+						ErrorMessage	= blank
+						SentDate		= current timestamp
+						if (ExpenseManagementTravelPlan entered
+						and LastExpenseForTravelPlan)
+							invoke CloseTravelPlan ExpenseManagementTravelPlan
+						ErrorMessage	= blank
+						ExpenseManagementInterfaceResult = LocalExpenseManagementInterfaceResultNumber
+
+						invoke Unreleased.Release NewPayablesInvoice.PayablesInvoice	
+							resume on error
+								ErrorOccurred			= true
+								LocalErrorMessage		= error message
+						if (ErrorOccurred)	
+							ErrorMessage 	= ReleaseMessage + LocalErrorMessage
+					
+		InterfaceThisDocument is an Instance Action
+			valid when (HasReimbursableExpenses)
+    		disable multiple instance selection
+			Action Rules
+				invoke ExpenseReportInvoiceInterface in foreground
+					invoked.PrmVendorGroup		= VendorGroup
+					invoked.PrmExpenseReport	= ExpenseManagementInterfaceHeader
+
+		ResetErrorMessage is an Instance Action
+			valid when (HasReimbursableExpenses)
+			Action Rules
+				initialize ErrorMessage
+				Status = Status.NotProcessed
+				for each ExpenseManagementInterfaceDetail set
+					if (each.Status.InError)
+						invoke ResetErrorMessage each
+
+		Purge is a Purge Action
+			valid when (CanPurge)
+
+		FastPurge is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		PurgeInBackground is a Set Action
+			restricted
+			completion message is "PurgeInBackgroundComplete"
+			
+			Sort Order is ByExpenseManagementInterfaceResult
+			
+			Parameters
+				PrmVendorGroup		is a VendorGroup
+					default label is "VendorGroup"
+				PrmExpenseManagementInterfaceResult is like ExpenseManagementInterfaceResult
+					default label is "ExpenseManagementInterfaceResult"
+			Parameter Rules
+				PrmVendorGroup
+					required
+				PrmExpenseManagementInterfaceResult
+					required
+			
+			Instance Selection
+				where (VendorGroup						= PrmVendorGroup
+				and    ExpenseManagementInterfaceResult = PrmExpenseManagementInterfaceResult)
+			
+			Action Rules
+				Instance Rules
+					invoke FastPurge
+		
+		SplitByChangingTaxRate is an Instance Action
+			Local Fields
+				SequenceNumber is Numeric size 3
+			Action Rules
+				constraint (ChangingTaxRateExists)
+					"ChangingTaxRateDoesNotExist"
+				LastTaxCode = first ExpenseManagementInterfaceDetailTaxRel.TaxCode1
+				initialize LocalCalculateTax
+				LocalCalculateTax.Function 			= "I"
+				LocalCalculateTax.TaxEntity			= PayablesCompany.AccountingEntity
+				LocalCalculateTax.InvoiceDate		= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+				LocalCalculateTax.TaxDate			= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+				LocalCalculateTax.PaymentDate		= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+				LocalCalculateTax.GeneralLedgerDate	= first ExpenseManagementInterfaceDetailTaxRel.ExpenseDate
+				LocalCalculateTax.TaxCode			= first ExpenseManagementInterfaceDetailTaxRel.TaxCode1
+				LocalCalculateTaxExecuted			= LocalCalculateTax.ExecuteCalculateTax
+				LastTaxRate							= LocalCalculateTax.OutputTaxRate
+
+				for each ExpenseManagementInterfaceDetailTaxRel
+					initialize LocalCalculateTax
+					LocalCalculateTax.Function 			= "I"
+					LocalCalculateTax.TaxEntity			= PayablesCompany.AccountingEntity
+					LocalCalculateTax.InvoiceDate		= each.ExpenseDate
+					LocalCalculateTax.TaxDate			= each.ExpenseDate
+					LocalCalculateTax.PaymentDate		= each.ExpenseDate
+					LocalCalculateTax.GeneralLedgerDate	= each.ExpenseDate
+					LocalCalculateTax.TaxCode			= each.TaxCode1
+					LocalCalculateTaxExecuted			= LocalCalculateTax.ExecuteCalculateTax
+
+
+					if (LastTaxCode = each.TaxCode1
+					and LastTaxRate != LocalCalculateTax.OutputTaxRate)
+						SequenceNumber += 1
+						invoke Create ExpenseManagementInterfaceHeader
+							assign result to NewExpenseManagementInterfaceHeader
+							fill in fields from this instance
+							invoked.ExpenseManagementInterfaceHeader.Document	= ExpenseManagementInterfaceHeader.Document + "-TX-" + SequenceNumber
+							invoked.Status										= Status.NotProcessed
+							invoked.ErrorMessage								= blank
+							invoked.BeginDate									= each.ExpenseDate
+						
+						invoke ChangeKey each
+							invoked.PrmDocument = NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader.Document
+					else
+						if (NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader.Document entered)
+							invoke ChangeKey each
+								invoked.PrmDocument = NewExpenseManagementInterfaceHeader.ExpenseManagementInterfaceHeader.Document
+
+					LastTaxCode = each.TaxCode1
+					LastTaxRate = LocalCalculateTax.OutputTaxRate
+				
+				invoke ResetErrorMessage

@@ -1,0 +1,213 @@
+LeaseModificationPaymentDetail is a BusinessClass
+    owned by lm
+    prefix is LMPD
+
+    Ontology
+        symbolic key is LeaseModificationPaymentDetail
+
+    Patterns
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+        OriginatingTransaction		is BusinessObjectReference
+        ModificationAction			is Numeric 2
+        	States
+        		Added		value is 1
+        		Changed		value is 2
+        		Deleted		value is 3
+        ModifiedDate				is Date
+        ModifiedAmount				is an InternationalAmount
+        	precision is Lease.CurrencyNumberOfDecimals
+        		
+        Suffix
+        LeaseInvoiceDistribution    is Numeric size 6
+        Description
+        Currency					is a FromCurrency
+        CurrencyNumberOfDecimals
+		LeasePayment
+        RecurringLeasePaymentDetail
+        	delete ignored
+        AuthorityCode               is a PayablesAuthorityCode
+        DueDate
+        PaymentAmount               is an InternationalAmount
+        	precision is Lease.CurrencyNumberOfDecimals
+        VendorInvoiceNumber
+        Released                    is Boolean
+        Terminated					is Boolean 
+        BaseCurrency
+        BasePaymentAmount           is an InternationalAmount
+        BaseCurrencyRate
+        BaseNumberOfDecimals
+
+		LeaseCompute	
+		ComputeGroup	
+
+
+        ComputeBaseAmount           is an InternationalAmount
+        AccrueFlag                  is Boolean                             
+        AccrueReverseFlag           is Boolean							   
+        Taxable	 					is Boolean							   
+        TaxCode
+        TaxUsageCode
+        PercentTaxable              is a Percent
+        BaseTaxable                 is an InternationalAmount
+        TransactionTaxableAmount    is an InternationalAmount
+        	precision is Lease.CurrencyNumberOfDecimals
+        BaseLandTax                 is an InternationalAmount
+        TransactionLandTax          is an InternationalAmount
+        MaximumPayment              is an InternationalAmount
+        AdvancedComputeOption
+        GeneralLedgerBudgetNumber   is a BudgetNbr                          
+            default label is "GlobalLedgerBudgetNumber"
+        Period                      is Numeric 2 							
+        Year	
+
+
+
+        AccountingUnitList										  			
+
+
+        AccountGroup                                              			
+        SubAccountGroup             is a SubAcctGrp				  			
+		NetChangeToPresentValue		is an InternationalAmount
+
+	Local Fields
+		CalculateTax
+		LocalCalculateTaxExecuted	is Alpha 1
+		LocalTotalTaxAmount			is an InternationalAmount
+		I1							is Numeric size 1
+		
+	Derived Fields
+		TotalTaxAmount is a DerivedField		
+			type is like InternationalAmount
+			initialize CalculateTax
+			CalculateTax.TaxEntity				= Company.AccountingEntity
+			CalculateTax.System					= "AP"
+			CalculateTax.Vendor					= LeasePayment.Vendor
+			CalculateTax.TaxCode 				= TaxCode
+			CalculateTax.FromTaxCode			= LeasePayment.Vendor.TaxCode
+			CalculateTax.ProcessLevel			= LeasePayment.ProcessLevel
+			CalculateTax.PostalAddress			= LeasePayment.ProcessLevel.PostalAddress
+			CalculateTax.FromPostalAddress		= LeasePayment.Vendor.VendorAddress
+			CalculateTax.Function				= "C"
+			CalculateTax.ThirdPartyFunction		= "I"
+			if (LeasePayment.Lease.Ownership)
+				CalculateTax.TransactionType	= "P"
+			else
+				CalculateTax.TransactionType	= "L"		//In S3, it is passing "L"
+			if (PercentTaxable entered)
+				CalculateTax.TaxableAmount 		= (PaymentAmount * PercentTaxable)
+			else
+				CalculateTax.TaxableAmount		= TransactionTaxableAmount
+			CalculateTax.TaxDate				= DueDate
+			CalculateTax.DontCreateLogFile		= true
+			LocalCalculateTaxExecuted			= CalculateTax.ExecuteCalculateTax
+			return CalculateTax.OutputTotalTaxAmount
+			
+		TotalInvoiceTaxAmount is a DerivedField
+			type is like InternationalAmount
+			restricted
+			initialize CalculateTax
+			CalculateTax.TaxEntity				= Company.AccountingEntity
+			CalculateTax.System					= "AP"
+			CalculateTax.Vendor					= TaxCode
+			CalculateTax.FromTaxCode			= LeasePayment.Vendor.TaxCode
+			CalculateTax.ProcessLevel			= LeasePayment.ProcessLevel
+			CalculateTax.PostalAddress			= LeasePayment.ProcessLevel.PostalAddress
+			CalculateTax.FromPostalAddress		= LeasePayment.Vendor.VendorAddress
+			CalculateTax.Function				= "C"
+			CalculateTax.ThirdPartyFunction		= "I"
+			if (LeasePayment.Lease.Ownership)
+				CalculateTax.TransactionType	= "P"
+			else
+				CalculateTax.TransactionType	= "L"		//In S3, it is passing "L"
+			if (PercentTaxable entered)
+				CalculateTax.TaxableAmount		= (PaymentAmount * PercentTaxable)
+			else
+				CalculateTax.TaxableAmount		= TransactionTaxableAmount
+			CalculateTax.TaxDate				= DueDate
+			CalculateTax.DontCreateLogFile		= true
+			LocalCalculateTaxExecuted			= CalculateTax.ExecuteCalculateTax
+			I1 = 1
+			while (I1 <= 8)
+				LocalTotalTaxAmount += CalculateTax.TaxTable.TaxTableOutput[I1].TaxAmount
+				I1 += 1
+			return LocalTotalTaxAmount
+
+		TotalPaymentAmount is a DerivedField
+			type is like InternationalAmount
+			return (PaymentAmount + TotalInvoiceTaxAmount)
+
+	Conditions
+		PaymentAdded
+			when (ModificationAction.Added)
+			
+		PaymentChanged
+			when (ModificationAction.Changed
+			and   PaymentAmount != ModifiedAmount)
+		
+		PaymentDeleted
+			when (ModificationAction.Deleted)
+					
+	Sets
+		ByOriginatingTransaction
+			Sort Order
+				Company
+                Lease
+                Vendor
+                LeaseModification
+                OriginatingTransaction
+		
+		ByDueDate
+            Sort Order
+                Company
+                Lease
+                Vendor
+                LeaseModification
+                DueDate
+                LeaseModificationPaymentDetail
+                	
+	Relations
+		LeasePaymentDetailRel
+			one-to-one relation to LeasePaymentDetail
+            Field Mapping uses symbolic key
+                related.Company 								= Company
+                related.Lease   								= Lease
+                related.Vendor									= Vendor
+				related.LeasePaymentDetail.PaymentNumber		= LeaseModificationPaymentDetail.PaymentNumber
+				related.LeasePaymentDetail.ExecutoryCostCode	= blank
+
+	Actions
+		Create is a Create Action
+			restricted
+			
+		Update is an Update Action
+			restricted
+		
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+				
+		ResetModification is an Instance Action
+			restricted
+			Action Rules
+				if (ModificationAction.Added)
+					invoke RestrictedDelete LeasePaymentDetailRel
+						
+				if (ModificationAction.Changed)
+	        		invoke UpdateBaseAmounts LeasePaymentDetailRel
+			 			invoked.DueDate			= DueDate
+						invoked.PaymentAmount	= PaymentAmount
+						invoked.AuthorityCode   = AuthorityCode
+				
+				if (ModificationAction.Deleted)
+					invoke RestrictedCreate LeasePaymentDetail
+						fill in fields from this instance
+						invoked.Company									= Company
+						invoked.Lease									= Lease
+						invoked.Vendor									= Vendor
+						invoked.LeasePaymentDetail.PaymentNumber		= LeaseModificationPaymentDetail.PaymentNumber
+						invoked.LeasePaymentDetail.ExecutoryCostCode	= LeaseModificationPaymentDetail.ExecutoryCostCode

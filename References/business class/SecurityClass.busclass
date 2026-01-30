@@ -1,0 +1,461 @@
+SecurityClass is a BusinessClass
+    owned by security
+    prefix is SECCL
+    framework type is LPLConfiguration
+
+	Ontology
+		symbolic key is SecurityClass
+
+	Patterns
+		implements CRUD
+		implements ConfigurationMetadata
+		implements SecurityCache
+		disable AuditIndex
+		implements AuditLogEntryActions
+
+	Persistent Fields
+		Description	is a ConfigDescription
+		LPL 		is LPL
+		InActive	is Boolean
+			default label is "Inactive"
+		Immutable 	is Boolean
+		BaseClass	is a SecurityClass 
+		CopiedFrom  is a SecurityClass 
+		
+	Transient Fields
+		DisablePermissionBOD 	is Boolean 
+		DisableVerification		is Boolean 
+		
+	Field Groups
+        InterfaceFields
+			SecurityClass
+			Description
+			LPL
+			InActive
+			
+	Derived Fields
+		IsBODPermissionEnabled is a NativeField
+			type is Boolean
+			default label is "BODPermissionEnabled"
+			
+		InheritanceEnabled is a NativeField
+			type is Boolean
+			default label is "SecurityClassInheritanceEnabled"
+
+		DerivedLastChange is a MessageField
+            "LastChanged<update stamp>By<update stamp.actor>"
+
+        MissingSecurityWarning is a MessageField
+            "No_Roles_Assigned"
+
+		ExtendedSnapshotInfo is a DerivedField
+            type is JSONObject
+            restricted
+            default label is untranslatable
+            
+            if (CopiedFrom entered)
+            	ExtendedSnapshotInfo = "{ \"CopiedFrom\": \"" + CopiedFrom + "\""
+            	
+            	if (BaseClass entered)
+            		ExtendedSnapshotInfo += ", \"BaseClass\": \"" + BaseClass + "\""
+            	
+            	ExtendedSnapshotInfo += " }"
+            else
+            	if (BaseClass entered)
+            		ExtendedSnapshotInfo = "{ \"BaseClass\": \"" + BaseClass + "\" }"
+            	
+    Rule Blocks
+        CopiedNameConstraints
+
+            constraint (not com.lawson.rdtech.type.Field.startsWith({CopiedSecClassName}, " "))
+                "NameMustNotStartWithSpace"
+
+            constraint (not com.lawson.rdtech.type.Field.endsWith({CopiedSecClassName}, "_ST"))
+                "NameMustNotEndWith_'\_ST'"
+
+            constraint (not com.lawson.rdtech.type.Field.startsWith({CopiedSecClassName}, "UA_"))
+                "NameMustNotStartWith_'UA\_'"
+
+            constraint (not com.lawson.rdtech.type.Field.startsWith({CopiedSecClassName}, "UBC_"))
+                "NameMustNotStartWith_'UBC\_'"
+
+	Conditions
+		IsConfigurableFeaturesEnabled
+			default label is "ConfigurableFeaturesEnabled"
+			when (config.configurablefeaturesenabled = "true")
+		
+		StandardTemplate
+
+            when (com.lawson.rdtech.type.Field.endsWith(SecurityClass, "_ST"))
+
+        Copied
+            when (CopiedFrom entered)
+
+        Extends
+            when (BaseClass entered)
+
+		ActorIsUpdateActor
+            when (authenticated actor = update stamp.actor)
+
+        UpdatedLastFourteenDays
+            when (current timestamp - update stamp <= 1209600)  
+
+        RecentConfigurationChanges
+            when (!StandardTemplate
+            and  UpdatedLastFourteenDays)
+
+        AssignedToSecurityRole
+            when (RoleSecurityClassRel exists)
+
+        CopiedFromClassExists
+            when (CopiedFromSecurityClassRel exists)
+
+        ExtendClassExists
+            when (ExtendedFromSecurityClassRel exists)
+            
+        ExtendingClassesExist
+        	restricted
+        	default label is untranslatable
+            when (ParentChildRel exists)	
+
+        InactiveCopiedFromClass
+            when (Copied and CopiedFromSecurityClassRel.InActive)
+
+        InactiveExtendClass
+            when (Extends and ExtendedFromSecurityClassRel.InActive)
+            
+        DisplayTagCopyFromOption
+			restricted
+			when (CopiedFrom entered and CopiedFrom exists and not CopiedFrom.StandardTemplate)
+
+ 	Relations
+		ConfigurableFeaturesEnabledRel
+			one-to-many relation to ConfigurationParameter
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.ConfigurationParameter.ConfigurationID = "config"
+				and    related.ConfigurationParameter.Name = "configurablefeaturesenabled"
+				and    related.Value = "true")
+           
+        ConfigurationParameterRel is a ConfigurationParameter set
+
+        RoleSecurityClassRel is a RoleSecurityClass set
+
+		RoleHelperRel is a Role set
+
+		MyCopiesRel 
+			one-to-many relation to SecurityClass
+			Field Mapping uses ByCopiedFrom
+				related.CopiedFrom = SecurityClass
+				
+		ParentChildRel 
+			one-to-many relation to SecurityClass
+			Field Mapping uses ByBaseClass
+				related.BaseClass = SecurityClass
+				
+        ConfigEntityRel
+            one-to-one relation to ConfigEntity
+            Field Mapping uses ByBusinessView
+                related.BusinessView = blank
+                related.EntityType = 17 
+                related.Name = SecurityClass
+
+		ExtendedFromSecurityClassRel
+			one-to-one relation to SecurityClass
+			valid when (Extends)
+			Field Mapping uses symbolic key
+				related.SecurityClass = BaseClass
+
+		CopiedFromSecurityClassRel
+			one-to-one relation to SecurityClass
+			valid when (Copied)
+			Field Mapping uses symbolic key
+				related.SecurityClass = CopiedFrom
+				
+	Field Rules
+		Immutable
+			default to false	
+
+		DisablePermissionBOD
+			default to true		
+
+		DisableVerification
+			default to false
+		BaseClass
+			constraint (BaseClass != SecurityClass)
+                "BaseClassCanNotBeSameAsSecurityClass"
+			
+	Actions	
+
+		Activate is an Instance Action
+		    valid when (InActive)
+			Action Rules
+    			InActive = false
+
+			Exit Rules
+    			invoke FireEvent
+
+    	Deactivate is an Instance Action
+    	    valid when (!InActive)
+    		Action Rules
+    			InActive = true
+
+			Exit Rules
+    			invoke FireEvent
+
+   		Extend is an Action
+			Parameters
+				SecurityClassName is Alpha size 100
+
+                DescriptionParam is a ConfigDescription
+                    default label is "Description"
+
+			Parameter Rules
+				SecurityClassName
+					required
+
+			Action Rules
+			    include CopiedNameConstraints
+			        replace CopiedSecClassName with SecurityClassName
+
+				invoke Create SecurityClass
+					invoked.SecurityClass = SecurityClassName
+                    invoked.BaseClass = SecurityClass
+                    invoked.Description = DescriptionParam
+                    invoked.InActive = SecurityClass.InActive
+                    invoked.Immutable =  SecurityClass.Immutable
+
+   		Copy is an Action
+			Parameters
+				SecurityClassName is Alpha size 100
+
+			Parameter Rules
+				SecurityClassName
+					required
+					
+			Action Rules
+			    include CopiedNameConstraints
+			        replace CopiedSecClassName with SecurityClassName
+
+				invoke Create SecurityClass
+					invoked.SecurityClass = SecurityClassName
+					invoked.LPL = com.lawson.rdtech.type.Field.replaceFirst(LPL as String, SecurityClass, SecurityClassName)
+					fill in fields from this instance
+					if (CopiedFrom not entered)
+						invoked.CopiedFrom = SecurityClass
+
+		Create is an Action	
+            Local Fields
+                LocalLPLParam is LPL
+
+			Action Rules
+				if (LPL not entered)
+					LPL = LocalLPLParam
+
+			Exit Rules
+    			invoke FireEvent
+		
+		CreateFromSnapshot is a Create Action
+			restricted
+			bypass field rules
+
+
+
+		Update is an Action 
+            Exit Rules
+                invoke FireEvent
+		
+		UpdateFromSnapshot is an Update Action
+			restricted
+			bypass field rules
+
+
+   				
+  			 		
+
+        Delete is an Action 
+			Parameters
+				DisablePermissionBODParam is Boolean
+					default label is "DisablePermissionBOD"
+			Parameter Rules
+				DisablePermissionBODParam
+					default to true
+					DisablePermissionBOD = DisablePermissionBODParam
+
+			Exit Rules
+    			invoke FireEvent
+    			
+    		Entrance Rules
+    			if (ParentChildRel exists)
+					confirmation required
+						"SecurityClassIsBaseForOthers,DeleteAnyway?"
+    		
+    			for each ParentChildRel
+					invoke Update each
+						invoked.BaseClass = blank
+		
+		DeleteFromSnapshot is a Delete Action
+			restricted
+			bypass relational integrity rules
+
+
+        				
+        SendBODForAllSecClassPermissions is a Set Action
+        	default label is "SendBODForAllSecurityClassPermissions"
+			valid when (IsBODPermissionEnabled)
+
+		AddToRole is an Instance Action
+            Parameters
+                PrmRole     is a Role
+                	default label is "Role"
+            Parameter Rules
+                PrmRole
+                    required
+            Action Rules
+                invoke Create RoleSecurityClass
+                    invoked.Role          = PrmRole
+                    invoked.SecurityClass = SecurityClass
+                    invoked.DataArea      = parentcontext.dataarea      
+
+		TagItem is an Instance Action
+			valid when (not StandardTemplate)
+			Parameters
+				ParamConfigurationTag is a ConfigurationTag
+					default label is "Tag"
+				ParamTagCopiedFrom is Boolean
+					default label is "AlsoTagTheSecurityClassThisWasCopiedFrom"
+			
+			Entrance Rules
+				if (InActive)
+					confirmation required
+						"SecurityClassIsInactive,TagAnyway?"
+							
+			Action Rules
+				invoke Create ConfigurationTagItem
+					invoked.ConfigurationTag = ParamConfigurationTag
+					invoked.ConfigurationTagItem.Reference = reference to this instance
+				
+				if (ParamTagCopiedFrom and CopiedFrom entered and not CopiedFrom.StandardTemplate)
+					invoke TagItem CopiedFrom
+						invoked.ParamConfigurationTag = ParamConfigurationTag
+						invoked.ParamTagCopiedFrom = ParamTagCopiedFrom
+				
+				if (BaseClass entered and not BaseClass.StandardTemplate)
+					invoke TagItem BaseClass
+						invoked.ParamConfigurationTag = ParamConfigurationTag
+						invoked.ParamTagCopiedFrom = ParamTagCopiedFrom
+
+        UpdateCopyFrom is an Instance Action
+            valid when (!StandardTemplate)
+            Parameters
+                CopiedFromParam is a SecurityClass
+                	default label is "CopiedFrom"
+
+            Parameter Rules
+                CopiedFromParam
+                    initial value is CopiedFrom
+			Action Rules
+			    if (CopiedFrom entered)
+			        confirmation required
+			            "AreYouSureYouWantToChangeCopiedFrom?"
+
+                CopiedFrom = CopiedFromParam
+
+   		CreateExtended is a Create Action
+			Parameters
+				ExtendFromParam is a SecurityClass
+				    default label is "Extend"
+				NameParam is Alpha size 100
+				    default label is "Name"
+                DescriptionParam is a ConfigDescription
+                    default label is "Description"
+
+			Parameter Rules
+				ExtendFromParam
+					required
+                NameParam
+                    required
+
+            Local Fields
+                LocalLPLParam is LPL
+
+			Action Rules
+			    include CopiedNameConstraints
+			        replace CopiedSecClassName with NameParam
+
+				invoke Create this instance
+					invoked.SecurityClass = NameParam
+                    invoked.BaseClass = ExtendFromParam
+					invoked.Description = DescriptionParam
+                    invoked.InActive = ExtendFromParam.InActive
+                    invoked.Immutable =  ExtendFromParam.Immutable
+                    invoked.LPL = LocalLPLParam
+
+   		CreateCopy is a Create Action
+			Parameters
+				CopiedFromParam is a SecurityClass
+				    default label is "CopiedFrom"
+				NameParam is Alpha size 100
+				    default label is "Name"
+
+			Parameter Rules
+				CopiedFromParam
+					required
+                NameParam
+                    required
+
+			Action Rules
+			    include CopiedNameConstraints
+			        replace CopiedSecClassName with NameParam
+
+				invoke Create this instance
+					invoked.SecurityClass = NameParam
+					invoked.BaseClass = CopiedFromParam.BaseClass
+					invoked.LPL = com.lawson.rdtech.type.Field.replaceFirst(CopiedFromParam.LPL as String, CopiedFromParam.SecurityClass, NameParam)
+                    invoked.CopiedFrom = CopiedFromParam
+					invoked.Description = CopiedFromParam.Description
+                    invoked.InActive = CopiedFromParam.InActive
+                    invoked.Immutable =  CopiedFromParam.Immutable
+
+   		CreateConfiguration is a Create Action
+			Parameters
+				NameParam is Alpha size 100
+				    default label is "Name"
+                DescriptionParam is a ConfigDescription
+                    default label is "Description"
+			Parameter Rules
+                NameParam
+                    required
+
+			Local Fields
+				LocalLPLParam is LPL
+
+			Action Rules
+			    include CopiedNameConstraints
+			        replace CopiedSecClassName with NameParam
+
+				invoke Create this instance
+					invoked.SecurityClass = NameParam
+	    			invoked.Description = DescriptionParam
+        FireEvent is an Instance Action
+            restricted
+
+	Sets
+		ByCopiedFrom
+			indexed 
+			Sort Order 
+				CopiedFrom
+				SecurityClass
+				
+		ByBaseClass
+			indexed 
+			Sort Order 
+				BaseClass
+				SecurityClass
+
+		ByRecentlyUpdated
+			Sort Order
+			    update stamp
+			    SecurityClass
+
+			

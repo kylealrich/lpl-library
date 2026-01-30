@@ -1,0 +1,415 @@
+AnalyticsUpgradeStaging is a BusinessClass
+	owned by filecreation
+	
+	prefix is ANCU
+	
+	Ontology
+		symbolic key is AnalyticsUpgradeStaging
+		
+	
+	Patterns
+		disable EffectiveDated
+		disable AsOfDateProcessing
+	
+	Persistent Fields
+		Description 							is Alpha size 300
+		Status 									is Numeric size 1
+			States
+				InProgress  value is 1
+				Completed	value is 2
+				Canceled	value is 3
+		CreationDate 							is Date
+		CreatedBy								is Alpha size 200
+		MergeContentCustomization				is Numeric size 1
+			States
+				DoneMerge		value is 1
+				NoCustomization value is 2	
+		MergeModelCustomization					is Numeric size 1
+			States
+				DoneMerge		value is 1
+				NoCustomization value is 2
+		CurrentStep								is Alpha size 6
+		ValidateDataInDashboards				is Boolean
+		CheckedCustomsReport					is Numeric size 1
+			States 
+				Yes				value is 1
+				No				value is 2
+		UpgradeStagingIsCompleted				is Boolean
+		LoadDataToStagingIsCompleted			is Boolean
+		StageToActiveIsCompleted				is Boolean
+		SMDToSTCWorkUnit						is a PfiWorkunit
+		STCAndATCSwapWorkUnit					is a PfiWorkunit
+		PreUpgradeStepsCompleted				is Boolean
+		
+	
+	Field Rules
+		Description
+			default to "UpgradeWithStagingEnvironment"
+		CreationDate
+			default to current corporate date
+		CreatedBy
+			default to actor
+		Status
+			default to Status.InProgress
+			if(StageToActiveIsCompleted=true)
+				Status=Status.Completed
+				
+		CurrentStep
+			default to "0/5"
+			if(UpgradeStagingIsCompleted= true)
+				CurrentStep="1/5"
+			if(MergeContentCustomization entered)
+				CurrentStep="2/5"
+			if(LoadDataToStagingIsCompleted = true)
+				CurrentStep="3/5"
+			if(ValidateDataInDashboards)
+				CurrentStep="4/5"
+			if(StageToActiveIsCompleted = true)
+				CurrentStep="5/5"
+				
+		UpgradeStagingIsCompleted
+			if(UpgradeStagingIsCompleted)
+				constraint (last LatestSMDToSTCSwapRel exists and last LatestSMDToSTCSwapRel.Status entered)
+					"CannotProceedFutherWithoutRunningTheFlow"
+				constraint (last LatestSMDToSTCSwapRel.Status.Completed)
+					"WorkUnitStatusShouldBeCompleted"
+				
+		LoadDataToStagingIsCompleted
+			if(LoadDataToStagingIsCompleted)
+				constraint (last DataFlowToAnalyticsFLRel.Status entered)
+					"CannotProceedFutherWithoutRunningTheFlow"
+				constraint (last DataFlowToAnalyticsFLRel.Status.Completed)
+					"WorkUnitStatusShouldBeCompleted"
+			
+		StageToActiveIsCompleted
+			if(StageToActiveIsCompleted)
+				constraint (last LatestSTCAndATCSwapRel exists and last LatestSTCAndATCSwapRel.Status entered )
+					"CannotProceedFutherWithoutRunningTheFlow"
+				constraint (last LatestSTCAndATCSwapRel.Status.Completed)
+					"WorkUnitStatusShouldBeCompleted"
+
+	Conditions
+		
+		IsUpgradeStagingIsCompleted
+			when (UpgradeStagingIsCompleted entered)
+			
+		IsMergeCustomizationIsCompleted
+			when (MergeContentCustomization entered and MergeModelCustomization entered)
+		
+		IsLoadDataToStagingIsCompleted
+			when(LoadDataToStagingIsCompleted entered)		
+			
+		IsDoneValidatingStageEnvironment
+			when (ValidateDataInDashboards entered and CheckedCustomsReport entered)
+		
+		IsStageToActiveIsCompleted
+			when (StageToActiveIsCompleted entered)
+		
+		IsUpgradeCompleted
+			when (ProductVersionSMDRel.Value > ProductVersionATCRel.Value
+			and ProductVersionATCRel exists 
+			and ProductVersionSMDRel exists 
+			and ProductVersionSMDRel.Value != "missing"
+			and ProductVersionATCRel.Value != "missing" 
+			and UpdateNotRequired=false)
+		
+		IsDisableButtonText
+			when (last AnalyticsUpgradeStagingRel.Status.InProgress)
+
+		UpdateNotRequired
+			when(ProductVersionATCRel.Value contains "11.0.7")
+
+		IsEnableButton
+			when (not last AnalyticsUpgradeStagingRel.Status.InProgress
+			and not ProductVersionATCRel.UpdateNotRequired 
+			and not last AnalyticsUpgradeActiveSpaceRel.Status.InProgress
+			and not last AnalyticsCopyToAnotherTenantRel.Status.InProgress
+			and not last PostPfiWorkunitsRel.Status.Processing 
+			and not last DataFlowToAnalyticsFLRel.Status.Processing 
+			and not last DataFlowToAnalyticsILRel.Status.Processing)
+
+		IsActiveSpaceProcessRunning
+			when (last AnalyticsUpgradeActiveSpaceRel.Status.InProgress)
+
+		IsCopyToAnotherTenantRunning
+			when (last AnalyticsCopyToAnotherTenantRel.Status.InProgress)
+
+		IsSMDToSTCWorkunitExists
+			when(SMDToSTCWorkUnit > 0)
+
+		IsSTCAndATCSwapWorkunitExists
+			when(STCAndATCSwapWorkUnit > 0)
+
+		IsFullLoadWorkunitExists
+			when(DataFlowToAnalyticsFLRel exists)
+			
+	Derived Fields
+			
+		DerivedSMDtoSTCSwapServiceDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			if(AnalyticsSMDtoSTCSwapServiceDefRel.Value=blank)
+				return "AnalyticsUpgradeSMDtoSTC"
+			else
+				return AnalyticsSMDtoSTCSwapServiceDefRel.Value
+		
+		DerivedDataFlowToAnalyticsFullLoadServiceDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			if(AnalyticsDataFlowToAnalyticsFullLoadServiceDefRel.Value=blank)
+				return "DataFlowToAnalyticsFullLoad"
+			else
+				return AnalyticsDataFlowToAnalyticsFullLoadServiceDefRel.Value
+			
+		DerivedSTCandATCSwapServiceDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			if(AnalyticsSTCandATCSwapServiceDefRel.Value=blank)
+				return "AnalyticsUpgradeSwapSTCATC"
+			else
+				return AnalyticsSTCandATCSwapServiceDefRel.Value
+
+		DerivedProductVersionSTCDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			return AnalyticsConfigParaTenantIDRel.Value+"-STC-CSF-Consumer"
+			
+		DerivedProductVersionSMDDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			return AnalyticsConfigParaTenantIDRel.Value+"-SMD-CSF-Consumer"
+			
+		DerivedProductVersionATCDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			return AnalyticsConfigParaTenantIDRel.Value+"-CSF-Consumer"
+
+		CancelMessage is a MessageField
+            restricted
+            "ThisActionWillCancelTheProcess.DoYouWantToContinue?"
+
+		DerivedUpdateIONSchemasServiceDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			if(AnalyticsUpdateIONSchemasServiceDefRel.Value not entered)
+				return "UpdateIONSchemas"
+			else
+				return AnalyticsUpdateIONSchemasServiceDefRel.Value
+ 
+		DerivedDataFlowToAnalyticsIncrementalLoadServiceDef is a DerivedField
+			type is Alpha size 200
+			restricted
+			if(AnalyticsDataFlowToAnalyticsIncrementalLoadServiceDefRel.Value not entered)
+				return "DataFlowToAnalyticsIncrementalLoad"
+			else
+				return AnalyticsDataFlowToAnalyticsIncrementalLoadServiceDefRel.Value
+				
+	Relations
+		
+		AnalyticsConfigParaTenantIDRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "TenantID"
+
+		AnalyticsStandUpStagingRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "StandUpStaging"
+	
+		ProductVersionSTCRel
+			one-to-many relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.AnalyticsConsoleConfigurations = DerivedProductVersionSTCDef)
+
+		ProductVersionSMDRel
+			one-to-many relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.AnalyticsConsoleConfigurations = DerivedProductVersionSMDDef)
+
+		ProductVersionATCRel
+			one-to-many relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+			Instance Selection
+				where (related.AnalyticsConsoleConfigurations = DerivedProductVersionATCDef)
+			
+		AnalyticsSMDtoSTCSwapServiceDefRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "AnalyticsUpgradeSMDToSTCServiceDef"
+				
+		AnalyticsSTCandATCSwapServiceDefRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "AnalyticsUpgradeSwapSTCAndATCServiceDef"
+				
+		AnalyticsDataFlowToAnalyticsFullLoadServiceDefRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "DataFlowToAnalyticsFullLoadServiceDef"
+				
+		DataFlowToAnalyticsFLRel 
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition= DerivedDataFlowToAnalyticsFullLoadServiceDef
+		
+		DataFullLoadPfiTriggerRel 
+			one-to-many relation to PfiTrigger
+			Field Mapping uses ByServiceName
+				related.ServiceName=DerivedDataFlowToAnalyticsFullLoadServiceDef
+
+		LatestSMDToSTCSwapRel 
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition= DerivedSMDtoSTCSwapServiceDef
+				related.PfiWorkunit = SMDToSTCWorkUnit
+		
+		LatestSTCAndATCSwapRel 
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition= DerivedSTCandATCSwapServiceDef
+				related.PfiWorkunit = STCAndATCSwapWorkUnit
+		
+		SMDtoSTCSwapRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition=DerivedSMDtoSTCSwapServiceDef
+			
+		SMDtoSTCUpgradePfiTriggerRel 
+			one-to-many relation to PfiTrigger
+			Field Mapping uses ByServiceName
+				related.ServiceName = DerivedSMDtoSTCSwapServiceDef
+		
+		STCandATCSwapRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition=DerivedSTCandATCSwapServiceDef
+		
+		STCandATCSwapPfiTriggerRel 
+			one-to-many relation to PfiTrigger
+			Field Mapping uses ByServiceName
+				related.ServiceName=DerivedSTCandATCSwapServiceDef
+
+		AnalyticsUpgradeStagingRel		
+			one-to-many relation to AnalyticsUpgradeStaging
+			Field Mapping uses symbolic key
+
+		PfiTaskRel
+			one-to-one relation to PfiTask
+			Field Mapping uses symbolic key
+				related.PfiTask.TaskName="BirstSystemAdmin"
+				related.PfiTask.TaskType=PfiTaskType.Group
+		
+		PfiUserCategoryRel
+            one-to-many relation to PfiUserTask
+            Field Mapping uses ByTaskNameTaskTypeUserProfile
+				related.PfiTask.TaskName="BirstSystemAdmin"
+				related.PfiTask.TaskType =PfiTaskType.Group 
+
+		AnalyticsUpgradeActiveSpaceRel		
+			one-to-many relation to AnalyticsUpgradeActiveSpace
+			Field Mapping uses symbolic key
+			
+		AnalyticsCopyToAnotherTenantRel		
+			one-to-many relation to AnalyticsCopyToAnotherTenant
+			Field Mapping uses symbolic key
+
+		AnalyticsUpdateIONSchemasServiceDefRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "UpdateIONSchemasServiceDef"
+
+		AnalyticsDataFlowToAnalyticsIncrementalLoadServiceDefRel
+			one-to-one relation to AnalyticsConsoleConfigurations
+			Field Mapping uses symbolic key
+				related.AnalyticsConsoleConfigurations = "DataFlowToAnalyticsIncrementalLoadServiceDef"
+
+		PostPfiWorkunitsRel 
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition= DerivedUpdateIONSchemasServiceDef
+
+		DataFlowToAnalyticsILRel 
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByServDefWorkunit
+				related.ServiceDefinition= DerivedDataFlowToAnalyticsIncrementalLoadServiceDef
+ 
+	Actions
+			
+		Create is an Action
+		
+		Update is an Action
+
+		Delete is an Action
+		
+		UpdateVersion is a Set Action
+			no records message is "ProductVersionHaveBeenUpdatedSuccessfully"
+			run in foreground
+			Instance Selection
+				where(false)
+			Action Rules
+				Empty Set Rules
+					invoke UpdateProductVersion AnalyticsConsoleConfigurations
+				
+		StartSMDToSTCUpgrade is a Set Action
+			no records message is "Started"
+			restricted
+			run in foreground
+			Instance Selection
+				where(false)
+			Action Rules
+				Empty Set Rules
+					constraint(PfiTaskRel exists)
+						"Birst_System_Admin_has_not_yet_created._Please_click_the_Create_Birst_System_Admin_task_group_first."
+					constraint(PfiUserCategoryRel exists)
+						"BirstSystemAdminHasNoUserAdded,PleaseClickThe_Add_UserIn_Birst_System_Admin_GroupAndAssignAtLeastOneUser."
+					constraint(SMDtoSTCUpgradePfiTriggerRel exists)
+						"<DerivedSMDtoSTCSwapServiceDef>IsNotYetConfigured.PleaseClickThe_Create_Service_Trigger_In_Integration_Architect_Analytics_Console_Dashboard."
+					invoke Start SMDtoSTCUpgradePfiTriggerRel
+					invoke Update last AnalyticsUpgradeStagingRel
+						invoked.SMDToSTCWorkUnit=SMDtoSTCUpgradePfiTriggerRel.TriggeredWorkunit
+				
+		StartDataFlowFullLoad is a Set Action
+			no records message is "Started"
+			restricted
+			run in foreground
+			Instance Selection
+				where(false)
+			Action Rules
+				Empty Set Rules
+					constraint(PfiTaskRel exists)
+						"Birst_System_Admin_has_not_yet_created._Please_click_the_Create_Birst_System_Admin_task_group_first."
+					constraint(PfiUserCategoryRel exists)
+						"BirstSystemAdminHasNoUserAdded,PleaseClickThe_Add_UserIn_Birst_System_Admin_GroupAndAssignAtLeastOneUser."
+					constraint(SMDtoSTCUpgradePfiTriggerRel exists)
+						"<DerivedDataFlowToAnalyticsFullLoadServiceDef>IsNotYetConfigured.PleaseClickThe'Create_Service_Trigger'In_Integration_Architect-Analytics_Console-Dashboard."
+					invoke Start DataFullLoadPfiTriggerRel
+					invoke Update AnalyticsStandUpStagingRel
+						invoked.Value=true
+			
+		StartSTCAndATCSwap is a Set Action
+			no records message is "Started"
+			restricted
+			run in foreground
+			Instance Selection
+				where(false)
+			Action Rules
+				Empty Set Rules
+					constraint(PfiTaskRel exists)
+						"Birst_System_Admin_has_not_yet_created._Please_click_the_Create_Birst_System_Admin_task_group_first."
+					constraint(PfiUserCategoryRel exists)
+						"BirstSystemAdminHasNoUserAdded,PleaseClickThe_Add_UserIn_Birst_System_Admin_GroupAndAssignAtLeastOneUser."
+					constraint(STCandATCSwapPfiTriggerRel exists)
+						"<DerivedSTCandATCSwapServiceDef>IsNotYetConfigured.PleaseClickThe'Create_Service_Trigger'In_Integration_Architect-Analytics_Console-Dashboard."
+					invoke Start STCandATCSwapPfiTriggerRel
+					invoke Update last AnalyticsUpgradeStagingRel
+						invoked.STCAndATCSwapWorkUnit=STCandATCSwapPfiTriggerRel.TriggeredWorkunit
+
+		Cancel is an Instance Action
+			confirmation required
+				"<CancelMessage>"
+			completion message is "TheProcessHasBeenCanceledSuccessfully"
+			Action Rules
+           		invoke Update
+           			invoked.Status=Status.Canceled

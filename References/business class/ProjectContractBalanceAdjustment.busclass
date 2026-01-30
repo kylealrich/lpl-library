@@ -1,0 +1,168 @@
+ProjectContractBalanceAdjustment is a BusinessClass
+	sql name is "ProjectContractBalAdj"
+    owned by Projects
+    prefix is PCBA
+
+    Ontology
+    	part of ProjectFundingSource
+    		relative key is SequenceNumber is Numeric size 4
+    		
+    Persistent Fields
+    	FinanceCodeBlock	is a FinanceCodeBlockAdjustment
+    	Amount 				is a CurrencyAmount
+    		precision is ProjectContract.Currency.NumberOfDecimals
+    		default label is "InvoicedAmount"
+		UnitsAmount
+			default label is "Hours"
+    	TaxAmount			is a CurrencyAmount
+    		precision is ProjectContract.Currency.NumberOfDecimals
+    	BillableAmount		is a CurrencyAmount
+    		precision is ProjectContract.Currency.NumberOfDecimals
+    	RevenueAmount		is a CurrencyAmount
+    		precision is ProjectContract.Currency.NumberOfDecimals
+
+	Derived Fields
+
+    Conditions
+
+    Relations
+		ShadowPostingDescendantRel
+			one-to-one relation to ProjectShadow
+			Field Mapping uses BySummaryProject
+				related.FinanceEnterpriseGroup = FinanceEnterpriseGroup
+
+				related.SummaryProject   	   = ProjectContract
+				related.Project				   = FinanceCodeBlock.Project
+
+		ProjectContractBalanceAdjustmentRel
+			one-to-many relation to ProjectContractBalanceAdjustment
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= ProjectContract
+				related.FinanceDimension2		= FinanceDimension2
+			Instance Selection
+				where (related.FinanceCodeBlock = FinanceCodeBlock
+				and    related.SequenceNumber	!= SequenceNumber)
+	
+		ProjectContractInvoiceBalanceRel
+			one-to-many relation to ProjectContractInvoiceBalance
+			Field Mapping uses part of key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectContract			= ProjectContract
+				related.FinanceDimension2		= FinanceDimension2
+			Instance Selection
+				where (related.FinanceCodeBlock = FinanceCodeBlock)
+			
+    Sets
+		ByProjectAndAccount
+			Sort Order
+				FinanceEnterpriseGroup
+				ProjectContract
+				FinanceDimension2
+				FinanceCodeBlock.Project								
+				FinanceCodeBlock.GeneralLedgerChartAccount
+				SequenceNumber
+
+    Field Rules
+    	SequenceNumber
+    		autosequence
+    		
+    	FinanceCodeBlock
+
+			if (FinanceCodeBlock.Project entered)
+				constraint (ShadowPostingDescendantRel.Project.ProjectType.Posting)
+					"<FinanceEnterpriseGroup.ProjectLabel>MustBeAPostingChildOf<ProjectContract.DisplayContract>"
+				constraint (FinanceCodeBlock.Project.IsBillable)
+					"<FinanceEnterpriseGroup.ProjectLabel>MustBeBillableAndProjectStatusMustBeBillable"
+
+		RevenueAmount
+			if (ProjectContract.RevenueRecognition.Combined)
+				RevenueAmount = Amount
+
+	Delete Rules
+
+	Actions
+		Create is a Create Action
+			Action Rules
+				constraint (ProjectContractBalanceAdjustmentRel not exists)
+					"AdjustmentAlreadyExistsForEnteredFinanceStructure"
+
+		Delete is a Delete Action
+			
+		Purge is a Purge Action
+			restricted
+			
+		Update is an Update Action
+			Action Rules
+				constraint (ProjectContractBalanceAdjustmentRel not exists)
+					"AdjustmentAlreadyExistsForEnteredFinanceStructure"
+
+		ProcessAllProjectContractBalanceAdjustments is a Set Action
+			restricted
+			completion message is "<GoodRecordCount>RecordsProcessedWithoutErrors;<BadRecordCount>RecordsSkippedWithErrors"
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+				ContractGroup				is a ProjectContract group
+			Parameter Rules
+				PrmFinanceEnterpriseGroup
+					required
+			Local Fields
+				ErrorFound		is Boolean
+				BadRecordCount	is Numeric size 12
+				GoodRecordCount	is Numeric size 12
+        	Instance Selection
+        		where (FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+        		and   (ProjectContract within ContractGroup
+        		or     ContractGroup not entered))
+        	Action Rules
+        		Instance Rules
+        			ErrorFound = false
+        			invoke UpdateContractLTDBalances
+        				resume on error
+        					ErrorFound = true
+        			if (ErrorFound)
+        				BadRecordCount +=1
+        			else
+        				GoodRecordCount +=1
+        					
+		UpdateContractLTDBalances is an Instance Action
+			Action Rules
+				constraint (Amount <= ProjectFundingSource.BilledRemaining)
+					"InvoicedAmountCannotExceed<ProjectFundingSource.BilledRemaining>"
+				constraint (RevenueAmount <= ProjectFundingSource.RevenueRemaining)
+					"RevenueAmountCannotExceed<ProjectFundingSource.RevenueRemaining>"				
+				if (ProjectContractInvoiceBalanceRel exists)
+					invoke Update first ProjectContractInvoiceBalanceRel
+						invoked.Amount += Amount
+						invoked.BillableAmount += BillableAmount
+						invoked.UnitsAmount += UnitsAmount
+						invoked.TaxAmount += TaxAmount
+						invoked.RevenueAmount += RevenueAmount
+						invoked.AdjustedAmount += Amount
+						invoked.AdjustedBillableAmount += BillableAmount
+						invoked.AdjustedUnitsAmount += UnitsAmount
+						invoked.AdjustedTaxAmount += TaxAmount
+						invoked.AdjustedRevenueAmount += RevenueAmount
+				else
+					invoke Create ProjectContractInvoiceBalance
+						fill in fields from this instance
+							except invoked.SequenceNumber
+						invoked.AdjustedAmount = Amount
+						invoked.AdjustedBillableAmount = BillableAmount
+						invoked.AdjustedUnitsAmount = UnitsAmount
+						invoked.AdjustedTaxAmount = TaxAmount
+						invoked.AdjustedRevenueAmount = RevenueAmount
+				if (Amount entered)
+					invoke UpdateTotalBilledAmount ProjectFundingSource
+						invoked.BilledAmount = Amount
+					invoke UpdateTotalBilledAmount ProjectContract
+						invoked.BilledAmount = Amount
+				if (RevenueAmount entered)
+					invoke UpdateTotalRecognizedAmount ProjectFundingSource
+						invoked.RecognizedAmount = RevenueAmount
+					invoke UpdateTotalRecognizedAmount ProjectContract
+						invoked.RecognizedAmount = RevenueAmount
+				invoke Purge
+		
+		

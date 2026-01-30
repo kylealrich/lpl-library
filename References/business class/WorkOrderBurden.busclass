@@ -1,0 +1,777 @@
+WorkOrderBurden is a BusinessClass
+	owned by wo
+	prefix is WBN
+	classic name is WOBRDN
+
+	Ontology
+		symbolic key is WorkOrderBurden
+			classic set name is WBNSET1
+			classic name is SEQ
+			classic name for InventoryLocation is LOCATION
+			classic name for WorkOrder is WORK-ORDER
+
+	Patterns
+		implements StaticJava
+		disable AuditIndex
+
+	Persistent Fields
+
+		BurdenCode
+		Vendor
+		FlatAmount						is an InternationalAmount
+			classic name is EST-AMT
+		AmountPerUnit					is an InternationalAmount
+			classic name is EST-AMT-PER-U
+		PerBurdenUnitQuantity			is Decimal size 13.2
+			classic name is EST-QTY
+		PerBurdenUnitMultiplier			is Decimal size 4.1
+			classic name is EST-MULT
+		PercentageOfInventoryCost		is Percent size 5.2
+			classic name is EST-PCT
+		ActualFlatAmount				is an InternationalAmount
+			classic name is ACT-AMT
+		ActualAmountPerUnit				is an InternationalAmount
+			classic name is ACT-AMT-PER-U
+		ActualPerBurdenUnitQuantity		is Decimal size 13.2
+			classic name is ACT-QTY
+		ActualPerBurdenUnitMultiplier	is Decimal size 4.1
+			classic name is ACT-MULT
+		ActualPercentageOfInventoryCost	is Percent size 5.2
+			classic name is ACT-PCT
+		CostTolerancePercentage
+			classic name is COST-TOL-PCT
+		ZeroCost						is Boolean
+			classic name is ZERO-COST-FL
+		AlternateUnitOfMeasure			is a UnitOfMeasure
+			classic name is EST-UOM
+		ActualAlternateUnitOfMeasure	is a UnitOfMeasure
+			classic name is ACT-UOM
+
+	Derived Fields
+		DerivedWorkOrderBurden is a DerivedField
+			type is Text
+			if (WorkOrderBurden exists)
+				return WorkOrderBurden
+			else
+				return blank
+
+		PerFinishedGoodsEstimatedTotal 							is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (AmountPerUnit * WorkOrder.PlanQuantity)
+
+		PerBurdenUnitEstimatedTotal 							is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (AmountPerUnit * PerBurdenUnitQuantity * PerBurdenUnitMultiplier)
+
+		PercentageOfInventoryCostEstimatedTotal 				is a DerivedField
+			type is like InternationalAmount
+			restricted
+			return (PercentageOfInventoryCost * (WorkOrder.EstimatedComponentCost + WorkOrder.EstimatedPackagingCost))
+
+		EstimatedTotal  										is a DerivedField
+			type is like InternationalAmount
+			if (IsFlatAmountBurden)
+				return FlatAmount
+			else
+			if (IsAmountPerFinishedGoodsUnit)
+				return PerFinishedGoodsEstimatedTotal
+			else
+			if (IsAmountPerBurdenUnit)
+				return PerBurdenUnitEstimatedTotal
+			else
+			if (IsPercentOfFinishedGoodsInventoryCost)
+				return PercentageOfInventoryCostEstimatedTotal
+			else
+				return 0
+
+		ToleranceMessage								is a MessageField
+			restricted
+			"BurdenAmountIsOutsideTolerance"
+
+		ConfirmationMessage								is a DerivedField
+			type is MessageField
+			if (CostTolerancePercentage entered
+			or  ZeroCost)
+				if (IsFlatAmountBurden)
+					if (ZeroCost
+					and ActualFlatAmount != FlatAmount)
+
+						OutsideTolerance	 			= true
+						return ToleranceMessage
+					else
+						LocalBurdenCost					= FlatAmount
+						LocalActualBurdenCost			= ActualFlatAmount
+
+						LocalTolerence					= (FlatAmount * CostTolerancePercentage)
+
+						round LocalTolerence down to nearest 1
+				else
+				if (IsAmountPerFinishedGoodsUnit)
+					if (ZeroCost
+					and ActualAmountPerUnit != AmountPerUnit)
+
+						OutsideTolerance	 			= true
+						return ToleranceMessage
+					else
+
+						LocalBurdenCost 				= (AmountPerUnit * WorkOrder.PlanQuantity)
+						LocalActualBurdenCost 			= (ActualFlatAmount * WorkOrder.PlanQuantity)
+
+						LocalTolerence 					= (LocalBurdenCost * CostTolerancePercentage)
+
+						round LocalTolerence down to nearest 1
+				else
+				if (IsPercentOfFinishedGoodsInventoryCost)
+					if (ZeroCost
+					and ActualPercentageOfInventoryCost != PercentageOfInventoryCost)
+
+						OutsideTolerance	 			= true
+						return ToleranceMessage
+					else
+
+						LocalBurdenCost 				= ((WorkOrder.EstimatedPackagingCost + WorkOrder.EstimatedComponentCost) * PercentageOfInventoryCost)
+						LocalActualBurdenCost 			= ((WorkOrder.EstimatedPackagingCost + WorkOrder.EstimatedComponentCost) * ActualPercentageOfInventoryCost)
+
+						LocalTolerence 					= (LocalBurdenCost * CostTolerancePercentage)
+
+						round LocalTolerence down to nearest 1
+				else
+				if (IsAmountPerBurdenUnit)
+					if (ZeroCost
+					and (ActualAmountPerUnit != AmountPerUnit
+					or   ActualPerBurdenUnitQuantity != PerBurdenUnitQuantity
+					or   ActualPerBurdenUnitMultiplier != PerBurdenUnitMultiplier))
+
+						OutsideTolerance	 			= true
+						return ToleranceMessage
+					else
+						LocalBurdenCost 				= (AmountPerUnit * PerBurdenUnitQuantity * PerBurdenUnitMultiplier)
+						LocalActualBurdenCost 			= (ActualAmountPerUnit * ActualPerBurdenUnitQuantity * ActualPerBurdenUnitMultiplier)
+
+						LocalTolerence 					= (LocalBurdenCost * CostTolerancePercentage)
+
+						round LocalTolerence down to nearest 1
+
+				if (!OutsideTolerance)
+					if ((LocalActualBurdenCost > (LocalBurdenCost + LocalTolerence))
+					or  (LocalActualBurdenCost < (LocalBurdenCost - LocalTolerence)))
+
+						return ToleranceMessage
+
+	Local Fields
+		LocalFixedBurdenCost					is an InternationalAmount
+		UOMCalculation
+		LocalBurdenCost							is an InternationalAmount
+		LocalActualBurdenCost					is an InternationalAmount
+		LocalTolerence							is an InternationalAmount
+		LocalActualAmountPerUnit				is an InternationalAmount
+		LocalActualPerBurdenUnitQuantity		is like Quantity
+		LocalActualPerBurdenUnitMultiplier		is Decimal size 4.1
+		LocalAmountPerUnit						is an InternationalAmount
+		LocalPerBurdenUnitQuantity				is like Quantity
+		LocalPerBurdenUnitMultiplier			is Decimal size 4.1
+		LocalEstimatedBurdenCost				is an InternationalAmount
+		LocalWorkOrderQuantity					is like Quantity
+		LocalItem								is a Item
+		LocalReverseByWorkOrder					is Boolean
+		LocalDistributionAccount				is like TransactionCodeBlock
+		LocalAmount								is an InternationalAmount
+		LocalPostingType						is AlphaUpper size 2
+
+	Transient Fields
+		OutsideTolerance						is Boolean
+
+	Conditions
+
+		QuantitiesEntered
+			restricted
+			when (FlatAmount entered
+			or    AmountPerUnit entered
+			or	  PerBurdenUnitQuantity entered
+			or    PercentageOfInventoryCost entered)
+
+		IsAmountPerBurdenUnit
+			restricted
+			when (BurdenCode.BurdenType.AmountPerBurdenUnit)
+
+		IsAmountPerFinishedGoodsUnit
+			restricted
+			when (BurdenCode.BurdenType.AmountPerFinishedGoodsUnit)
+
+		IsFlatAmountBurden
+			restricted
+			when (BurdenCode.BurdenType.FlatAmount)
+
+		IsPercentOfFinishedGoodsInventoryCost
+			restricted
+			when (BurdenCode.BurdenType.PercentOfFinishedGoodsInventoryCost)
+
+		IsAmountPerFinishedGoodsOrPerBurdenUnit
+			restricted
+			when (IsAmountPerFinishedGoodsUnit
+			or    IsAmountPerBurdenUnit)
+
+		IsVendorEntered
+			restricted
+			when (Vendor entered)
+
+		IsHoldCodeEntered
+			restricted
+			when (WorkOrder.HoldCode entered)
+
+		IsWorkOrderVendorEntered
+			restricted
+			when (WorkOrder.Vendor entered)
+
+		IsOffsiteDateEntered
+			restricted
+			when (WorkOrder.OffsiteDate entered)
+
+		IsReturnedDateEntered
+			restricted
+			when (WorkOrder.ReturnedDate entered)
+
+		IsReturnedFromOffsite
+			restricted
+			when (WorkOrder.ReturnedDate entered)
+
+ 		ForProductionFeedback
+ 			restricted
+ 			when (WorkOrder.ProductionFeedbackStatus.InProcess)
+
+ 		IsProdcutionFeedbackCompletedOrFinished
+ 			restricted
+ 			when (WorkOrder.ProductionFeedbackStatus.Completed
+ 			or    WorkOrder.ProductionFeedbackStatus.Finished)
+
+		IsReturnedFromOffsiteOrProductionFeedbackInProcess
+			restricted
+			when (IsReturnedFromOffsite
+			or    ForProductionFeedback)
+
+	Rule Blocks
+		CreateDistributionsForBurden
+			invoke Create InventoryTransactionLineDistribution
+				fill in fields from this instance
+				invoked.System												= "WO"
+				invoked.TransactionSystemCode								= "WO"
+				invoked.InventoryTransaction								= PrmInventoryTransaction
+				invoked.InventoryTransactionLine.LineNumber					= PrmInventoryTransactionLine
+
+				invoked.PostingType											= LocalPostingType
+				invoked.PostingDate											= current corporate date
+				invoked.GLFinanceCodeBlock									= LocalDistributionAccount
+				invoked.GLTransactionAmount									= LocalAmount
+				invoked.CurrencyCode										= Company.Currency
+				invoked.TransactionDate										= current corporate date
+				invoked.GeneralLedgerEvent									= "WO"
+				invoked.DocumentNumber										= WorkOrder
+				invoked.BurdenCode											= BurdenCode
+				initialize invoked.Status
+
+		CostCalculations
+			if (IsFlatAmountBurden)
+				LocalFixedBurdenCost 			= ActualFlatAmount
+
+			if (IsAmountPerFinishedGoodsUnit)
+				if (ActualAlternateUnitOfMeasure not entered)
+
+					if (IsReturnedFromOffsite)
+						LocalFixedBurdenCost = ActualAmountPerUnit * WorkOrder.PlanQuantity
+
+					if (ForProductionFeedback)
+						LocalFixedBurdenCost = ActualAmountPerUnit * WorkOrder.ActualQuantity
+				else
+					initialize UOMCalculation
+					LocalItem										= WorkOrder.Item
+					UOMCalculation.InputUOM							= ActualAlternateUnitOfMeasure
+					UOMCalculation.InputUnitCost					= ActualAmountPerUnit
+					UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+					LocalFixedBurdenCost							= UOMCalculation.OutputUnitCost
+
+				if (IsReturnedFromOffsite)
+					LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.PlanQuantity
+
+				if (ForProductionFeedback)
+					LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.ActualQuantity
+
+			if (IsAmountPerBurdenUnit)
+				LocalFixedBurdenCost = ActualAmountPerUnit * ActualPerBurdenUnitQuantity * ActualPerBurdenUnitMultiplier
+
+   			if (IsPercentOfFinishedGoodsInventoryCost)
+				if (IsReturnedFromOffsite)
+   					LocalFixedBurdenCost = ((WorkOrder.EstimatedComponentCost + WorkOrder.EstimatedPackagingCost) * ActualPercentageOfInventoryCost)
+
+				if (ForProductionFeedback)
+   					LocalFixedBurdenCost = ((WorkOrder.ActualComponentCost + WorkOrder.ActualPackagingCost) * ActualPercentageOfInventoryCost)
+
+			round LocalFixedBurdenCost down to nearest 1
+
+	Field Rules
+
+		BurdenCode
+			required
+			cannot be changed													
+
+		FlatAmount
+			if (IsFlatAmountBurden)
+				required
+					"MustEnterFlatAmountForBurdenType:FlatAmount"							
+				LocalEstimatedBurdenCost = (FlatAmount - old FlatAmount)
+
+			else
+				cannot be entered
+					"RequiredOnlyForBurdenType:FlatAmount"
+
+		AmountPerUnit
+			if (IsAmountPerFinishedGoodsUnit
+			or IsAmountPerBurdenUnit)
+				required
+					"MustEnterAmountPerUnitForBurdenType:<BurdenCode.BurdenType>"			
+			else
+			if (IsFlatAmountBurden
+			or IsPercentOfFinishedGoodsInventoryCost)
+				cannot be entered
+					"RequiredOnlyForBurdenType:AmountPerFinishedGoodsUnit/AmountPerBurdenUnit"
+
+			if (IsAmountPerFinishedGoodsUnit)
+				if (AlternateUnitOfMeasure not entered)
+					LocalEstimatedBurdenCost = ((AmountPerUnit - old AmountPerUnit) * WorkOrder.PlanQuantity)
+
+					round LocalEstimatedBurdenCost down to nearest 1
+				else
+					initialize UOMCalculation
+					LocalItem										= WorkOrder.Item
+					UOMCalculation.InputUOM							= AlternateUnitOfMeasure
+					UOMCalculation.InputUnitCost					= (AmountPerUnit - old AmountPerUnit)
+					UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+					LocalEstimatedBurdenCost						= UOMCalculation.OutputUnitCost
+					LocalEstimatedBurdenCost						= LocalEstimatedBurdenCost * WorkOrder.PlanQuantity
+
+			if (IsAmountPerBurdenUnit)
+				if (AmountPerUnit changed)
+					LocalAmountPerUnit = AmountPerUnit - old AmountPerUnit
+				else
+					LocalAmountPerUnit = AmountPerUnit
+
+				if (PerBurdenUnitQuantity changed)
+					LocalPerBurdenUnitQuantity = PerBurdenUnitQuantity - old PerBurdenUnitQuantity
+				else
+					LocalPerBurdenUnitQuantity = PerBurdenUnitQuantity
+
+				if (ActualPerBurdenUnitMultiplier changed)
+					LocalPerBurdenUnitMultiplier = PerBurdenUnitMultiplier - old PerBurdenUnitMultiplier
+				else
+					LocalPerBurdenUnitMultiplier = PerBurdenUnitMultiplier
+
+				if (AmountPerUnit changed
+				or  PerBurdenUnitQuantity changed
+				or  PerBurdenUnitMultiplier changed)
+
+					LocalEstimatedBurdenCost = (LocalAmountPerUnit * LocalPerBurdenUnitQuantity * LocalPerBurdenUnitMultiplier)
+					round LocalEstimatedBurdenCost down to nearest 1
+
+		PerBurdenUnitQuantity
+			if (IsAmountPerBurdenUnit)
+				required
+					"MustEnterAmountPerBurdenUnitForBurdenType:AmountPerBurdenUnit"										
+			else
+				cannot be entered
+					"RequiredOnlyForBurdenType:AmountPerBurdenUnit"
+
+		PerBurdenUnitMultiplier
+			if (IsAmountPerBurdenUnit)
+				default to 1
+			else
+				cannot be entered
+					"RequiredOnlyForBurdenType:AmountPerBurdenUnit"
+
+		AlternateUnitOfMeasure
+			if (!IsAmountPerFinishedGoodsUnit)
+				cannot be entered
+					"AlternateUnitOfMeasureIsOnlyApplicableOnBurdenType:AmountPerFinishedGoodsUnit"  						
+
+		PercentageOfInventoryCost
+			if (IsPercentOfFinishedGoodsInventoryCost)
+				required
+					"MustEnterPercentOfFinishedGoodsInventoryCostForBurdenType:PercentOfFinishedGoodsInventoryCost"		
+			else
+				cannot be entered
+					"RequiredOnlyForBurdenType:PercentOfFinishedGoodsInventoryCost"
+
+			if (IsPercentOfFinishedGoodsInventoryCost)
+   				LocalEstimatedBurdenCost		= (PercentageOfInventoryCostEstimatedTotal - old PercentageOfInventoryCostEstimatedTotal)
+   				round LocalEstimatedBurdenCost down to nearest 1
+
+
+
+		ActualFlatAmount
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (!IsFlatAmountBurden)
+				cannot be entered
+					"ActualFlatAmountIsRequiredOnlyForBurdenTypeFlatAmount"
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"															
+
+
+		ActualAmountPerUnit
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (IsFlatAmountBurden
+			or IsPercentOfFinishedGoodsInventoryCost)
+				cannot be entered
+					"ActualAmountPerUnitIsRequiredOnlyForBurdenType:AmountPerFinishedGoodsUnit/AmountPerBurdenUnit"
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"														
+
+			if (IsReturnedFromOffsite)
+				LocalWorkOrderQuantity = WorkOrder.PlanQuantity
+
+			if (ForProductionFeedback)
+				LocalWorkOrderQuantity = WorkOrder.ActualQuantity
+
+			if (IsAmountPerFinishedGoodsUnit)
+				if (ActualAlternateUnitOfMeasure not entered)
+					LocalFixedBurdenCost = ((ActualAmountPerUnit - old ActualAmountPerUnit) * LocalWorkOrderQuantity)
+
+					round LocalFixedBurdenCost down to nearest 1
+				else
+					initialize UOMCalculation
+					LocalItem										= WorkOrder.Item
+					UOMCalculation.InputUOM							= ActualAlternateUnitOfMeasure
+					UOMCalculation.InputUnitCost					= (ActualAmountPerUnit - old ActualAmountPerUnit)
+					UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+					LocalFixedBurdenCost							= UOMCalculation.OutputUnitCost
+
+					if (IsReturnedFromOffsite)
+						LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.PlanQuantity 
+
+					if (ForProductionFeedback)
+						LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.ActualQuantity
+
+
+			if (IsAmountPerBurdenUnit)
+				if (ActualAmountPerUnit changed)
+					LocalActualAmountPerUnit = ActualAmountPerUnit - old ActualAmountPerUnit
+				else
+					LocalActualAmountPerUnit = ActualAmountPerUnit
+				if (ActualPerBurdenUnitQuantity changed)
+					LocalActualPerBurdenUnitQuantity = ActualPerBurdenUnitQuantity - old ActualPerBurdenUnitQuantity
+				else
+					LocalActualPerBurdenUnitQuantity = ActualPerBurdenUnitQuantity
+				if (ActualPerBurdenUnitMultiplier changed)
+					LocalActualPerBurdenUnitMultiplier = ActualPerBurdenUnitMultiplier - old ActualPerBurdenUnitMultiplier
+				else
+					LocalActualPerBurdenUnitMultiplier = ActualPerBurdenUnitMultiplier
+				if (ActualAmountPerUnit changed
+				or  ActualPerBurdenUnitQuantity changed
+				or  ActualPerBurdenUnitMultiplier changed)
+
+					LocalFixedBurdenCost = (LocalActualAmountPerUnit * LocalActualPerBurdenUnitQuantity * LocalActualPerBurdenUnitMultiplier)
+					round LocalFixedBurdenCost down to nearest 1
+
+
+
+		ActualPerBurdenUnitQuantity
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (!IsAmountPerBurdenUnit)
+				cannot be entered
+					"ActualPerBurdenUnitQuantityIsRequiredOnlyForBurdenType:AmountPerBurdenUnit"
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"														
+
+		ActualPerBurdenUnitMultiplier
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (!IsAmountPerBurdenUnit)
+				cannot be entered
+					"ActualPerBurdenUnitMultiplierIsRequiredOnlyForBurdenType:AmountPerBurdenUnit"
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"														
+
+		ActualAlternateUnitOfMeasure
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (!IsAmountPerFinishedGoodsUnit)
+				cannot be entered
+					"UOMIsOnlyApplicableOnBurdenTypesOfFinishedGoods"  						
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"														
+
+		ActualPercentageOfInventoryCost
+			constraint (WorkOrder.Status.InProduction)
+				"WorkOrderNotInProduction;CannotEnter"
+
+			if (!IsPercentOfFinishedGoodsInventoryCost)
+				cannot be entered
+					"ActualPercentageOfInventoryCostIsRequiredOnlyForBurdenType:PercentOfFinishedGoodsInventoryCost"
+
+			if (IsHoldCodeEntered
+			or  IsProdcutionFeedbackCompletedOrFinished)
+				cannot be changed
+					"CannotChange;WorkOrderNotReturnedFromOffsite"														
+
+   			if (IsPercentOfFinishedGoodsInventoryCost)
+
+   				if (IsReturnedFromOffsite)
+	   				LocalFixedBurdenCost = ((WorkOrder.EstimatedComponentCost + WorkOrder.EstimatedPackagingCost) *
+	   										(ActualPercentageOfInventoryCost - old ActualPercentageOfInventoryCost))
+
+   				if (ForProductionFeedback)
+	   				LocalFixedBurdenCost = ((WorkOrder.ActualComponentCost+ WorkOrder.ActualPackagingCost) *
+	   										(ActualPercentageOfInventoryCost - old ActualPercentageOfInventoryCost))
+
+
+   				round LocalFixedBurdenCost down to nearest 1
+
+
+	Actions
+
+		Create is a Create Action
+			valid when (!WorkOrder.IsReleasedOrUnreleased)			
+
+			Field Rules
+				FlatAmount											
+					if (IsFlatAmountBurden)
+						default to BurdenCode.FlatAmount
+
+				AmountPerUnit
+					if (IsAmountPerFinishedGoodsUnit)
+						default to BurdenCode.AmountPerUnit
+
+				AlternateUnitOfMeasure
+					if (IsAmountPerFinishedGoodsUnit)
+						default to 	BurdenCode.AlternateUnitOfMeasure
+
+			   	PerBurdenUnitMultiplier
+			   		if (IsAmountPerBurdenUnit)
+			   			default to BurdenCode.PerBurdenUnitMultiplier
+
+			   	PerBurdenUnitQuantity
+			   		if (IsAmountPerBurdenUnit)
+			   			default to BurdenCode.PerBurdenUnitQuantity
+
+			   	PercentageOfInventoryCost
+					if (IsPercentOfFinishedGoodsInventoryCost)
+			   			default to BurdenCode.PercentageOfInventoryCost
+			   	Vendor
+		   			default to BurdenCode.Vendor
+
+			Action Rules
+				constraint (!WorkOrder.IsReleasedOrUnreleased)								
+					"CreateActionIsValidOnlyWhenNotReleasedOrUnreleased"
+
+				constraint (WorkOrder.IsExplodedOrInProduction)
+					"CreateOnlyInExplodedOrInProductionStatus"
+
+				constraint (!IsHoldCodeEntered)
+					"CannotAddWorkOrderBurden;WorkOrderNotReturnedFromOffsite"
+
+				if (!LocalReverseByWorkOrder)
+					constraint (!IsProdcutionFeedbackCompletedOrFinished)
+						"CannotAddWorkOrderBurden;WorkOrderProdcutionFeedbackCompletedOrFinished"
+
+			Exit Rules
+				invoke UpdateFromWorkOrderBurden WorkOrder
+					invoked.PrmActualBurdenCost 	= LocalFixedBurdenCost
+					invoked.PrmEstimatedAmount 		= LocalEstimatedBurdenCost
+
+		Update is an Update Action
+			Exit Rules
+				invoke UpdateFromWorkOrderBurden WorkOrder
+					invoked.PrmActualBurdenCost 	= LocalFixedBurdenCost
+					invoked.PrmEstimatedAmount 		= LocalEstimatedBurdenCost
+
+
+		Delete is a Delete Action
+			Entrance Rules
+				if (WorkOrder.InProduction)
+					constraint (!QuantitiesEntered)
+						"CannotDelete;PlannedAmountsExist"										
+
+				constraint (!IsHoldCodeEntered)
+					"CannotDelete;WorkOrderNotReturnedFromOffsite"
+
+				if (IsFlatAmountBurden)
+					LocalEstimatedBurdenCost 		-= FlatAmount
+
+				if (IsAmountPerFinishedGoodsUnit
+				and AlternateUnitOfMeasure not entered)
+					LocalEstimatedBurdenCost		-= PerFinishedGoodsEstimatedTotal
+					round LocalEstimatedBurdenCost down to nearest 1
+
+				if (IsAmountPerFinishedGoodsUnit)
+					if (AlternateUnitOfMeasure not entered)
+						LocalEstimatedBurdenCost 	-= PerFinishedGoodsEstimatedTotal
+
+						round LocalEstimatedBurdenCost down to nearest 1
+					else
+						initialize UOMCalculation
+						LocalItem										= WorkOrder.Item
+						UOMCalculation.InputUOM							= AlternateUnitOfMeasure
+						UOMCalculation.InputUnitCost					= AmountPerUnit
+						UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+						LocalEstimatedBurdenCost						= UOMCalculation.OutputUnitCost
+						LocalEstimatedBurdenCost					   -= LocalEstimatedBurdenCost * WorkOrder.PlanQuantity
+						round LocalEstimatedBurdenCost down to nearest 1
+
+				if (IsAmountPerBurdenUnit)
+					LocalEstimatedBurdenCost	-= PerBurdenUnitEstimatedTotal
+					round LocalEstimatedBurdenCost down to nearest 1
+
+				if (IsPercentOfFinishedGoodsInventoryCost)
+				 	LocalEstimatedBurdenCost	-= PercentageOfInventoryCostEstimatedTotal
+				 	round LocalEstimatedBurdenCost down to nearest 1
+
+
+
+
+				if (IsFlatAmountBurden)
+					LocalFixedBurdenCost 			= ActualFlatAmount
+
+				if (IsAmountPerFinishedGoodsUnit)
+					if (ActualAlternateUnitOfMeasure not entered)
+
+						if (IsReturnedFromOffsite)
+							LocalFixedBurdenCost = ActualAmountPerUnit * WorkOrder.PlanQuantity
+
+						if (ForProductionFeedback)
+							LocalFixedBurdenCost = ActualAmountPerUnit * WorkOrder.ActualQuantity
+
+						round LocalFixedBurdenCost down to nearest 1
+					else
+						initialize UOMCalculation
+						LocalItem										= WorkOrder.Item
+						UOMCalculation.InputUOM							= ActualAlternateUnitOfMeasure
+						UOMCalculation.InputUnitCost					= ActualAmountPerUnit
+						UOMCalculation.Method							= UOMCalculation.Method.ConvertToStock
+						LocalFixedBurdenCost							= UOMCalculation.OutputUnitCost
+
+					if (IsReturnedFromOffsite)
+						LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.PlanQuantity
+
+					if (ForProductionFeedback)
+						LocalFixedBurdenCost			= LocalFixedBurdenCost * WorkOrder.ActualQuantity
+
+					round LocalFixedBurdenCost down to nearest 1
+
+				if (IsAmountPerBurdenUnit)
+					LocalFixedBurdenCost = ActualAmountPerUnit * ActualPerBurdenUnitQuantity * ActualPerBurdenUnitMultiplier
+
+					round LocalFixedBurdenCost down to nearest 1
+
+	   			if (IsPercentOfFinishedGoodsInventoryCost)
+					if (IsReturnedFromOffsite)
+	   					LocalFixedBurdenCost = ((WorkOrder.EstimatedComponentCost + WorkOrder.EstimatedPackagingCost) * ActualPercentageOfInventoryCost)
+
+					if (ForProductionFeedback)
+	   					LocalFixedBurdenCost = ((WorkOrder.ActualComponentCost + WorkOrder.ActualPackagingCost) * ActualPercentageOfInventoryCost)
+
+
+	   				round LocalFixedBurdenCost down to nearest 1
+
+				LocalFixedBurdenCost = LocalFixedBurdenCost * -1
+
+				invoke UpdateFromWorkOrderBurden WorkOrder
+					invoked.PrmActualBurdenCost = LocalFixedBurdenCost
+					invoked.PrmEstimatedAmount	= LocalEstimatedBurdenCost
+
+		Purge is a Purge Action
+			restricted
+			bypass relational integrity rules
+
+		UpdateInitializeActualQuantities is an Instance Action
+			restricted
+			Action Rules
+				initialize ActualFlatAmount
+				initialize ActualAmountPerUnit
+				initialize ActualPerBurdenUnitQuantity
+				initialize ActualPerBurdenUnitMultiplier
+				initialize ActualPercentageOfInventoryCost
+
+		ReverseWorkOrderBurden is an Instance Action
+			restricted
+			Parameters
+				PrmWorkOrder	is like WorkOrder
+			Action Rules
+				invoke Create WorkOrderBurden
+					fill in fields from this instance
+					invoked.Company						= Company
+					invoked.InventoryLocation			= InventoryLocation
+					invoked.WorkOrder					= PrmWorkOrder
+					invoked.LocalReverseByWorkOrder		= true
+					invoked.FlatAmount 					= FlatAmount * -1
+					invoked.PerBurdenUnitQuantity 		= PerBurdenUnitQuantity * -1
+					invoked.ActualFlatAmount 			= ActualFlatAmount * -1
+					invoked.ActualPerBurdenUnitQuantity = ActualPerBurdenUnitQuantity * -1
+
+		UpdateWorkOrderBurdenFields is an Instance Action
+			restricted
+			Action Rules
+				if (IsFlatAmountBurden)
+					ActualFlatAmount = FlatAmount
+
+				if (IsAmountPerFinishedGoodsUnit
+				or IsAmountPerBurdenUnit)
+					ActualAmountPerUnit = AmountPerUnit
+
+				if (IsAmountPerBurdenUnit)
+					ActualPerBurdenUnitQuantity = PerBurdenUnitQuantity
+
+				if (IsAmountPerBurdenUnit)
+					ActualPerBurdenUnitMultiplier = PerBurdenUnitMultiplier
+
+				if (IsAmountPerFinishedGoodsUnit)
+					ActualAlternateUnitOfMeasure = AlternateUnitOfMeasure
+
+				if (IsPercentOfFinishedGoodsInventoryCost)
+					ActualPercentageOfInventoryCost = PercentageOfInventoryCost
+
+				include CostCalculations
+
+				invoke UpdateFromWorkOrderBurden WorkOrder
+					invoked.PrmActualBurdenCost 	= LocalFixedBurdenCost
+
+
+		CreateDistributions	is an Instance Action
+			restricted
+			Parameters
+				PrmInventoryTransaction					is an InventoryTransaction
+				PrmInventoryTransactionLine				is like LineNumber
+				PrmSystemCode							is a TransactionSystemCode
+
+			Action Rules
+				include CostCalculations
+				LocalPostingType 			= "BR"
+				LocalDistributionAccount 	= BurdenCode.DistributionAccount
+				LocalAmount					= LocalFixedBurdenCost
+				include CreateDistributionsForBurden
+
+				LocalPostingType 			= "BR"
+				LocalDistributionAccount 	= InventoryLocation.WorkInProcessAccount
+				LocalAmount					= LocalFixedBurdenCost * -1
+				include CreateDistributionsForBurden

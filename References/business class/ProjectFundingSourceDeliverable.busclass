@@ -1,0 +1,181 @@
+ProjectFundingSourceDeliverable is a BusinessClass
+	owned by Projects
+	prefix is PRDLV
+	sql name is "PfSourceDeliverable"
+	
+	Ontology
+		symbolic key is ProjectFundingSourceDeliverable
+	
+	Patterns
+	
+	Persistent Fields
+		Deliverable					is a ProjectDeliverable
+        Description	     			
+		PersonResponsible			is an Employee		
+		InvoiceDate					is Date			
+		DeliveredDate				is Date		
+	
+	Field Rules
+		Deliverable
+			required
+				
+        Description	
+        	required
+        	default to Deliverable.Description
+
+		PersonResponsible
+			required
+						
+		InvoiceDate
+			required
+				"DueDateIsRequired"
+    		
+    Derived Fields
+    
+		ApproachingDueDateMF is a MessageField
+			restricted
+			"DueDateIsApproaching"
+
+		PastDueDateMF is a MessageField
+			restricted
+			"DueDateHasPast"
+						
+		StatusMessage is a ConditionalField
+			type is Alpha size 25
+			if (DueWithin30Days)
+				ApproachingDueDateMF
+			else
+			if (DueDateHasPast)
+				PastDueDateMF
+			else
+				blank	
+    
+	Conditions
+		HasDeliverableComments
+			restricted
+			when (ProjectFSDeliverableComment set exists)
+			
+		DueWithin30Days
+			restricted
+			when (InvoiceDate - current corporate date <= 30
+			and   InvoiceDate >= current corporate date
+			and   DeliveredDate not entered)
+
+		DueDateHasPast
+			restricted
+			when (InvoiceDate entered
+			and   current corporate date >InvoiceDate
+			and   DeliveredDate not entered)
+			
+		CanSendEmailNotification
+			restricted
+			when (DueWithin30Days
+			or	  DueDateHasPast)	
+
+	Relations
+		ProjectDeliverableRel
+			one-to-one relation to ProjectDeliverable
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.ProjectDeliverable		= Deliverable
+
+		MyTeamResponsibleRel
+            one-to-many relation to ProjectTeamMember
+            Field Mapping uses part of key
+                related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+                related.ProjectTeam             = FinanceDimension2.AncestorTeamResponsible
+				    		
+	Sets
+		ByDueDate
+			duplicates
+			Sort Order
+				FinanceEnterpriseGroup
+				InvoiceDate
+				Deliverable
+				ProjectFundingSourceDeliverable				
+    		
+	Actions
+		Create is a Create Action
+			Action Rules
+							
+		Update is an Update Action
+			Action Rules
+																
+		Delete is a Delete Action
+			Action Rules
+
+		CreateComments is an Instance Action
+			Parameters
+				PrmSubject	 			is a CommentName
+		    	PrmComment				is Text
+				PrmFrom					is Alpha size 230
+				PrmCommentDate			is TimeStamp
+				PrmDocumentURL			is URL		
+				PrmAttachment			is an Attachment
+			Parameter Rules
+				PrmSubject
+					required
+		    	PrmComment
+		    		required
+				PrmFrom	
+					initial value is actor
+					required
+				PrmCommentDate
+		    		default to current timestamp
+			Action Rules
+				invoke Create ProjectFSDeliverableComment
+					invoked.FinanceEnterpriseGroup          = FinanceEnterpriseGroup
+					invoked.FinanceDimension2               = FinanceDimension2
+					invoked.ProjectFundingSourceDeliverable = ProjectFundingSourceDeliverable 					
+					invoked.Subject				            = PrmSubject
+			    	invoked.Comment                         = PrmComment
+					invoked.From                            = PrmFrom	
+					invoked.CommentDate                     = PrmCommentDate
+					invoked.DocumentURL			            = PrmDocumentURL					
+			    	invoked.Attachment                      = PrmAttachment
+			
+		LoadProjectDeliverable is a Set Action
+			restricted
+			Parameters
+				PrmFinanceEnterpriseGroup	is a FinanceEnterpriseGroup
+					default label is "FinanceEnterpriseGroup"
+			Instance Selection
+				where ((FinanceEnterpriseGroup = PrmFinanceEnterpriseGroup
+				or      PrmFinanceEnterpriseGroup not entered)
+				and     Deliverable entered)
+			Action Rules
+				Instance Rules
+					if (ProjectDeliverableRel not exists)
+						invoke Create ProjectDeliverable
+	                        invoked.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+	                        invoked.ProjectDeliverable		= Deliverable
+
+
+		SendDueDateNotification is an Instance Action
+			valid when (CanSendEmailNotification)
+			Parameters
+				CCEmail						   is EmailAddressField with multiple addresses
+				PrmSubject					   is Alpha 100
+					default label is "Subject"
+				PrmComment					   is Text
+					default label is "Comment"		
+			Parameter Rules
+				PrmSubject
+					required
+					initial value is "Deliverable Due Date Is Approaching Or Is Past Due"
+					default to "Deliverable Due Date Is Approaching Or Is Past Due"
+				PrmComment
+					required
+			Action Rules
+				send email
+					to PersonResponsible.EmployeeWorkEmailAddress
+					from actor.agent(Employee).EmployeeWorkEmailAddress
+					cc CCEmail
+					subject "<PrmSubject>"
+					Contents
+							"Employee:<PersonResponsible>_<PersonResponsible.PresentationNameSnapshot>"
+							"<FinanceEnterpriseGroup.FinanceDimension2Label>_<FinanceDimension2>"
+							"Deliverable_<Description>"
+							"DueDate_<InvoiceDate>"
+							"Comment:<PrmComment>"
+

@@ -1,0 +1,252 @@
+MiscellaneousReceipt is a BusinessClass
+    owned by mscm
+    prefix is MSMIR
+
+    Ontology
+        symbolic key is MiscellaneousReceipt
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+        TrackingNumber
+        DeliverToCompanyLocation 
+        ReceivedBy                  is an Actor
+        Supplier                    is a MobileSupplyChainVendor
+        PurchaseOrder               is a MiscellaneousReceiptPurchaseOrder
+        PackingSlipNumber
+        TimeStarted                 is TimeStamp
+        TimeSubmitted               is TimeStamp
+        Status                      is Numeric size 1
+            States
+                Unreleased                  value is 0
+                Released                    value is 1
+                ReleasedDeliveryRejected    value is 6
+        RejectDelivery              is Boolean
+        DeliveryNoteCode
+        DeliveryNote
+        ReportPrinter               is a MobileSupplyChainPrinter
+        LabelPrinter                is a MobileSupplyChainPrinter
+
+    Local Fields
+        LocalPrintFlag is Boolean
+    
+    Field Rules
+        Company
+            initial value is MobileSupplyChainResourceRel.DefaultReceivingShipToLocation.MobileSupplyChainCompany
+
+        MobileSupplyChainLocation
+            initial value is MobileSupplyChainResourceRel.DefaultReceivingShipToLocation.MobileSupplyChainLocation
+            
+        TrackingNumber
+            if (TrackingNumber entered)
+                constraint (not TrackingNumber changed)
+                    "TrackingNumberCannotBeUpdated"
+        DeliverToCompanyLocation
+            required
+
+
+    Derived Fields
+		MiscellaneousReceiptTitle is a LabelField
+			restricted
+			"MiscellaneousReceipt<MiscellaneousReceipt>"
+
+		CreateMessage is a LabelField
+			restricted
+			"CreateMiscellaneousReceipt"
+
+		DerivedFormTitle is a DerivedField
+			type is MessageField
+			if (RecordExists)
+				return MiscellaneousReceiptTitle
+			else
+				return CreateMessage
+        
+        DerivedDeliverToCompany is a DerivedField
+            type is Text
+            restricted
+            return DeliverToCompanyLocation.DeliverToCompany
+
+        DerivedDeliverToCompanyName is a DerivedField
+            type is Text
+            restricted
+            return DeliverToCompanyLocation.DeliverToCompany.Name
+        
+        DerivedDeliverToLocation is a DerivedField
+            type is Text
+            restricted
+            return DeliverToCompanyLocation.DeliverToLocation
+        
+        DerivedDeliverToLocationName is a DerivedField
+            type is Text
+            restricted
+            return DeliverToCompanyLocation.DeliverToLocation.Name
+        
+        DerivedCarrierTrackingCount is a DerivedField
+            type is Numeric size 6
+            restricted
+            return instance count of MiscellaneousReceiptLinesRel
+
+        DerivedFirstCarrierTracking is a DerivedField
+            type is AlphaUpper size 40
+            restricted
+            return first MiscellaneousReceiptLinesRel.CarrierTrackingNumber
+        
+        ProcessDeliveryDocumentLineXML is a DerivedField
+			type is XMLDocument
+			restricted
+			if(MiscellaneousReceiptLinesRel exists)
+				for each MiscellaneousReceiptLinesRel
+					ProcessDeliveryDocumentLineXML += template.MiscellaneousReceiptDeliveryDocumentLine_ST document for each
+			else
+				return ""
+
+        DerivedReceivedBy is a DerivedField
+			type is Alpha size 60
+			if	(ReceivedBy entered)
+				return ReceivedBy
+			return update stamp.actor
+
+	Create Rules
+        invoke GenerateTrackingNumber MobileSupplyChainConfigurationRel
+        TrackingNumber = MobileSupplyChainConfigurationRel.DerivedTrackingNumber
+
+    Actions
+        Create is a Create Action
+            valid when (actor.context.FinanceEnterpriseGroup.ShowMobileSupplyChain)
+            Entrance Rules
+                if (TimeStarted not entered) 
+                    TimeSubmitted = MiscellaneousReceipt.create stamp.timestamp
+
+        Update is an Update Action
+            valid when (IsStatusUnreleased)
+
+        Delete is a Delete Action
+            valid when (IsStatusUnreleased)
+
+        Release is an Instance Action
+            valid when (UnreleaseRecord)
+            Local Fields
+                LocalMobileSupplyChainDeliveryTicketView    is a MobileSupplyChainDeliveryTicket view
+            Action Rules
+                if(RejectDelivery)
+                    Status  = Status.ReleasedDeliveryRejected
+                else
+                    Status = Status.Released
+        
+                    invoke Create MobileSupplyChainDeliveryTicket
+                        assign result to LocalMobileSupplyChainDeliveryTicketView
+                        invoked.Company                                             = Company
+                        invoked.MobileSupplyChainLocation                           = MobileSupplyChainLocation
+                        invoked.DeliveryType                                        = DeliveryType.MiscellaneousReceipt
+                        invoked.InforTrackingNumber                                 = TrackingNumber
+                        invoked.ReceivedBy                                          = DerivedReceivedBy
+                        invoked.DeliverToCompanyLocation.MobileSupplyChainCompany   = DeliverToCompanyLocation.DeliverToCompany
+                        invoked.DeliverToCompanyLocation.MobileSupplyChainLocation  = DeliverToCompanyLocation.DeliverToLocation
+                        invoked.DocumentNumber                                      = MiscellaneousReceipt
+                        invoked.PurchaseOrder                                       = PurchaseOrder
+                        invoked.OriginatingTransaction                              = reference to this instance
+
+                    invoke ProcessDelivery MiscellaneousReceiptLine
+                        invoked.PrmMobileSupplyChainCompany         = Company
+                        invoked.PrmMobileSupplyChainLocation        = MobileSupplyChainLocation
+                        invoked.PrmMiscellaneousReceipt             = MiscellaneousReceipt
+                        invoked.PrmPrintFlag                        = LocalPrintFlag
+                        invoked.PrmMobileSupplyChainDeliveryTicket  = LocalMobileSupplyChainDeliveryTicketView.MobileSupplyChainDeliveryTicket
+
+        ReleaseAndPrint is an Instance Action
+            valid when (IsReleaseAndPrintValid)
+            Parameters
+				PrmReportPrinter            is a MobileSupplyChainPrinter
+					default label is "ReportPrinter"
+                PrmLabelPrinter             is a MobileSupplyChainPrinter
+					default label is "LabelPrinter"
+
+            Parameter Rules
+                PrmReportPrinter
+                    initial value is MobileSupplyChainLocation.DerivedDefaultMobileSupplyChainReportPrinter
+                    if (IsPrintReport
+                    and not IsPrintLabel
+                    and ReportPrinter not entered)      
+                        required
+                            "ReportPrinterIsRequired"   
+
+                PrmLabelPrinter
+                    initial value is MobileSupplyChainLocation.DerivedDefaultMobileSupplyChainLabelPrinter
+                    if (IsPrintLabel
+                    and not IsPrintReport
+                    and  LabelPrinter not entered)      
+                        required
+                            "LabelPrinterIsRequired"    
+
+            Action Rules
+
+                constraint (PrmReportPrinter entered or PrmLabelPrinter entered     
+                or          ReportPrinter entered or LabelPrinter entered)          
+                    "PleaseSelectA_ReportOr_LabelPrinter"
+
+                LocalPrintFlag = true
+                
+                if (PrmReportPrinter entered)
+                    ReportPrinter = PrmReportPrinter
+                
+                if (PrmLabelPrinter entered)
+                    LabelPrinter = PrmLabelPrinter
+
+                invoke Release
+    
+        Print is an Instance Action 
+            restricted
+
+    Sets
+        ByTimeSubmitted
+            Sort Order
+                TimeSubmitted descending
+                Company
+                MobileSupplyChainLocation
+                MiscellaneousReceipt
+
+    Conditions
+		RecordExists
+			restricted
+			when (MiscellaneousReceipt exists)
+        LineExists
+            restricted
+            when (MiscellaneousReceiptLinesRel exists)
+        UnreleaseRecord
+            restricted
+            when (Status.Unreleased and LineExists)
+        IsStatusUnreleased
+            restricted
+            when (Status.Unreleased)
+        PrintAllowed
+            restricted
+            when (RecordExists and LineExists and not Status.Unreleased)
+
+        IsPrintReport
+            when (MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryTicket = MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryLabel.Enable
+            or    MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryTicket = MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryLabel.EnabledAndChecked)
+
+        IsPrintLabel
+            when (MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryLabel = MobileSupplyChainConfiguration.MiscellaneousReceivingPrintDeliveryTicket.Enable
+            or    MobileSupplyChainConfigurationRel.MiscellaneousReceivingPrintDeliveryLabel = MobileSupplyChainConfiguration.MiscellaneousReceivingPrintDeliveryTicket.EnabledAndChecked)
+
+        IsReleaseAndPrintValid
+            when (UnreleaseRecord
+            and  (IsPrintReport
+            or    IsPrintLabel))
+
+    Relations
+        MiscellaneousReceiptLinesRel is a MiscellaneousReceiptLine set
+
+        MobileSupplyChainConfigurationRel
+            one-to-one relation to MobileSupplyChainConfiguration
+            Field Mapping uses symbolic key
+                related.MobileSupplyChainConfiguration  = Company.FinanceEnterpriseGroup
+
+        MobileSupplyChainResourceRel
+			one-to-one relation to MobileSupplyChainResource
+			Field Mapping uses symbolic key
+				related.HROrganization              = actor.agent(Employee).HROrganization
+				related.MobileSupplyChainResource   = actor.agent(Employee).Employee

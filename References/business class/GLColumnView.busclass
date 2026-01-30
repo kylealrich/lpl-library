@@ -1,0 +1,350 @@
+GLColumnView is a BusinessClass
+	owned by GeneralLedger
+	prefix is GLCLV
+	default label is "Column"
+	Ontology
+		symbolic key is GLColumnView
+
+	Patterns
+
+	Persistent Fields
+		Description 		is Text
+		Lock				is Boolean
+		ShowGroupHeader		is Boolean
+		GroupsNotInOrder	is Boolean
+	
+	Field Rules
+		Lock
+			if (ApplicationAdministratorActorRoleRel not exists)
+				if (!create stamp.actor = actor)
+					cannot be changed
+	
+	Local Fields
+		LocalInstance					is Numeric 2
+		LastGroupHeader					is Alpha 100
+		LocalHasMultiValueFilter		is Boolean
+		LocalGLColumnViewCopy			is a GLColumnView
+		LocalCalculationColumnNameCopy	is Alpha 100
+		LocalTotalMeasureColumnSize		is Numeric 4
+	
+	Rule Blocks
+		UpdateExitRules
+			if (IsGLColumnViewUpdated)
+				if (GLReportRel exists)
+					for each GLReportRel
+						if (each.IntegrationStatus = 1)
+							invoke UpdateGLReport each
+								invoked.PrmIntegrationStatus = 2
+
+				if(SubReportRel exists)
+					for each SubReportRel
+						if(each.CompositeReportRel.IntegrationStatus = 1)
+							invoke Update each.CompositeReportRel
+								invoked.IntegrationStatus = 2
+
+	Derived Fields
+		DerivedCreatedBy is a DerivedField
+			type is Alpha size 60
+			restricted
+			return create stamp.actor
+			
+		ColumnGroupHeaderOutOfOrderMessage		is a MessageField
+			"Warning:_GroupHeadersAreNotInOrder"
+
+		GroupingOutOfOrderMessage	is a MessageField
+			"!_GroupHeadersAreNotInOrder"
+
+		DerivedHasColumnWithMultiValueFilter is a DerivedField
+			type is Boolean
+			restricted
+			LocalHasMultiValueFilter = false
+			
+			for each GLColumnFilterDimensionRel
+				if (each.FilterDimensionFieldCount > 1)
+					LocalHasMultiValueFilter = true
+					end for each
+
+			return LocalHasMultiValueFilter
+		
+		DerivedMaxColumnViewWidth	is a DerivedField
+			type is Integer size 4
+			restricted
+			initialize LocalTotalMeasureColumnSize
+
+			for each GLColumnByDisplayOrderRel					
+				if (ShowGroupHeader)
+					LocalTotalMeasureColumnSize += ((each.ColumnSize * 4.5) + (1 * 4.5))
+				else
+					LocalTotalMeasureColumnSize += ((each.ColumnSize * 4.5) + (each.OffsetPadding * 4.5))	
+			return LocalTotalMeasureColumnSize
+
+		DerivedIsFiscalQuarter is a DerivedField
+			type is Boolean
+			for each GLColumnRel
+				if (each.ColumnValue contains "quarter")
+					return true
+			return false
+		
+		DerivedIsFiscalMonth is a DerivedField 
+			type is Boolean
+			for each GLColumnRel
+				if(each.ColumnValue contains "month" or each.ColumnValue contains "period" or each.DerivedNoOfWords = 1)
+					return true
+			return false
+
+		DerivedMissingAlertMessage is a DerivedField
+            type is Alpha 50
+            restricted
+            if(GLColumnScenarioFilterNotExistsRel exists)
+                return "Column Scenario Dimension Filter Missing"
+            else
+            if(GLColumnScenarioFilterFieldNotExistsRel exists)
+                return "Column Scenario Dimension Filter Value Missing"
+            else
+            if(GLColumnDimFilterRel exists)
+                return "No Filter Value Added For The Dimension"
+		
+		IsGLColumnViewUpdated is a DerivedField
+			type is Boolean
+			restricted
+			if(ShowGroupHeader changed)
+				return true
+			else
+				return false
+
+		
+	Conditions
+		DimensionFilterDisplayValuesIsNotEntered
+			restricted
+			when(GLColumnDimFilterRel exists)
+
+		IsActorFavoriteColumn
+			when (ActorFavoriteColumnRel exists)
+
+		ScenarioFilterNotExists
+            restricted
+            when (GLColumnScenarioFilterNotExistsRel exists)
+
+        ScenarioFilterValueNotExists
+            restricted
+            when (GLColumnScenarioFilterFieldNotExistsRel exists)
+		
+	Actions
+		Create is an Action
+		Update is an Action
+			Entrance Rules
+				if (Lock)
+					if (Description != old Description
+					or ShowGroupHeader changed)
+						constraint (create stamp.actor = actor)
+							"ThisHasBeenLockedForEditing"
+			Exit Rules
+				include UpdateExitRules
+				
+		Delete is an Action
+			Entrance Rules
+				if (Lock)
+					constraint (create stamp.actor = actor)
+						"ThisHasBeenLockedForDeletion"
+				if (IsActorFavoriteColumn) 
+					invoke Delete ActorFavoriteColumnRel
+
+		ColumnGroupOrderCheck	is an Instance Action
+			restricted
+			Exit Rules
+				initialize LocalInstance
+				GroupsNotInOrder = false
+				LastGroupHeader = first GLColumnByDisplayOrderRel.ColumnGroupHeader
+				for each GLColumnByDisplayOrderRel
+					if(each.ColumnGroupHeader != LastGroupHeader)
+						LocalInstance = each.DisplayOrder
+						if(GLColumnByDisplayOrder2Rel exists)
+							GroupsNotInOrder = true
+							end for each
+						LastGroupHeader = each.ColumnGroupHeader
+
+		
+		CopyColumnView is an Instance Action
+			default label is "CopyColumn"
+
+			Parameters
+				PrmGLColumnView 		is Alpha 50
+				PrmDescription			is Text
+							
+			Parameter Rules
+				PrmGLColumnView
+					initial value is "Copy-" + GLColumnView.GLColumnView
+				PrmDescription
+					initial value is "Copy-" + Description
+
+			Local Fields
+				LocalGLColumnView			        is a GLColumnView view	
+				LocalGLColumn						is a GLColumn view
+				LocalGLColumnFilterDimension		is a GLColumnFilterDimension view
+			
+			Action Rules
+				
+				invoke Create GLColumnView
+					assign result to LocalGLColumnView
+					fill in fields from this instance
+						except invoked.GLColumnView
+						except invoked.Description
+					invoked.GLColumnView = PrmGLColumnView
+					invoked.Description  = PrmDescription
+				
+			Exit Rules
+				if (GLColumnRel exists)
+					for each GLColumnByColumnTypeRel
+						invoke Create each
+							assign result to LocalGLColumn
+							fill in fields from each
+								except invoked.GLColumn
+								except invoked.GLColumnView
+							invoked.GLColumnView  = LocalGLColumnView.GLColumnView
+						if (each.GLColumnFilterDimensionRel exists)
+							for each each.GLColumnFilterDimensionRel
+								invoke Create each
+									assign result to LocalGLColumnFilterDimension
+									fill in fields from each
+										except invoked.GLColumnView 	   			
+										except invoked.GLColumn	
+								 	invoked.GLColumnView = LocalGLColumnView.GLColumnView
+									invoked.GLColumn	 = LocalGLColumn.GLColumn
+								if (each.GLColumnFilterDimensionFieldRel exists) 
+									for each each.GLColumnFilterDimensionFieldRel
+										invoke Create each
+											fill in fields from each
+												except invoked.GLColumnView 	   			
+												except invoked.GLColumn	
+												except invoked.GLColumnFilterDimension
+										 	invoked.GLColumnView = LocalGLColumnView.GLColumnView
+											invoked.GLColumn	 = LocalGLColumn.GLColumn
+											invoked.GLColumnFilterDimension = LocalGLColumnFilterDimension.GLColumnFilterDimension 
+						
+						if (each.GLColumnCalculationFieldRel exists)
+							for each each.GLColumnCalculationFieldRel
+								LocalGLColumnViewCopy 			= LocalGLColumnView.GLColumnView
+								LocalCalculationColumnNameCopy 	= each.CalculationColumn.ColumnName
+								invoke Create each
+									fill in fields from each
+										except invoked.GLColumnView 	   			
+										except invoked.GLColumn
+										except invoked.CalculationColumn	
+								 	invoked.GLColumnView 		= LocalGLColumnView.GLColumnView
+									invoked.GLColumn	 		= LocalGLColumn.GLColumn
+									invoked.CalculationColumn	= GLColumnCalculationFieldRel.GLColumn	
+
+		RemoveColumnFromFavorite is an Instance Action
+			restricted
+			completion message is "ColumnRemoved_fromFavorites"
+			valid when (IsActorFavoriteColumn)	
+			Action Rules
+				invoke Delete ActorFavoriteColumnRel
+
+		AddColumnToFavorite is an Instance Action
+			restricted
+			completion message is "ColumnAdded_toFavorites"
+			valid when (!IsActorFavoriteColumn)
+			Action Rules
+				invoke Create GLFavoriteColumn
+					invoked.FinanceEnterpriseGroup     	= FinanceEnterpriseGroup 
+					invoked.GLColumnView 				= GLColumnView
+					invoked.Actor						= actor
+
+	Relations
+		GLColumnFilterDimensionRel
+			one-to-many relation to GLColumnFilterDimension
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+
+		GLColumnRel
+			one-to-many relation to GLColumn
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+		
+		GLColumnByColumnTypeRel
+			one-to-many relation to GLColumn
+			Field Mapping uses ByGLColumnType
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+		
+		ApplicationAdministratorActorRoleRel
+            one-to-many relation to ActorRole
+            Field Mapping uses symbolic key
+                related.Actor           = actor
+                related.ActorRole.Role  = "ApplicationAdministrator_ST"
+
+		GLColumnByDisplayOrderRel
+			one-to-many relation to GLColumn
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+
+		GLColumnByDisplayOrder2Rel
+			one-to-many relation to GLColumn
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			Instance Selection
+				where(related.ColumnGroupHeader = LastGroupHeader
+				and  related.DisplayOrder > LocalInstance)
+		
+		GLColumnCalculationFieldRel
+			one-to-one relation to GLColumn
+			Field Mapping uses ByColumnName
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= LocalGLColumnViewCopy
+				related.ColumnName              = LocalCalculationColumnNameCopy
+
+		GLColumnDimFilterRel
+			one-to-many relation to GLColumn
+			delete cascades
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+			Instance Selection
+				where(related.DimFilterDisplayValuesIsNotEntered)
+
+		ActorFavoriteColumnRel
+			one-to-one relation to GLFavoriteColumn
+			Field Mapping uses ByDisplayOrder
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+				related.GLColumnView			= GLColumnView
+				related.Actor					= actor
+
+		GLColumnScenarioFilterNotExistsRel
+            one-to-many relation to GLColumn
+            delete cascades
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+                related.GLColumnView            = GLColumnView
+            Instance Selection
+                where(!related.ScenarioFilterExists
+                and related.GLColumnType.Standard)
+
+        GLColumnScenarioFilterFieldNotExistsRel
+            one-to-many relation to GLColumn
+            delete cascades
+            Field Mapping uses symbolic key
+                related.FinanceEnterpriseGroup  = FinanceEnterpriseGroup
+                related.GLColumnView            = GLColumnView
+            Instance Selection
+                where(!related.ScenarioFilterValueExists
+                and related.GLColumnType.Standard)
+		
+		GLReportRel
+			one-to-many relation to GLReport
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where( related.ColumnView				= GLColumnView)
+		
+		SubReportRel
+			one-to-many relation to GLReportElement
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= FinanceEnterpriseGroup
+			Instance Selection
+				where (related.SubReport.ColumnView		= GLColumnView)

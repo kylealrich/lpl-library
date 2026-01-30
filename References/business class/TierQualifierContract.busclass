@@ -1,0 +1,217 @@
+TierQualifierContract is a BusinessClass
+    owned by po
+    prefix is TQCN
+    
+    Ontology
+  		symbolic key is TierQualifierContract
+
+	Patterns
+		implements ContextualParent
+		
+    Persistent Fields
+    	SelectedContractNumber							is a Contract 
+			default label is "QualifierContract"
+		QualifiedOrCompetitiveContract                  is Numeric 1 
+			States 
+				Qualified               value is 1
+				Competitive             value is 2
+
+    Local Fields
+		LocalContractAndContractLine   
+		LocalItemNumber					is like Item
+		LocalManufacturer               is like Manufacturer
+		LocalManufacturerNumber         is like ManufacturerNumber
+		LocalVendorItem                 is like VendorItem
+		
+	Transient Fields 
+		TransientUseAllItems		is Boolean 
+	
+	Derived Fields
+
+		SelectedContractNumberOfTierQualifierLines 													is a ComputeField
+			type is Numeric 6
+			restricted
+			(instance count of ContractTierQualifierItemsRel)	
+
+	Conditions 
+
+		ContractHasQualifierItems 
+			restricted 
+			when (ContractTierQualifierItemsRel exists)
+
+		ContractHasNoQualifierItems	
+			restricted 
+			when (ContractTierQualifierItemsRel !exists)
+
+		QualifierContractExists 
+			restricted 
+			when (TierQualifierContractRel exists)
+
+		ContractHasLinesToSelect
+			restricted 
+			when (SelectedContractNumber.NumberOfLines > SelectedContractNumberOfTierQualifierLines)
+	
+	Relations
+		
+		ContractRel
+			one-to-one relation to Contract
+			Field Mapping uses symbolic key
+				related.ContractGroup 				= ContractGroup
+				related.Contract      				= SelectedContractNumber
+				
+		ContractQualifiedLinesRel
+			one-to-many relation to ContractLine
+			Field Mapping uses symbolic key
+				related.ContractGroup 				= ContractGroup
+				related.Contract      				= SelectedContractNumber
+            Instance Selection 
+				where ((related.IsDistributorContract
+                and  	related.ManufacturerContract        = Contract)
+                or    (!related.IsDistributorContract))					
+		
+		ContractTierQualifierItemsRel
+			one-to-many relation to TierQualifierItem
+			Field Mapping uses BySelectedContractLine
+				related.ContractGroup 			         			= ContractGroup
+				related.Contract    			         			= Contract
+				related.OriginalContractAndLine.OriginalContract 	= SelectedContractNumber
+
+		ContractTierQualifierItemRel
+			one-to-many relation to TierQualifierItem
+			Field Mapping uses ByManufacturerInformation
+				related.ContractGroup 									= ContractGroup
+				related.Contract    									= Contract
+				related.Manufacturer                                    = LocalManufacturer 
+				related.ManufacturerNumber                              = LocalManufacturerNumber 
+
+		TierQualifierContractRel 
+			one-to-many relation to TierQualifierContract 
+			Field Mapping uses ByReportingContract
+				related.ContractGroup 									= ContractGroup
+				related.Contract    									= Contract
+				related.SelectedContractNumber                          = SelectedContractNumber	
+
+		LocalTierQualifierItemRel 
+			one-to-many relation to TierQualifierItem 
+			Field Mapping uses ByItemDetails  		
+				related.ContractGroup									= ContractGroup  
+				related.Contract                                        = Contract 
+				related.ItemNumber                                      = LocalItemNumber
+				related.VendorItem                                      = LocalVendorItem
+				related.Manufacturer                                    = LocalManufacturer 
+				related.ManufacturerNumber 			                    = LocalManufacturerNumber 
+			Instance Selection 
+				where (related.OriginalContractAndLine.OriginalContract = 0)	
+
+	Sets
+
+		ByReportingContract
+			Sort Order 
+				ContractGroup 
+				Contract 
+				SelectedContractNumber
+				TierQualifierContract
+
+		BySelectedContract
+			duplicates
+			Sort Order
+				ContractGroup
+            	SelectedContractNumber    
+				Contract
+				TierQualifierContract
+
+  	Field Rules
+  	
+  	Actions     	 	
+ 		Create is a Create Action
+				
+			Field Rules
+
+ 		    Action Rules
+
+				constraint (!QualifierContractExists)
+					"QualifierContractAlreadyExists"
+
+				if (!Contract.HasPercentTierQualifier)
+					QualifiedOrCompetitiveContract = 1
+
+				constraint (QualifiedOrCompetitiveContract > 0)
+					"MustSelectEitherQualifiedContractOrCompetitiveContract"
+
+				if (SelectedContractNumber = Contract)
+					constraint (QualifiedOrCompetitiveContract = 1)
+						"QualifiedContractMustBeSelectedForContractYouAreUsingForReporting"
+
+    		Exit Rules
+
+				if (TransientUseAllItems)
+				 	invoke SelectAllRemainingItemsForTierQualifier	
+ 					
+ 		Update is an Update Action
+ 		    Action Rules
+
+				if (!Contract.HasPercentTierQualifier)
+					QualifiedOrCompetitiveContract = 1
+
+				constraint (QualifiedOrCompetitiveContract > 0)
+					"MustSelectEitherQualifiedOrCompetitiveContract"
+
+				if (SelectedContractNumber = Contract)
+					constraint (QualifiedOrCompetitiveContract = 1)
+						"IfUsingThisContractForAQualifierContractQualifiedMustBeSelected"
+
+				if (QualifiedOrCompetitiveContract changed)
+					invoke ResetQualifiedCompetitiveFlags TierQualifierItem 
+						invoked.ParmContractGroup						= ContractGroup 
+						invoked.ParmContract            				= Contract 
+						invoked.ParmTierContract						= SelectedContractNumber
+						invoked.ParmQualifiedOrCompetitiveItem          = QualifiedOrCompetitiveContract
+
+
+ 		Delete is a Delete Action
+ 			Action Rules
+
+				invoke DeleteAllQualifiedItems
+		
+			Exit Rules
+				
+		DeleteAllQualifiedItems is an Instance Action 
+			valid when (ContractHasQualifierItems)
+
+			Action Rules 
+
+				invoke DeleteAll TierQualifierItem 
+					invoked.ParmContractGroup		= ContractGroup 
+					invoked.ParmContract            = Contract
+					invoked.ParmQualifierContract   = SelectedContractNumber 
+					
+		SelectAllRemainingItemsForTierQualifier is an Instance Action
+			valid when (ContractHasLinesToSelect)
+			completion message is "ItemSelectionIsComplete"
+
+			Action Rules
+    			if (SelectedContractNumber.NumberOfLinesQuickApproximation < 1000)
+					for each ContractQualifiedLinesRel
+                       	LocalManufacturer	  			= each.Manufacturer
+						LocalManufacturerNumber		 	= each.ManufacturerNumber 
+						if (ContractTierQualifierItemRel !exists)
+							invoke Create TierQualifierItem				
+								invoked.ContractGroup									= ContractGroup
+								invoked.Contract										= Contract
+								invoked.OriginalContractAndLine.OriginalContract		= SelectedContractNumber
+								invoked.OriginalContractAndLine.OriginalContractLine	= each.ContractLine
+								invoked.ItemNumber                                      = each.ItemNumber
+								invoked.Manufacturer                                    = each.Manufacturer 
+								invoked.ManufacturerNumber								= each.ManufacturerNumber
+								invoked.QualifiedOrCompetitiveItem                      = QualifiedOrCompetitiveContract 
+							
+				else
+					invoke SelectAllItemsForTierQualifier ContractLine
+						invoked.PrmContractGroup						= ContractGroup
+						invoked.PrmContract								= Contract
+						invoked.PrmSelectedContractNumber				= SelectedContractNumber 
+						invoked.PrmQualifiedOrCompetitiveItem           = QualifiedOrCompetitiveContract
+
+		Purge is a Purge Action
+			restricted
+			

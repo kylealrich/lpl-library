@@ -1,0 +1,257 @@
+AutoCashApplication is a BusinessTask 
+	owned by ar
+
+	Parameters
+		PrmFinanceEnterpriseGroup		is a FinanceEnterpriseGroup
+		PrmCompany						is a ReceivableCompany
+		PrmCompanyGroup					is a GeneralLedgerCompanyGroup
+		PrmSelectOnly					is Boolean
+		PrmEFTOrigin					is Boolean
+		PrmOperator						is a ReceivableOperator
+			context of PrmCompany
+		PrmGlDate						is Date
+		PrmOverride						is Boolean
+		PrmBatchNumber					is a ReceivablePaymentHeader
+			context of PrmCompany
+		PrmNatCredits					is Boolean
+		PrmOverrideMethod				is AlphaUpper size 1
+			States
+				Algorithm		value is "A"
+				BalanceForward	value is "B"
+				LastStatement	value is "L"
+				Remit			value is "R"
+				UserDefined		value is "U"
+				NoOverride		value is "N"
+		PrmCurrencyOverride				is Boolean
+		PrmFirstAttemptRemittanceOnly	is Boolean
+		PrmVariance						is like InternationalAmount
+		PrmReasonType					is a ReceivableReasonType
+		PrmReasonCode					is a ReceivableReason
+			context of PrmCompany
+		PrmMaxInvoices					is Numeric size 1
+		PrmCombination					is Numeric size 1
+		PrmApplicationCode				is an AutomaticCashApplicationCode
+			context of PrmFinanceEnterpriseGroup
+		PrmRecCompany					is a ReceivableCompany
+		PrmRecOperator					is a ReceivableOperator
+			context of PrmRecCompany
+		PrmPreCreatedResultID			is like CashApplicationResult
+
+	Parameter Rules
+
+		PrmFinanceEnterpriseGroup
+			constraint (PrmCompany entered or PrmCompanyGroup entered)
+				"CompanyOr_\Company_\GroupIsRequired"
+			if (PrmCompany entered)
+				PrmFinanceEnterpriseGroup 				= PrmCompany.FinanceEnterpriseGroup
+			else 
+			if (PrmCompanyGroup entered)
+				constraint (PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel exists)
+					"CompanyGroup<PrmCompanyGroup>ContainsNoCompanies"
+				PrmFinanceEnterpriseGroup 				= PrmCompanyGroup.first GeneralLedgerCompanyGroupMembersRel.Company.FinanceEnterpriseGroup
+			if (PrmFinanceEnterpriseGroup not entered)
+				PrmFinanceEnterpriseGroup 				= actor.context.FinanceEnterpriseGroup
+			constraint (PrmFinanceEnterpriseGroup entered)
+				"Finance_\Enterprise_\GroupIsRequired"
+
+		PrmCompany
+			if (PrmCompanyGroup not entered)
+				required
+					"CompanyOrCompanyGroupRequired"
+			if (PrmCompany entered)
+				if  (PrmCompany.MultiCurrencyProcessing)
+					constraint (PrmCompany.GainLossReceivableReasonRel exists)
+						"GainLossReasonCodeIsNotSetupForCompany"
+
+
+		PrmCompanyGroup
+			if (PrmCompany entered)
+				cannot be entered
+					"CannotEnterCompanyGroupIfCompanyEntered"
+			initialize PrmRecCompany
+			if (PrmCompanyGroup entered)
+				constraint (PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel exists)
+					"CompanyGroup<PrmCompanyGroup>ContainsNoCompanies"
+				for each PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel
+					PrmRecCompany = each.Company
+					if  (PrmRecCompany.MultiCurrencyProcessing)
+						constraint (PrmRecCompany.GainLossReceivableReasonRel exists)
+							"GainLossReasonCodeIsNotSetupForCompany<PrmRecCompany>"
+				initialize PrmRecCompany
+
+		PrmSelectOnly
+			if (PrmSelectOnly)
+				constraint (PrmOperator						= blank
+				and			PrmGlDate						= blank
+				and			PrmOverride						= blank
+				and			PrmBatchNumber					= blank
+				and			PrmNatCredits					= blank
+				and			PrmCurrencyOverride				= blank
+				and			PrmVariance						= blank
+				and			PrmReasonCode					= blank
+				and			PrmMaxInvoices					= blank
+				and			PrmCombination					= blank
+				and			PrmApplicationCode				= blank
+				and 		PrmFirstAttemptRemittanceOnly	= blank
+				and			PrmOverrideMethod.NoOverride
+				or			PrmOverrideMethod				= blank)
+					"SelectedApplicationsOnlyIsSelected;NoOptionsCanBeEnteredOtherThanEFTOrigin"
+
+		PrmEFTOrigin
+			if (PrmEFTOrigin)
+				constraint (PrmSelectOnly)
+					"EFTOriginSelected;SelectedApplicationsOnlyMustBeSelected"
+
+		PrmOperator
+			initialize PrmRecCompany
+			initialize PrmRecOperator
+			if (PrmCompany entered)
+				if  (PrmCompany.CashOperatorRequired
+				and  !PrmSelectOnly)
+					required
+						"OperatorIsRequiredForThisCompany"
+
+					if (PrmOperator entered)
+						constraint (PrmOperator exists)
+							"OperatorDoesNotExist"
+						constraint (PrmOperator.ActiveStatus.Active)
+							"OperatorIsNotActive"
+
+			if (PrmCompanyGroup entered)
+				for each PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel
+					PrmRecCompany = each.Company
+					if  (PrmRecCompany.CashOperatorRequired
+					and  !PrmSelectOnly)
+						required
+							"OperatorIsRequiredForCompany<PrmRecCompany>"
+
+						if (PrmOperator entered)
+							PrmRecOperator = PrmOperator
+							constraint (PrmRecOperator exists)
+								"OperatorDoesNotExistForCompany<PrmRecCompany>"
+							constraint (PrmRecOperator.ActiveStatus.Active)
+								"OperatorIsNotActiveforCompany<PrmRecCompany>"
+				initialize PrmRecCompany
+				initialize PrmRecOperator
+
+		PrmGlDate
+			initialize PrmRecCompany
+			if (PrmCompany entered)
+				if  (!PrmSelectOnly
+				and (PrmCompany.VerifyGLDateWithinGLDateRange
+				or   PrmOverride))
+					required
+						"PostDateIsRequired"
+				if  (PrmCompany.VerifyGLDateWithinGLDateRange
+				and  !PrmSelectOnly)
+					constraint (PrmGlDate within PrmCompany.CompanySystemClosingControlRel.ValidEntryDate)
+						"GlobalLedgerDate<PrmGlDate>IsNotWithinValidEntryDatesForCompany;ValidDateRangeIs<PrmCompany.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<PrmCompany.CompanySystemClosingControlRel.ValidEntryDate.End>"
+
+			if (PrmCompanyGroup entered)
+				for each PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel
+					PrmRecCompany = each.Company
+					if  (!PrmSelectOnly
+					and (PrmRecCompany.VerifyGLDateWithinGLDateRange
+					or   PrmOverride))
+						required
+							"PostDateIsRequired"
+					if  (PrmRecCompany.VerifyGLDateWithinGLDateRange
+					and  !PrmSelectOnly)
+						constraint (PrmGlDate within PrmRecCompany.CompanySystemClosingControlRel.ValidEntryDate)
+							"GlobalLedgerDate<PrmGlDate>IsNotWithinValidEntryDatesForCompany<PrmRecCompany>;ValidDateRangeIs<PrmRecCompany.CompanySystemClosingControlRel.ValidEntryDate.Begin>-<PrmRecCompany.CompanySystemClosingControlRel.ValidEntryDate.End>"
+				initialize PrmRecCompany
+
+		PrmBatchNumber
+			if (PrmCompanyGroup entered)
+				cannot be entered
+					"CannotEnterPaymentBatchIfCompanyGroupIsEntered"
+
+		PrmReasonType
+			initial value is "AD"
+			force default to "AD"
+
+		PrmOverrideMethod
+			initial value is "N"
+			default to "N"
+			initialize PrmRecCompany
+			if (!PrmSelectOnly)
+				if  (PrmOverrideMethod.Algorithm)
+					if (PrmCompany entered)
+						constraint (PrmCompany.AutoCashAlgorithmVariance entered
+						and			PrmCompany.AutoCashAlgorithmReasonType  entered
+						and			PrmCompany.AutoCashAlgorithmReasonCode  entered
+						and			PrmCompany.AutoCashAlgorithmMaximunInvoices entered
+						and			PrmCompany.AutoCashAlgorithmCombination entered)
+							"AlgorithmMethodParametersNotFoundForCompany<PrmCompany>,AddAllAlgorithmMethodParametersInCompany<PrmCompany>"
+					else
+					if (PrmCompanyGroup entered)
+						if  (PrmOverrideMethod.Algorithm)
+							for each PrmCompanyGroup.GeneralLedgerCompanyGroupMembersRel
+								PrmRecCompany = each.Company
+								if (PrmRecCompany exists)
+									constraint (PrmRecCompany.AutoCashAlgorithmVariance entered
+									and			PrmRecCompany.AutoCashAlgorithmReasonType  entered
+									and			PrmRecCompany.AutoCashAlgorithmReasonCode  entered
+									and			PrmRecCompany.AutoCashAlgorithmMaximunInvoices entered
+									and			PrmRecCompany.AutoCashAlgorithmCombination entered)
+										"AlgorithmMethodParametersNotFoundForCompany<PrmRecCompany>,AddAllAlgorithmMethodParametersInCompany<PrmRecCompany>"
+							initialize PrmRecCompany
+
+				if  (PrmOverrideMethod.Algorithm
+				or   PrmOverrideMethod.NoOverride)
+					if (PrmFirstAttemptRemittanceOnly)
+						constraint (PrmOverrideMethod.NoOverride
+						or			PrmOverrideMethod.Remit
+						or			PrmOverrideMethod not entered)
+							"RemittanceMethodNotSpecified;UncheckFirstAttemptRemittanceOnlyToContinue"
+
+				if  (PrmOverrideMethod.LastStatement)
+					constraint (PrmBatchNumber not entered)
+						"BatchNumberCannotBeEnteredWithLastStatementOption"
+
+				if  (!PrmOverrideMethod.NoOverride
+				and  !PrmOverrideMethod.Algorithm)
+					constraint (PrmVariance	not entered
+					and			PrmReasonCode  not entered
+					and			PrmMaxInvoices not entered
+					and			PrmCombination not entered)
+						"OverrideApplyMethodEntered-CannotEnterAlgorithmOptions"
+
+		PrmApplicationCode
+			if  (PrmOverrideMethod.UserDefined)
+				required
+					"ApplicationCodeRequiredIfUserDefinedOverrideSelected"
+			else
+				cannot be entered
+					"ApplicationCodeCannotBeEnteredIfOverrideNotSetToUserDefined"
+		PrmReasonCode
+			constraint (PrmReasonCode != "CURR")
+				"CURRIsAReservedReasonCode"
+
+	Actions
+		AutoCashApplication is an Instance Action
+			run in background
+			default label is "AutoCashApplication"
+			Action Rules
+				invoke AutomaticCashApplication ReceivableApplicationSelect
+					invoked.PrmFinanceEnterpriseGroup		= PrmFinanceEnterpriseGroup
+					invoked.PrmCompany						= PrmCompany
+					invoked.PrmCompanyGroup					= PrmCompanyGroup
+					invoked.PrmSelectOnly					= PrmSelectOnly
+					invoked.PrmEFTOrigin					= PrmEFTOrigin
+					invoked.PrmOperator						= PrmOperator
+					invoked.PrmGlDate						= PrmGlDate
+					invoked.PrmOverride						= PrmOverride
+					invoked.PrmBatchNumber					= PrmBatchNumber
+					invoked.PrmNatCredits					= PrmNatCredits
+					invoked.PrmOverrideMethod				= PrmOverrideMethod
+					invoked.PrmFirstAttemptRemittanceOnly	= PrmFirstAttemptRemittanceOnly
+					invoked.PrmCurrencyOverride				= PrmCurrencyOverride
+					invoked.PrmVariance						= PrmVariance
+					invoked.PrmReasonType					= PrmReasonType
+					invoked.PrmReasonCode					= PrmReasonCode
+					invoked.PrmMaxInvoices					= PrmMaxInvoices
+					invoked.PrmCombination					= PrmCombination
+					invoked.PrmApplicationCode				= PrmApplicationCode
+					invoked.PrmPreCreatedResultID			= PrmPreCreatedResultID
+

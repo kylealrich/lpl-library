@@ -1,0 +1,182 @@
+FranchiseCycleCharge is a BusinessClass
+    owned by fr
+    prefix is FRY
+    classic name is FRCYCCHG
+
+    Ontology
+        symbolic key is FranchiseCycleCharge
+            classic set name is FRYSET1
+            classic name for CustomerShipTo is SHIP-TO
+            classic name for FranchiseContract is CONTR-NBR
+
+            classic name for FranchiseContractCharge is SEQ
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+
+    Persistent Fields
+
+        Charge
+        ChargeType                is Numeric size 1
+            States
+                SalesBased value is 1
+                    default label is "Sales-Based"
+                NoteBased  value is 2
+                    default label is "Note-Based"
+                Special    value is 3
+        SubmittedAmount           is an InternationalAmount
+            classic name is SUBMITTED-AMT
+        CalculatedAmount          is an InternationalAmount
+            classic name is CALCULATED-AMT
+        LineTotalAmount           is an InternationalAmount
+            classic name is LINE-TTL-AMT
+        BeginningNoteBalance      is an InternationalAmount
+            classic name is BEG-NOTE-BAL
+        Principal                 is an InternationalAmount
+        Interest
+        EndingNoteBalance         is an InternationalAmount
+            classic name is END-NOTE-BAL
+        OverrideFlag              is an OverrideFl
+            classic name is OVERRIDE-FL
+        LineNumber
+            classic name is LINE-NBR
+        InvoiceInterestLineNumber is Numeric size 6
+            classic name is INVC-INT-LINE
+        ProcessLevel 			  is a BillingProcessLevel
+
+    Local Fields
+    	LocalTotalVaraice		  is an InternationalAmount
+    
+    Derived Fields
+    	DerivedLineVariance is a DerivedField
+    		type is like InternationalAmount
+    		default label is "Variance"
+    		return SubmittedAmount - CalculatedAmount
+    
+    Relations
+
+        FranchiseCycleChargeAdjustmentRel
+        	one-to-one relation to FranchiseCycleCharge
+        	Field Mapping uses Set2
+        		related.Company								= Company
+        		related.Customer                			= Customer
+                related.CustomerShipTo          			= CustomerShipTo
+                related.FranchiseContract       			= FranchiseContract
+                related.FranchiseContractCharge				= FranchiseContractCharge
+                related.FranchiseSales.AdjustmentNumber		= 1
+                related.FranchiseSales.SalesType 			= FranchiseSales.SalesType
+                related.FranchiseSales.Date 				= FranchiseSales.Date
+        
+        
+        FrchargeRel
+            one-to-one relation to FranchiseContractCharge
+            required
+            Field Mapping uses symbolic key
+                related.Company                 = Company
+                related.Customer                = Customer
+                related.CustomerShipTo          = CustomerShipTo
+                related.FranchiseContract       = FranchiseContract
+                related.FranchiseContractCharge = FranchiseContractCharge
+
+        FrcontmastRel
+            one-to-one relation to FranchiseContract
+            required
+            Field Mapping uses symbolic key
+                related.Company           = Company
+                related.Customer          = Customer
+                related.CustomerShipTo    = CustomerShipTo
+                related.FranchiseContract = FranchiseContract
+
+	Conditions
+
+		IsValidForActorContext			
+			restricted
+			when ((actor.context.FinanceEnterpriseGroup != ""
+			and   Company.GeneralLedgerCompany.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup)
+			or   (actor.context.FinanceEnterpriseGroup = ""))
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                Customer
+                CustomerShipTo
+                FranchiseContract
+                FranchiseContractCharge
+                FranchiseSales.AdjustmentNumber
+                FranchiseSales.SalesType
+                FranchiseSales.Date
+                
+        Set3
+            Sort Order
+                Company
+                Customer
+                CustomerShipTo
+                FranchiseContract
+                FranchiseSales.SalesType
+                FranchiseSales.Date
+                FranchiseContractCharge
+                FranchiseSales.AdjustmentNumber
+
+	Field Rules
+		Company
+			required
+		
+		Customer
+			required
+		
+		CustomerShipTo
+			required
+			
+		FranchiseContractCharge
+			required
+			constraint (FranchiseContractCharge.Active)
+				"ChargeIsInactive" 
+		SubmittedAmount
+
+
+
+			
+				
+    Actions
+        Create is a Create Action
+			Action Rules
+				if (!ChargeType.SalesBased)			
+					constraint (FranchiseContractCharge.BeginDate <= FranchiseSales.Date)
+						"DateNotWithinEffectiveDateRangeOfCharge" 
+					constraint (FranchiseContractCharge.EndDate >= FranchiseSales.Date)
+						"CycleDateNotWithinEffectiveDateRangeOfCharge" 
+				if (ChargeType.NoteBased)
+					constraint (FranchiseContractCharge.RemainingPayments > 0)
+						"RemainingPaymentsOnNoteIsZero" 
+
+        Update is an Update Action
+			Action Rules
+				if (SubmittedAmount changed)
+					constraint (!ChargeType.NoteBased)
+						"CannotChangeSubmittedAmountOfNoteBasedCharge" 
+					
+					initialize LocalTotalVaraice
+					LocalTotalVaraice = old SubmittedAmount - CalculatedAmount
+					invoke Update FranchiseSales
+						invoked.TotalVariance += (SubmittedAmount - CalculatedAmount - LocalTotalVaraice)
+						
+        UpdateFromSales is an Update Action
+        	restricted
+        	
+        
+        Override is an Update Action
+			Action Rules
+				constraint (!ChargeType.NoteBased)
+					"CannotOverrideNoteBasedCharge" 
+		Delete is a Delete Action
+			valid when (FranchiseSales.Status.Unreleased)
+			Action Rules
+				constraint (FranchiseSales not exists)
+					"FranchiseSalesExists;CannotDeleteFranchiseCycleCharge"
+					
+		Purge is a Purge Action
+			restricted

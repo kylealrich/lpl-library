@@ -1,0 +1,171 @@
+TrueCostResourceUnitCost is a BusinessClass
+	default label is "UnitCost"
+	owned by truecost
+	prefix is TCRUC
+	
+	Ontology
+		symbolic key is TrueCostResourceUnitCost
+	Patterns
+	
+	Persistent Fields
+		Status					is Numeric 1
+            States
+            	NotStarted			value is 0
+                Processing			value is 1
+                Completed			value is 2
+                Failed				value is 3
+       	RunDate					is TimeStamp
+       		default label is "RunDate/Time"
+       	WarningCount			is Numeric 6
+       	
+	
+	Relations
+		NegativeResourceUnitCostDetailsRel
+			one-to-many relation to TrueCostResourceUnitCostDetails
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration				= TrueCostConfiguration
+				related.AllocationRun						= AllocationRun
+				related.TrueCostResourceUtilizationDriver 	= TrueCostResourceUtilizationDriver
+			Instance Selection
+				where(related.IsNegativeUnitCost)
+		
+		ZeroVolumeResourceUnitCostDetailsRel
+			one-to-many relation to TrueCostResourceUnitCostDetails
+			Field Mapping uses symbolic key
+				related.TrueCostConfiguration				= TrueCostConfiguration
+				related.AllocationRun						= AllocationRun
+				related.TrueCostResourceUtilizationDriver 	= TrueCostResourceUtilizationDriver
+			Instance Selection
+				where(related.IsMissingVolume
+				and related.TotalCost entered)
+				
+		TrueCostAllocationRunRel
+			one-to-one relation to TrueCostAllocationRun
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup				= TrueCostConfiguration
+				related.TrueCostAllocationRun				= AllocationRun
+	Conditions
+		HasMissingVolume
+			restricted
+			when(ZeroVolumeResourceUnitCostDetailsRel exists)
+			
+		HasNegativeUnitCost
+			restricted
+			when(NegativeResourceUnitCostDetailsRel exists)
+		
+		CanGenerateCost
+			restricted
+			when(not Status.Processing and TrueCostAllocationRunRel.TrueCostStatus.Completed)
+			
+	Derived Fields
+		NegativeWarningCount	is a DerivedField 
+			type is Numeric 10
+			restricted
+			return 0
+			
+		MissingVolumeErrorCount	is a DerivedField 
+			type is Numeric 10
+			restricted			
+			return 0
+			
+		WithErrorAndMissingMessage is a MessageField 
+			restricted
+			"Error:<MissingVolumeErrorCount>Warning:<NegativeWarningCount>"
+			
+		WithZeroVolumeErrorMessage is a MessageField 
+			restricted
+			"Error:<MissingVolumeErrorCount>"
+			
+		WithNegativeUnitCostWarningMessage is a MessageField 
+			restricted
+			"Warning:<DerivedWarningCount>"
+		
+		DerivedWarningCount is a MessageField
+			restricted
+			"Warning:<WarningCount>"
+			
+		DerivedErrorMessage is a DerivedField
+			type is MessageField
+			if(HasMissingVolume and HasNegativeUnitCost)
+				return WithErrorAndMissingMessage
+			else
+			if(HasMissingVolume)
+				return WithZeroVolumeErrorMessage 
+			else
+			if(HasNegativeUnitCost)
+				return WithNegativeUnitCostWarningMessage
+			
+	Actions
+		Create is a Create Action
+			restricted
+			Entrance Rules
+			Exit Rules
+		Update is an Update Action
+			restricted
+		Delete is a Delete Action
+			restricted
+			
+		GenerateCost is an Instance Action
+			valid when(CanGenerateCost)
+			Local Fields
+				LocalAsyncID	is an AsyncActionRequest
+			Action Rules
+				initialize WarningCount
+				RunDate = current timestamp
+				Status = Status.Processing
+				
+				invoke PurgeDetails TrueCostResourceUnitCostDetails in background
+					assign async action request id to LocalAsyncID
+					invoked.PrmTrueCostConfiguration						= TrueCostConfiguration 
+					invoked.PrmTrueCostResourceUtilizationDriver			= TrueCostResourceUtilizationDriver 
+					invoked.PrmTrueCostAllocationRun						= AllocationRun
+					
+				invoke LoadUnitCostVolume TrueCostResourceUtilizationDriverEventTotal in background
+					run after LocalAsyncID
+					assign async action request id to LocalAsyncID
+					invoked.PrmTrueCostConfiguration						= TrueCostConfiguration 
+					invoked.PrmTrueCostResourceUtilizationDriver			= TrueCostResourceUtilizationDriver 
+					invoked.PrmTrueCostAllocationRun						= AllocationRun
+					invoked.PrmEventPeriod									= AllocationRun.AllocationPeriod
+					
+				invoke GenerateAllocatedUnitCostDetails AllocationTransactionDetail in background
+					run after LocalAsyncID
+					assign async action request id to LocalAsyncID
+					invoked.PrmTrueCostConfiguration						= TrueCostConfiguration 
+					invoked.PrmTrueCostAllocationRun						= AllocationRun
+					invoked.PrmTrueCostResourceUtilizationDriver			= TrueCostResourceUtilizationDriver
+					
+				invoke GenerateDirectCostForUnitCost AllocationSnapshotDetail in background
+					run after LocalAsyncID
+					assign async action request id to LocalAsyncID
+					invoked.PrmTrueCostConfiguration						= TrueCostConfiguration 
+					invoked.PrmTrueCostAllocationRun						= AllocationRun
+					invoked.PrmAllocationSnapshot							= AllocationRun.AllocationSnapshot
+					invoked.PrmAllocationSourceSystem						= AllocationRun.AllocationSourceSystem
+					invoked.PrmTrueCostResourceUtilizationDriver			= TrueCostResourceUtilizationDriver
+				
+				invoke ComputeTotalCost TrueCostResourceUnitCostDetails in background
+					run after LocalAsyncID
+					assign async action request id to LocalAsyncID
+					invoked.PrmTrueCostConfiguration						= TrueCostConfiguration
+					invoked.PrmTrueCostResourceUtilizationDriver			= TrueCostResourceUtilizationDriver
+					invoked.PrmTrueCostAllocationRun						= AllocationRun
+		
+				invoke TransitionStatus in background
+					run after LocalAsyncID
+		
+		TransitionStatus is an Instance Action
+			restricted
+			Action Rules
+				Status = Status.Completed
+		
+	StateCycles
+		UnitCostLifeCycle is a StateCycle
+			state field is Status
+			
+			Processing is a State
+			Completed is a State
+			Failed is a State
+			
+			
+			

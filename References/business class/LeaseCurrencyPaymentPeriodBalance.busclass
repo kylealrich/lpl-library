@@ -1,0 +1,493 @@
+LeaseCurrencyPaymentPeriodBalance is a BusinessClass
+    owned by lm
+    prefix is LCX
+    sql name is LCurrencyPaymentPeriodBalance
+    classic name is LMCUAMTX
+
+    Ontology
+        symbolic key is LeaseCurrencyPaymentPeriodBalance
+            classic set name is LCXNEWPRIMARYINDEX
+            sql name is LCurrencyPaymentPeriodBalance
+            classic name is PERIOD
+            classic name for Vendor is PMT-VENDOR
+            classic name for LeasePaymentBalance.ExecutoryCostCode is EXEC-CODE
+            classic name for LeaseCurrencyPaymentBalance.Currency is CURRENCY-CODE
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements ContextualParent
+        implements Archivable
+		
+    Persistent Fields
+
+        PaymentDueDate		is Date
+        Amount             	is an InternationalAmount
+        LiabilityBalance	is an InternationalAmount
+        LeaseExpense		is an InternationalAmount
+        ROUReduction		is an InternationalAmount
+        ROUBalance			is an InternationalAmount
+        PrincipalAmount    	is an InternationalAmount
+            classic name is PRINCIPAL-AMT
+        InterestAmount     	is an InternationalAmount
+            classic name is INTEREST-AMT
+        PrincipalTaxAmount 	is an InternationalAmount
+            classic name is PRIN-TAX-AMT
+        InterestTaxAmount  	is an InternationalAmount
+            classic name is INT-TAX-AMT
+        ShortTermLiability  is an InternationalAmount
+        LongTermLiability   is an InternationalAmount
+		ShortTermLiabilityReduction	is an InternationalAmount
+		LongTermLiabilityReduction	is an InternationalAmount
+
+	Local Fields
+		LocalImpairmentAmount                       is an InternationalAmount
+		LocalModificationDate	                    is Date
+		LocalCalculateLongTermLiabilityDueDate		is Date
+	Transient Fields
+		TransientLeaseCurrencyPaymentPeriodBalance			is a ToCurrency
+			derive value from LeaseCurrencyPaymentBalance.Currency
+			
+	Derived Fields
+	
+		DerivedMonth is a DerivedField
+			type is Numeric size 2
+			restricted
+			return PaymentDueDate month
+			
+		DerivedYear is a DerivedField
+			type is AlphaUpper size 4
+			restricted
+			return PaymentDueDate year
+	
+		DerivedPaddedMonth is a DerivedField
+			type is AlphaUpper 2
+			restricted
+			if (PaymentDueDate month < 10)
+				DerivedPaddedMonth	= "0" + DerivedMonth 
+			else
+				return PaymentDueDate month
+		
+		DerivedDate is a DerivedField
+			type is AlphaUpper size 7
+			return DerivedPaddedMonth + "/" + DerivedYear	
+		
+		DerivedModificationAmount is a DerivedField
+			type is like InternationalAmount
+
+            if (ModificationCounter > 1) 
+                for each LeaseModificationRel
+                    if  (PaymentDueDate month = each.ModificationDate month
+				    and  PaymentDueDate year =  each.ModificationDate year)
+                        DerivedModificationAmount = each.ModificationAmount.TransactionAmount 
+                return DerivedModificationAmount
+			else
+                for each LeaseModificationRel
+				    if  (PaymentDueDate month = each.ModificationDate month
+				    and  PaymentDueDate year =  each.ModificationDate year)
+					    return each.ModificationAmount.TransactionAmount
+			
+		DerivedImpairmentAmount is a DerivedField
+			type is like InternationalAmount
+			for each LeaseImpairmentRel
+				if  (PaymentDueDate month = each.ImpairmentDate month
+				and  PaymentDueDate year =  each.ImpairmentDate year)
+					return each.ImpairmentAmount.TransactionAmount
+
+        DerivedCashIncentiveAmount is a DerivedField 
+            type is like InternationalAmount
+            return sum LeaseCashIncentiveRel.Amount.TransactionAmount
+        
+        DerivedNonCashIncentiveAmount is a DerivedField 
+            type is like InternationalAmount
+            return sum LeaseNonCashIncentiveRel.Amount.TransactionAmount  
+        
+        DerivedIncentiveAmount is a DerivedField 
+            type is like InternationalAmount
+            return sum LeaseIncentivesRel.Amount.TransactionAmount
+
+        DerivedAdjustmentAmount is a DerivedField
+			type is like InternationalAmount
+			for each LeaseAdjustmentRel
+				if  (PaymentDueDate month = each.AdjustmentDate month
+				and  PaymentDueDate year =  each.AdjustmentDate year)
+					return each.AdjustmentAmount.TransactionAmount * -1
+
+        ModificationCounter is a DerivedField	
+			type is Numeric 2
+			for each LeaseModificationRel
+                if  (PaymentDueDate month = each.ModificationDate month
+				and  PaymentDueDate year =  each.ModificationDate year)
+				    ModificationCounter += 1
+			return ModificationCounter
+
+        DerivedAlertMessage is a DerivedField		
+			type is Alpha 150
+			if(ModificationInProgressRedAlert)
+                return "Lease Modification In Progress"
+            else
+                return "Lease Adjusted By " + DerivedAdjustmentAmount
+        
+        DerivedIncentivesAlertMessage is a DerivedField
+            type is Alpha 150
+            if(instance count of LeaseIncentivesRel = instance count of LeaseCashIncentiveRel)
+                return "Cash Incentive of " + DerivedCashIncentiveAmount
+            else
+            if(instance count of LeaseIncentivesRel = instance count of LeaseNonCashIncentiveRel)
+                return "Non-Cash Incentive of " + DerivedNonCashIncentiveAmount
+            else
+                return "Cash And Non-Cash Incentive of " + DerivedIncentiveAmount
+                        
+        DerivedModificationExists is a DerivedField
+            type is Boolean
+            for each LeaseModificationRel
+                if(each.ModificationDate month = PaymentDueDate month
+                and each.ModificationDate year= PaymentDueDate year)
+                    return true
+                    end for each
+        
+        DerivedAdjustmentExists is a DerivedField
+            type is Boolean
+            for each LeaseAdjustmentRel
+                if(each.AdjustmentDate month = PaymentDueDate month
+                and each.AdjustmentDate year= PaymentDueDate year)
+                    return true
+                    end for each
+        
+	Conditions
+		
+		ModificationDateBlueAlert
+			restricted
+			when (PaymentDueDate entered
+			and   DerivedModificationExists
+            and  last LeaseModificationRel.Status.Released)
+		
+        ModificationInProgressRedAlert
+            restricted
+            when (PaymentDueDate entered
+			and   PaymentDueDate month = last LeaseModificationRel.ModificationDate month
+			and   PaymentDueDate year  = last LeaseModificationRel.ModificationDate year
+			and   Lease.HasLeaseModifications
+            and   last LeaseModificationRel.Status.Unreleased)
+
+
+        LeaseCashIncentivesYellowAlert
+            restricted
+            when (LeaseCashIncentiveRel exists)
+        
+        LeaseIncentivesYellowAlert
+            restricted
+            when (LeaseIncentivesRel exists
+            or LeaseCashIncentiveRel exists
+            or LeaseNonCashIncentiveRel exists)
+        
+        PartialTerminationInProgressRedAlert
+            restricted
+            when (PaymentDueDate entered
+			and   PaymentDueDate month = last LeaseModificationRel.ModificationDate month
+			and   PaymentDueDate year  = last LeaseModificationRel.ModificationDate year
+			and   Lease.HasLeaseModifications
+            and   last LeaseModificationRel.Status.Unreleased
+            and   last LeaseModificationRel.PartialTermination)
+
+		ImpairmentDateYellowAlert
+			restricted
+			when (PaymentDueDate entered
+			and   PaymentDueDate month = any LeaseImpairmentRel.ImpairmentDate month
+			and   PaymentDueDate year  = any LeaseImpairmentRel.ImpairmentDate year
+			and   Lease.HasLeaseImpairments)
+
+        IsFinance
+        	restricted
+            when (Lease.LeaseClassification.Finance)
+
+        AdjustmentDateGreenAlert
+			restricted
+			when (PaymentDueDate entered
+			and   DerivedAdjustmentExists)
+
+		AdjustmentInProgressYellowAlert
+            restricted
+            when (PaymentDueDate entered
+			and   DerivedAdjustmentExists
+            and   last LeaseAdjustmentRel.Status.Unreleased)
+				
+        ModificationAndAdjustmentInProgressYellowAlert
+            restricted
+            when(AdjustmentInProgressYellowAlert
+            or ModificationInProgressRedAlert)
+
+    Relations
+
+        AmassetRel
+            one-to-many relation to Asset
+            Field Mapping uses Set13
+            Instance Selection
+                where (related.AssetLease.LeaseCompany = Company
+                and   related.AssetLease.Lease = Lease)
+
+        LminvoiceRel
+            one-to-many relation to LeaseInvoice
+            Field Mapping uses Set9
+                related.Company    = Company
+                related.Lease      = Lease
+                related.FiscalYear = LeasePaymentBalance.FiscalYear
+                related.Period     = LeaseCurrencyPaymentPeriodBalance
+
+        ApvenmastRel
+            one-to-one relation to Vendor
+            Field Mapping uses symbolic key
+                related.VendorGroup = Company.VendorGroup
+                related.Vendor      = Vendor
+                
+        LeaseModificationRel
+            one-to-many relation to LeaseModification
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+                
+        LeaseImpairmentRel
+            one-to-many relation to LeaseImpairment
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+
+        LeaseAdjustmentRel  
+            one-to-many relation to LeaseAdjustment
+            Field Mapping uses symbolic key
+            	related.Company = Company
+                related.Lease   = Lease
+                related.Vendor  = Vendor
+        
+        LongTermLeaseCurrencyLiabilityRel
+            one-to-many relation to LeaseCurrencyPaymentPeriodBalance      
+            Field Mapping uses ByCompanyLeaseVendorFiscalYearDueDate
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+				and    related.PaymentDueDate > LocalCalculateLongTermLiabilityDueDate)
+
+        LongTermLeaseCurrencyLiabilityReductionRel
+            one-to-many relation to LeaseCurrencyPaymentPeriodBalance      
+            Field Mapping uses ByCompanyLeaseVendorFiscalYearDueDate
+                related.Company = Company
+                related.Lease   = Lease
+            Instance Selection
+            	where (related.LeasePaymentBalance.ExecutoryCostCode not entered
+				and    related.PaymentDueDate = LocalCalculateLongTermLiabilityDueDate)
+        
+        LeaseCashIncentiveRel 
+			one-to-many relation to LeaseIncentive
+            Field Mapping uses symbolic key
+                related.Company    = Company
+                related.Lease      = Lease
+                related.Vendor     = Vendor
+			Instance Selection
+				where (related.IncentiveDate month = PaymentDueDate month
+				and related.IncentiveDate year  = PaymentDueDate year
+				and related.IncentiveType.Cash)
+        
+        LeaseNonCashIncentiveRel 
+			one-to-many relation to LeaseIncentive
+            Field Mapping uses symbolic key
+                related.Company    = Company
+                related.Lease      = Lease
+                related.Vendor     = Vendor
+			Instance Selection
+				where (related.IncentiveDate month = PaymentDueDate month
+				and related.IncentiveDate year  = PaymentDueDate year
+				and related.IncentiveType.NonCash)
+        
+        LeaseIncentivesRel  
+            one-to-many relation to LeaseIncentive
+            Field Mapping uses symbolic key
+                related.Company    = Company
+                related.Lease      = Lease
+                related.Vendor     = Vendor
+			Instance Selection
+				where (related.IncentiveDate month = PaymentDueDate month
+				and related.IncentiveDate year  = PaymentDueDate year)
+
+
+    Sets
+
+        Set2
+            indexed
+            Sort Order
+                Company
+                Lease
+                LeaseCurrencyPaymentBalance
+                LeasePaymentBalance.FiscalYear
+                LeaseCurrencyPaymentPeriodBalance
+                Vendor
+                LeasePaymentBalance.ExecutoryCostCode
+
+        Set3
+            indexed
+            Sort Order
+                Company
+                Lease
+                LeaseCurrencyPaymentBalance
+                LeasePaymentBalance.FiscalYear
+                LeaseCurrencyPaymentPeriodBalance
+                LeasePaymentBalance.ExecutoryCostCode
+                Vendor
+
+        Set1
+            Sort Order
+                Company
+                Lease
+                Vendor
+                LeaseCurrencyPaymentBalance
+                LeasePaymentBalance
+                LeaseCurrencyPaymentPeriodBalance
+
+        ByCompanyLeaseVendorFiscalYearDueDate
+            Sort Order
+                Company
+                Lease
+                Vendor
+                LeasePaymentBalance.FiscalYear
+                LeaseCurrencyPaymentBalance.Currency
+                LeaseCurrencyPaymentPeriodBalance
+                LeasePaymentBalance.ExecutoryCostCode
+                PaymentDueDate
+
+	Actions
+		Create is a Create Action
+			restricted
+		
+		Update is an Update Action
+			restricted
+
+		UpdateROU is an Update Action
+			restricted
+			bypass field rules
+
+		Delete is a Delete Action
+			restricted
+		
+		Purge is a Purge Action
+			restricted
+			 
+		CreateLeaseAmortization is a Create Action
+			restricted
+
+		CalculateShortAndLongTermLiabilityAmounts is a Set Action
+			restricted
+			Parameters
+				PrmCompany						is a PayablesCompany
+				PrmLease						is a Lease
+				PrmVendor						is a Vendor
+                PrmPaymentDueDate               is Date
+
+			Set Is  
+				PrmCompany
+                PrmLease
+                PrmVendor
+
+			Local Fields
+				LocalActor									is an Actor
+				LocalShortTermLiability					is an InternationalAmount
+				LocalLongTermLiability					is an InternationalAmount
+				LocalShortTermLiabilityReduction		is an InternationalAmount
+				LocalLongTermLiabilityReduction			is an InternationalAmount
+			Instance Selection
+				where (Company 		    = PrmCompany
+				and    Lease		    = PrmLease
+				and    Vendor		    = PrmVendor
+                and    PaymentDueDate   >= PrmPaymentDueDate
+				and    LeasePaymentBalance.ExecutoryCostCode not entered)
+
+			Sort Order is ByCompanyLeaseVendorFiscalYearDueDate
+
+			Action Rules
+				Empty Set Rules
+					send notification
+						to LocalActor
+						description is "LeaseAmortization"
+						priority is high
+						detail is "Must_have_Lease_payments_period_balance_to_create"
+	
+				Set Rules
+					Entrance Rules
+						LocalActor 				= actor
+
+					Exit Rules
+                        invoke ResetStatusAfterTest PrmLease
+
+                Instance Rules
+                    LocalCalculateLongTermLiabilityDueDate 	= PaymentDueDate
+                    LocalCalculateLongTermLiabilityDueDate 	+= 12 months
+                    LocalLongTermLiability 					= sum LongTermLeaseCurrencyLiabilityRel.PrincipalAmount
+                    LocalShortTermLiability 				= LiabilityBalance - LocalLongTermLiability
+                    LocalLongTermLiabilityReduction			= LongTermLeaseCurrencyLiabilityReductionRel.PrincipalAmount
+                    LocalShortTermLiabilityReduction		= PrincipalAmount - LocalLongTermLiabilityReduction
+                    if (IsFinance) 
+                        if (Amount != "0") 
+                            LocalShortTermLiabilityReduction	= LocalShortTermLiabilityReduction + InterestAmount
+                    if (LocalShortTermLiability 			= LocalLongTermLiability)
+                        LocalLongTermLiability				= "0"
+                    invoke UpdateROU
+                        invoked.ShortTermLiability			= LocalShortTermLiability
+                        invoked.LongTermLiability			= LocalLongTermLiability
+                        invoked.ShortTermLiabilityReduction	= LocalShortTermLiabilityReduction
+                        invoked.LongTermLiabilityReduction	= LocalLongTermLiabilityReduction
+        
+        MassConversionOfShortAndLongTermLiabilityAmounts is a Set Action
+			restricted
+			Parameters
+                PrmConversionDate               is Date
+
+			Local Fields
+				LocalActor									is an Actor
+				LocalShortTermLiability					is an InternationalAmount
+				LocalLongTermLiability					is an InternationalAmount
+				LocalShortTermLiabilityReduction		is an InternationalAmount
+				LocalLongTermLiabilityReduction			is an InternationalAmount
+			
+            Instance Selection
+				where (Lease.Status.Released
+				and    Company.FinanceEnterpriseGroup = actor.context.FinanceEnterpriseGroup
+                and    PaymentDueDate   >= PrmConversionDate
+				and    LeasePaymentBalance.ExecutoryCostCode not entered)
+
+			Sort Order is ByCompanyLeaseVendorFiscalYearDueDate
+
+			Action Rules
+				Empty Set Rules
+					send notification
+						to LocalActor
+						description is "LeaseAmortization"
+						priority is high
+						detail is "Must_have_Lease_payments_period_balance_to_create"
+	
+				Set Rules
+					Entrance Rules
+						LocalActor 				= actor
+
+					Exit Rules
+                        invoke ResetStatusAfterTest Lease
+                        invoke MassConversionLeaseCurrencyTransaction Lease	
+							invoked.PrmConversionDate   = PrmConversionDate
+
+                Instance Rules
+                    LocalCalculateLongTermLiabilityDueDate 	= PaymentDueDate
+                    LocalCalculateLongTermLiabilityDueDate 	+= 12 months
+                    LocalLongTermLiability 					= sum LongTermLeaseCurrencyLiabilityRel.PrincipalAmount
+                    LocalShortTermLiability 				= LiabilityBalance - LocalLongTermLiability
+                    LocalLongTermLiabilityReduction			= LongTermLeaseCurrencyLiabilityReductionRel.PrincipalAmount
+                    LocalShortTermLiabilityReduction		= PrincipalAmount - LocalLongTermLiabilityReduction
+                    if (IsFinance) 
+                        if (Amount != "0") 
+                            LocalShortTermLiabilityReduction	= LocalShortTermLiabilityReduction + InterestAmount
+                    if (LocalShortTermLiability 			= LocalLongTermLiability)
+                        LocalLongTermLiability				= "0"
+                    invoke UpdateROU
+                        invoked.ShortTermLiability			= LocalShortTermLiability
+                        invoked.LongTermLiability			= LocalLongTermLiability
+                        invoked.ShortTermLiabilityReduction	= LocalShortTermLiabilityReduction
+                        invoked.LongTermLiabilityReduction	= LocalLongTermLiabilityReduction

@@ -1,0 +1,178 @@
+InventoryForecast is a BusinessClass
+    owned by ic
+    prefix is IFO
+    classic name is ICFORECAST
+
+    Ontology
+        symbolic key is InventoryForecast
+            classic set name is IFOSET1
+            classic name for InventoryForecast.ForecastNumber is FORECAST-NBR
+            classic name for InventoryLocation is LOCATION
+
+    Patterns
+        implements StaticJava
+        disable AuditIndex
+		implements Archivable
+
+    Persistent Fields
+
+        ForecastQuantityAmountArray
+            classic name for ForecastQuantityAmountArray.ForecastQuantityAmount.ForecastQuantity is FORECAST-QTY
+            classic name for ForecastQuantityAmountArray.ForecastQuantityAmount.ForecastAmount is FORECAST-AMT
+
+	Transient Fields
+
+		ActionCode						is Alpha size 1
+			States
+				Spread 					value is "S"
+				Duplicate 				value is "D"
+		SpreadQuantity 					is Numeric size 9
+		SpreadAmount					is Numeric size 13
+
+	Local Fields
+
+		LocalNumberOfPeriods			is Numeric 2	
+		TempCounter						is Numeric 2
+		PerPeriodQuantity				is like Quantity 
+		PerPeriodAmount					is an InternationalAmount
+		LastPeriodQuantity				is like Quantity 
+		LastPeriodAmount				is an InternationalAmount
+		IsAdd 							is Boolean
+		
+    Relations
+
+        InventoryUsageHistoryRel
+            classic name is ICHISTORY
+            one-to-one relation to InventoryUsageHistory
+            required
+            Field Mapping uses symbolic key
+                related.Company                       = Company
+                related.InventoryLocation             = InventoryLocation
+                related.Item                          = Item
+                related.InventoryUsageHistory.Year    = InventoryForecast.ForecastYear
+                related.InventoryUsageHistory.Quarter = InventoryForecast.Quarter
+
+		ItemLocationRel
+			one-to-one relation to ItemLocation
+			Field Mapping uses symbolic key
+				related.Company			 	= Company
+				related.InventoryLocation 	= InventoryLocation
+				related.Item 				= Item
+			
+	Field Rules
+		Item
+			constraint (ItemLocationRel exists)
+				"ItemLocationDoesNotExist"                     // "ItemLocationDoesNotExist"      
+					
+		InventoryForecast
+			if (Company.NumberOfPeriods.12PeriodsPerYearMonthly
+			or Company.NumberOfPeriods.13PeriodsPerYear)
+				constraint (InventoryForecast.Quarter not entered)
+					"QuarterMustBeBlank"                           //"QuarterMustBeBlank"     
+			if (Company.NumberOfPeriods.52PeriodsPerYearWeekly
+			or Company.NumberOfPeriods.53PeriodsPerYear)
+				constraint (InventoryForecast.Quarter entered)
+					"CompanyIsWeekly;MustEnterQuarter"             //"CompanyIsWeekly;MustEnterQuarter"       
+				constraint (InventoryForecast.Quarter <= 4)
+					"QuarterCannotBeGreaterThan4"  			      //"QuarterCannotBe_>_4"   
+			if (InventoryForecast.Quarter != 4)
+				constraint (ForecastQuantityAmountArray.ForecastQuantityAmount[14].ForecastQuantity not entered
+				and ForecastQuantityAmountArray.ForecastQuantityAmount[14].ForecastAmount not entered)
+					"ForecastQuantityAndAmountCannotBeEnteredForPeriod14"
+			if (InventoryForecast.ForecastYear = Company.CurrentYear)
+				if (Company.NumberOfPeriods.52PeriodsPerYearWeekly)
+					constraint (ForecastQuantityAmountArray.ForecastQuantityAmount[14].ForecastQuantity not entered
+					and ForecastQuantityAmountArray.ForecastQuantityAmount[14].ForecastAmount not entered)
+						"ForecastQuantityAndAmountCannotBeEnteredForPeriod14"   //"ForecastMustBeBlank"  
+				if (Company.NumberOfPeriods.12PeriodsPerYearMonthly)
+					constraint (ForecastQuantityAmountArray.ForecastQuantityAmount[13].ForecastQuantity not entered
+					and ForecastQuantityAmountArray.ForecastQuantityAmount[13].ForecastAmount not entered)
+						"ForecastQuantityAndAmountCannotBeEnteredForPeriod13"
+		
+		SpreadQuantity
+			constraint (SpreadQuantity >= Company.NumberOfPeriods)
+				"SpreadQuantityCannotBeLessThanNumberOfPeriods"
+		
+		SpreadAmount
+			constraint (SpreadAmount >= Company.NumberOfPeriods)
+				"PerPeriodAmountCannotBeLessThanNumberOfPeriods"
+		
+		ActionCode
+			initialize LocalNumberOfPeriods
+			if (Company.NumberOfPeriods.12PeriodsPerYearMonthly)
+				LocalNumberOfPeriods		 	= 12
+			else
+				if (Company.NumberOfPeriods.53PeriodsPerYear
+				and InventoryForecast.Quarter = 4)
+					LocalNumberOfPeriods		= 14
+				else
+					if (Company.NumberOfPeriods.52PeriodsPerYearWeekly
+					or Company.NumberOfPeriods.53PeriodsPerYear
+					or Company.NumberOfPeriods.13PeriodsPerYear) 	
+						LocalNumberOfPeriods 	= 13
+			initialize TempCounter
+			initialize PerPeriodQuantity
+			initialize PerPeriodAmount
+			initialize LastPeriodQuantity
+			initialize LastPeriodAmount
+			if (ActionCode.Spread)
+				PerPeriodQuantity 	= SpreadQuantity / LocalNumberOfPeriods
+				round PerPeriodQuantity down to nearest 1
+				LastPeriodQuantity	= SpreadQuantity - (PerPeriodQuantity * (LocalNumberOfPeriods - 1))
+				PerPeriodAmount		= SpreadAmount / LocalNumberOfPeriods
+				round PerPeriodAmount down to nearest 1	
+				LastPeriodAmount	= SpreadAmount   - (PerPeriodAmount   * (LocalNumberOfPeriods - 1))
+				while (TempCounter < LocalNumberOfPeriods)
+					TempCounter += 1	
+					ForecastQuantityAmountArray.ForecastQuantityAmount[TempCounter].ForecastQuantity		= PerPeriodQuantity
+					ForecastQuantityAmountArray.ForecastQuantityAmount[TempCounter].ForecastAmount	  		= PerPeriodAmount
+				ForecastQuantityAmountArray.ForecastQuantityAmount[LocalNumberOfPeriods].ForecastQuantity   = LastPeriodQuantity
+				ForecastQuantityAmountArray.ForecastQuantityAmount[LocalNumberOfPeriods].ForecastAmount		= LastPeriodAmount
+			else
+				if (ActionCode.Duplicate)
+					if (IsAdd)
+						PerPeriodQuantity		= SpreadQuantity
+						PerPeriodAmount			= SpreadAmount
+						LastPeriodQuantity		= SpreadQuantity
+						LastPeriodAmount		= SpreadAmount
+						while (TempCounter < LocalNumberOfPeriods)
+							TempCounter += 1	
+							ForecastQuantityAmountArray.ForecastQuantityAmount[TempCounter].ForecastQuantity		= PerPeriodQuantity
+							ForecastQuantityAmountArray.ForecastQuantityAmount[TempCounter].ForecastAmount	  		= PerPeriodAmount
+						ForecastQuantityAmountArray.ForecastQuantityAmount[LocalNumberOfPeriods].ForecastQuantity   = LastPeriodQuantity
+						ForecastQuantityAmountArray.ForecastQuantityAmount[LocalNumberOfPeriods].ForecastAmount		= LastPeriodAmount
+											
+    Actions
+        Create is a Create Action
+        	Entrance Rules
+        		IsAdd = true
+        
+        Update is an Update Action
+        
+        Delete is a Delete Action
+        
+        Purge is a Purge Action
+        	restricted
+				
+		InventoryForecastPurge is a Set Action
+        	restricted
+        	Parameters
+        		PrmCompany								is an InventoryCompany
+				PrmForecastYear         				is Numeric size 4
+					default label is "Year"
+				PrmForecastNumber          				is Numeric size 4
+				PrmPurgeOption							is Numeric 1
+					default label is "ActionOption"
+					States
+						PurgeRecords 	value is 1
+						ReportOnly		value is 2
+			Instance Selection
+				include deleted records
+				where(PrmCompany 					=	Company
+				and PrmForecastYear 				=	InventoryForecast.ForecastYear
+				and (PrmForecastNumber not entered 
+				or  PrmForecastNumber				=	InventoryForecast.ForecastNumber))
+			Action Rules
+				Instance Rules
+					if(PrmPurgeOption.PurgeRecords)
+						invoke Purge

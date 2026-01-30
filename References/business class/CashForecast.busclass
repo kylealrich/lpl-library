@@ -1,0 +1,1328 @@
+CashForecast is a BusinessClass
+	owned by cashmgmt
+	prefix is CMCF	
+
+	Ontology
+		symbolic key is CashForecast
+	
+	Patterns
+		implements ContextualParent
+			
+	Persistent Fields
+		Description					   is Alpha 250
+		Status						   is Numeric size 2
+    		States
+    			New						  value is 1
+    			AwaitingApproval 		  value is 2
+    			Active					  value is 3
+	            Closed					  value is 4
+		ForecastDateRange			   is a DateRange
+		ForecastCreationParameter
+		RollingForecast				   is Boolean
+		IncludeCategories		 	   is Boolean
+		IncludeOperatingAccounts 	   is Boolean
+		BuildForecastTimestamp	 	   is TimeStamp
+		AwaitingApprovalTimestamp	   is TimeStamp
+		ActiveTimestamp				   is TimeStamp
+		ClosedTimestamp				   is TimeStamp	
+		ApprovalCode
+		Rejected						is Boolean
+		ApprovalLevel					is Numeric 8
+		ReassignToApprovalLevel			is an ApprovalCodeResource
+		Approver						is a FinanceResource
+		ApproverTeam					is a FinanceTeamField
+		Simulated						is Boolean
+	
+	Local Fields
+		LocalCashForecast			   is a CashForecast
+		LocalCashManagementAccount 	   is a CashManagementAccount
+		LocalBankDayNumber			   is Numeric 8
+		LocalCashForecastPeriod 	   is like CashForecastPeriod
+		LocalPublishDate			   is Date
+		LocalPublishDateRange 	   	   is a DateRange
+		LocalApprovalLevel			   is Numeric 8
+		LocalApprover				   is a FinanceResource
+		LocalApproverTeam			   is a FinanceTeamField		
+		LocalApproverList			   is Alpha 250
+		LocalFirstApproverAssigned	   is Boolean
+		LocalCashManagementGroup	   is like CashManagementGroup
+		LocalRejectReason			   is AlphaUpper 20
+		LocalRejectComment			   is Alpha size up to 500
+		LocalEmailAddress			   is EmailAddressField 
+			holds pii
+    	LocalForecastCalendar		   is a SystemCalendar
+		LocalForecastDateRange		   is a DateRange
+		LocalDateRange				   is a DateRange
+		LocalRollingFrequencyDuration  is Numeric 3
+		BackgroundGroup				   is Alpha 100
+		LocalCashForecastAccount	   is like CashForecastAccount
+		
+	Rule Blocks
+		InitiateApprovalProcessFlow
+			LocalCashManagementGroup		= CashManagementGroup
+			LocalCashForecast				= CashForecast
+			
+			initiate CashForecastApproval process
+				title is "CashForecast:<CashForecast.Description>WaitingForApproval" 
+				Variables
+					LocalCashManagementGroup
+					LocalCashForecast
+				URLs
+					"<linkback(webapp is CashManager navigation is ProcessFlowForm text is \"ViewCashForecast\" session key CashManagementGroup is CashManagementGroup)>"
+		
+		BuildTeamApproverActorList
+			LocalApproverList = ""
+			LocalFirstApproverAssigned = false
+			for each FinanceTeamMembersFromCurrentApprovalLevelRel
+				if (LocalFirstApproverAssigned)
+					LocalApproverList = LocalApproverList + "," + each.FinanceTeamMember.TeamMember.FinanceResourceActor
+				else
+					LocalApproverList = each.FinanceTeamMember.TeamMember.FinanceResourceActor
+					LocalFirstApproverAssigned = true
+		
+		GetNextEscalationApprovalLevel
+			LocalApprovalLevel		= ApprovalLevel
+			if (first LocalApprovalCodeLevelRel.EscalateTo.NextApprovalLevel)
+				LocalApprovalLevel	= ApprovalLevel + 1
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+			else
+				LocalApprovalLevel	= first LocalApprovalCodeLevelRel.EscalationApprovalLevel.ApprovalLevel
+				LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+				LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				
+			include ApproverEmailNotification
+
+		GetNextApprovalLevel
+			if (ApprovalLevel < 1)
+				LocalApprovalLevel	= first ApprovalCodeResourceRel.ApprovalLevel
+				LocalApprover		= first ApprovalCodeResourceRel.Approver
+				LocalApproverTeam	= first ApprovalCodeResourceRel.ApprovalTeam
+			else
+				LocalApprovalLevel		= ApprovalLevel + 1
+				if (LocalApprovalCodeLevelRel exists)
+					LocalApprovalLevel	= first LocalApprovalCodeLevelRel.ApprovalLevel
+					LocalApprover		= first LocalApprovalCodeLevelRel.Approver
+					LocalApproverTeam	= first LocalApprovalCodeLevelRel.ApprovalTeam
+				else
+					initialize LocalApprovalLevel
+					initialize LocalApprover
+					initialize LocalApproverTeam
+			
+			if (LocalApprovalLevel entered)
+				include ApproverEmailNotification
+
+		ApproverEmailNotification
+			if (LocalApprover entered)
+				send email
+					to		LocalApprover.EmailAddress
+					from	actor.agent(Employee).EmployeeWorkEmailAddress
+					subject "CashForecast<CashForecast.Description>HasBeenSubmittedForYourApproval"
+					Contents
+							"CashForecast<CashForecast.Description>For<ForecastDateRange.Begin>-<ForecastDateRange.End>HasBeenSubmittedForYourApproval"
+			else
+			if (LocalApproverTeam entered)
+				for each SendToTeamMembersRel
+					send email
+						to		each.FinanceTeamMember.TeamMember.EmailAddress
+						from	actor.agent(Employee).EmployeeWorkEmailAddress
+						subject "CashForecast<CashForecast.Description>HasBeenSubmittedForYourApproval"
+						Contents
+							"CashForecast<CashForecast.Description>For<ForecastDateRange.Begin>-<ForecastDateRange.End>HasBeenSubmittedForYourApproval"
+
+		RejectionEmailNotification
+			if (CashForecast.Rejected)
+				send email
+					to		ActorRel.ContactInfo.EmailAddress
+					from	actor.agent(Employee).EmployeeWorkEmailAddress
+					subject "CashForecast<CashForecast.Description>HasBeenRejected"
+					Contents
+							"RejectedOn_<current timestamp>By_<actor.agent(Employee).FirstLastName>"
+			
+		CreateCategories
+			if (IncludeCategories)
+				for each CashTransactionCategoryRel 
+					invoke Create CashForecastCategory
+						invoked.CashManagementGroup		   					 = CashManagementGroup
+						invoked.CashForecast			   					 = CashForecast
+						invoked.CashForecastCategory.CashTransactionCategory = each.CashTransactionCategory
+						invoked.ForecastCreationParameter  					 = ForecastCreationParameter
+		
+		CreateOperatingAccounts
+			if (IncludeOperatingAccounts) 
+				for each ActiveSecurityCashManagementAccountRel 
+					invoke Create CashForecastAccount
+						invoked.CashManagementGroup						  = CashManagementGroup
+						invoked.CashForecast							  = CashForecast
+						invoked.CashForecastAccount.CashManagementAccount = each.CashManagementAccount
+		
+		UpdateOriginalForecastAmount
+			invoke UpdateAmount CashForecastPeriodAmount
+				invoked.PrmCashManagementGroup	= CashManagementGroup
+				invoked.PrmCashForecast			= CashForecast
+				invoked.PrmAmountType			= 1 
+				invoked.PrmDateRange			= ForecastDateRange													
+	
+	Derived Fields
+		ActivateCompletionMessage is a DerivedField
+			type is Alpha up to 50
+			restricted
+			if (CashManagementGroup.CashForecastApprovalRequired)
+				return ApprovalMessage
+			else
+				return ActivationMessage
+		
+		ApprovalMessage is a MessageField
+			restricted
+			"CashForecastHasBeenSubmittedForApproval"
+			
+		ActivationMessage is a MessageField
+			restricted
+			"CashForecastHasBeenActivated"
+			
+		LPADescription is a MessageField
+			restricted
+			"<Description>"
+		
+		SummarizedTransactionMessage is a MessageField
+			restricted
+			"SummarizedTransaction"
+		
+		CashForecastAccountMessage is a MessageField
+			"-_AccountsHaveNotBeenDefined"
+			
+		CashForecastCategoryMessage is a MessageField
+			"-_CategoriesHaveNotBeenDefined"
+		
+		ForecastDateRangeBeginMonth is a DerivedField
+			type is Alpha 2
+			restricted
+			return ForecastDateRange.Begin month
+		
+		ForecastDateRangeEndMonth is a DerivedField
+			type is Alpha 2
+			restricted
+			return ForecastDateRange.End month
+				
+		ForecastBeginDate is a DerivedField
+			type is Alpha up to 15
+			restricted
+			return ForecastDateRangeBeginMonth + "/" + ForecastDateRange.Begin day + "/" + ForecastDateRange.Begin year
+		
+		ForecastEndDate is a DerivedField
+			type is Alpha up to 15
+			restricted
+			return ForecastDateRangeEndMonth + "/" + ForecastDateRange.End day + "/" + ForecastDateRange.End year
+				
+		DerivedForecastDateRange is a DerivedField
+			type is Alpha up to 30
+			return ForecastBeginDate + " - " + ForecastEndDate
+	
+		PublishDateWeek is a DerivedField
+			type is Numeric 2
+			restricted
+			return LocalPublishDate week
+		
+		PublishDateMonth is a DerivedField
+			type is Numeric 2
+			restricted
+			return LocalPublishDate month
+	
+		WeeklyPublishedBeginDate is a DerivedField
+			type is Date
+			restricted
+			if (LocalPublishDate week day != 1)
+				if (LocalPublishDate - (LocalPublishDate week day - 1) >= ForecastDateRange.Begin)
+					return LocalPublishDate - (LocalPublishDate week day - 1)
+				else
+					return ForecastDateRange.Begin 
+			else
+				return LocalPublishDate
+		
+		WeeklyPublishedEndDate is a DerivedField
+			type is Date
+			restricted
+			if (LocalPublishDate week day != 7)
+				if (LocalPublishDate + (7 - LocalPublishDate week day) <= ForecastDateRange.End)
+					return LocalPublishDate + (7 - LocalPublishDate week day)
+				else
+					return ForecastDateRange.End
+			else
+				return LocalPublishDate	
+		
+		MonthlyPublishedBeginDate is a DerivedField
+			type is Date
+			restricted
+			if (LocalPublishDate day != 1)
+				if (LocalPublishDate - (LocalPublishDate day - 1) >= ForecastDateRange.Begin)
+					return LocalPublishDate - (LocalPublishDate day - 1)
+				else
+					return ForecastDateRange.Begin
+			else
+				return LocalPublishDate
+		
+		MonthlyPublishedEndDate is a DerivedField
+			type is Date
+			restricted
+			if (LocalPublishDate day != LocalPublishDate days in month)
+				if (LocalPublishDate + (LocalPublishDate days in month - LocalPublishDate day) <= ForecastDateRange.End)
+					return LocalPublishDate + (LocalPublishDate days in month - LocalPublishDate day)
+				else
+					return ForecastDateRange.End
+			else
+				return LocalPublishDate
+		
+		MonthlyPublishedMonthName is a DerivedField
+			type is Alpha up to 10
+			restricted
+
+			if (LocalPublishDate month = 1)
+				return "January"
+			else
+			if (LocalPublishDate month = 2)
+				return "February"
+			else
+			if (LocalPublishDate month = 3)
+				return "March"
+			else
+			if (LocalPublishDate month = 4)
+				return "April"
+			else
+			if (LocalPublishDate month = 5)
+				return "May"
+			else
+			if (LocalPublishDate month = 6)
+				return "June"
+			else
+			if (LocalPublishDate month = 7)
+				return "July"
+			else
+			if (LocalPublishDate month = 8)
+				return "August"
+			else
+			if (LocalPublishDate month = 9)
+				return "September"
+			else
+			if (LocalPublishDate month = 10)
+				return "October"
+			else
+			if (LocalPublishDate month = 11)
+				return "November"
+			else
+				return "December"
+		
+		MonthlyPublishedMonthNameYear is a DerivedField
+			type is Alpha up to 15
+			restricted
+			return MonthlyPublishedMonthName + ", " + LocalPublishDate year  
+			
+
+		DerivedNextApprovalLevel is a DerivedField
+			type is Numeric 8
+			restricted
+			LocalApprovalLevel = ApprovalLevel
+			include GetNextApprovalLevel
+			return LocalApprovalLevel
+			
+		DerivedCurrentApprovalResource is a DerivedField
+			type is like FinanceResource
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver
+
+		DerivedCurrentApprovalActor is a DerivedField
+			type is Actor
+			restricted
+			return first CurrentApprovalCodeLevelRel.Approver.FinanceResourceActor
+
+		DerivedCurrentApprovalTeam is a DerivedField
+			type is like FinanceTeam
+			restricted
+			return first CurrentApprovalCodeLevelRel.ApprovalTeam
+
+		DerivedCurrentTeamActorList is a DerivedField
+			type is Alpha 250
+			restricted
+			include BuildTeamApproverActorList
+			return LocalApproverList
+
+		DerivedCurrentApproverEscalationDays is a DerivedField
+			type is Numeric 6
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationDays > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationDays	
+			else
+				return 10000
+
+		DerivedCurrentApproverEscalationHours is a DerivedField
+			type is Decimal 6.2
+			restricted
+			if (first CurrentApprovalCodeLevelRel.EscalationHours > 0)
+				return first CurrentApprovalCodeLevelRel.EscalationHours
+			else
+				return 9999.99
+				
+		DisplayCurrentApproverDesc is a ConditionalField
+			type is Alpha 100
+			if (Approver entered)
+				Approver.PreferredSimplePresentationName
+			else
+				ApproverTeam.FinanceTeam.Description
+
+		DerivedAppsValue	is a DerivedField
+			type is like PfiAppsValue
+			return "CashForecastApproval" + UniqueID			
+
+		UserActionRoutingAsHtml	is a DerivedField
+			type is RichText
+			return first PfiWorkunitRel.UserActionRoutingAsHtml
+		
+		NoCategoriesSelectedMessage is a MessageField
+            "No_CategoriesSelected"
+            
+        NoAccountsSelectedMessage is a MessageField
+            "No_AccountsSelected"
+            
+        BlankField is a DerivedField
+            type is Alpha size 1
+            return blank
+
+		SimulatedMessage is a MessageField
+			"Simulated" 
+
+		DerivedSimulated is a DerivedField
+			type is Alpha size 20
+			if (Simulated)
+				return SimulatedMessage
+			else
+				return ""
+
+		DerivedRollingFrequencyWeeksToDaysDuration is a DerivedField
+			type is Numeric 3
+			restricted
+			return (LocalRollingFrequencyDuration * 7)
+
+		DerivedRollingBeginDate is a DerivedField
+			type is Date
+			restricted
+			return (ForecastCreationParameter.LastRollingDate + 1 day)
+		
+		DerivedRollingEndDate is a DerivedField
+			type is Date
+			restricted
+			if (ForecastCreationParameter.RollingFrequency.Weekly)
+				return (ForecastCreationParameter.LastRollingDate + DerivedRollingFrequencyWeeksToDaysDuration as days)
+			else
+			if (ForecastCreationParameter.RollingFrequency.Monthly)
+				return (ForecastCreationParameter.LastRollingDate + LocalRollingFrequencyDuration as months)
+			else
+			if (ForecastCreationParameter.RollingFrequency.Annually)
+				return (ForecastCreationParameter.LastRollingDate + LocalRollingFrequencyDuration as years)
+
+	Conditions
+		IsUpdatable
+			restricted
+  			when (Status.New
+  			or	  Status.Active)
+
+		IsNewOrActiveNonSimulated
+			restricted
+			when ((Status.New
+			or   Status.Active)
+			and   !Simulated)
+  		
+  		IsActiveOrClosed
+  			restricted
+  			when (Status.Active
+  			or	  Status.Closed)
+  			
+  		HasCashForecastAccounts
+  			restricted
+  			when (CashForecastAccount set exists)
+  			
+  		HasCashForecastCategories
+  			restricted
+  			when (CashForecastCategory set exists)
+  			
+  		HaveBuiltForecast
+  			restricted
+  			when (BuildForecastTimestamp entered)
+  		
+  		CanBuildForecast
+  			restricted
+  			when (!HaveBuiltForecast
+  			and   HasCashForecastAccounts
+  			and	  HasCashForecastCategories)
+  		
+  		HasWeeklyPublishedDates
+  			restricted
+  			when (WeeklyCashForecastPublishDateRel exists)
+  		
+  		HasMonthlyPublishedDates
+  			restricted
+  			when (MonthlyCashForecastPublishDateRel exists)
+  			
+		ApprovalCodeRequired
+			restricted
+			when (CashManagementGroup.CashForecastApprovalRequired
+			and   !CashManagementGroup.ApprovalCodesNotUsedForCashForecasts)
+			
+ 		RejectCashForecastReasonCodeRequired
+ 			restricted
+			when (CashManagementGroup.RejectCashForecastReasonCodeRequired)
+			
+		HasApprovalComments
+			restricted
+			when (CashForecastReasonCodeUsage set.Comment entered)
+			
+		CanBeActivated
+			restricted
+			when (HaveBuiltForecast	
+			and   Status.New)						
+
+		HasWorkunit
+			restricted
+			when (PfiWorkunitRel exists)
+
+		CanRollForecast
+			restricted
+			when (Status.Active
+			and   RollingForecast)
+		
+  	Field Rules
+  		Description
+  			default to CashForecast
+  		
+  		Status
+  			initial value is "1" 
+  			
+  		ForecastDateRange
+  			required
+  				"ForecastDateRangeIsRequired"
+  				
+  			constraint (ForecastDateRange.Begin entered)
+  				"ForecastDateRangeBeginDateIsRequired"
+  				
+  			constraint (ForecastDateRange.End entered)
+  				"ForecastDateRangeEndDateIsRequired"
+  			
+  		IncludeCategories
+  			if (IncludeCategories changed)
+				if (!IncludeCategories)
+					confirmation required
+						"AllCategoriesWillBeDeleted;WouldYouLikeToContinue?"
+						
+					invoke Purge CashForecastCategory set
+				else
+					include CreateCategories
+				
+		IncludeOperatingAccounts
+			if (IncludeOperatingAccounts changed)
+				if (!IncludeOperatingAccounts)
+					confirmation required
+						"AllOperatingAccountsWillBeDeleted;WouldYouLikeToContinue?"
+						
+					invoke Purge CashForecastAccount set
+				else
+					include CreateOperatingAccounts
+					
+		ApprovalCode
+			if (ApprovalCodeRequired)
+				required
+					"CashForecastApprovalIsRequiredOnCashManagementGroup;MustSelectApprovalCode"
+						
+	Sets
+		ByStatus
+			Sort Order
+				CashManagementGroup
+				Status
+				CashForecast
+				
+	Relations
+		OtherForecastTransactionRel
+			one-to-many relation to OtherForecastTransaction
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= CashManagementGroup
+		
+		CashTransactionCategoryRel
+			one-to-many relation to CashTransactionCategory
+		 	Field Mapping uses symbolic key
+		 		related.CashManagementGroup	= CashManagementGroup
+		 	Instance Selection
+		 		where (related.Active
+		 		and	   !related.HasChild)
+		
+		CashForecastCategoryByDisplayOrderRel
+			one-to-many relation to CashForecastCategory
+		 	Field Mapping uses ByDisplayOrder
+		 		related.CashManagementGroup	= CashManagementGroup
+				related.CashForecast		= CashForecast
+			Instance Selection
+		 		where (!related.HasChild)
+		 		
+		OperatingCashManagementAccountRel 
+			one-to-many relation to CashManagementAccount
+		 	Field Mapping uses ByAccountType
+		 		related.CashManagementGroup	= CashManagementGroup
+		 		related.AccountType			= 1 
+		 	Instance Selection
+		 		where (related.Active)
+		 		
+		OperatingSecurityCashManagementAccountRel 
+			one-to-many relation to CashManagementAccount
+		 	Field Mapping uses ByAccountType
+		 		related.CashManagementGroup	= CashManagementGroup
+		 		related.AccountType			= 1 
+		 	Instance Selection
+		 		where (related.Active
+		 		and	   related.SecurityGroupAllowsAccess)
+		
+		ActiveCashManagementAccountRel
+			one-to-many relation to CashManagementAccount
+		 	Field Mapping uses ByAccountType
+		 		related.CashManagementGroup	= CashManagementGroup
+		 	Instance Selection
+		 		where (related.Active)
+		 		
+		ActiveSecurityCashManagementAccountRel
+			one-to-many relation to CashManagementAccount
+		 	Field Mapping uses ByAccountType
+		 		related.CashManagementGroup	= CashManagementGroup
+		 	Instance Selection
+		 		where (related.Active
+		 		and	   related.SecurityGroupAllowsAccess)
+		 		
+		CashForecastPeriodRel
+			one-to-many relation to CashForecastPeriod
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= CashManagementGroup
+				related.CashForecast		= CashForecast
+
+		FromCashForecastPeriodRel
+			one-to-one relation to CashForecastPeriod
+			Field Mapping uses symbolic key
+				related.CashManagementGroup		  				  = CashManagementGroup
+				related.CashForecast		  					  = LocalCashForecast
+  				related.CashForecastAccount.CashManagementAccount = LocalCashManagementAccount
+  				related.CashForecastPeriod		  				  = LocalCashForecastPeriod
+
+		CashForecastPeriodAmountRel
+			one-to-many relation to CashForecastPeriodAmount
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= CashManagementGroup
+				related.CashForecast		= CashForecast
+		
+		CashForecastPeriodBankDayRel
+			one-to-many relation to CashForecastPeriod
+			Field Mapping uses ByBankDayNumber
+				related.CashManagementGroup		  				  = CashManagementGroup
+				related.CashForecast		  					  = LocalCashForecast
+  				related.CashForecastAccount.CashManagementAccount = LocalCashManagementAccount
+  				related.BankDayNumber		  					  = LocalBankDayNumber
+  				
+  		PublishDateRangeRel
+  			one-to-many relation to CashForecastPublishDate
+			Field Mapping uses ByPublishDateRange
+				related.CashManagementGroup	= CashManagementGroup
+				related.CashForecast		= CashForecast
+  				related.PublishDateRange	= LocalPublishDateRange
+  		
+  		WeeklyPublishDateRangeRel
+  			one-to-many relation using PublishDateRangeRel
+  			Instance Selection
+  				where (related.PublishType.Weekly)
+  				
+  		WeeklyCashForecastPublishDateRel is a CashForecastPublishDate set
+  			Instance Selection
+  				where (related.PublishType.Weekly)
+  		
+  		MonthlyPublishDateRangeRel
+  			one-to-many relation using PublishDateRangeRel
+  			Instance Selection
+  				where (related.PublishType.Monthly)
+  				
+  		MonthlyCashForecastPublishDateRel is a CashForecastPublishDate set
+  			Instance Selection
+  				where (related.PublishType.Monthly)
+  				
+		CurrentApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= ApprovalLevel
+
+		ApprovalCodeResourceRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+
+		LocalApprovalCodeLevelRel
+			one-to-many relation to ApprovalCodeResource
+			Field Mapping uses ByApprovalLevel
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.ApprovalCode			= ApprovalCode
+				related.ApprovalLevel			= LocalApprovalLevel
+		
+		SendToTeamMembersRel
+			one-to-many relation to FinanceTeamMember 
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup 	= CashManagementGroup
+				related.FinanceTeam 			= LocalApproverTeam	
+				
+		FinanceTeamMembersFromCurrentApprovalLevelRel
+			one-to-many relation to FinanceTeamMember
+			Field Mapping uses symbolic key
+				related.FinanceEnterpriseGroup	= CashManagementGroup
+				related.FinanceTeam				= first CurrentApprovalCodeLevelRel.ApprovalTeam
+				
+	 	ActorRel
+	 		one-to-one relation to Actor
+	 		Field Mapping uses symbolic key
+	 			related.Actor				= create stamp.actor
+  		
+  		CashForecastPeriodAmountCubeRel
+			one-to-one relation to AnalyticCube
+	        Field Mapping uses AnalyticCubeSet
+	        	related.BusinessClass = "CashForecastPeriodAmount"
+	    
+	    NewCashForecastRel
+	    	one-to-one relation to CashForecast
+			Field Mapping uses symbolic key
+				related.CashManagementGroup	= LocalCashManagementGroup
+				related.CashForecast		= LocalCashForecast
+
+		PfiWorkunitRel
+			one-to-many relation to PfiWorkunit
+			Field Mapping uses ByAppsKeyAppsValueWorkunit
+				related.AppsKey		= "CASHFORECAST"			
+				related.AppsValue	= DerivedAppsValue
+
+		ForecastCalendarBankDayRel
+			one-to-many relation to SystemCalendarDate
+			Field Mapping uses symbolic key
+				related.EnterpriseGroup	= CashManagementGroup.EnterpriseGroup
+				related.SystemCalendar 	= LocalForecastCalendar
+			Instance Selection
+				where (related.IsBankDay
+				and	   related.SystemCalendarDate within LocalForecastDateRange)
+	        					
+  	Actions
+		CopyForecast is an Instance Action
+			completion message is "CashForecastHasBeenCreated"
+			
+			Parameters
+				CashManagementGroup	
+				FromCashForecast	 	 	is a CashForecast
+				NewCashForecast			 	is like CashForecast
+				NewDescription			 	is Alpha 250
+				NewForecastDateRange	 	is a DateRange
+				NewRollingForecast			is Boolean
+				NewRollingFrequency			is Numeric 2
+					States
+
+						Weekly					value is 2
+						Monthly					value is 3
+						Annually				value is 4
+				NewSimulated				is Boolean	
+				NewApprovalCode				is an ApprovalCode
+				CopyForecastData			is Boolean
+				CopyOption					is Numeric 1
+					States
+						CopyOriginalForecast	value is 1
+						CopyRevisedForecast		value is 2
+			
+			Parameter Rules
+				CashManagementGroup   	
+    				required
+    				
+    			FromCashForecast 	
+    				initial value is this instance.CashForecast
+					required
+    				constraint (FromCashForecast exists)
+    					"CashForecast<FromCashForecast>DoesNotExist"
+    					
+				NewCashForecast
+					required
+					LocalCashManagementGroup = CashManagementGroup
+					LocalCashForecast = NewCashForecast
+					constraint (!NewCashForecastRel exists)
+    					"CashForecast<LocalCashForecast>AlreadyExists"
+    					
+				NewDescription
+					initial value is FromCashForecast.Description
+    				
+				NewForecastDateRange
+					required
+				
+				NewRollingForecast
+					initial value is FromCashForecast.RollingForecast
+
+				NewRollingFrequency
+					initial value is FromCashForecast.ForecastCreationParameter.RollingFrequency
+
+					if (NewRollingForecast)
+						required	
+							"RollingFrequencyIsRequired"
+					else
+						initialize
+
+				NewSimulated
+					initial value is FromCashForecast.Simulated
+
+				NewApprovalCode
+					initial value is FromCashForecast.ApprovalCode
+    				default to FromCashForecast.ApprovalCode
+    			
+    			CopyForecastData
+    				constraint (FromCashForecast.HaveBuiltForecast)
+    					"Forecast<FromCashForecast>HasNotBeenBuilt;NoDataToCopy"
+    							
+				CopyOption
+					initial value is CopyOption.CopyOriginalForecast
+						
+					if (FromCashForecast.IsActiveOrClosed)
+						required
+					else
+						initialize
+					
+					constraint (FromCashForecast.IsActiveOrClosed)
+						"CanOnlyCopyOriginalOrRevisedForecastDataFromAnActiveOrClosedForecast"
+
+			Action Rules
+				LocalForecastDateRange = NewForecastDateRange
+				for each FromCashForecast.CashForecastAccount set
+					LocalForecastCalendar = each.ForecastCalendar
+					constraint (ForecastCalendarBankDayRel exists)
+						"CalendarBankDaysHaveNotBeenDefinedWithinTheForecastDateRangeForAccount<each.CashForecastAccount.CashManagementAccount>"
+				
+				invoke CopyForecastCreate
+					invoked.CashManagementGroup			= CashManagementGroup
+					invoked.FromCashForecast			= FromCashForecast
+					invoked.NewCashForecast				= NewCashForecast
+					invoked.NewDescription				= NewDescription
+					invoked.NewForecastDateRange		= NewForecastDateRange
+					invoked.NewRollingForecast			= NewRollingForecast
+					invoked.NewRollingFrequency			= NewRollingFrequency
+					invoked.NewSimulated				= NewSimulated
+					invoked.NewApprovalCode				= NewApprovalCode
+					invoked.CopyForecastData			= CopyForecastData
+					invoked.CopyOption					= CopyOption
+
+		CopyForecastCreate is a Create Action
+			restricted
+			completion message is "CashForecastHasBeenCreated"
+			
+			Parameters
+				CashManagementGroup	
+				FromCashForecast	 	 	is a CashForecast
+				NewCashForecast			 	is like CashForecast
+				NewDescription			 	is Alpha 250
+				NewForecastDateRange	 	is a DateRange
+				NewRollingForecast			is Boolean
+				NewRollingFrequency			is Numeric 2
+					States
+
+						Weekly					value is 2
+						Monthly					value is 3
+						Annually				value is 4
+				NewSimulated				is Boolean
+				NewApprovalCode				is an ApprovalCode
+				CopyForecastData			is Boolean
+				CopyOption					is Numeric 1
+					States
+						CopyOriginalForecast	value is 1
+						CopyRevisedForecast		value is 2
+			
+			Local Fields
+				LocalCashForecastAccount 	is a CashForecastAccount view
+				ForecastDateArrayCounter 	is Numeric 1
+				LastMemberCreated			is Numeric 1
+				LocalForecastDateArray		is a ForecastDateArray
+							
+    		Action Rules
+				invoke New.CreateCopy this instance
+					invoked.CashManagementGroup	  								= CashManagementGroup
+					invoked.CashForecast	  	  								= NewCashForecast
+					invoked.Description		  	  								= NewDescription
+					invoked.ForecastDateRange 	  								= NewForecastDateRange
+					invoked.RollingForecast										= NewRollingForecast
+					invoked.ForecastCreationParameter.RollingFrequency			= NewRollingFrequency
+					invoked.Simulated											= NewSimulated
+					invoked.ApprovalCode		  								= NewApprovalCode
+					if (CopyForecastData)
+						invoked.BuildForecastTimestamp = current timestamp
+					else
+						initialize invoked.BuildForecastTimestamp
+				
+				for each FromCashForecast.CashForecastAccount set
+					invoke Create CashForecastAccount set
+						assign result to LocalCashForecastAccount
+						invoked.CashManagementGroup	= CashManagementGroup
+						invoked.CashForecast	  	= NewCashForecast
+						invoked.CashForecastAccount = each.CashForecastAccount
+						invoked.ForecastCalendar 	= each.ForecastCalendar
+						
+					if (CopyForecastData)
+						invoke CreateCashForecastPeriod LocalCashForecastAccount.CashForecastAccount
+				
+				for each FromCashForecast.CashForecastCategoryByDisplayOrderRel
+					if (each.ForecastCreationParameter.EnteredCalculationOption.Date)
+						ForecastDateArrayCounter = 1
+						LastMemberCreated = 1
+						while (ForecastDateArrayCounter <= 4)
+							if (each.ForecastCreationParameter.ForecastDateArray.ForecastDate[ForecastDateArrayCounter] within NewForecastDateRange)
+								LocalForecastDateArray.ForecastDate[LastMemberCreated] = each.ForecastCreationParameter.ForecastDateArray.ForecastDate[ForecastDateArrayCounter]
+								ForecastDateArrayCounter += 1
+	    						LastMemberCreated += 1
+	    					else
+	    						ForecastDateArrayCounter += 1
+	    						
+					invoke Create CashForecastCategory set
+						invoked.CashManagementGroup	   = CashManagementGroup
+						invoked.CashForecast		   = NewCashForecast
+						invoked.CashForecastCategory   = each.CashForecastCategory
+						invoked.ParentForecastCategory = each.ParentForecastCategory
+						invoked.DisplayOrder		   = each.DisplayOrder
+						invoked.Comments			   = each.Comments
+						if (CopyForecastData
+						and !RollingForecast)
+							invoked.ForecastCreationParameter.ForecastCalculation 			= 1 
+						else
+							invoked.ForecastCreationParameter.ForecastCalculation			= each.ForecastCreationParameter.ForecastCalculation
+							invoked.ForecastCreationParameter.ActualDateRange				= each.ForecastCreationParameter.ActualDateRange
+					        invoked.ForecastCreationParameter.HistoricalCalculationOption	= each.ForecastCreationParameter.HistoricalCalculationOption
+							invoked.ForecastCreationParameter.CalculationAdjustment			= each.ForecastCreationParameter.CalculationAdjustment
+							invoked.ForecastCreationParameter.ScheduledCalculationOption	= each.ForecastCreationParameter.ScheduledCalculationOption
+							invoked.ForecastCreationParameter.DebtInstrument				= each.ForecastCreationParameter.DebtInstrument
+							invoked.ForecastCreationParameter.ForecastDebtComponent			= each.ForecastCreationParameter.ForecastDebtComponent
+							invoked.ForecastCreationParameter.EnteredCalculationOption		= each.ForecastCreationParameter.EnteredCalculationOption
+							invoked.ForecastCreationParameter.DayOfWeek						= each.ForecastCreationParameter.DayOfWeek
+							invoked.ForecastCreationParameter.DayOfMonth					= each.ForecastCreationParameter.DayOfMonth 	
+					        invoked.ForecastCreationParameter.CalculationMethod				= each.ForecastCreationParameter.CalculationMethod
+							invoked.ForecastCreationParameter.LastRollingDate				= each.ForecastCreationParameter.LastRollingDate
+							invoked.ForecastCreationParameter.LastRollingActualDate			= each.ForecastCreationParameter.LastRollingActualDate
+							invoked.ForecastCreationParameter.RollingFrequency				= each.ForecastCreationParameter.RollingFrequency
+							invoked.ForecastCreationParameter.RollingFrequencyDuration		= each.ForecastCreationParameter.RollingFrequencyDuration
+							invoked.ForecastCreationParameter.ForecastDateArray				= LocalForecastDateArray
+					        invoked.ForecastCreationParameter.ForecastDateRange				= NewForecastDateRange
+					        invoked.ForecastCreationParameter.ForecastAmount				= each.ForecastCreationParameter.ForecastAmount
+				
+			Exit Rules
+				if (CopyForecastData)
+					for each FromCashForecast.CashForecastPeriodAmountRel
+						LocalCashForecast = NewCashForecast
+						LocalCashManagementAccount = each.CashForecastAccount.CashManagementAccount
+						LocalCashForecastPeriod = each.CashForecastPeriod
+						LocalBankDayNumber = each.CashForecastPeriod.BankDayNumber
+						LocalCashForecastPeriod = first CashForecastPeriodBankDayRel.CashForecastPeriod
+						
+						if   (LocalCashForecastPeriod entered
+						and ((CopyOption.CopyOriginalForecast
+						and   each.OriginalForecastAmount entered)
+						or   (CopyOption.CopyRevisedForecast
+						and   each.ForecastAmount entered)
+						or   (FromCashForecast.Status.New
+						and   each.ForecastAmount entered)))
+							invoke Create CashForecastDetail
+								invoked.CashManagementGroup						  = CashManagementGroup
+								invoked.CashForecast							  = LocalCashForecast
+								invoked.CashForecastAccount.CashManagementAccount = LocalCashManagementAccount
+								invoked.CashForecastPeriod						  = LocalCashForecastPeriod
+								invoked.CashForecastCategory 					  = each.CashForecastCategory
+								invoked.Description								  = LocalCashForecast.SummarizedTransactionMessage
+								if (CopyOption.CopyOriginalForecast)
+									invoked.ForecastAmount 						  = each.OriginalForecastAmount
+								else
+									invoked.ForecastAmount 						  = each.ForecastAmount
+								invoked.IsSystemCalculated						  = true
+				
+					invoke ScheduledRefresh CashForecastPeriodAmountCubeRel in background
+								
+		Activate is an Instance Action
+			completion message is "<ActivateCompletionMessage>" 
+			valid when (CanBeActivated)
+			Action Rules
+				if (!Simulated)
+					for each CashForecastAccount set
+						constraint (!each.CashForecastAccountDateOverlapRel exists)
+							"Account<each.CashForecastAccount.CashManagementAccount>IsAlreadyDefinedOnCashForecast<each.first CashForecastAccountDateOverlapRel.CashForecast>WithOverlappingDates;MustDefineAsSimulated"
+
+				for each CashForecastCategoryByDisplayOrderRel
+					if (!each.CashForecastPeriodAmountByCategoryOnlyRel exists)
+						confirmation required
+							"ForecastAmountsHaveNotBeenEnteredForACategory(s);WouldYouLikeToContinueActivatingTheCashForecast?"
+						
+						end for each
+												
+				if (ApprovalCode entered)
+					constraint (ApprovalCode.HasApprovalLevels)
+						"CannotActivate;TheApprovalCodeHasNoApprovalLevels"
+					constraint (!ApprovalCode.HasTeamWithNoMembers)
+						"CannotActivate;TheApprovalCodeHasATeamWithNoMembers"
+					constraint (!ApprovalCode.HasInvalidEscalations)
+						"CannotActivate:TheApprovalCodeHasInvalidEscalationSettings"
+					constraint (!ApprovalCode.HasInactiveResources)
+						"CannotActivate;TheApprovalCodeHasInactiveResources"
+
+					include GetNextApprovalLevel
+					ApprovalLevel = LocalApprovalLevel
+					Approver = LocalApprover
+					ApproverTeam = LocalApproverTeam
+					include InitiateApprovalProcessFlow
+					
+					make transition to AwaitingApproval
+			
+				else
+					include UpdateOriginalForecastAmount
+
+					make transition to Active	
+			
+			Exit Rules
+				invoke UpdateActualAmountsOnForecast CashForecastPeriodAmount
+					invoked.PrmCashManagementGroup	= CashManagementGroup
+					invoked.PrmCashForecast     	= CashForecast
+						
+		UpdateApprovalLevel is an Instance Action
+			default label is untranslatable
+			restricted
+			Parameters
+				ParmEscalate	is Boolean
+				ParmReassign	is Boolean
+			Action Rules
+
+				if (ParmReassign)
+					if (ReassignToApprovalLevel entered)
+						ApprovalLevel = ReassignToApprovalLevel.ApprovalLevel
+						initialize ReassignToApprovalLevel
+				else
+				if (ParmEscalate)
+					include GetNextEscalationApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+				else
+					include GetNextApprovalLevel
+					ApprovalLevel		= LocalApprovalLevel
+					Approver			= LocalApprover
+					ApproverTeam		= LocalApproverTeam
+	  	
+	  	Update is an Update Action
+			Action Rules
+				if (Simulated changed
+				and !Simulated
+				and Status.Active)
+					for each CashForecastAccount set
+						constraint (!each.CashForecastAccountDateOverlapRel exists)
+							"Account<each.CashForecastAccount.CashManagementAccount>IsAlreadyDefinedOnCashForecast<each.first CashForecastAccountDateOverlapRel.CashForecast>WithOverlappingDates;MustDefineAsSimulated"
+				
+  	StateCycles
+		ForecastLifeCycle is a StateCycle
+			state field is Status
+		
+			New is a State
+				Create is a Create Action
+					Action Rules
+						constraint (CashManagementGroup.CorporateCalendar entered)
+							"MustAttachACalendarToCashManagementGroup<CashManagementGroup>BeforeYouCanCreateACashForecast"
+							
+					Exit Rules
+						include CreateCategories
+						
+						include CreateOperatingAccounts
+				
+				CreateCopy is a Create Action
+					default label is untranslatable
+					restricted
+					
+				BuildForecast is an Instance Action 
+					valid when (CanBuildForecast)
+					completion message is "BuildForecastHasBeenSubmittedToTheQueueForProcessing"
+					Action Rules
+						constraint (CashForecastAccount set exists)
+							"MustDefineAccountsToBuildForecast"
+							
+						for each CashForecastAccount set
+							constraint (!each.RequiredCurrencyRateNotEntered)
+								"ForecastCurrencyRatesAreRequiredForAccount<each.CashForecastAccount.CashManagementAccount>"
+							
+							constraint (each.ForecastCalendarBankDayRel exists)
+								"CalendarBankDaysHaveNotBeenDefinedWithinTheForecastDateRangeForAccount<each.CashForecastAccount.CashManagementAccount>"
+						
+										
+						constraint (CashForecastCategory set exists)
+							"MustDefineCategoriesToBuildForecast"
+						
+						for each CashForecastAccount set
+							invoke CreateCashForecastPeriod each
+							
+							invoke CalculateForecastAmountForAllCategories CashForecastCategory
+								invoked.PrmCashManagementGroup	 = CashManagementGroup
+								invoked.PrmCashForecast			 = CashForecast	
+								invoked.PrmCashManagementAccount = each.CashForecastAccount.CashManagementAccount
+								invoked.PrmForecastCalendar		 = each.ForecastCalendar
+							
+					Exit Rules
+						BuildForecastTimestamp = current timestamp
+				
+				Delete is a Delete Action
+					Action Rules
+						invoke Delete CashForecastPeriodAmountRel
+						invoke Delete CashForecastPeriodRel
+
+			AwaitingApproval is a State
+				on entrance to AwaitingApproval
+					Action Rules
+						AwaitingApprovalTimestamp = current timestamp
+						
+						Status = Status.AwaitingApproval
+						
+				Approve is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						include UpdateOriginalForecastAmount
+						
+						make transition to Active
+											
+				Reject is an Instance Action
+					default label is untranslatable
+					restricted
+					Action Rules
+						Rejected = true
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam
+						initialize AwaitingApprovalTimestamp
+		
+						make transition to New
+						include RejectionEmailNotification
+		
+				RejectWithReasonCode is an Instance Action
+					default label is untranslatable
+					restricted
+					subject is RejectCashForecast
+					reason code required
+					action comment required
+		
+					Action Rules
+						Rejected = true
+						
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam	
+		
+						make transition to New
+						include RejectionEmailNotification
+			
+					Exit Rules
+						invoke Create CashForecastReasonCodeUsage
+							invoked.CashManagementGroup			= CashManagementGroup
+							invoked.CashForecast				= CashForecast
+							invoked.ReasonCode					= reason code
+							invoked.Description					= reason code.Description
+							invoked.Type						= 1 
+							invoked.Comment						= action comment	
+						
+				ManualApprove is an Instance Action
+
+					confirmation required
+						"ThisWillBypassTheProcessFlowApprovalProcess;DoYouWantToContinue?"
+					Action Rules
+						include UpdateOriginalForecastAmount
+							
+						make transition to Active
+			
+						cancel CashForecastApproval process
+								
+				ManualReject is an Instance Action
+
+					subject is RejectCashForecast
+					Parameters
+						PrmComment		is Alpha size up to 500
+					Action Rules
+						if (CashManagementGroup.RejectCashForecastReasonCodeRequired)			
+							constraint (reason code entered)
+								"ReasonCodeIsRequiredForRejectingCashForecast"												
+						Rejected = true
+					
+						initialize ApprovalLevel
+						initialize Approver
+						initialize ApproverTeam	
+						
+						make transition to New
+						include RejectionEmailNotification
+						
+						initialize AwaitingApprovalTimestamp
+						
+						cancel CashForecastApproval process
+		
+					Exit Rules
+						invoke Create CashForecastReasonCodeUsage
+							invoked.CashManagementGroup			= CashManagementGroup
+							invoked.CashForecast				= CashForecast
+							invoked.ReasonCode					= reason code
+							invoked.Description					= reason code.Description
+							invoked.Type						= 1 
+							invoked.Comment						= PrmComment
+					
+			Active is a State
+				on entrance to Active
+					Action Rules
+						ActiveTimestamp = current timestamp
+						
+				RollForecast is an Instance Action
+					valid when (CanRollForecast)
+
+					Action Rules
+						LocalRollingFrequencyDuration = ForecastCreationParameter.RollingFrequencyDuration
+						LocalDateRange.Begin = DerivedRollingBeginDate
+						LocalDateRange.End = DerivedRollingEndDate
+						BackgroundGroup = CashForecast + current corporate date
+						ForecastDateRange.End = DerivedRollingEndDate
+
+						for each CashForecastAccount set
+							LocalForecastCalendar = each.ForecastCalendar
+							LocalForecastDateRange.Begin = DerivedRollingBeginDate
+							LocalForecastDateRange.End = DerivedRollingEndDate
+
+							if (!Simulated)
+								constraint (!each.CashForecastAccountDateOverlapRel exists)
+									"Account<each.CashForecastAccount.CashManagementAccount>IsAlreadyDefinedOnCashForecast<each.first CashForecastAccountDateOverlapRel.CashForecast>WithOverlappingDates;MustDefineAsSimulated"
+							
+							constraint (ForecastCalendarBankDayRel exists)
+								"CalendarBankDaysHaveNotBeenDefinedWithinTheForecastDateRangeForAccount<each.CashForecastAccount.CashManagementAccount>"
+							
+							invoke CreateRollingCashForecastPeriod each
+								invoked.PrmRollingDateRange				= LocalForecastDateRange
+
+							invoke CalculateForecastAmountForAllCategories CashForecastCategory in background group(BackgroundGroup)
+								invoked.PrmCashManagementGroup	 		= CashManagementGroup
+								invoked.PrmCashForecast			 		= CashForecast	
+								invoked.PrmCashManagementAccount 		= each.CashForecastAccount.CashManagementAccount
+								invoked.PrmForecastCalendar		 		= each.ForecastCalendar
+								invoked.PrmRollingDateRange				= LocalForecastDateRange
+								invoked.PrmRollingFrequencyDuration		= LocalRollingFrequencyDuration
+									
+						ForecastCreationParameter.LastRollingDate = DerivedRollingEndDate
+
+						invoke UpdateAmount CashForecastPeriodAmount
+							run after background group(BackgroundGroup)
+							invoked.PrmCashManagementGroup	= CashManagementGroup
+							invoked.PrmCashForecast			= CashForecast
+							invoked.PrmAmountType			= 1 
+							invoked.PrmDateRange			= LocalDateRange
+
+				PublishWeeklyForecast is an Instance Action
+					Parameters
+						Description	is Alpha 250
+						PublishDate is Date
+					
+					Parameter Rules
+						Description
+							required
+						
+						PublishDate
+							initial value is current corporate date
+							constraint (PublishDate within ForecastDateRange)
+								"PublishDateMustBeWithinTheForecastDateRange"
+							required
+							
+					Action Rules
+						LocalPublishDate = PublishDate
+						LocalPublishDateRange.Begin = WeeklyPublishedBeginDate
+						LocalPublishDateRange.End = WeeklyPublishedEndDate
+						
+						confirmation required
+							"TheWeekOf<WeeklyPublishedBeginDate>To<WeeklyPublishedEndDate>WillBePublished;WouldYouLikeToContinue?"
+						
+						if (!WeeklyPublishDateRangeRel exists)
+							invoke Create CashForecastPublishDate
+								invoked.CashManagementGroup	= CashManagementGroup
+								invoked.CashForecast		= CashForecast
+								invoked.Description			= Description
+								invoked.PublishType			= 1 
+								invoked.PublishDateRange	= LocalPublishDateRange
+						else
+							confirmation required
+								"TheWeekOf<WeeklyPublishedBeginDate>To<WeeklyPublishedEndDate>HasAlreadyBeenPublished;WouldYouLikeToUpdateThePublishedAmounts?"
+								
+						invoke UpdateAmount CashForecastPeriodAmount
+							invoked.PrmCashManagementGroup	= CashManagementGroup
+							invoked.PrmCashForecast			= CashForecast
+							invoked.PrmAmountType			= 2 
+							invoked.PrmDateRange			= LocalPublishDateRange
+					
+				PublishMonthlyForecast is an Instance Action
+					Parameters
+						Description	is Alpha 250
+						PublishDate is Date
+					
+					Parameter Rules
+						Description
+							required
+							
+						PublishDate
+							initial value is current corporate date
+							constraint (PublishDate within ForecastDateRange)
+								"PublishDateMustBeWithinTheForecastDateRange"
+							required
+							
+					Action Rules
+						LocalPublishDate = PublishDate
+						LocalPublishDateRange.Begin = MonthlyPublishedBeginDate
+						LocalPublishDateRange.End = MonthlyPublishedEndDate
+						
+						confirmation required
+							"TheMonthOf<MonthlyPublishedMonthNameYear>WillBePublished;WouldYouLikeToContinue?"
+							
+						if (!MonthlyPublishDateRangeRel exists)
+							invoke Create CashForecastPublishDate
+								invoked.CashManagementGroup	= CashManagementGroup
+								invoked.CashForecast		= CashForecast
+								invoked.Description			= Description
+								invoked.PublishType			= 2 
+								invoked.PublishDateRange	= LocalPublishDateRange
+						else
+							confirmation required
+								"TheMonthOf<MonthlyPublishedMonthNameYear>HasAlreadyBeenPublished;WouldYouLikeToUpdateThePublishedAmounts?"
+							
+						invoke UpdateAmount CashForecastPeriodAmount
+							invoked.PrmCashManagementGroup	= CashManagementGroup
+							invoked.PrmCashForecast			= CashForecast
+							invoked.PrmAmountType			= 3 
+							invoked.PrmDateRange			= LocalPublishDateRange
+								
+				Close is an Instance Action
+					Action Rules
+						make transition to Closed
+															
+			Closed is a State
+				on entrance to Closed
+					Action Rules
+						ClosedTimestamp = current timestamp
+										
+				Reactivate is an Instance Action
+					subject is ReactivateCashForecast
+					reason code required
+					Action Rules
+						if (!Simulated)
+							for each CashForecastAccount set
+								constraint (!each.CashForecastAccountDateOverlapRel exists)
+									"Account<each.CashForecastAccount.CashManagementAccount>IsAlreadyDefinedOnCashForecast<each.first CashForecastAccountDateOverlapRel.CashForecast>WithOverlappingDates;MustDefineAsSimulated"
+							
+						make transition to Active
+							
+						initialize ClosedTimestamp
+								
+				Delete is a Delete Action
+					Action Rules
+						invoke Delete CashForecastPeriodAmountRel
+						invoke Delete CashForecastPeriodRel
+						
+				Purge is a Purge Action	
+					restricted
+					Action Rules
+						invoke Purge CashForecastPeriodAmountRel
+						invoke Purge CashForecastPeriodRel
